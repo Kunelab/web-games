@@ -1,0 +1,178 @@
+.shell {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* -------------------------------------------------------------------- atelier */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--rule);
+}
+
+.topbar-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.brand {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  flex: none;
+}
+
+.mainnav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.navlink {
+  padding: 0.4em 0.7em;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+.navlink:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+/* The current page is stated, not implied. The old nav gave no indication. */
+.navlink.on {
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.topbar-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.whoami {
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+.atelier-main {
+  flex: 1;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5) var(--space-7);
+}
+
+@media (max-width: 640px) {
+  .topbar-inner {
+    padding: var(--space-3);
+    gap: var(--space-3);
+  }
+  .whoami {
+    display: none;
+  }
+  .atelier-main {
+    padding: var(--space-5) var(--space-3) var(--space-6);
+  }
+}
+
+/* ------------------------------------------------------------------ page head */
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+
+.page-title {
+  font-size: var(--text-2xl);
+}
+
+.page-sub {
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  margin-top: var(--space-1);
+}
+
+.page-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* A back link that is a real link, so the browser back button agrees with it. */
+.backlink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  margin-bottom: var(--space-3);
+}
+.backlink:hover {
+  color: var(--ink);
+}
+
+/* -------------------------------------------------------------------- toolbar */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+.toolbar .search {
+  flex: 1;
+  min-width: 12rem;
+  max-width: 22rem;
+}
+.filters {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* ---------------------------------------------------------------------- jeu */
+
+.jeu-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(var(--space-3), 2.5vw, var(--space-6));
+  gap: var(--space-4);
+  min-height: 100%;
+}
+
+/*
+ * The television, which is exactly one screen tall and never scrolls.
+ *
+ * This has to be a definite height rather than a minimum, and that is the whole
+ * reason a panel overflowed: `1fr` rows can only divide a height that is known, and
+ * every box above them offered `min-height: 100%`, which is not one. The rows fell
+ * back to the size of their content, so twenty portraits made a grid half again as
+ * tall as the screen and pushed the timer and the controls off the bottom.
+ *
+ * Deliberately not applied to the player's phone, where a long list of answer boxes
+ * has to be able to scroll.
+ */
+.jeu-screen.jeu-fixed {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}

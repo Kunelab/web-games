@@ -1,0 +1,34 @@
+node_modules
+dist
+dist-ssr
+*.local
+.tmp
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Databases are local state, never committed
+*.db
+*.db-wal
+*.db-shm
+
+.env
+.env.*
+!.env.example
+
+*.Zone.Identifier
+*:Zone.Identifier
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

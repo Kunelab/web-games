@@ -1,0 +1,13 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# Only esbuild genuinely needs its install script here.
+#
+# better-sqlite3 and bcrypt are deliberately absent. Both ship prebuilt binaries
+# (a `prebuilds/` directory, loaded via node-gyp-build), so listing them makes
+# pnpm run `node-gyp rebuild` and compile from source for no reason, which needs
+# a real Python and MSVC toolchain. Leaving them unlisted uses the prebuilt
+# binary and works out of the box.
+onlyBuiltDependencies:
+  - esbuild

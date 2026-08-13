@@ -1,0 +1,217 @@
+.section-title {
+  font-size: var(--text-lg);
+  margin: var(--space-6) 0 var(--space-4);
+}
+
+.playlist-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-4);
+}
+
+.playlist-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.playlist-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+/* Kept together and out of the name's way, however many actions a card has. */
+.playlist-card-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.playlist-name {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.playlist-name:hover {
+  color: var(--accent);
+}
+
+.playlist-meta {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+
+.playlist-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.playlist-card-foot {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* ---------------------------------------------------------- playlist editor */
+
+.pl-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+@media (min-width: 980px) {
+  .pl-editor {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.pl-panel {
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  min-height: 12rem;
+}
+
+.pl-panel-head {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.pl-panel-title {
+  font-size: var(--text-base);
+}
+.pl-panel-count {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+
+.pl-items {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pl-item {
+  display: grid;
+  grid-template-columns: auto 3px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+}
+.pl-item:hover {
+  background: var(--bg-hover);
+}
+.pl-item.dragging {
+  opacity: 0.5;
+}
+
+.pl-handle {
+  color: var(--ink-faint);
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-1);
+  background: none;
+  border: none;
+  touch-action: none;
+}
+.pl-handle:active {
+  cursor: grabbing;
+}
+.pl-handle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pl-item-bar {
+  width: 3px;
+  align-self: stretch;
+  min-height: 1.8rem;
+  border-radius: 2px;
+}
+
+.pl-item-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pl-item-title {
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pl-item-meta {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+
+.pl-panel-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+/* --------------------------------------------------------------- launch --- */
+
+.launch-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+@media (min-width: 900px) {
+  .launch-layout {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+.qr-card {
+  background: #ffffff;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  width: fit-content;
+  margin-inline: auto;
+}
+
+.join-code {
+  font-family: var(--font-mono);
+  font-size: clamp(2rem, 8vw, 3.2rem);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-align: center;
+  color: var(--accent);
+}
+
+.join-url {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+  text-align: center;
+  word-break: break-all;
+}

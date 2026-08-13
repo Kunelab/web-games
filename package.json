@@ -1,0 +1,25 @@
+{
+  "name": "kune-web-games",
+  "private": true,
+  "version": "0.3.0",
+  "description": "KuneLab Web Games monorepo",
+  "type": "module",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "prepare": "pnpm --filter game-core build",
+    "dev": "pnpm --parallel --filter game-core --filter \"./apps/*\" dev",
+    "build": "pnpm --filter game-core build && pnpm --parallel --filter \"./apps/*\" build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "smoke": "pnpm --filter back smoke",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,css,yaml}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3"
+  }
+}

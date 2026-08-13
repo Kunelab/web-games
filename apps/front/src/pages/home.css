@@ -1,0 +1,78 @@
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+}
+
+.home-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 60ch;
+  padding: var(--space-6) 0 var(--space-3);
+}
+
+.home-title {
+  font-size: clamp(1.9rem, 1.2rem + 3vw, 3rem);
+  letter-spacing: -0.03em;
+}
+
+.home-lede {
+  font-size: var(--text-lg);
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.home-games {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+
+.home-game {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--ink-faint);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: var(--bg-raised);
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.home-game h2 {
+  font-size: var(--text-base);
+}
+
+.home-game p {
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------- auth -- */
+
+.auth-page {
+  max-width: 22rem;
+  margin: var(--space-7) auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.auth-page form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.auth-alt {
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  text-align: center;
+}
+.auth-alt a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
