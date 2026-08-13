@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 244 244">
+  <title>KuneLab</title>
+  <defs>
+    <!-- Left Vertical Stem Gradient -->
+    <linearGradient id="leftStemGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E95243" />
+      <stop offset="100%" stop-color="#CD251A" />
+    </linearGradient>
+
+    <!-- Upper Right Arm Gradient -->
+    <linearGradient id="upperArmGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF6E5A" />
+      <stop offset="100%" stop-color="#E13B2D" />
+    </linearGradient>
+
+    <!-- Lower Right Leg Gradient -->
+    <linearGradient id="lowerLegGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#B91C12" />
+      <stop offset="50%" stop-color="#DB2B1E" />
+      <stop offset="100%" stop-color="#E95647" />
+    </linearGradient>
+
+    <!-- Subtle Drop Shadow for Overlay Depth -->
+    <filter id="foldShadow" x="-20%" y="-20%" width="150%" height="150%">
+      <feDropShadow dx="-3" dy="4" stdDeviation="5" flood-color="#4A0000" flood-opacity="0.45" />
+    </filter>
+  </defs>
+
+  <!-- Background, currently transparent so the glyph sits on whatever is behind it,
+       which is what lets one file work on a light page and a dark one. Covering the
+       whole canvas depends on the viewBox starting at 0,0: percentage lengths
+       resolve from the origin, so an offset viewBox leaves this rect short of the
+       right and bottom edges. -->
+  <rect width="100%" height="100%" fill="#00000000" />
+
+  <!-- The glyph is drawn on its original 148..352 grid and shifted into the middle
+       of the canvas, which leaves 20 units of margin on all four sides. Keeping the
+       coordinates and translating them means the shapes below still read as the
+       author drew them. -->
+  <g transform="translate(-128, -128)">
+    <!-- Left Vertical Stem (with angled dynamic cut at bottom) -->
+    <polygon points="148,148 198,148 198,228 148,278" fill="url(#leftStemGrad)" />
+
+    <!-- Lower Leg (positioned underneath the upper fold) -->
+    <polygon points="198,300 234,264 322,352 254,352" fill="url(#lowerLegGrad)" />
+
+    <!-- Upper Diagonal Arm & Fold Overlay -->
+    <polygon points="198,228 284,148 352,148 198,302" fill="url(#upperArmGrad)" filter="url(#foldShadow)" />
+  </g>
+</svg>

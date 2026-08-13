@@ -1,0 +1,118 @@
+/**
+ * Two modes of one system.
+ *
+ * Every component styles itself through these variables and never hardcodes a
+ * colour, so switching a shell from `atelier` to `jeu` re-skins the whole screen
+ * without touching a component. That is the point of the direction chosen: the
+ * library needs to be calm and dense, the game needs to be loud and legible from
+ * across a room, and those are the same components with different values.
+ */
+
+:root {
+  /* ---- type ------------------------------------------------------------- */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
+  /* Condensed faces ship with Windows and Office; the game screen needs a
+     numeral that reads at four metres and a normal sans does not. */
+  --font-display: 'Haettenschweiler', 'Arial Narrow', Impact, var(--font-sans);
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.85rem;
+  --text-base: 0.95rem;
+  --text-lg: 1.1rem;
+  --text-xl: 1.4rem;
+  --text-2xl: 1.9rem;
+  --text-3xl: 2.6rem;
+
+  /* ---- spacing and shape ------------------------------------------------ */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  --ring: 2px;
+
+  /* ---- semantic, shared by both modes ----------------------------------- */
+  --ok: #4fae7c;
+  --ok-ink: #06240f;
+  --warn: #d9a13f;
+  --warn-ink: #241802;
+  --bad: #d95c4a;
+  --bad-ink: #2a0705;
+
+  /* Colour per media kind. The only thing genuinely read at a glance in a long
+     list, so it is a token rather than a per-screen decision. */
+  --kind-blindtest: #d99a3f;
+  --kind-quiz: #6f8fbf;
+  --kind-image-reveal: #7fae86;
+  --kind-image-memory: #b083c4;
+}
+
+/* -------------------------------------------------------------------------- *
+ * Atelier — direction B. Preparing, not playing.
+ * Muted neutrals with a single warm accent, thin rules, generous line height.
+ * -------------------------------------------------------------------------- */
+.shell-atelier {
+  --bg: #17181c;
+  --bg-raised: #1f2127;
+  --bg-sunken: #121317;
+  --bg-hover: #262931;
+  --ink: #e8e6e1;
+  --ink-soft: #a09b92;
+  --ink-faint: #77736c;
+  --rule: #2b2e35;
+  --rule-strong: #3b3f48;
+  --accent: #d99a3f;
+  --accent-ink: #1a1204;
+  --accent-soft: #2b2214;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.28);
+
+  --font-ui: var(--font-sans);
+  --leading: 1.55;
+
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* -------------------------------------------------------------------------- *
+ * Jeu — direction A. A game-show stage.
+ * Near-black ground with a spotlight, stage gold for the one number that
+ * matters, and colour used to encode state rather than to decorate.
+ * -------------------------------------------------------------------------- */
+.shell-jeu {
+  --bg: #0a0b0f;
+  --bg-raised: #191c26;
+  --bg-sunken: #05060a;
+  --bg-hover: #232733;
+  --ink: #ffffff;
+  --ink-soft: #b6bccb;
+  --ink-faint: #8e94a6;
+  --rule: #232733;
+  --rule-strong: #363c4c;
+  --accent: #ffcf3d;
+  --accent-ink: #17130a;
+  --accent-soft: #2a2513;
+  --shadow: 0 2px 4px rgb(0 0 0 / 0.5), 0 16px 48px rgb(0 0 0 / 0.4);
+
+  --ok: #23e0a0;
+  --ok-ink: #04241a;
+  --bad: #ff4d5a;
+  --bad-ink: #2a0509;
+
+  --font-ui: var(--font-sans);
+  --leading: 1.4;
+
+  /* The spotlight is what makes it read as a stage rather than a dark page. */
+  background:
+    radial-gradient(120% 85% at 50% -15%, #2a2f3f 0%, rgba(42, 47, 63, 0) 60%),
+    var(--bg);
+  color: var(--ink);
+}
