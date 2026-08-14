@@ -371,6 +371,37 @@ export function shortestPath(board: Board, fromId: string, toId: string): string
 }
 
 /**
+ * The rooms that form one continuous open volume with this one: everything
+ * reachable through arches alone, bounded by `depth` rooms.
+ *
+ * An arch means "no wall at all", so a street or an open-plan hall is several
+ * rooms of one space. Line of sight walks straight rays, which is right for
+ * shooting and wrong for *seeing*: standing in the middle of an open street it lit
+ * four lines and left the rest of the street pitch black, which reads as a broken
+ * fog rather than as a rule. You can see the room you are standing in; this is the
+ * rest of that room.
+ */
+export function openSpace(board: Board, fromId: string, depth = Number.POSITIVE_INFINITY): Set<string> {
+  const seen = new Set<string>([fromId]);
+  let frontier = [getRoom(board, fromId)];
+
+  for (let step = 0; step < depth && frontier.length > 0; step++) {
+    const next: Room[] = [];
+    for (const room of frontier) {
+      for (const link of connectionsOf(board, room)) {
+        if (link.kind !== 'arch' || seen.has(link.roomId)) continue;
+        seen.add(link.roomId);
+        const other = indexOf(board).byId.get(link.roomId);
+        if (other) next.push(other);
+      }
+    }
+    frontier = next;
+  }
+
+  return seen;
+}
+
+/**
  * Distance in moves from one room to every room it can reach.
  *
  * One BFS instead of one per question. Objective placement asks "how far is this

@@ -13,7 +13,7 @@ import {
 } from './art';
 import { furnishZone, type CellWalls, type PlacedProp, type RoomDecor } from './decor';
 import { boardBounds, diamond, project, TILE_H, TILE_W, WALL_H, type Vec2 } from './geometry';
-import { drawProp, paintGlow } from './props';
+import { drawProp, paintGlow, propDef } from './props';
 
 /**
  * The board, painted once.
@@ -33,10 +33,77 @@ import { drawProp, paintGlow } from './props';
 
 export interface Scene {
   canvas: HTMLCanvasElement;
+  /**
+   * The same scene painted as flat cell identifiers instead of art: one canvas
+   * where every pixel says which cell drew it. Clicking uses this rather than
+   * inverting the projection.
+   *
+   * The inverse projection answers "which tile is under this point *on the floor*",
+   * and that is the wrong question, because everything is drawn standing *up* from
+   * its tile. The top of a lamppost, the top half of a wall, the corner of a
+   * wardrobe all occupy screen space that belongs geometrically to the tile behind
+   * — so aiming at a room across a table put you one tile too far, exactly as
+   * reported. Painting the same geometry again in identifier colours, in the same
+   * painter's order, makes the answer whatever you can actually see.
+   */
+  pick: HTMLCanvasElement;
   /** World coordinates of the canvas's top-left pixel. */
   origin: Vec2;
+  /** Device pixels per world pixel in both canvases. */
+  scale: number;
   /** What this scene was drawn from; a different signature needs a redraw. */
   signature: string;
+}
+
+/** Cell index encoded as an opaque colour; alpha 0 means "no cell here". */
+function pickColor(cell: number): string {
+  return `rgb(${cell & 255} ${(cell >> 8) & 255} ${(cell >> 16) & 255})`;
+}
+
+/**
+ * Which cell was drawn at a world point, or null off the board. Reads one pixel of
+ * the pick canvas, so it costs nothing and is exact by construction.
+ */
+export function pickCellAt(scene: Scene, world: Vec2): number | null {
+  const ctx = scene.pick.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  const x = Math.round((world.x - scene.origin.x) * scene.scale);
+  const y = Math.round((world.y - scene.origin.y) * scene.scale);
+  if (x < 0 || y < 0 || x >= scene.pick.width || y >= scene.pick.height) return null;
+
+  /**
+   * The majority of a three-by-three, not the single pixel underneath.
+   *
+   * Canvas antialiases the edges of every polygon, and a blend of two identifiers
+   * decodes to a *third* one — cell 255 fading into cell 256 reads as cell 127,
+   * which is somewhere else entirely on the board. One pixel of fringe cannot
+   * outvote eight, and on an exact boundary either answer was fine anyway.
+   */
+  const left = Math.max(0, x - 1);
+  const top = Math.max(0, y - 1);
+  const data = ctx.getImageData(
+    left,
+    top,
+    Math.min(3, scene.pick.width - left),
+    Math.min(3, scene.pick.height - top)
+  ).data;
+
+  const votes = new Map<number, number>();
+  for (let i = 0; i < data.length; i += 4) {
+    if (!data[i + 3]) continue;
+    const cell = (data[i] ?? 0) | ((data[i + 1] ?? 0) << 8) | ((data[i + 2] ?? 0) << 16);
+    votes.set(cell, (votes.get(cell) ?? 0) + 1);
+  }
+
+  let best: number | null = null;
+  let most = 0;
+  for (const [cell, count] of votes) {
+    if (count > most) {
+      most = count;
+      best = cell;
+    }
+  }
+  return best;
 }
 
 /**
@@ -86,10 +153,28 @@ export function renderScene(view: CzView, devicePixelRatio = 1): Scene {
   canvas.height = height;
   const ctx = canvas.getContext('2d');
   const origin = { x: bounds.minX - pad, y: bounds.minY - pad };
-  if (!ctx) return { canvas, origin, signature: sceneSignature(view) };
 
-  ctx.scale(devicePixelRatio, devicePixelRatio);
-  ctx.translate(-origin.x, -origin.y);
+  /**
+   * The pick canvas, at the same size and transform. Half resolution would be
+   * cheaper and one pixel of slop on a tile boundary is exactly the kind of "I
+   * clicked the wrong square" this exists to remove, so it stays at full scale.
+   */
+  const pick = document.createElement('canvas');
+  pick.width = width;
+  pick.height = height;
+  const ink = pick.getContext('2d', { willReadFrequently: true });
+
+  const scene: Scene = { canvas, pick, origin, scale: devicePixelRatio, signature: sceneSignature(view) };
+  if (!ctx || !ink) return scene;
+
+  for (const context of [ctx, ink]) {
+    context.scale(devicePixelRatio, devicePixelRatio);
+    context.translate(-origin.x, -origin.y);
+  }
+  ink.imageSmoothingEnabled = false;
+
+  /** Stamps a shape into the pick map as "this cell". */
+  const stamp = (cell: number, points: Vec2[]) => fillPolygon(ink, points, pickColor(cell));
 
   const roomOf = new Map<number, CzRoomView>();
   for (const room of view.rooms) {
@@ -187,6 +272,10 @@ export function renderScene(view: CzView, devicePixelRatio = 1): Scene {
       const room = roomOf.get(cell);
       if (!room) continue;
 
+      // The floor is clickable everywhere, dark included: walking into the unknown
+      // is the game, so the pick map covers the void too.
+      stamp(cell, diamond(cx, cy));
+
       if (room.seen === 'hidden') {
         paintVoid(ctx, cx, cy);
         continue;
@@ -236,6 +325,16 @@ export function renderScene(view: CzView, devicePixelRatio = 1): Scene {
         } else if (code === 'A') paintThreshold(ctx, cx, cy, side, colors, 'seam');
       }
 
+      /*
+       * Walls deliberately do not claim their pixels.
+       *
+       * A wall rises over the floor of the room *behind* it, and interior ones are
+       * see-through now — so the tile you can see through a partition is the tile a
+       * click there should give you. Claiming them for the near room measured worse
+       * on both counts: it stole half of every tile behind a wall, and it stole the
+       * tops of the very props this map exists to make clickable.
+       */
+
       // The near walls, as a skirting: enough to read an edge, too short to stand
       // between the camera and the room. This is the cutaway, and it is also what
       // draws the frontier with the dark when the dark owns the boundary.
@@ -249,6 +348,9 @@ export function renderScene(view: CzView, devicePixelRatio = 1): Scene {
           long: prop.long,
           variant: prop.variant
         });
+        // And the same prop as a claim on the screen it covers, so aiming at the
+        // room across a wardrobe stops landing on the wardrobe's neighbour.
+        stamp(cell, propQuad(prop));
       }
 
       paintMarkers(ctx, cx, cy, room, colors, cell);
@@ -264,7 +366,25 @@ export function renderScene(view: CzView, devicePixelRatio = 1): Scene {
     }
   }
 
-  return { canvas, origin, signature: sceneSignature(view) };
+  return scene;
+}
+
+/**
+ * Roughly the screen a prop covers: its footprint, raised by its height. A box
+ * rather than the prop's silhouette, which would need every painter to draw twice
+ * for a precision nobody clicking a bin will ever notice.
+ */
+function propQuad(prop: PlacedProp): Vec2[] {
+  const definition = propDef(prop.kind);
+  const radius = definition?.radius ?? 0.2;
+  const height = (definition?.height ?? 0.5) * TILE_H;
+  const [n, e, s, w] = [
+    project(prop.cx, prop.cy - radius),
+    project(prop.cx + radius, prop.cy),
+    project(prop.cx, prop.cy + radius),
+    project(prop.cx - radius, prop.cy)
+  ];
+  return [s, e, { x: e.x, y: e.y - height }, { x: n.x, y: n.y - height }, { x: w.x, y: w.y - height }, w];
 }
 
 /** Unexplored: a hole in the floor plan you can still walk into. */

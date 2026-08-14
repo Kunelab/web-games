@@ -53,8 +53,12 @@ mais le butin s'équipe en un geste depuis le toast de résultat.
     relance d'attaque).
 - **Zombies** (PV/PA/dégâts) : zombie 1/1/1, coureur 1/2/1, horreur 2/2/1,
   gras 4/1/1, mutant 3/2/2, boss 10/1/2.
-- **Brouillard** : visible (ligne de vue d'un héros), exploré (déjà vu, entités
-  masquées), inexploré (noir). Partagé par l'équipe.
+- **Brouillard** : visible, exploré (déjà vu, entités masquées), inexploré (noir).
+  Partagé par l'équipe. Trois sources de visibilité : les lignes droites (la règle
+  Zombicide, celle que suit aussi une arme), **l'espace ouvert où l'on se tient**
+  (une arche veut dire qu'il n'y a pas de mur : éclairer quatre rayons au milieu
+  d'une rue et laisser le reste noir se lit comme un bug, pas comme la nuit), et les
+  salles voisines pour qui porte une bonne lampe.
 
 ## Ajouté par cette version
 
@@ -184,10 +188,48 @@ secondes. Tout est décrit dans
 
 Les créatures restent en DOM au-dessus du canvas : elles ont besoin de zones
 tactiles, de barres de vie et d'une transition CSS qui transforme une mise à jour
-d'état en déplacement.
+d'état en déplacement. Elles sont **posées** sur leur case (le bas de l'élément est
+le point au sol) et portent une ellipse d'ombre : sans ça, une créature flotte et
+rien ne dit sur quelle case elle est.
+
+**Cliquer se résout sur l'image, pas sur la projection.** Inverser la projection
+répond à « quelle case est sous ce point _au sol_ », ce qui n'est pas la question
+qu'un clic pose : tout est dessiné _debout_ sur sa case, donc viser une pièce
+par-dessus une armoire envoyait une case trop loin. La scène est donc peinte une
+seconde fois, dans les mêmes ordres de passage, en couleurs d'identifiant : un
+`getImageData` d'un pixel donne la case qu'on voit vraiment. Mesuré, les meubles
+hauts désignent leur propre case dans 97,5 % des cas contre 1 % pour l'inversion
+géométrique. Les murs, eux, ne revendiquent pas leurs pixels : les cloisons
+intérieures étant translucides, la case qu'on voit à travers est celle qu'un clic
+doit donner.
 
 Les fichiers graphiques sont facultatifs et remplaçables un par un : voir
 [coronaz-art.md](coronaz-art.md).
+
+### Ce qu'un essai a corrigé ensuite
+
+Quatre choses signalées en jouant, toutes réelles :
+
+- **Impossible de frapper une créature.** La caméra capturait le pointeur au
+  `pointerdown` pour gérer le glissé ; une pression sur un jeton remontait jusqu'à
+  elle, la capture détournait le `pointerup`, et le bouton ne recevait jamais son
+  clic. La caméra laisse désormais passer tout geste qui commence sur un jeton. Et
+  taper une créature sans PA ne faisait _rien du tout_, sans un mot : ça se dit.
+- **« Je ne sais pas sur quelle case ils sont. »** Les jetons étaient centrés sur
+  leur point d'ancrage, donc ils flottaient. Ils sont maintenant **posés** dessus
+  (le bas de l'élément est le point au sol) et portent une ellipse d'ombre.
+- **« Je clique à côté, une case lointaine compte comme adjacente. »** Ce n'était
+  pas un bug de clic mais le modèle de salles rendu invisible : une salle possède
+  jusqu'à quatre cases, donc la case d'à côté peut appartenir à une autre salle
+  pendant qu'une case à trois pas est à un seul déplacement. Les jointures d'arche
+  étaient un murmure sur le sol ; elles sont maintenant un seuil visible, les salles
+  jouables sont **cerclées comme des salles** (et non case par case), et la salle où
+  l'on se tient est cerclée aussi.
+- **« Tout ressemble à un hangar. »** Quatre causes : des murs à 22 px (passés à
+  26), la moitié des programmes ouverts les uns sur les autres (`OPEN_PLAN` réduit à
+  séjour/grande salle/bar/hall, probabilité 0,65 → 0,45), une seule teinte par
+  bâtiment (chaque salle dérive de quelques degrés) et une palette murale par défaut
+  identique pour presque tout (dix-huit programmes ont maintenant la leur).
 
 ### Rareté : par exemplaire
 
@@ -209,6 +251,20 @@ moins. Les soins et l'adrénaline suivent la même logique ; le gilet, qui n'a p
 curseur, ne gagne que la couleur.
 
 L'akimbo tire à la qualité de la **moins bonne** des deux armes.
+
+**Les équipements aussi doivent répondre.** « Quelle différence entre une lampe rare
+et une lampe épique ? » n'avait pas de réponse : les effets binaires (gilet, lampe)
+ne gagnaient que la couleur, ce qui fait de la rareté une décoration. Chacun a
+maintenant son curseur :
+
+| Équipement  | Ce que la rareté change                                                             |
+| ----------- | ----------------------------------------------------------------------------------- |
+| Gilet       | encaisse `1 + (rareté − palier)` impacts avant de céder — un épique tient deux fois |
+| Lampe       | au-delà du palier, **éclaire les salles voisines** en plus de la fouille gratuite   |
+| Kit de soin | ±10 PV rendus                                                                       |
+| Adrénaline  | ±1 PA                                                                               |
+
+Le gilet a donc besoin d'une mémoire : `ItemInstance.spent` compte les impacts pris.
 
 Visuellement, l'effet monte avec la rareté : halo, lavage de teinte sur l'image de
 l'arme elle-même, puis reflet mobile pour épique et légendaire. Un commun n'a
@@ -355,7 +411,53 @@ compensaient mal et il a fallu les séparer :
   livré comme l'aire quand la capacité de l'équipe croît comme l'horloge. C'est ce
   qui avait fait tomber `normal` de 93 % à 65 % au premier banc.
 
-400 parties par case, joueurs experts, mindset `balanced` :
+**La table** est le troisième facteur, et il manquait complètement. La meute de
+départ se mettait à l'échelle du groupe depuis toujours ; les renforts, jamais. Un
+survivant seul avec trois PA recevait donc les mêmes vagues que cinq survivants
+avec quinze, ce qu'un banc qui ne jouait qu'à trois héros ne pouvait pas voir.
+Mesuré par taille de groupe, `difficile` en solo se gagnait 2,8 % du temps et à
+cinq 94 % : deux jeux différents sous un seul nom de préréglage.
+
+Deux corrections, aux deux endroits où le groupe compte :
+
+- **le volume** — la fréquence de tir d'une salle d'apparition est multipliée par
+  `partyPressure` (têtes / 3). Ce qu'une équipe peut encaisser, ce sont ses points
+  d'action ; ce qui arrive doit donc suivre le nombre de têtes.
+- **le rythme** — un solo met plus longtemps à faire le travail (14 tours contre
+  11,6 à trois), et la menace est quadratique en progression : ces tours
+  supplémentaires arrivaient comme un tiers de monde en plus par-dessus le tiers de
+  corps en moins. `partyPace` étire l'arc pour les petites tables et le comprime
+  pour les grandes.
+
+Une troisième correction a été essayée et **retirée** : mettre l'objectif à
+l'échelle aussi (une clé par survivant, les clés en trop retirées du plateau). Elle
+faisait passer deux joueurs (78 % en `difficile`) devant trois (72 %), parce qu'une
+équipe va chercher les clés en parallèle — une petite table avait alors un travail
+plus court _et_ une horde plus petite. Une courbe de difficulté qui creuse au milieu
+est pire qu'une courbe simplement raide. Le travail reste le travail.
+
+250 parties par case, joueurs experts, mindset `balanced` :
+
+| Préréglage | 1      | 2      | 3      | 4      | 5      |
+| ---------- | ------ | ------ | ------ | ------ | ------ |
+| facile     | 72,4 % | 98,8 % | 100 %  | 100 %  | 100 %  |
+| normal     | 52,8 % | 90,8 % | 96,0 % | 97,6 % | 98,4 % |
+| difficile  | 28,4 % | 62,8 % | 74,0 % | 86,4 % | 95,6 % |
+| cauchemar  | 6,4 %  | 28,4 % | 48,8 % | 60,0 % | 71,6 % |
+| apocalypse | 2,8 %  | 7,6 %  | 14,8 % | 21,2 % | 32,0 % |
+
+Le solo reste le plus dur, et le reste par construction : une seule mort met fin au
+raid, alors qu'un trio a trois chances de sortir quelqu'un. C'est aussi pour ça que
+le lobby propose des bots — « en solo, prenez deux ou trois bots » est la réponse
+prévue, pas un pis-aller.
+
+`cauchemar` a gagné une quinzaine de points en corrigeant le brouillard, et lui
+seul : `facile` se joue sans brouillard et `normal` avec le plan connu, donc seuls
+les préréglages qui jouent dans le noir profitent de voir la rue où l'on se tient.
+C'est la conséquence d'une correction, pas un réglage ; l'échelle reste monotone et
+espacée, et aucun préréglage n'a été resserré pour retomber sur un chiffre d'avant.
+
+400 parties par case, à trois joueurs experts, mindset `balanced` :
 
 | Préréglage         | v3     | v4     |
 | ------------------ | ------ | ------ |

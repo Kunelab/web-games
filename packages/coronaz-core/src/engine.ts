@@ -17,6 +17,7 @@ import {
   activeHeroes,
   bagCapacity,
   HERO_AP,
+  partyPressure,
   heroesInRoom,
   log,
   makeItem,
@@ -454,6 +455,17 @@ export function startGame(state: CzState, now = Date.now()): void {
   if (Object.keys(state.heroes).length === 0) throw new Error('Personne dans la partie');
   state.turn = 0;
 
+  /**
+   * The objective deliberately does *not* scale with the table.
+   *
+   * It was tried: a key per survivor, surplus keys taken off the board. It made two
+   * players (78% on `difficile`) beat three (72%), because a team can fetch keys in
+   * parallel — so a smaller table was getting both a shorter job and a smaller
+   * horde. A difficulty curve that dips in the middle is worse than one that is
+   * merely steep. The party is answered by the horde's volume (`partyPressure`) and
+   * by the pace of the escalation (`partyPace`), and the job stays the job.
+   */
+
   // The lobby picks become physical things: starter kits, side arms, a known
   // neighbourhood. All flat, all once.
   // Perks hand out a *kind* of thing; the biome decides what that is here.
@@ -665,7 +677,13 @@ function nearestHero(state: CzState, fromRoomId: string): HeroState | null {
 export function spawnReinforcements(state: CzState): void {
   const level = threat(state);
   const base = [0.25, 0.5, 0.75, 0.95][state.config.reinforcement] ?? 0.5;
-  const odds = Math.min(1, base + level / 60);
+  /**
+   * How often a den fires, scaled to the table. This is the only party term in the
+   * reinforcements, and it is the one that was missing: what a party can answer is
+   * its action points, so what arrives has to scale with heads or a preset means
+   * two different games depending on how many people turned up.
+   */
+  const odds = Math.min(1, (base + level / 60) * partyPressure(state));
 
   for (const room of state.board.rooms) {
     if (room.kind !== 'spawn') continue;
@@ -673,20 +691,20 @@ export function spawnReinforcements(state: CzState): void {
 
     const def = rollZombieType(state, level);
     /**
-     * Walkers arrive in packs scaled to the team and the hour; bigger things come
-     * alone until the threat says otherwise.
+     * Shamblers arrive in packs that grow with the hour; bigger things come alone
+     * until the threat says otherwise.
      *
-     * Deliberately *not* scaled by the size of the world. A bigger world already
-     * takes more turns to cross, so it already receives more reinforcement rounds —
-     * multiplying the packs on top of that made the total delivered grow with the
-     * board's area while the party's capacity to answer it grows only with the
-     * clock. That is what took normal from 93% to 65% on the first bench of the new
-     * generator. The world's size is answered by `threat`'s stretched arc instead.
+     * Deliberately scaled by neither the size of the world nor the size of the
+     * party — both live elsewhere. The world is answered by `threat`'s stretched
+     * arc (a bigger world takes more turns, so it already receives more waves) and
+     * the party by the odds above. Multiplying here as well is what took normal
+     * from 93% to 65% on the first bench of the new generator: the total delivered
+     * grew with the board's area while the party's capacity grew with the clock.
      */
     const packBonus = Math.floor(level / 15);
     const count =
-      def === 'walker'
-        ? 1 + randInt(state.rng, Math.max(1, activeHeroes(state).length)) + packBonus
+      def === zombieFor(state.config.biome, 'walker').id
+        ? 1 + randInt(state.rng, 2) + packBonus
         : 1 + (level >= 30 ? randInt(state.rng, 2) : 0);
     for (let i = 0; i < count; i++) {
       spawnZombie(state, room.id, def);

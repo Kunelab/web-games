@@ -156,16 +156,38 @@ export function palette(hue: number, floor: FloorKind, program: RoomProgram): Pa
   };
 }
 
-/** A few rooms want to be recognisable before you read the furniture. */
+/**
+ * What a room is painted, by what it is for.
+ *
+ * Nearly every programme gets an entry now. With only a handful of them tweaked
+ * the rest fell back to one neutral grey off the building's hue, and a corridor,
+ * a bedroom and a storeroom came out identically — which is most of what made an
+ * interior read as a hangar rather than as a building with rooms in it.
+ */
 const PROGRAM_TWEAK: Partial<Record<RoomProgram, Partial<Palette>>> = {
+  /* Homes: warm. */
+  living: { wall: hsl(28, 18, 32), wallTop: hsl(28, 15, 41), wallpaper: hsl(28, 22, 38) },
+  bedroom: { wall: hsl(345, 14, 30), wallTop: hsl(345, 12, 39), wallpaper: hsl(345, 18, 36) },
+  kitchen: { wall: hsl(40, 14, 36), wallTop: hsl(40, 12, 44), wallpaper: hsl(40, 16, 42) },
   bath: { wall: hsl(190, 12, 40), wallTop: hsl(190, 10, 48), wallpaper: hsl(190, 14, 46) },
-  restroom: { wall: hsl(190, 10, 36), wallTop: hsl(190, 9, 44), wallpaper: hsl(190, 12, 42) },
+
+  /* Work: cool and institutional. */
+  office: { wall: hsl(210, 10, 33), wallTop: hsl(210, 9, 42), wallpaper: hsl(210, 12, 39) },
+  archive: { wall: hsl(45, 10, 28), wallTop: hsl(45, 9, 36), wallpaper: hsl(45, 12, 33) },
   lab: { wall: hsl(170, 10, 36), wallTop: hsl(170, 9, 44), wallpaper: hsl(170, 12, 42) },
   server: { wall: hsl(200, 12, 26), wallTop: hsl(200, 10, 34), wallpaper: hsl(200, 14, 30) },
-  kitchen: { wall: hsl(40, 14, 36), wallTop: hsl(40, 12, 44), wallpaper: hsl(40, 16, 42) },
   workshop: { wall: hsl(30, 12, 26), wallTop: hsl(30, 10, 33), wallpaper: hsl(30, 12, 30) },
+  storage: { wall: hsl(35, 8, 24), wallTop: hsl(35, 7, 32), wallpaper: hsl(35, 10, 28) },
+
+  /* Public: louder. */
+  lobby: { wall: hsl(200, 14, 34), wallTop: hsl(200, 12, 43), wallpaper: hsl(200, 16, 40) },
+  corridor: { wall: hsl(220, 8, 29), wallTop: hsl(220, 7, 38), wallpaper: hsl(220, 10, 34) },
+  hall: { wall: hsl(280, 14, 24), wallTop: hsl(280, 12, 32), wallpaper: hsl(280, 16, 28) },
   bar: { wall: hsl(330, 16, 26), wallTop: hsl(330, 14, 34), wallpaper: hsl(330, 18, 30) },
-  hall: { wall: hsl(280, 14, 24), wallTop: hsl(280, 12, 32), wallpaper: hsl(280, 16, 28) }
+  restroom: { wall: hsl(190, 10, 36), wallTop: hsl(190, 9, 44), wallpaper: hsl(190, 12, 42) },
+  backstage: { wall: hsl(300, 10, 22), wallTop: hsl(300, 9, 30), wallpaper: hsl(300, 12, 26) },
+  dorm: { wall: hsl(215, 10, 30), wallTop: hsl(215, 9, 38), wallpaper: hsl(215, 12, 35) },
+  canteen: { wall: hsl(55, 12, 32), wallTop: hsl(55, 10, 40), wallpaper: hsl(55, 14, 37) }
 };
 
 /** Lighten (positive) or darken (negative) any CSS colour the canvas accepts. */
@@ -555,6 +577,9 @@ export function paintWall(
 
   if (!options.door) {
     drawSlab(from, to);
+    // A skirting under every wall, not only the see-through ones: it is the line
+    // that makes a wall meet a floor instead of hovering over it.
+    paintSkirting(ctx, from, to, colors, false);
     return;
   }
 
@@ -715,12 +740,30 @@ export function paintThreshold(
   });
 
   if (tone === 'seam') {
-    const inward = TILE_H * 0.08;
-    fillPolygon(
-      ctx,
-      [from, to, { x: to.x, y: to.y + inward }, { x: from.x, y: from.y + inward }],
-      shade(colors.floorLine, -3)
-    );
+    /**
+     * Where one room ends and the next begins with no wall between them.
+     *
+     * This used to be a whisper — three points of lightness on the floor — and it
+     * was the single most confusing thing on the board: a move costs one action
+     * point per *room*, so a player who cannot see where a room ends cannot tell
+     * which tiles are one step away. Two tiles of the same open hall look exactly
+     * like two tiles of different rooms. So the seam is now a threshold you can
+     * actually see, and the room outlines on top of it do the rest.
+     */
+    const inward = TILE_H * 0.05;
+    const band = (offset: number, colour: string) =>
+      fillPolygon(
+        ctx,
+        [
+          { x: from.x, y: from.y + offset },
+          { x: to.x, y: to.y + offset },
+          { x: to.x, y: to.y + offset + inward },
+          { x: from.x, y: from.y + offset + inward }
+        ],
+        colour
+      );
+    band(-inward, shade(colors.floorLine, -6));
+    band(0, shade(colors.wallTop, 4));
     return;
   }
 

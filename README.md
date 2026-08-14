@@ -50,7 +50,7 @@ Run from the repository root. Each one fans out across the workspace.
 | `pnpm build`     | Builds `game-core`, then both apps                            |
 | `pnpm typecheck` | Types only, every package                                     |
 | `pnpm lint`      | ESLint, type-aware, every package                             |
-| `pnpm test`      | `game-core` unit tests, then the API's end-to-end smoke run   |
+| `pnpm test`      | unit tests in every package, then the API smoke run           |
 | `pnpm smoke`     | Just the smoke run                                            |
 | `pnpm format`    | Prettier across the workspace                                 |
 
@@ -62,9 +62,17 @@ To work on one package, filter: `pnpm --filter back dev`, `pnpm --filter front b
 
 ## Testing
 
-`game-core` has unit tests under `src/**/*.test.ts`, run with node's built-in
+Unit tests live under `src/**/*.test.ts` in every package, run with node's built-in
 runner. They cover the parts where being wrong is invisible until a game night:
-answer matching, the scorer, the clock.
+answer matching, the scorer, the clock in `game-core`; map generation, the fog and
+the loot curve in `coronaz-core`.
+
+The frontend has tests too, which is less usual and worth the sentence: CoronaZ's
+board is painted to a canvas, and two things about it can be wrong in ways nobody
+sees until they are playing — which side of a room a wall is drawn on, and which
+tile a click lands on. Both _were_ wrong, and neither showed up in a screenshot.
+[iso.test.ts](apps/front/src/pages/zombie/iso/iso.test.ts) checks them with a small
+scanline rasteriser standing in for the browser.
 
 The API has an end-to-end run in [apps/back/src/smoke.ts](apps/back/src/smoke.ts)
 that exercises every route and the game engine through `app.inject()`, including

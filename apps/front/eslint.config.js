@@ -38,6 +38,15 @@ export default tseslint.config(
     }
   },
   {
+    // node:test's describe/it return promises that the runner itself awaits, so
+    // the floating-promise rule fires on every single block. Same exemption as
+    // the one in game-core and coronaz-core.
+    files: ['**/*.test.ts'],
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'off'
+    }
+  },
+  {
     files: ['eslint.config.js', 'vite.config.ts'],
     ...tseslint.configs.disableTypeChecked
   },

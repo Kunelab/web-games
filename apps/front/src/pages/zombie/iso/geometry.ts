@@ -22,10 +22,15 @@
 export const TILE_W = 64;
 export const TILE_H = 44;
 /**
- * How tall a wall stands. Deliberately short: a wall's job here is to say where
- * a room ends, and every pixel above that is a pixel of floor it hides.
+ * How tall a wall stands.
+ *
+ * Short, because every pixel above the skirting is a pixel of floor it hides — but
+ * not *too* short: at 22 the rooms read as a hangar with kerbs rather than as
+ * rooms, which was the second thing the playtest said. 26 against a 44-tall tile
+ * keeps the floor plan legible and gives a room walls you can believe in. The
+ * interior ones are see-through anyway, so height costs less than it used to.
  */
-export const WALL_H = 22;
+export const WALL_H = 26;
 
 export interface Vec2 {
   x: number;
@@ -97,21 +102,16 @@ export function screenToWorld(screen: Vec2, camera: Camera, viewport: Vec2): Vec
   };
 }
 
-/** The cell under a screen point, or null when the pointer is off the board. */
-export function cellAtScreen(
-  screen: Vec2,
-  camera: Camera,
-  viewport: Vec2,
-  width: number,
-  height: number
-): { cx: number; cy: number; index: number } | null {
-  const world = screenToWorld(screen, camera, viewport);
-  const cell = unproject(world.x, world.y);
-  const cx = Math.round(cell.x);
-  const cy = Math.round(cell.y);
-  if (cx < 0 || cy < 0 || cx >= width || cy >= height) return null;
-  return { cx, cy, index: cy * width + cx };
-}
+/*
+ * There is deliberately no `cellAtScreen` here any more.
+ *
+ * Inverting the projection answers "which tile is under this point on the floor",
+ * which is not the question a click asks: everything is drawn standing *up* from
+ * its tile, so the answer was wrong by however much furniture was in the way, and
+ * aiming past a table moved you a room too far. `pickCellAt` in scene.ts asks the
+ * painted picture instead. `unproject` stays because the camera still needs to
+ * know where the floor is.
+ */
 
 export const ZOOM_MIN = 0.35;
 export const ZOOM_MAX = 2.4;

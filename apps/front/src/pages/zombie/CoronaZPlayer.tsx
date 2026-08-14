@@ -4,6 +4,8 @@ import {
   itemDef,
   RARITY_META,
   roleOf,
+  torchReach,
+  vestCharges,
   weaponStats,
   type CzActionAck,
   type CzJoinAck,
@@ -380,7 +382,13 @@ function PlayScreen({
   };
 
   async function onZombieTap(zombieId: string) {
-    if (!myTurn || me.ap <= 0) return;
+    if (!myTurn) return;
+    // Out of points used to be a silent no-op, which reads exactly like a broken
+    // button. Anything a tap cannot do, it should say.
+    if (me.ap <= 0) {
+      setFeedback('Plus de PA ce tour');
+      return;
+    }
     const options = attackOptions();
     if (options.length === 0) {
       setFeedback('Aucune arme en main');
@@ -775,8 +783,17 @@ function ItemStats({ item, compact = false }: { item: ItemInstance; compact?: bo
   }
   if (gear?.heal) facts.push(`💊 Rend ${gear.heal} PV`);
   if (gear?.adrenaline) facts.push(`⚡ +${gear.adrenaline} PA immédiats`);
-  if (gear?.vest) facts.push('🦺 Encaisse la première blessure de chaque assaut');
-  if (gear?.flashlight) facts.push('🔦 Une fouille gratuite par tour');
+  if (gear?.vest) {
+    // What an epic vest is for, said out loud: a plate that holds twice.
+    const charges = vestCharges(def, item.rarity) - (item.spent ?? 0);
+    facts.push(
+      charges > 1 ? `🦺 Encaisse ${charges} impacts avant de céder` : '🦺 Encaisse une blessure, puis rend l’âme'
+    );
+  }
+  if (gear?.flashlight) {
+    facts.push('🔦 Une fouille gratuite par tour');
+    if (torchReach(def, item.rarity) > 0) facts.push('💡 Éclaire aussi les salles voisines');
+  }
   if (fans.length > 0 && !compact) {
     facts.push(`❤️ Arme fétiche de ${fans.map((fan) => fan.name).join(', ')} (+1 dé)`);
   }

@@ -179,7 +179,12 @@ function goalRoom(state: CzState, hero: HeroState, skill: SkillProfile): string 
   const scenario = state.config.scenario;
 
   if (scenario === 'escape') {
-    const keyRooms = state.board.rooms.filter((room) => room.hasKey).map((room) => room.id);
+    // Only while the quota is unmet: a key past it is scenery, and a bot that
+    // toured every one of them was measuring the wrong game.
+    const keyRooms =
+      state.keysCollected >= state.config.keys
+        ? []
+        : state.board.rooms.filter((room) => room.hasKey).map((room) => room.id);
     if (keyRooms.length > 0) {
       if (skill.coordinates) {
         const heroIds = Object.keys(state.heroes).sort();

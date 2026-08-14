@@ -27,8 +27,15 @@ export type { Rect, Plot, Plan, LayoutDef } from './builder.js';
  * identical cupboards with no outdoors and no sense.
  */
 
-/** Rooms whose programmes happily open onto each other without a door. */
-const OPEN_PLAN: readonly RoomProgram[] = ['living', 'kitchen', 'hall', 'bar', 'lobby', 'canteen'];
+/**
+ * Rooms whose programmes happily open onto each other without a door.
+ *
+ * Kept short on purpose. With kitchens and canteens in here as well, and a high
+ * chance of taking it, a building's interior lost nearly all of its walls and came
+ * out reading as a hangar with furniture in it. A living room opening onto a hall
+ * is a house; every room opening onto every other room is a warehouse.
+ */
+const OPEN_PLAN: readonly RoomProgram[] = ['living', 'hall', 'bar', 'lobby'];
 
 export function generateBoard(rng: RngState, config: GameConfig): Board {
   const layout = config.layout === 'random' ? rollLayout(rng) : layoutDef(config.layout);
@@ -192,6 +199,13 @@ function carveBuilding(
   spaces.forEach((space, index) => {
     const program = assignment[index] ?? 'storage';
     const floor = floorFor(rng, program);
+    /**
+     * A room's own shade of the building's colour. The building keeps one hue so
+     * it reads as one place, but every room sharing it exactly made an interior
+     * look like one continuous grey shed — a few degrees of drift is the
+     * difference between a house and a hangar.
+     */
+    const roomHue = (hue + randInt(rng, 17) - 8 + 360) % 360;
     // A space bigger than a room becomes several rooms joined by arches: one
     // volume to the eye, several moves to the rules.
     const pieces = chunk(rng, space, builder.width, MAX_ROOM_CELLS);
@@ -199,7 +213,7 @@ function carveBuilding(
       builder.addRoom(piece, {
         program,
         floor,
-        hue,
+        hue: roomHue,
         outdoor: false,
         zone,
         decor: randInt(rng, 0xffffff)
@@ -226,7 +240,7 @@ function carveBuilding(
     const kind =
       OPEN_PLAN.includes(assignment[a] ?? 'storage') &&
       OPEN_PLAN.includes(assignment[b] ?? 'storage') &&
-      chance(rng, 0.65)
+      chance(rng, 0.45)
         ? 'arch'
         : 'door';
 
