@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { answerFieldSchema, type AnswerField } from './answer-field.js';
 import type { AnyKindDefinition, KindTiming } from './kind-definition.js';
 import { blindtest } from './kinds/blindtest.js';
+import { estimation } from './kinds/estimation.js';
 import { imageMemory } from './kinds/image-memory.js';
 import { imageReveal } from './kinds/image-reveal.js';
 import { quiz } from './kinds/quiz.js';
@@ -15,7 +16,7 @@ import { quiz } from './kinds/quiz.js';
  * the kind's own schema; no new form, because the editor is generated from
  * `formFields`; no new scoring branch, because scoring works off answer fields.
  */
-const definitions = [blindtest, quiz, imageReveal, imageMemory] as unknown as AnyKindDefinition[];
+const definitions = [blindtest, quiz, estimation, imageReveal, imageMemory] as unknown as AnyKindDefinition[];
 
 export const mediaKinds: Record<string, AnyKindDefinition> = Object.fromEntries(
   definitions.map((definition) => [definition.id, definition])

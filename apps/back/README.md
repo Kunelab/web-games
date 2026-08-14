@@ -20,18 +20,18 @@ so there is no migration step for a fresh checkout.
 
 ## Scripts
 
-| Script                | What it does                                          |
-| --------------------- | ----------------------------------------------------- |
-| `pnpm dev`            | `tsx watch` on `src/server.ts`                        |
-| `pnpm build`          | Compile to `dist/`                                    |
-| `pnpm start`          | Run the compiled server                               |
-| `pnpm typecheck`      | Types only                                            |
-| `pnpm lint`           | ESLint, type-aware                                    |
-| `pnpm test`           | End-to-end run against a throwaway database           |
-| `pnpm smoke`          | The same thing, under its older name                  |
-| `pnpm db:generate`    | Generate a migration from schema changes              |
-| `pnpm db:migrate`     | Apply pending migrations                              |
-| `pnpm db:studio`      | Drizzle Studio                                        |
+| Script             | What it does                                |
+| ------------------ | ------------------------------------------- |
+| `pnpm dev`         | `tsx watch` on `src/server.ts`              |
+| `pnpm build`       | Compile to `dist/`                          |
+| `pnpm start`       | Run the compiled server                     |
+| `pnpm typecheck`   | Types only                                  |
+| `pnpm lint`        | ESLint, type-aware                          |
+| `pnpm test`        | End-to-end run against a throwaway database |
+| `pnpm smoke`       | The same thing, under its older name        |
+| `pnpm db:generate` | Generate a migration from schema changes    |
+| `pnpm db:migrate`  | Apply pending migrations                    |
+| `pnpm db:studio`   | Drizzle Studio                              |
 
 The test writes real rows, which is why it goes through `smoke-run.ts`: that
 entry point points `DATABASE_FILE` at a temporary directory and removes it

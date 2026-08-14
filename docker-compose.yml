@@ -1,0 +1,37 @@
+# One container is the whole product: the API serves the built frontend itself.
+#
+# Browsing the box directly on :3000 works out of the box. Behind a reverse proxy
+# serving the app on 80/443, set VITE_API_PORT to empty in the build args (the
+# frontend then talks to the page's own origin) and set FRONT_PROTOCOL=https so
+# the session cookie is marked secure.
+services:
+  web-games:
+    build:
+      context: .
+      args:
+        # Baked into the frontend at build time; see the Dockerfile header.
+        VITE_API_PROTOCOL: http
+        VITE_API_URL: ''
+        VITE_API_PORT: '3000'
+    ports:
+      - '3000:3000'
+    environment:
+      # Required, 32+ characters: signs the session cookies. Set it in a `.env`
+      # file next to this compose file, never in the repository.
+      SECRET: ${SECRET:?set SECRET in .env (32+ characters)}
+      # The address players' browsers use, for CORS. Add every way the box is
+      # reached: hostname, mDNS name, LAN IP…
+      FRONT_URL: ${FRONT_URL:-localhost}
+      FRONT_PORT: ${FRONT_PORT:-3000}
+      FRONT_ORIGINS: ${FRONT_ORIGINS:-}
+      # Close signups once every friend has an account.
+      REGISTRATION_OPEN: ${REGISTRATION_OPEN:-true}
+      # Optional: enables the YouTube lookup and playlist import.
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+    volumes:
+      # Accounts, media, playlists, game history. Everything worth keeping.
+      - web-games-data:/data
+    restart: unless-stopped
+
+volumes:
+  web-games-data:

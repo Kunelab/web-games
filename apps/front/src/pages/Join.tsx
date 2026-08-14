@@ -28,9 +28,7 @@ export default function Join() {
       void navigate(`/rejoindre/${normalised}`);
     } catch (cause) {
       setError(
-        cause instanceof ApiError && cause.status === 404
-          ? 'Aucune partie avec ce code.'
-          : 'Vérification impossible.'
+        cause instanceof ApiError && cause.status === 404 ? 'Aucune partie avec ce code.' : 'Vérification impossible.'
       );
     } finally {
       setBusy(false);

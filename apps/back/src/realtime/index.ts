@@ -1,3 +1,16 @@
+import {
+  czGmActionSchema,
+  czHeroActionSchema,
+  czJoinSchema,
+  joinHero,
+  setLoadout,
+  switchHero,
+  toView,
+  type CzClientToServer,
+  type CzRole,
+  type CzServerToClient,
+  type CzState
+} from 'coronaz-core';
 import type { FastifyInstance } from 'fastify';
 import {
   answerPayloadSchema,
@@ -11,24 +24,35 @@ import { Server as SocketServer, type Socket } from 'socket.io';
 import { allowedOrigins } from '../env.js';
 import type { GameManager } from '../game/manager.js';
 import { joinSession, revealChoices, submitAnswer, type SessionState } from '../game/session.js';
+import { czCareerService } from '../services/cz-career-service.js';
+import { resultsService } from '../services/results-service.js';
+import type { CzManager } from '../zombie/manager.js';
 
 /** Per-connection bookkeeping, kept out of the game state. */
 interface SocketData {
   code?: string;
   playerId?: string;
   isHost: boolean;
+  /** CoronaZ attachment: one socket is in at most one raid, in one role. */
+  czCode?: string;
+  czRole?: CzRole;
 }
 
-type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
+type AllClientToServer = ClientToServerEvents & CzClientToServer;
+type AllServerToClient = ServerToClientEvents & CzServerToClient;
 
-export function registerRealtime(app: FastifyInstance, games: GameManager): SocketServer {
-  const io: SocketServer<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData> =
-    new SocketServer(app.server, {
+type GameSocket = Socket<AllClientToServer, AllServerToClient, Record<string, never>, SocketData>;
+
+export function registerRealtime(app: FastifyInstance, games: GameManager, cz: CzManager): SocketServer {
+  const io: SocketServer<AllClientToServer, AllServerToClient, Record<string, never>, SocketData> = new SocketServer(
+    app.server,
+    {
       cors: { origin: allowedOrigins, credentials: true },
       // Players are on phones that sleep and switch networks; a generous window
       // means a returning socket resumes rather than being treated as a new player.
       connectionStateRecovery: { maxDisconnectionDuration: 2 * 60 * 1000 }
-    });
+    }
+  );
 
   /**
    * Pushes the current state to everyone in a session.
@@ -47,6 +71,17 @@ export function registerRealtime(app: FastifyInstance, games: GameManager): Sock
   }
 
   games.onTransition(broadcast);
+
+  /** Same projection-per-recipient rule as the quizzes: the fog is per role. */
+  function czBroadcast(state: CzState): void {
+    for (const socket of io.sockets.sockets.values()) {
+      const data = socket.data;
+      if (data.czCode !== state.code || !data.czRole) continue;
+      socket.emit('cz:state', toView(state, data.czRole));
+    }
+  }
+
+  cz.onTransition(czBroadcast);
 
   /** Probes per measurement pass; the lowest is kept. */
   const RTT_PROBES = 3;
@@ -154,6 +189,20 @@ export function registerRealtime(app: FastifyInstance, games: GameManager): Sock
       // Measure this player's latency now, so their first answer is already
       // compensated correctly rather than being judged with an assumed zero RTT.
       void measureRtt(socket, state, player.id);
+
+      // The title this nickname has earned across past evenings, fetched after the
+      // ack so joining never waits on a history scan. Purely cosmetic, so a failure
+      // here is not worth reporting to anyone.
+      void resultsService
+        .titleFor(player.name)
+        .then((title) => {
+          const seated = state.players[player.id];
+          if (title && seated) {
+            seated.title = title;
+            broadcast(state);
+          }
+        })
+        .catch(() => undefined);
     });
 
     socket.on('host:open', (payload, ack) => {
@@ -246,7 +295,7 @@ export function registerRealtime(app: FastifyInstance, games: GameManager): Sock
         for (const other of io.sockets.sockets.values()) {
           const data = other.data;
           if (data.code === state.code && data.playerId === playerId) {
-            other.emit('session:error', { message: "Vous avez été retiré de la partie" });
+            other.emit('session:error', { message: 'Vous avez été retiré de la partie' });
             void other.leave(state.code);
             data.code = undefined;
             data.playerId = undefined;
@@ -335,9 +384,290 @@ export function registerRealtime(app: FastifyInstance, games: GameManager): Sock
       handleDisconnect(socket);
     });
 
+    /* ------------------------------- CoronaZ ------------------------------- */
+
+    /** Attach this socket to a raid in a role, after checking its credential. */
+    function czAttach(code: string, role: CzRole): void {
+      socket.data.czCode = code;
+      socket.data.czRole = role;
+      void socket.join(`cz:${code}`);
+    }
+
+    socket.on('cz:open', (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const code = typeof payload?.code === 'string' ? payload.code.trim().toUpperCase() : '';
+      const state = cz.get(code);
+
+      if (!state || payload?.hostToken !== state.hostToken) {
+        respond({ ok: false, error: 'Aucune partie avec ce code' });
+        return;
+      }
+
+      czAttach(code, { kind: 'tv' });
+      respond({ ok: true, view: toView(state, { kind: 'tv' }) });
+
+      /**
+       * The television learns the state the same way everyone else does.
+       *
+       * Same lesson as the quiz host screen, relearned the hard way: the ack's
+       * copy is easy for a client to mishandle, and without this push the screen
+       * waits for the next broadcast — which, on a TV opened alone or after the
+       * players, never comes. "Connexion à la partie…" forever.
+       */
+      socket.emit('cz:state', toView(state, { kind: 'tv' }));
+    });
+
+    socket.on('cz:gmOpen', (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const code = typeof payload?.code === 'string' ? payload.code.trim().toUpperCase() : '';
+      const state = cz.get(code);
+
+      if (!state || payload?.gmToken !== state.gmToken) {
+        respond({ ok: false, error: 'Jeton du maître du jeu invalide' });
+        return;
+      }
+
+      czAttach(code, { kind: 'gm' });
+      respond({ ok: true, view: toView(state, { kind: 'gm' }) });
+      // Same push as the TV: the game master's screen must not wait for a broadcast.
+      socket.emit('cz:state', toView(state, { kind: 'gm' }));
+    });
+
+    socket.on('cz:join', (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const parsed = czJoinSchema.safeParse(payload);
+      if (!parsed.success) {
+        respond({ ok: false, error: parsed.error.issues[0]?.message ?? 'Requête invalide' });
+        return;
+      }
+
+      const state = cz.get(parsed.data.code.trim().toUpperCase());
+      if (!state) {
+        respond({ ok: false, error: 'Aucune partie avec ce code' });
+        return;
+      }
+
+      void (async () => {
+        try {
+          // The roguelite perks this nickname has earned, resolved before the seat
+          // exists: tough-skin has to be in the max HP from the first breath.
+          const perks = await czCareerService.heroPerks(parsed.data.name).catch(() => []);
+          const { hero } = joinHero(state, parsed.data.name, parsed.data.playerToken, perks);
+          czAttach(state.code, { kind: 'player', playerId: hero.playerId });
+          const career = await czCareerService.forName(hero.name).catch(() => null);
+          respond({
+            ok: true,
+            playerToken: hero.token,
+            playerId: hero.playerId,
+            view: toView(state, { kind: 'player', playerId: hero.playerId }),
+            career: career ? { rations: career.stats.rations, unlockedHeroes: career.stats.unlockedHeroes } : undefined
+          });
+          czBroadcast(state);
+          void cz.persist(state);
+
+          void resultsService
+            .titleFor(hero.name)
+            .then((title) => {
+              if (title) {
+                hero.title = title;
+                czBroadcast(state);
+              }
+            })
+            .catch(() => undefined);
+        } catch (error) {
+          respond({ ok: false, error: error instanceof Error ? error.message : 'Impossible de rejoindre' });
+        }
+      })();
+    });
+
+    socket.on('cz:selectHero', (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const { czCode, czRole } = socket.data;
+      const state = czCode ? cz.get(czCode) : undefined;
+
+      if (!state || czRole?.kind !== 'player') {
+        respond({ ok: false, error: 'Vous n’êtes pas dans une partie' });
+        return;
+      }
+
+      void (async () => {
+        try {
+          const heroId = typeof payload?.heroId === 'string' ? payload.heroId : '';
+          const me = state.heroes[czRole.playerId];
+          // The roster economy is server truth: a locked character stays locked
+          // whatever the phone claims.
+          if (me && !(await czCareerService.heroAllowed(me.name, heroId))) {
+            respond({ ok: false, error: 'Personnage à débloquer d’abord' });
+            return;
+          }
+          switchHero(state, czRole.playerId, heroId);
+          respond({ ok: true });
+          czBroadcast(state);
+          void cz.persist(state);
+        } catch (error) {
+          respond({ ok: false, error: error instanceof Error ? error.message : 'Impossible' });
+        }
+      })();
+    });
+
+    socket.on('cz:loadout', (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const { czCode, czRole } = socket.data;
+      const state = czCode ? cz.get(czCode) : undefined;
+      if (!state || czRole?.kind !== 'player') {
+        respond({ ok: false, error: 'Vous n’êtes pas dans une partie' });
+        return;
+      }
+
+      try {
+        const perks = Array.isArray(payload?.perks)
+          ? payload.perks.filter((id): id is string => typeof id === 'string').slice(0, 3)
+          : [];
+        setLoadout(state, czRole.playerId, perks);
+        respond({ ok: true });
+        czBroadcast(state);
+        void cz.persist(state);
+      } catch (error) {
+        respond({ ok: false, error: error instanceof Error ? error.message : 'Impossible' });
+      }
+    });
+
+    socket.on('cz:unlockHero', (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const { czCode, czRole } = socket.data;
+      const state = czCode ? cz.get(czCode) : undefined;
+      const me = state && czRole?.kind === 'player' ? state.heroes[czRole.playerId] : undefined;
+
+      if (!me || me.isBot) {
+        respond({ ok: false, error: 'Vous n’êtes pas dans une partie' });
+        return;
+      }
+
+      void (async () => {
+        try {
+          const heroId = typeof payload?.heroId === 'string' ? payload.heroId : '';
+          const result = await czCareerService.unlockHero(me.name, heroId);
+          if (!result.ok) {
+            respond(result);
+            return;
+          }
+          const career = await czCareerService.forName(me.name);
+          respond({
+            ok: true,
+            career: { rations: career.stats.rations, unlockedHeroes: career.stats.unlockedHeroes }
+          });
+        } catch (error) {
+          respond({ ok: false, error: error instanceof Error ? error.message : 'Impossible' });
+        }
+      })();
+    });
+
+    socket.on('cz:addBot', (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const { czCode } = socket.data;
+      const state = czCode ? cz.get(czCode) : undefined;
+      if (!state || payload?.hostToken !== state.hostToken) {
+        respond({ ok: false, error: 'Action réservée à l’écran hôte' });
+        return;
+      }
+      respond(cz.addBot(state.code, typeof payload.skill === 'string' ? payload.skill : 'expert'));
+    });
+
+    socket.on('cz:removeBot', (payload) => {
+      const { czCode } = socket.data;
+      const state = czCode ? cz.get(czCode) : undefined;
+      if (!state || payload?.hostToken !== state.hostToken) return;
+      cz.removeBot(state.code, typeof payload.playerId === 'string' ? payload.playerId : '');
+    });
+
+    socket.on('cz:start', (payload) => {
+      const { czCode } = socket.data;
+      const state = czCode ? cz.get(czCode) : undefined;
+      if (!state || payload?.hostToken !== state.hostToken) {
+        socket.emit('cz:error', { message: 'Action réservée à l’écran hôte' });
+        return;
+      }
+      if (state.phase !== 'lobby' || Object.keys(state.heroes).length === 0) return;
+
+      void cz.start(state.code).catch((error: unknown) => {
+        app.log.error({ err: error, code: state.code }, 'CoronaZ start failed');
+      });
+    });
+
+    socket.on('cz:action', (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const { czCode, czRole } = socket.data;
+      if (!czCode || czRole?.kind !== 'player') {
+        respond({ ok: false, error: 'Vous n’êtes pas dans une partie' });
+        return;
+      }
+
+      const parsed = czHeroActionSchema.safeParse(payload);
+      if (!parsed.success) {
+        respond({ ok: false, error: 'Action invalide' });
+        return;
+      }
+
+      cz.heroAction(czCode, czRole.playerId, parsed.data)
+        .then((result) =>
+          respond({ ok: result.ok, error: result.error, loot: result.loot, hits: result.hits, killed: result.killed })
+        )
+        .catch((error: unknown) => {
+          app.log.error({ err: error, code: czCode }, 'CoronaZ action failed');
+          respond({ ok: false, error: 'Action impossible' });
+        });
+    });
+
+    socket.on('cz:gmAction', (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const { czCode, czRole } = socket.data;
+      if (!czCode || czRole?.kind !== 'gm') {
+        respond({ ok: false, error: 'Réservé au maître du jeu' });
+        return;
+      }
+
+      const parsed = czGmActionSchema.safeParse(payload);
+      if (!parsed.success) {
+        respond({ ok: false, error: 'Action invalide' });
+        return;
+      }
+
+      cz.gmAction(czCode, parsed.data)
+        .then((result) => respond({ ok: result.ok, error: result.error }))
+        .catch((error: unknown) => {
+          app.log.error({ err: error, code: czCode }, 'CoronaZ GM action failed');
+          respond({ ok: false, error: 'Action impossible' });
+        });
+    });
+
+    socket.on('cz:gmEnd', (payload) => {
+      const { czCode } = socket.data;
+      const state = czCode ? cz.get(czCode) : undefined;
+      if (!state || payload?.gmToken !== state.gmToken) return;
+
+      void cz.gmEnd(state.code).catch((error: unknown) => {
+        app.log.error({ err: error, code: state.code }, 'CoronaZ gmEnd failed');
+      });
+    });
+
     socket.on('disconnect', () => {
       handleDisconnect(socket);
+      czHandleDisconnect(socket);
     });
+
+    /** Same policy as the quizzes: the seat survives, only its light goes out. */
+    function czHandleDisconnect(current: GameSocket): void {
+      const { czCode, czRole } = current.data;
+      if (!czCode || czRole?.kind !== 'player') return;
+
+      const state = cz.get(czCode);
+      const hero = state?.heroes[czRole.playerId];
+      if (!state || !hero) return;
+
+      hero.connected = false;
+      czBroadcast(state);
+      void cz.persist(state);
+    }
 
     /**
      * A disconnect marks the player absent but keeps their seat and score. They are

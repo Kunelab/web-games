@@ -14,9 +14,8 @@ import type { AnswerField } from 'game-core';
 const MARKER_KEY = 'media_migration_v1';
 
 function alreadyMigrated(sqlite: Database): boolean {
-  const row = sqlite
-    .prepare(`SELECT value FROM MetaData WHERE content_id = 0 AND key = ?`)
-    .get(MARKER_KEY) as { value: string } | undefined;
+  const row = sqlite.prepare(`SELECT value FROM MetaData WHERE content_id = 0 AND key = ?`).get(MARKER_KEY) as
+    { value: string } | undefined;
   return row?.value === 'done';
 }
 

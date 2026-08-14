@@ -178,6 +178,21 @@
 .player-chips li.away {
   opacity: 0.4;
 }
+.chip-kick {
+  margin-left: 0.5em;
+  padding: 0 0.3em;
+  border: 0;
+  background: none;
+  color: var(--ink-faint);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--radius-pill);
+}
+.chip-kick:hover,
+.chip-kick:focus-visible {
+  color: var(--danger, #e5484d);
+}
 
 .final-standings {
   list-style: none;
@@ -528,4 +543,256 @@
 .host-timer.compact {
   font-size: clamp(2.2rem, 7vw, 4.5rem);
   line-height: 1;
+}
+
+/* ---------------------------------------------------------------- ceremony -- */
+
+.host-finished {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+}
+
+.ceremony {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-6);
+  width: 100%;
+}
+
+.podium {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: var(--space-3);
+  width: min(44rem, 92vw);
+}
+
+.podium-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.podium-name {
+  font-family: var(--font-display, inherit);
+  font-size: clamp(1.1rem, 3.2vw, 2rem);
+  font-weight: 700;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.podium-score {
+  color: var(--ink-faint);
+  font-size: var(--text-sm);
+}
+
+.podium-block {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: var(--space-2);
+  background: var(--bg-raised);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transform-origin: bottom;
+  animation: podium-rise 600ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.podium-rank {
+  font-size: clamp(1.4rem, 4vw, 2.4rem);
+  font-weight: 700;
+  color: var(--ink-faint);
+}
+
+/* The winner lands last, and taller. */
+.podium-rank-1 .podium-block {
+  height: clamp(6rem, 22vh, 11rem);
+  border-top: 3px solid var(--accent);
+  animation-delay: 700ms;
+}
+.podium-rank-1 .podium-rank {
+  color: var(--accent);
+}
+.podium-rank-2 .podium-block {
+  height: clamp(4.2rem, 15vh, 7.5rem);
+  animation-delay: 350ms;
+}
+.podium-rank-3 .podium-block {
+  height: clamp(3rem, 10vh, 5rem);
+  animation-delay: 0ms;
+}
+
+/* Names appear with their block, not before it. */
+.podium-name,
+.podium-score {
+  animation: podium-fade 400ms ease backwards;
+}
+.podium-rank-1 .podium-name,
+.podium-rank-1 .podium-score {
+  animation-delay: 900ms;
+}
+.podium-rank-2 .podium-name,
+.podium-rank-2 .podium-score {
+  animation-delay: 550ms;
+}
+.podium-rank-3 .podium-name,
+.podium-rank-3 .podium-score {
+  animation-delay: 200ms;
+}
+
+@keyframes podium-rise {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes podium-fade {
+  from {
+    opacity: 0;
+    transform: translateY(0.4rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .podium-block,
+  .podium-name,
+  .podium-score {
+    animation: none;
+  }
+}
+
+.awards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: min(28rem, 90vw);
+  animation: podium-fade 400ms ease 1200ms backwards;
+}
+.awards li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-raised);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+.award-emoji {
+  font-size: 1.2em;
+}
+.award-title {
+  font-weight: 600;
+}
+.award-holder {
+  color: var(--accent);
+}
+.award-value {
+  color: var(--ink-faint);
+  font-size: var(--text-sm);
+}
+
+.player-award {
+  font-size: var(--text-sm);
+}
+
+.final-standings li.me {
+  border: 1px solid var(--accent);
+}
+
+/* -------------------------------------------------------------- estimation -- */
+
+.estimate-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.estimate-unit {
+  color: var(--ink-faint);
+  font-size: var(--text-sm);
+  align-self: center;
+  padding-inline: var(--space-2);
+}
+.estimate-committed {
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+.estimate-committed strong {
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: 1.2em;
+}
+
+.guess-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: min(26rem, 88vw);
+}
+.guess-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-raised);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+.guess-delta {
+  color: var(--ink-faint);
+  font-size: var(--text-sm);
+}
+.guess-list li.closest {
+  border: 1px solid var(--accent);
+}
+.guess-list li.me .score-name {
+  color: var(--accent);
+}
+
+/* Career titles: cheap glory, worn wherever the name appears. */
+.chip-title {
+  margin-left: 0.5em;
+  font-size: 0.85em;
+  color: var(--accent);
+}
+.podium-title {
+  font-size: var(--text-xs);
+  color: var(--accent);
+}
+
+/* Solo mode: the answer half, docked under the stage on the same screen. */
+.host-solo-panel {
+  max-width: 34rem;
+  width: 100%;
+  margin-inline: auto;
+  border-top: 1px solid var(--rule);
+  padding-top: var(--space-3);
+}
+.host-solo-panel .player-round {
+  flex: none;
 }

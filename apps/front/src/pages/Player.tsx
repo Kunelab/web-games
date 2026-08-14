@@ -1,12 +1,8 @@
-import {
-  toServerTime,
-  type AnswerAck,
-  type JoinAck,
-  type RedactedAnswerField
-} from 'game-core';
+import { toServerTime, type AnswerAck, type JoinAck, type RedactedAnswerField } from 'game-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 
+import { awardMeta } from '../app/awards';
 import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
 import { assetUrl } from '../tools/api-url';
 import { RevealImage } from '../ui/RevealImage';
@@ -39,16 +35,22 @@ export default function Player() {
       setJoinError(null);
 
       try {
+        // The remembered name rides with the token: a silent rejoin used to
+        // send an empty name, which the schema refused — token or no token.
+        const remembered = localStorage.getItem(`${tokenKey}.name`) ?? '';
+        const actualName = playerName.trim() || remembered || 'Joueur';
+
         // socket.io's ack types do not survive `timeout()`; asserted once here.
         const ack = (await socket.timeout(5000).emitWithAck('session:join', {
           code,
-          playerName,
+          playerName: actualName,
           playerToken: localStorage.getItem(tokenKey) ?? undefined
         })) as JoinAck;
 
         if (ack.ok) {
           if (ack.playerToken) localStorage.setItem(tokenKey, ack.playerToken);
           if (ack.playerId) localStorage.setItem(`${tokenKey}.id`, ack.playerId);
+          localStorage.setItem(`${tokenKey}.name`, actualName);
           setJoined(true);
         } else {
           setJoinError(ack.error ?? 'Impossible de rejoindre.');
@@ -78,6 +80,15 @@ export default function Player() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void join('');
   }, [socket, connected, joined, join, tokenKey]);
+
+  // A NEW socket after a drop knows nothing: every reconnect re-presents the
+  // token and reclaims the seat, silently.
+  useEffect(() => {
+    if (!connected || !joined) return;
+    // Same reasoning as the auto-join above: this talks to the socket.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void join('');
+  }, [connected, joined, join]);
 
   if (!connected) {
     return (
@@ -189,9 +200,20 @@ export default function Player() {
         <div className="jeu-center" style={{ flex: 1 }}>
           <div className="stack-4" style={{ textAlign: 'center' }}>
             <p className="play-label">Terminé</p>
+            {/* The television holds the ceremony; the phone tells you what YOU got. */}
+            {(session.final?.awards ?? [])
+              .filter((award) => award.playerId === myId)
+              .map((award) => {
+                const meta = awardMeta(award.key);
+                return (
+                  <p className="player-award" key={award.key}>
+                    {meta.emoji} {meta.title} · {award.value}
+                  </p>
+                );
+              })}
             <ol className="final-standings">
               {session.players.map((player) => (
-                <li key={player.id}>
+                <li key={player.id} className={player.id === myId ? 'me' : undefined}>
                   <span className="rank tabular">{player.rank}</span>
                   <span className="score-name">{player.name}</span>
                   <span className="score-value tabular">{player.score}</span>
@@ -213,6 +235,11 @@ interface RoundPanelProps {
   offsetMs: number;
   /** This phone’s player id, so the reveal shows its own score. */
   myId: string | null;
+  /**
+   * True when this panel sits on a screen that already presents the media, i.e.
+   * solo play on the host screen: the question is up there, only answers here.
+   */
+  hidePresentation?: boolean;
   onSubmit: (
     fieldKey: string,
     value: string,
@@ -221,7 +248,15 @@ interface RoundPanelProps {
   onRevealChoices: (fieldKey: string) => Promise<void>;
 }
 
-function RoundPanel({ session, serverNow, myId, onSubmit, onRevealChoices }: RoundPanelProps) {
+/** Exported for the host screen's solo mode: one device presents AND answers. */
+export function RoundPanel({
+  session,
+  serverNow,
+  myId,
+  hidePresentation = false,
+  onSubmit,
+  onRevealChoices
+}: RoundPanelProps) {
   const round = session.round;
   const remaining = useCountdown(round?.phaseEndsAt ?? null, serverNow);
   const [feedback, setFeedback] = useState<{ field: string; text: string; good: boolean } | null>(null);
@@ -244,6 +279,7 @@ function RoundPanel({ session, serverNow, myId, onSubmit, onRevealChoices }: Rou
               {answer.value}
             </p>
           ))}
+          {reveal.guesses && reveal.guesses.length > 0 && <GuessList guesses={reveal.guesses} myId={myId} />}
           {reveal.explanation && <p className="play-note">{reveal.explanation}</p>}
           {mine && (
             <p className="play-note">
@@ -252,9 +288,7 @@ function RoundPanel({ session, serverNow, myId, onSubmit, onRevealChoices }: Rou
               {mine.comboMultiplier !== undefined && mine.comboMultiplier > 1 && (
                 <>
                   {' '}
-                  <Badge tone="ok">
-                    combo ×{mine.comboMultiplier.toFixed(1)}
-                  </Badge>
+                  <Badge tone="ok">combo ×{mine.comboMultiplier.toFixed(1)}</Badge>
                 </>
               )}
               {mine.comebackMultiplier !== undefined && mine.comebackMultiplier > 1 && (
@@ -265,9 +299,7 @@ function RoundPanel({ session, serverNow, myId, onSubmit, onRevealChoices }: Rou
               )}
             </p>
           )}
-          {mine && mine.comboLength > 1 && (
-            <p className="play-note">{mine.comboLength} manches gagnées d’affilée</p>
-          )}
+          {mine && mine.comboLength > 1 && <p className="play-note">{mine.comboLength} manches gagnées d’affilée</p>}
         </div>
       </div>
     );
@@ -279,8 +311,28 @@ function RoundPanel({ session, serverNow, myId, onSubmit, onRevealChoices }: Rou
         <div className="stack-4" style={{ textAlign: 'center' }}>
           <p className="play-label">Mémorisez</p>
           <p className="host-timer tabular">{remaining}</p>
-          <Presentation round={round} serverNow={serverNow} />
+          {!hidePresentation && <Presentation round={round} serverNow={serverNow} />}
         </div>
+      </div>
+    );
+  }
+
+  // An estimation is one number, revisable until the phase closes: none of the
+  // solved/locked machinery below describes it.
+  if (round.kind === 'estimation') {
+    const unit = (round.presentation as { unit?: string }).unit;
+    return (
+      <div className="player-round">
+        <div className="player-round-head">
+          <span className="player-timer tabular">{remaining}</span>
+          <span className="play-note">
+            {round.index + 1} / {round.total}
+          </span>
+        </div>
+
+        {!hidePresentation && <Presentation round={round} serverNow={serverNow} />}
+
+        <EstimationBox unit={unit} onSubmit={(value) => onSubmit(round.fields[0]?.key ?? 'estimate', value, false)} />
       </div>
     );
   }
@@ -303,7 +355,7 @@ function RoundPanel({ session, serverNow, myId, onSubmit, onRevealChoices }: Rou
         </span>
       </div>
 
-      <Presentation round={round} serverNow={serverNow} />
+      {!hidePresentation && <Presentation round={round} serverNow={serverNow} />}
 
       <div className="stack-4">
         {/* Written answers share one box, because the server accepts any of them from
@@ -343,9 +395,7 @@ function RoundPanel({ session, serverNow, myId, onSubmit, onRevealChoices }: Rou
                   text: result.correct
                     ? 'Trouvé'
                     : (result.error ??
-                      (result.attemptsLeft !== undefined
-                        ? `Non, ${result.attemptsLeft} essai(s) restant(s)`
-                        : 'Non'))
+                      (result.attemptsLeft !== undefined ? `Non, ${result.attemptsLeft} essai(s) restant(s)` : 'Non'))
                 });
               }}
             />
@@ -477,6 +527,109 @@ function FreeRecallBox({
   );
 }
 
+/**
+ * One number, committed and revisable.
+ *
+ * The server keeps only the latest value, so "Envoyer" after a change is an
+ * overwrite, not a second guess. The committed number stays on screen: the point of
+ * the format is talking yourself into a better number before the clock runs out.
+ */
+function EstimationBox({
+  unit,
+  onSubmit
+}: {
+  unit?: string;
+  onSubmit: (value: string) => Promise<{ ok: boolean; error?: string }>;
+}) {
+  const [value, setValue] = useState('');
+  const [committed, setCommitted] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function send() {
+    const answer = value.trim();
+    if (!answer || busy) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await onSubmit(answer);
+      if (result.ok) {
+        setCommitted(answer);
+        setValue('');
+      } else {
+        setError(result.error ?? 'Impossible d’envoyer ce nombre.');
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="estimate-box">
+      <form
+        className="row-attached"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void send();
+        }}
+      >
+        <Input
+          value={value}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setError(null);
+          }}
+          placeholder={committed ? 'Corriger ton estimation' : 'Ton estimation'}
+          inputMode="decimal"
+          autoComplete="off"
+          enterKeyHint="send"
+        />
+        {unit && <span className="estimate-unit">{unit}</span>}
+        <Button type="submit" variant="primary" busy={busy} disabled={!value.trim()}>
+          {committed ? 'Corriger' : 'Envoyer'}
+        </Button>
+      </form>
+
+      {error && <p className="play-error">{error}</p>}
+      {committed && (
+        <p className="estimate-committed">
+          Ton estimation : <strong>{committed}</strong>
+          {unit ? ` ${unit}` : ''} · modifiable jusqu’à la fin du chrono
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Everyone's number at the reveal, closest first. */
+function GuessList({
+  guesses,
+  myId
+}: {
+  guesses: { playerId: string; name: string; value: number; delta: number }[];
+  myId: string | null;
+}) {
+  const format = (value: number) => value.toLocaleString('fr-FR');
+
+  return (
+    <ul className="guess-list">
+      {guesses.map((guess, index) => (
+        <li
+          key={guess.playerId}
+          className={[index === 0 ? 'closest' : '', guess.playerId === myId ? 'me' : ''].filter(Boolean).join(' ')}
+        >
+          <span className="score-name">{guess.name}</span>
+          <span className="tabular">{format(guess.value)}</span>
+          <span className="guess-delta">
+            {guess.delta === 0 ? 'exact !' : guess.delta > 0 ? `+${format(guess.delta)}` : format(guess.delta)}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** Kind-specific rendering of whatever the server allowed the player to see. */
 function Presentation({
   round,
@@ -495,13 +648,11 @@ function Presentation({
     keepVisible?: boolean;
   };
 
-  if (round.kind === 'quiz') {
+  if (round.kind === 'quiz' || round.kind === 'estimation') {
     return (
       <div className="stack-3">
         <p className="player-question">{presentation.question}</p>
-        {presentation.imageUrl && (
-          <img className="player-image" src={assetUrl(presentation.imageUrl)} alt="" />
-        )}
+        {presentation.imageUrl && <img className="player-image" src={assetUrl(presentation.imageUrl)} alt="" />}
       </div>
     );
   }
@@ -511,14 +662,14 @@ function Presentation({
     // of the reveal without a single frame being transmitted. The round's own answer
     // time stands in when the phase has no deadline, as in an oral game, where the
     // old expression became zero and revealed the picture instantly.
-    const duration =
-      round.phaseEndsAt !== null ? round.phaseEndsAt - round.phaseStartAt : round.answerMs;
+    const duration = round.phaseEndsAt !== null ? round.phaseEndsAt - round.phaseStartAt : round.answerMs;
 
     return (
       <div className="reveal-frame">
         <RevealImage
           className="player-image"
           src={assetUrl(presentation.imageUrl)}
+          mode={presentation.mode ?? 'blur'}
           intensity={presentation.intensity ?? 40}
           startZoom={presentation.startZoom ?? 1}
           startAt={round.phaseStartAt}
@@ -588,7 +739,7 @@ function AnswerBox({
   if (solved) {
     return (
       <div className="answer-box solved">
-        <span className="play-label">{field.label.trim() || "Réponse"}</span>
+        <span className="play-label">{field.label.trim() || 'Réponse'}</span>
         <Badge tone="ok">trouvé</Badge>
       </div>
     );
@@ -597,7 +748,7 @@ function AnswerBox({
   if (locked) {
     return (
       <div className="answer-box locked">
-        <span className="play-label">{field.label.trim() || "Réponse"}</span>
+        <span className="play-label">{field.label.trim() || 'Réponse'}</span>
         <span className="play-note">Plus d’essais</span>
       </div>
     );
@@ -606,7 +757,7 @@ function AnswerBox({
   return (
     <div className="answer-box">
       <div className="answer-box-head">
-        <span className="play-label">{field.label.trim() || "Réponse"}</span>
+        <span className="play-label">{field.label.trim() || 'Réponse'}</span>
         <span className="play-note tabular">
           {field.points} pts
           {field.directBonus > 0 && !field.choices ? ` (+${field.directBonus} à l’aveugle)` : ''}

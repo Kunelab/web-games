@@ -4,14 +4,15 @@
   "version": "0.3.0",
   "description": "KuneLab Web Games monorepo",
   "type": "module",
+  "packageManager": "pnpm@10.30.0",
   "engines": {
     "node": ">=22",
     "pnpm": ">=10"
   },
   "scripts": {
-    "prepare": "pnpm --filter game-core build",
-    "dev": "pnpm --parallel --filter game-core --filter \"./apps/*\" dev",
-    "build": "pnpm --filter game-core build && pnpm --parallel --filter \"./apps/*\" build",
+    "prepare": "pnpm --filter game-core build && pnpm --filter coronaz-core build",
+    "dev": "pnpm --parallel --filter \"./packages/*\" --filter \"./apps/*\" dev",
+    "build": "pnpm --filter game-core build && pnpm --filter coronaz-core build && pnpm --parallel --filter \"./apps/*\" build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",

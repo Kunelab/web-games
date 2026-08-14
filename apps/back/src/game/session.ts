@@ -8,9 +8,11 @@ import {
   matchAnswer,
   matchAnyField,
   maxCompensationMs,
+  parseEstimate,
   partitionPlayable,
   pooledFields,
   redactAnswerField,
+  scoreEstimationRound,
   scoreRound,
   type AnswerField,
   type PlayerView,
@@ -26,6 +28,7 @@ import {
 import type { HostRoundView } from 'game-core';
 
 import type { MediaView } from '../services/media-service.js';
+import { computeAwards } from './awards.js';
 
 /**
  * The authoritative game state.
@@ -46,6 +49,8 @@ export interface PlayerState {
   token: string;
   name: string;
   connected: boolean;
+  /** Earned across past games, worn as a cosmetic under the name. Badge key. */
+  title?: string;
   /** Measured round trip, used to bound how much lag credit they can claim. */
   rttMs: number;
   totalScore: number;
@@ -94,6 +99,25 @@ export interface RoundState {
   multipliers?: Record<string, { combo: number; comeback: number }>;
 }
 
+/**
+ * What one player did across the whole game, accumulated as rounds close.
+ *
+ * Round state is replaced on every advance, so anything the final ceremony wants
+ * to say about the game has to be banked here while the round still exists.
+ * Optional on the session and defaulted on read: a session persisted before this
+ * existed must restore without it.
+ */
+export interface PlayerAggregate {
+  correct: number;
+  wrong: number;
+  /** Quickest correct answer, ms into its round. Null until they get one. */
+  fastestMs: number | null;
+  /** Rounds this player was the (sole) top earner of. */
+  roundsWon: number;
+  /** Longest run of round wins. Tracked even when combo scoring is off. */
+  bestCombo: number;
+}
+
 export interface SessionState {
   code: string;
   hostToken: string;
@@ -109,6 +133,10 @@ export interface SessionState {
   round: RoundState | null;
   /** Items excluded because they were incomplete, reported to the host. */
   skipped: { title: string; missing: string[] }[];
+  /** Per-player game-long tallies, for the final awards and the history row. */
+  stats?: Record<string, PlayerAggregate>;
+  /** Guards the results table against a finished game being recorded twice. */
+  resultsRecorded?: boolean;
   lastActivityAt: number;
 }
 
@@ -323,29 +351,40 @@ export function closeAnswers(state: SessionState, now = Date.now()): void {
   const round = state.round;
   if (!round || round.phase !== 'answering') return;
 
-  const submissions: ScoredSubmission[] = round.submissions.map((submission) => ({
-    playerId: submission.playerId,
-    fieldKey: submission.fieldKey,
-    answeredAt: submission.answeredAt,
-    correct: submission.correct,
-    direct: submission.direct
-  }));
-
   const players = Object.values(state.players);
 
-  const results = scoreRound(
-    submissions,
-    round.answers,
-    round.phaseStartAt,
-    round.timing.answerMs,
-    state.config.scoring,
-    {
-      // Standings as they stood before this round, which is what the comeback rule
-      // judges, and the streaks brought into it, which is what the combo pays on.
-      previousTotals: new Map(players.map((player) => [player.id, player.totalScore])),
-      comboLengths: new Map(players.map((player) => [player.id, player.comboLength ?? 0]))
-    }
-  );
+  // Standings as they stood before this round, which is what the comeback rule
+  // judges, and the streaks brought into it, which is what the combo pays on.
+  const context = {
+    previousTotals: new Map(players.map((player) => [player.id, player.totalScore])),
+    comboLengths: new Map(players.map((player) => [player.id, player.comboLength ?? 0]))
+  };
+
+  let results;
+
+  if (round.kind === 'estimation') {
+    // Distance ranking instead of right-or-wrong; the settlement (combos,
+    // comebacks, streaks) is shared. Only the first answer field is the estimate.
+    const field = round.answers[0];
+    results = field ? scoreEstimationRound(estimationGuesses(round), field, state.config.scoring, context) : [];
+  } else {
+    const submissions: ScoredSubmission[] = round.submissions.map((submission) => ({
+      playerId: submission.playerId,
+      fieldKey: submission.fieldKey,
+      answeredAt: submission.answeredAt,
+      correct: submission.correct,
+      direct: submission.direct
+    }));
+
+    results = scoreRound(
+      submissions,
+      round.answers,
+      round.phaseStartAt,
+      round.timing.answerMs,
+      state.config.scoring,
+      context
+    );
+  }
 
   round.scored = {};
   round.multipliers = {};
@@ -369,6 +408,35 @@ export function closeAnswers(state: SessionState, now = Date.now()): void {
   // a player who never submitted has no entry in the results at all.
   for (const player of players) {
     player.comboLength = byPlayer.get(player.id)?.comboLength ?? 0;
+  }
+
+  // Bank what the ceremony will want to say. The round object is replaced on the
+  // next advance, so this is the only moment these numbers exist.
+  const stats = (state.stats ??= {});
+  const ensureAggregate = (playerId: string): PlayerAggregate =>
+    (stats[playerId] ??= { correct: 0, wrong: 0, fastestMs: null, roundsWon: 0, bestCombo: 0 });
+
+  for (const submission of round.submissions) {
+    const aggregate = ensureAggregate(submission.playerId);
+    if (submission.correct) {
+      aggregate.correct += 1;
+      const elapsed = submission.answeredAt - round.phaseStartAt;
+      if (elapsed >= 0 && (aggregate.fastestMs === null || elapsed < aggregate.fastestMs)) {
+        aggregate.fastestMs = elapsed;
+      }
+    } else {
+      aggregate.wrong += 1;
+    }
+  }
+
+  for (const result of results) {
+    // `awardCombos` leaves exactly one player with a streak above zero: the round's
+    // sole top earner. Everyone else was reset.
+    if (result.comboLength > 0) {
+      const aggregate = ensureAggregate(result.playerId);
+      aggregate.roundsWon += 1;
+      aggregate.bestCombo = Math.max(aggregate.bestCombo, result.comboLength);
+    }
   }
 
   round.phase = 'reveal';
@@ -410,7 +478,7 @@ export function submitAnswer(options: SubmitOptions): SubmitResult {
     return { ok: false, error: 'Ce tour est terminé' };
   }
   if (round.phase !== 'answering') {
-    return { ok: false, error: "Les réponses ne sont pas ouvertes" };
+    return { ok: false, error: 'Les réponses ne sont pas ouvertes' };
   }
 
   const player = state.players[playerId];
@@ -422,6 +490,41 @@ export function submitAnswer(options: SubmitOptions): SubmitResult {
   // physically arrived after the phase closed cannot score.
   if (round.phaseEndsAt !== null && receivedAt > round.phaseEndsAt + 1_500) {
     return { ok: false, error: 'Trop tard' };
+  }
+
+  /**
+   * An estimation is a commitment, not an attempt. There is no wrong answer to
+   * count, revising the number until the round closes is the format, and only the
+   * last value stands, so the whole attempts-and-matching path below does not
+   * apply: the previous submission is replaced in place.
+   */
+  if (round.kind === 'estimation') {
+    if (parseEstimate(value) === null) {
+      return { ok: false, error: 'Entre un nombre' };
+    }
+
+    const compensation = maxCompensationMs(player.rttMs);
+    const { answeredAt } = clampAnswerTime(
+      claimedAt,
+      round.phaseStartAt,
+      receivedAt,
+      round.timing.answerMs,
+      compensation
+    );
+
+    const fieldKey = round.answers[0]?.key ?? 'estimate';
+    round.submissions = round.submissions.filter((submission) => submission.playerId !== playerId);
+    round.submissions.push({
+      playerId,
+      fieldKey,
+      value: value.slice(0, 200),
+      answeredAt,
+      correct: true,
+      direct: false
+    });
+
+    state.lastActivityAt = receivedAt;
+    return { ok: true, correct: true };
   }
 
   const mine = round.submissions.filter((submission) => submission.playerId === playerId);
@@ -477,9 +580,7 @@ export function submitAnswer(options: SubmitOptions): SubmitResult {
       return { ok: false, error: 'Déjà trouvé' };
     }
 
-    const wrongAttempts = mine.filter(
-      (submission) => submission.fieldKey === fieldKey && !submission.correct
-    ).length;
+    const wrongAttempts = mine.filter((submission) => submission.fieldKey === fieldKey && !submission.correct).length;
 
     if (wrongAttempts >= state.config.attemptsPerField) {
       return { ok: false, error: "Plus d'essais pour ce champ" };
@@ -520,16 +621,11 @@ export function submitAnswer(options: SubmitOptions): SubmitResult {
       ok: true,
       correct,
       // What is left for the round, since a pooled guess is not aimed at a prompt.
-      attemptsLeft: Math.max(
-        0,
-        pooledAttemptBudget(state, round.answers) - wrongPooledAttempts(after, round.answers)
-      )
+      attemptsLeft: Math.max(0, pooledAttemptBudget(state, round.answers) - wrongPooledAttempts(after, round.answers))
     };
   }
 
-  const wrongAfter = after.filter(
-    (submission) => submission.fieldKey === fieldKey && !submission.correct
-  ).length;
+  const wrongAfter = after.filter((submission) => submission.fieldKey === fieldKey && !submission.correct).length;
 
   return {
     ok: true,
@@ -562,8 +658,7 @@ function wrongPooledAttempts(mine: SubmissionState[], answers: AnswerField[]): n
 
   return mine.filter(
     (submission) =>
-      !submission.correct &&
-      (submission.fieldKey.startsWith('__wrong_') || pooledKeys.has(submission.fieldKey))
+      !submission.correct && (submission.fieldKey.startsWith('__wrong_') || pooledKeys.has(submission.fieldKey))
   ).length;
 }
 
@@ -611,7 +706,8 @@ function playerViews(state: SessionState): PlayerView[] {
       name: player.name,
       connected: player.connected,
       score: player.totalScore,
-      rank: rankById.get(player.id) ?? 0
+      rank: rankById.get(player.id) ?? 0,
+      title: player.title
     }))
     .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name, 'fr'));
 }
@@ -623,11 +719,7 @@ function playerViews(state: SessionState): PlayerView[] {
  * the only path by which round data reaches a player, so anything not built here
  * cannot leak.
  */
-export function toRoundView(
-  state: SessionState,
-  playerId: string | null,
-  context: ViewContext
-): RoundView | null {
+export function toRoundView(state: SessionState, playerId: string | null, context: ViewContext): RoundView | null {
   const round = state.round;
   if (!round) return null;
 
@@ -638,17 +730,14 @@ export function toRoundView(
 
   // A pooled answer locks with the round rather than on its own: the player never
   // aimed at it, so there is nothing to lock until the whole allowance is gone.
-  const pooledExhausted =
-    wrongPooledAttempts(mine, round.answers) >= pooledAttemptBudget(state, round.answers);
+  const pooledExhausted = wrongPooledAttempts(mine, round.answers) >= pooledAttemptBudget(state, round.answers);
 
   const locked = round.answers
     .filter((field) => {
       if (!field.choices?.length) {
         return pooledExhausted;
       }
-      const wrong = mine.filter(
-        (submission) => submission.fieldKey === field.key && !submission.correct
-      ).length;
+      const wrong = mine.filter((submission) => submission.fieldKey === field.key && !submission.correct).length;
       return wrong >= state.config.attemptsPerField;
     })
     .map((field) => field.key);
@@ -671,6 +760,23 @@ export function toRoundView(
   };
 }
 
+/** Each player's number on an estimation round: last submission per player. */
+export function estimationGuesses(round: RoundState): { playerId: string; value: number; answeredAt: number }[] {
+  const latest = new Map<string, SubmissionState>();
+  for (const submission of round.submissions) {
+    latest.set(submission.playerId, submission);
+  }
+
+  const guesses: { playerId: string; value: number; answeredAt: number }[] = [];
+  for (const submission of latest.values()) {
+    const value = parseEstimate(submission.value);
+    if (value !== null) {
+      guesses.push({ playerId: submission.playerId, value, answeredAt: submission.answeredAt });
+    }
+  }
+  return guesses;
+}
+
 export function toRevealView(state: SessionState): RevealView | null {
   const round = state.round;
   if (!round || round.phase !== 'reveal' || !round.scored) {
@@ -680,10 +786,26 @@ export function toRevealView(state: SessionState): RevealView | null {
   const explanation =
     round.kind === 'quiz' ? ((round.payload as { explanation?: string }).explanation ?? undefined) : undefined;
 
+  // On an estimation the guesses are the reveal: everyone's number goes on the
+  // television, closest first. No other kind shares who typed what.
+  let guesses: RevealView['guesses'];
+  if (round.kind === 'estimation') {
+    const truth = parseEstimate(round.answers[0]?.value ?? '');
+    guesses = estimationGuesses(round)
+      .map((guess) => ({
+        playerId: guess.playerId,
+        name: state.players[guess.playerId]?.name ?? '?',
+        value: guess.value,
+        delta: truth === null ? 0 : guess.value - truth
+      }))
+      .sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta));
+  }
+
   return {
     roundId: round.id,
     answers: round.answers.map((field) => ({ key: field.key, label: field.label, value: field.value })),
     explanation: explanation || undefined,
+    guesses,
     roundScores: Object.entries(round.scored)
       .map(([playerId, points]) => ({
         playerId,
@@ -747,6 +869,8 @@ export function toSessionView(
     reveal: toRevealView(state),
     isHost,
     hostRound: isHost ? toHostRoundView(state, currentTitle) : null,
-    skipped: isHost ? state.skipped : undefined
+    skipped: isHost ? state.skipped : undefined,
+    // The ceremony. An oral game scored nothing, so it has nothing to hand out.
+    final: state.phase === 'finished' && !state.config.oral ? { awards: computeAwards(state) } : undefined
   };
 }

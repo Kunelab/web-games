@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { frontOrigin } from '../env.js';
 import { loadAssetOnce, resolveAsset } from '../game/assets.js';
 import { playlistService } from '../services/playlist-service.js';
+import { resultsService } from '../services/results-service.js';
 
 /**
  * Types the proxy will serve. SVG is included because a flag, a logo or a diagram is
@@ -189,20 +190,22 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
         return { contentType, body };
       });
 
-      return reply
-        .header('content-type', asset.contentType)
-        .header('cache-control', 'private, max-age=1800')
-        // The token already scopes this to one round; nothing else should index it.
-        .header('x-robots-tag', 'noindex')
-        .header('x-content-type-options', 'nosniff')
-        /**
-         * An SVG opened as a document can run script, and these are served from the
-         * API's own origin. In an `img` tag that never happens, but the URL is a plain
-         * link a player could paste into the address bar, so the response refuses to
-         * load anything of its own.
-         */
-        .header('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'")
-        .send(asset.body);
+      return (
+        reply
+          .header('content-type', asset.contentType)
+          .header('cache-control', 'private, max-age=1800')
+          // The token already scopes this to one round; nothing else should index it.
+          .header('x-robots-tag', 'noindex')
+          .header('x-content-type-options', 'nosniff')
+          /**
+           * An SVG opened as a document can run script, and these are served from the
+           * API's own origin. In an `img` tag that never happens, but the URL is a plain
+           * link a player could paste into the address bar, so the response refuses to
+           * load anything of its own.
+           */
+          .header('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'")
+          .send(asset.body)
+      );
     }
   );
 
@@ -224,6 +227,26 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
 
     return mine;
   });
+
+  /**
+   * Finished games, newest first.
+   *
+   * Any signed-in account sees all of them, not only its own: this is a shared
+   * instance for one living room, and "who won last Saturday" is a question the
+   * whole room owns. Players themselves have no accounts, so scoping by host would
+   * hide most of the history from the people who played it.
+   */
+  app.get(
+    '/play/results',
+    {
+      preHandler: app.requireAuth,
+      schema: { querystring: z.object({ limit: z.coerce.number().int().min(1).max(200).default(30) }) }
+    },
+    async (request) => resultsService.list(request.query.limit)
+  );
+
+  /** Lifetime tallies per nickname, across every recorded game. */
+  app.get('/play/careers', { preHandler: app.requireAuth }, async () => resultsService.careers());
 };
 
 export default playRoutes;

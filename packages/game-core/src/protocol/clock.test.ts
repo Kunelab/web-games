@@ -55,9 +55,7 @@ describe('estimateClock', () => {
     // hours out. The offset takes up the whole error, so the converted time is
     // identical: a wrong clock needs no special handling, only a measured offset.
     const wrong = 3 * 3_600_000;
-    const estimate = estimateClock([
-      { clientSent: 1000 - wrong, serverTime: 6050, clientReceived: 1100 - wrong }
-    ]);
+    const estimate = estimateClock([{ clientSent: 1000 - wrong, serverTime: 6050, clientReceived: 1100 - wrong }]);
     assert.equal(toServerTime(estimate, 2000 - wrong), 7000);
   });
 

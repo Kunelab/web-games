@@ -138,7 +138,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
     }
   }
 
-    const notReady = chosen.filter((item) => !item.readiness.ready).length;
+  const notReady = chosen.filter((item) => !item.readiness.ready).length;
   const kinds = [...new Set(library.map((item) => item.kind))];
 
   return (
@@ -252,7 +252,10 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
             <p className="pl-panel-empty">
               {library.length === 0 ? (
                 <>
-                  La bibliothèque est vide. <Link to="/bibliotheque/nouveau" className="link-quiet">Ajouter un média</Link>
+                  La bibliothèque est vide.{' '}
+                  <Link to="/bibliotheque/nouveau" className="link-quiet">
+                    Ajouter un média
+                  </Link>
                 </>
               ) : (
                 'Tout est déjà dans la playlist, ou aucun résultat.'
@@ -283,15 +286,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   );
 }
 
-function SortableRow({
-  item,
-  index,
-  onRemove
-}: {
-  item: MediaItem;
-  index: number;
-  onRemove: () => void;
-}) {
+function SortableRow({ item, index, onRemove }: { item: MediaItem; index: number; onRemove: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
 
   return (

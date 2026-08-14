@@ -54,6 +54,12 @@ export function AtelierShell() {
                 <NavLink to="/playlists" className={({ isActive }) => `navlink ${isActive ? 'on' : ''}`}>
                   Playlists
                 </NavLink>
+                <NavLink to="/coronaz" className={({ isActive }) => `navlink ${isActive ? 'on' : ''}`}>
+                  CoronaZ
+                </NavLink>
+                <NavLink to="/historique" className={({ isActive }) => `navlink ${isActive ? 'on' : ''}`}>
+                  Historique
+                </NavLink>
               </nav>
             )}
 

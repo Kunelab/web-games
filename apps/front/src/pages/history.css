@@ -1,0 +1,117 @@
+/* The history page: careers on top, one card per finished game below. */
+
+.career-scroll {
+  overflow-x: auto;
+}
+
+.career-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.career-table th,
+.career-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.career-table th {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.career-table .num {
+  text-align: right;
+}
+.career-title {
+  color: var(--accent);
+  font-size: var(--text-xs);
+}
+.career-badges span {
+  margin-right: 0.25em;
+  cursor: help;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+}
+@media (min-width: 760px) {
+  .history-list {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.history-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+}
+
+.history-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.history-playlist {
+  font-weight: 600;
+}
+.history-date {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+
+.history-standings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.history-standings li {
+  display: grid;
+  grid-template-columns: 1.6rem minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: baseline;
+  font-size: var(--text-sm);
+}
+.history-standings .rank {
+  color: var(--ink-faint);
+}
+.history-standings li.winner .history-player {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.history-awards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.history-awards li {
+  font-size: var(--text-xs);
+  padding: 0.25em 0.6em;
+  background: var(--bg-sunken);
+  border-radius: var(--radius-pill);
+}
+
+.history-meta {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}

@@ -176,17 +176,7 @@ export function scoreRound(
   const ensure = (playerId: string): PlayerRoundScore => {
     let score = scores.get(playerId);
     if (!score) {
-      score = {
-        playerId,
-        total: 0,
-        entries: [],
-        penalties: 0,
-        perfectBonus: 0,
-        earned: 0,
-        comboMultiplier: 1,
-        comebackMultiplier: 1,
-        comboLength: 0
-      };
+      score = emptyPlayerRoundScore(playerId);
       scores.set(playerId, score);
     }
     return score;
@@ -258,15 +248,43 @@ export function scoreRound(
     }
   }
 
+  return finalizeRoundScores(scores, config, context);
+}
+
+/**
+ * The tail every round scorer shares: multipliers, ranking, streak bookkeeping.
+ *
+ * Split out so a kind that earns points differently, as the estimation round does
+ * with its distance ranking, still goes through exactly the same combo and comeback
+ * rules as everyone else. Two ways of earning, one way of settling.
+ */
+export function finalizeRoundScores(
+  scores: Map<string, PlayerRoundScore>,
+  config: ScoringConfig,
+  context: RoundContext
+): PlayerRoundScore[] {
   applyMultipliers(scores, config, context);
 
-  const ranked = [...scores.values()].sort(
-    (a, b) => b.total - a.total || a.playerId.localeCompare(b.playerId)
-  );
+  const ranked = [...scores.values()].sort((a, b) => b.total - a.total || a.playerId.localeCompare(b.playerId));
 
   awardCombos(ranked, context);
 
   return ranked;
+}
+
+/** A zeroed score row, exported for scorers that build their own entries. */
+export function emptyPlayerRoundScore(playerId: string): PlayerRoundScore {
+  return {
+    playerId,
+    total: 0,
+    entries: [],
+    penalties: 0,
+    perfectBonus: 0,
+    earned: 0,
+    comboMultiplier: 1,
+    comebackMultiplier: 1,
+    comboLength: 0
+  };
 }
 
 /**
@@ -277,11 +295,7 @@ export function scoreRound(
  * player it is meant to help, and so is the perfect-round bonus, which is a flat
  * reward for a specific achievement rather than part of the race.
  */
-function applyMultipliers(
-  scores: Map<string, PlayerRoundScore>,
-  config: ScoringConfig,
-  context: RoundContext
-): void {
+function applyMultipliers(scores: Map<string, PlayerRoundScore>, config: ScoringConfig, context: RoundContext): void {
   const eligible = comebackEligibility(config, context);
 
   for (const score of scores.values()) {
@@ -355,9 +369,7 @@ function comebackEligibility(config: ScoringConfig, context: RoundContext): Map<
  * already alive. The streak has to be re-earned every round at face value.
  */
 function awardCombos(ranked: PlayerRoundScore[], context: RoundContext): void {
-  const byEarned = [...ranked].sort(
-    (a, b) => b.earned - a.earned || a.playerId.localeCompare(b.playerId)
-  );
+  const byEarned = [...ranked].sort((a, b) => b.earned - a.earned || a.playerId.localeCompare(b.playerId));
   const [best, runnerUp] = byEarned;
   const winner = best && best.earned > 0 && best.earned !== runnerUp?.earned ? best.playerId : null;
 

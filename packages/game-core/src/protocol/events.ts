@@ -45,55 +45,55 @@ export const hostActionSchema = z.object({
 });
 
 export interface JoinAck {
-  ok: boolean
-  error?: string
+  ok: boolean;
+  error?: string;
   /** Store and resend on reconnect. */
-  playerToken?: string
-  playerId?: string
-  session?: SessionView
+  playerToken?: string;
+  playerId?: string;
+  session?: SessionView;
 }
 
 export interface AnswerAck {
-  ok: boolean
-  error?: string
+  ok: boolean;
+  error?: string;
   /** Whether it was accepted as correct. */
-  correct?: boolean
+  correct?: boolean;
   /** Points earned, available immediately so the phone can react. */
-  points?: number
+  points?: number;
   /** Attempts left on this field. */
-  attemptsLeft?: number
+  attemptsLeft?: number;
 }
 
 export interface ClockPongPayload {
-  clientSent: number
-  serverTime: number
+  clientSent: number;
+  serverTime: number;
 }
 
 /** Client to server. */
 export interface ClientToServerEvents {
-  'session:join': (payload: JoinPayload, ack: (response: JoinAck) => void) => void
-  'session:leave': () => void
-  'clock:ping': (payload: { clientSent: number }, ack: (response: ClockPongPayload) => void) => void
-  'answer:submit': (payload: AnswerPayload, ack: (response: AnswerAck) => void) => void
+  'session:join': (payload: JoinPayload, ack: (response: JoinAck) => void) => void;
+  'session:leave': () => void;
+  'clock:ping': (payload: { clientSent: number }, ack: (response: ClockPongPayload) => void) => void;
+  'answer:submit': (payload: AnswerPayload, ack: (response: AnswerAck) => void) => void;
   'answer:revealChoices': (
     payload: z.infer<typeof revealChoicesPayloadSchema>,
     ack: (response: { ok: boolean; choices?: string[] }) => void
-  ) => void
-  'host:open': (payload: { code: string; hostToken: string }, ack: (response: JoinAck) => void) => void
-  'host:start': (payload: z.infer<typeof hostActionSchema>) => void
-  'host:advance': (payload: z.infer<typeof hostActionSchema>) => void
-  'host:closeAnswers': (payload: z.infer<typeof hostActionSchema>) => void
-  'host:kick': (payload: { hostToken: string; playerId: string }) => void
+  ) => void;
+  'host:open': (payload: { code: string; hostToken: string }, ack: (response: JoinAck) => void) => void;
+  'host:start': (payload: z.infer<typeof hostActionSchema>) => void;
+  'host:advance': (payload: z.infer<typeof hostActionSchema>) => void;
+  'host:closeAnswers': (payload: z.infer<typeof hostActionSchema>) => void;
+  'host:kick': (payload: { hostToken: string; playerId: string }) => void;
 }
 
 /** Server to client. */
 export interface ServerToClientEvents {
   /** Whole-session snapshot. Sent on join, on reconnect, and on any phase change. */
-  'session:state': (view: SessionView) => void
-  'session:players': (players: SessionView['players']) => void
-  'round:reveal': (reveal: RevealView) => void
-  'session:ended': (standings: SessionView['players']) => void
-  'session:error': (payload: { message: string }) => void
+  'session:state': (view: SessionView) => void;
+  'session:players': (players: SessionView['players']) => void;
+  'round:reveal': (reveal: RevealView) => void;
+  'session:ended': (standings: SessionView['players']) => void;
+  'session:error': (payload: { message: string }) => void;
   /**
    * Server-initiated round-trip probe. The client acknowledges immediately and
    * sends nothing back.
@@ -103,7 +103,7 @@ export interface ServerToClientEvents {
    * terrible connection and buy itself several seconds of backdating. Timing its
    * own emit-to-ack leaves the client nothing to lie about.
    */
-  'clock:sync': (payload: { serverTime: number }, ack: () => void) => void
+  'clock:sync': (payload: { serverTime: number }, ack: () => void) => void;
 }
 
 /**

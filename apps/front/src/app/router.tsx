@@ -13,6 +13,11 @@ const MediaEditor = lazy(() => import('../pages/MediaEditor'));
 const Playlists = lazy(() => import('../pages/Playlists'));
 const PlaylistEditor = lazy(() => import('../pages/PlaylistEditor'));
 const Launch = lazy(() => import('../pages/Launch'));
+const History = lazy(() => import('../pages/History'));
+const CoronaZSetup = lazy(() => import('../pages/zombie/CoronaZSetup'));
+const CoronaZTv = lazy(() => import('../pages/zombie/CoronaZTv'));
+const CoronaZPlayer = lazy(() => import('../pages/zombie/CoronaZPlayer'));
+const CoronaZGm = lazy(() => import('../pages/zombie/CoronaZGm'));
 const Host = lazy(() => import('../pages/Host'));
 const Join = lazy(() => import('../pages/Join'));
 const Player = lazy(() => import('../pages/Player'));
@@ -104,6 +109,22 @@ const router = createBrowserRouter([
           </RequireAuth>
         )
       },
+      {
+        path: '/historique',
+        element: (
+          <RequireAuth>
+            <History />
+          </RequireAuth>
+        )
+      },
+      {
+        path: '/coronaz',
+        element: (
+          <RequireAuth>
+            <CoronaZSetup />
+          </RequireAuth>
+        )
+      },
       { path: '*', element: <NotFound /> }
     ]
   },
@@ -120,7 +141,18 @@ const router = createBrowserRouter([
         )
       },
       { path: '/rejoindre', element: <Join /> },
-      { path: '/rejoindre/:code', element: <Player /> }
+      { path: '/rejoindre/:code', element: <Player /> },
+      {
+        path: '/coronaz/:code',
+        element: (
+          <RequireAuth>
+            <CoronaZTv />
+          </RequireAuth>
+        )
+      },
+      // Phones need no account, the game master's link carries its own secret.
+      { path: '/coronaz/rejoindre/:code', element: <CoronaZPlayer /> },
+      { path: '/coronaz/mj/:code', element: <CoronaZGm /> }
     ]
   }
 ]);

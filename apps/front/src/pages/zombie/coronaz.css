@@ -1,0 +1,819 @@
+/* CoronaZ: the board, the phones, the game master. Dark by design: it is night. */
+
+/* ---------------------------------- map ----------------------------------- */
+
+/*
+ * The board is a viewport now, not a grid: the canvas fills it and the camera
+ * decides what is inside. The wrapper's job is only to have a size — the scene
+ * is as big as the building, which may be far larger than the screen.
+ */
+.cz-map-wrap {
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+}
+
+.cz-stage {
+  position: relative;
+  flex: 1;
+  min-height: 12rem;
+  overflow: hidden;
+  border: 3px solid #17171a;
+  border-radius: var(--radius-sm);
+  background: #07080b;
+  /* An RTS map: grab it and drag. */
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+.cz-stage.dragging {
+  cursor: grabbing;
+}
+.cz-stage:focus-visible {
+  border-color: var(--accent);
+}
+
+.cz-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* The plan, in the corner. Tappable, so it is also a way to get somewhere. */
+.cz-minimap {
+  position: absolute;
+  left: var(--space-2);
+  bottom: var(--space-2);
+  z-index: 9000;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: rgb(7 8 11 / 0.72);
+  backdrop-filter: blur(2px);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* ---------------------------- camera controls ----------------------------- */
+
+.cz-camera-controls {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 9000;
+}
+.cz-camera-controls button {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-raised) 82%, transparent);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  backdrop-filter: blur(3px);
+}
+.cz-camera-controls button:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+/* Lit while the screen is driving itself, so the room knows why it moved. */
+.cz-camera-controls button.live {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ------------------------------ entity tokens ----------------------------- */
+
+.cz-entities {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.cz-token {
+  position: absolute;
+  transform: translate(-50%, -75%);
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  overflow: hidden;
+  /* The slide: a state update moves the piece, the browser draws the walk. */
+  transition:
+    left 450ms cubic-bezier(0.3, 0.9, 0.4, 1),
+    top 450ms cubic-bezier(0.3, 0.9, 0.4, 1),
+    width 250ms ease;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.55);
+}
+
+.cz-token-hero {
+  background: radial-gradient(circle at 35% 30%, #2c2c31, #17171a);
+  border: 2px solid;
+  z-index: 3;
+  pointer-events: none;
+}
+.cz-token-hero.me {
+  box-shadow:
+    0 0 10px var(--accent),
+    0 2px 6px rgb(0 0 0 / 0.55);
+  z-index: 4;
+}
+
+.cz-token-zombie {
+  border: 2px solid #3c1f1f;
+  background: #17171a;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  z-index: 2;
+}
+.cz-token-zombie img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cz-token-zombie.boss {
+  border-color: #e5484d;
+  z-index: 3;
+}
+.cz-token-zombie.tappable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.cz-token-zombie.selected {
+  outline: 3px solid var(--accent);
+}
+
+.cz-token-hp {
+  position: absolute;
+  left: 8%;
+  bottom: 4%;
+  height: 7%;
+  min-height: 2px;
+  max-width: 84%;
+  border-radius: var(--radius-pill);
+  background: var(--ok, #3fb950);
+  transition: width 300ms ease;
+}
+.cz-token-hp.horde {
+  background: #e5484d;
+}
+
+/* ----------------------------------- TV ----------------------------------- */
+
+/*
+ * The television. One row that takes the height it is given, so the board can
+ * hand its full height to the camera rather than shrinking to its contents.
+ */
+.cz-tv {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: var(--space-4);
+  min-height: 0;
+}
+@media (min-width: 900px) {
+  .cz-tv {
+    grid-template-columns: minmax(0, 3fr) minmax(16rem, 1fr);
+  }
+}
+
+.cz-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.cz-phase {
+  font-size: var(--text-lg);
+  font-weight: 700;
+}
+.cz-phase.enemy {
+  color: #e5484d;
+}
+
+.cz-goal {
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+
+.cz-hero-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.cz-hero-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-raised);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+.cz-hero-list li.down {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+.cz-hero-list li.out {
+  opacity: 0.7;
+}
+.cz-hp {
+  color: #e5484d;
+}
+.cz-ap {
+  color: var(--accent);
+}
+
+.cz-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+  max-height: 12rem;
+  overflow: hidden;
+}
+
+.cz-timer {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 6vw, 4rem);
+  line-height: 1;
+  color: var(--accent);
+}
+.cz-timer.urgent {
+  color: #e5484d;
+}
+
+/* --------------------------------- phone ---------------------------------- */
+
+.cz-player {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+.cz-me {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+.cz-me .stat {
+  font-weight: 700;
+}
+
+.cz-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: var(--space-2);
+}
+
+.cz-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+}
+
+.cz-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.cz-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  border: 1px solid var(--rule);
+  background: var(--bg-sunken);
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 0.35em 0.6em;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+/* Rarity borders come inline from RARITY_META: one colour language, one source. */
+.cz-item.empty {
+  opacity: 0.5;
+  cursor: default;
+}
+.cz-akimbo {
+  font-size: 0.85em;
+}
+
+.cz-rarity {
+  margin-left: 0.5em;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The item's card: every number it carries, one fact per line. */
+.cz-item-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+.cz-item-stats.compact {
+  font-size: var(--text-xs);
+  gap: 0.05rem;
+}
+
+/* The CoD pick: perk chips, one column, the chosen ones lit. */
+.cz-perk-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.cz-perk {
+  display: block;
+  text-align: left;
+  border: 1px solid var(--rule);
+  background: var(--bg-sunken);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 0.4em 0.7em;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.cz-perk.picked {
+  border-color: var(--accent);
+  color: var(--ink);
+  background: var(--bg-raised);
+}
+.cz-perk:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.cz-slot-label {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cz-loot-toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  font-size: var(--text-sm);
+}
+
+/* ----------------------------------- GM ----------------------------------- */
+
+.cz-gm-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.cz-budget {
+  font-weight: 700;
+  color: #e5484d;
+}
+
+/* ---------------------------------- end ----------------------------------- */
+
+.cz-end {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-5);
+}
+.cz-verdict {
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 9vw, 5rem);
+  line-height: 1;
+}
+.cz-verdict.won {
+  color: var(--ok, #3fb950);
+}
+.cz-verdict.lost {
+  color: #e5484d;
+}
+
+/* The side quests, checked off as they fall. */
+.cz-objectives {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+.cz-objectives li.done {
+  color: var(--ok, #3fb950);
+}
+
+/* ------------------------------ faces & chrome ----------------------------- */
+
+.cz-mute {
+  border: 0;
+  background: none;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 0.3em;
+}
+
+/* ------------------------------- the draft -------------------------------- */
+
+/*
+ * The roster and the dossier. On a phone they stack, faces first; from 900px up
+ * they sit side by side, which is the whole reason this screen was rebuilt — on a
+ * PC you want to shop twenty characters with the mouse and read one of them
+ * without losing sight of the rest.
+ */
+.cz-lobby {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+.cz-lobby-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.cz-lobby-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.cz-acquis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.cz-draft {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  min-height: 0;
+  flex: 1;
+}
+@media (min-width: 900px) {
+  .cz-draft {
+    grid-template-columns: minmax(0, 1fr) minmax(19rem, 24rem);
+  }
+}
+
+.cz-roster {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.5rem, 1fr));
+  gap: var(--space-2);
+  align-content: start;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: var(--space-1);
+}
+@media (min-width: 900px) {
+  .cz-roster {
+    grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
+  }
+}
+
+/* A face. Nothing but the portrait and the name: that is the grid's whole idea. */
+.cz-face {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  border: 2px solid color-mix(in srgb, hsl(var(--face-hue) 60% 50%) 35%, var(--rule));
+  border-radius: var(--radius-sm);
+  background: linear-gradient(170deg, hsl(var(--face-hue) 30% 22%), var(--bg-sunken) 70%);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    transform 120ms ease,
+    border-color 120ms ease;
+}
+.cz-face:hover,
+.cz-face:focus-visible {
+  transform: translateY(-2px);
+  border-color: hsl(var(--face-hue) 70% 58%);
+  outline: none;
+}
+.cz-face.shown {
+  border-color: hsl(var(--face-hue) 75% 62%);
+}
+.cz-face.mine {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent) inset;
+}
+.cz-face.unavailable {
+  filter: grayscale(0.7) brightness(0.7);
+}
+
+.cz-portrait-img,
+.cz-portrait-emoji {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  font-size: clamp(1.6rem, 6vw, 2.4rem);
+}
+
+.cz-face-name {
+  padding: 0.15em 0.3em;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-align: center;
+  background: rgb(0 0 0 / 0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cz-face-lock,
+.cz-face-taken {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  padding: 0.1em;
+  font-size: 0.6rem;
+  text-align: center;
+  background: rgb(0 0 0 / 0.65);
+}
+.cz-face-taken {
+  color: var(--ink-faint);
+}
+.cz-face-badge {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  color: var(--accent);
+  font-weight: 700;
+  text-shadow: 0 1px 3px #000;
+}
+
+/* The dossier: everything about the one you are looking at. */
+.cz-dossier {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  min-height: 0;
+  overflow-y: auto;
+}
+.cz-dossier-head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+.cz-dossier-face {
+  flex: none;
+  width: 5rem;
+  border: 2px solid hsl(var(--face-hue) 65% 55%);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: linear-gradient(170deg, hsl(var(--face-hue) 32% 26%), var(--bg-sunken));
+}
+.cz-dossier-name {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: var(--text-lg);
+}
+.cz-dossier-blurb {
+  margin: 0.2em 0 0;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+.cz-dossier-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0.4em 0 0;
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+}
+.cz-dossier-mine {
+  margin: 0;
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+.cz-favourite {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+.cz-favourite-stats {
+  color: var(--ink-faint);
+}
+.cz-perk-preview {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+}
+
+.cz-item-sprite {
+  width: 1.6em;
+  height: 1.6em;
+  object-fit: contain;
+  vertical-align: middle;
+  display: block;
+}
+.cz-loot-face {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+/* ------------------------------ rarity, worn ------------------------------- */
+
+/*
+ * What a rarity looks like.
+ *
+ * Two custom properties come from the item — its colour and how hard it should
+ * shine (0 for a common, 1 for a legendary) — and everything here escalates off
+ * them: a glow that grows, a wash of the rarity's hue over the artwork itself,
+ * and at the top a sheen that travels across it. A common gets none of it, which
+ * is the point: the effect has to mean something, so most things must not have it.
+ */
+.cz-art {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  isolation: isolate;
+  line-height: 1;
+  filter: drop-shadow(0 0 calc(var(--rarity-force, 0) * 7px) var(--rarity, transparent));
+}
+.cz-art.big .cz-item-sprite,
+.cz-art.big .cz-item-emoji {
+  width: 2.4em;
+  height: 2.4em;
+  font-size: 1.7em;
+}
+.cz-art .cz-item-emoji {
+  display: grid;
+  place-items: center;
+  width: 1.6em;
+  height: 1.6em;
+}
+
+/* The hue wash: the artwork keeps its shape, the rarity takes its colour. */
+.cz-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--rarity);
+  mix-blend-mode: color;
+  opacity: calc(var(--rarity-force, 0) * 0.45);
+  pointer-events: none;
+}
+.cz-art.r1::after {
+  opacity: 0;
+}
+
+/* Epic and legendary also move, because nothing else on the phone does. */
+.cz-art.r4,
+.cz-art.r5 {
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+.cz-art.r4::before,
+.cz-art.r5::before {
+  content: '';
+  position: absolute;
+  inset: -50%;
+  background: linear-gradient(
+    105deg,
+    transparent 42%,
+    color-mix(in srgb, var(--rarity) 65%, white) 50%,
+    transparent 58%
+  );
+  opacity: 0.5;
+  animation: cz-sheen 2.6s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+  pointer-events: none;
+}
+.cz-art.r5::before {
+  animation-duration: 1.9s;
+  opacity: 0.75;
+}
+@keyframes cz-sheen {
+  0% {
+    transform: translateX(-120%);
+  }
+  60%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+/* The container the item sits in glows too, faintly, at the top rarities. */
+.cz-item.r4,
+.cz-item.r5 {
+  box-shadow: 0 0 calc(var(--rarity-force) * 10px) color-mix(in srgb, var(--rarity) 40%, transparent);
+}
+.cz-loot-toast.r4,
+.cz-loot-toast.r5 {
+  border-color: var(--rarity);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--rarity) 32%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cz-art.r4::before,
+  .cz-art.r5::before {
+    animation: none;
+    opacity: 0.25;
+  }
+}
+.cz-spawn-face {
+  width: 1.6em;
+  height: 1.6em;
+  border-radius: 50%;
+  object-fit: cover;
+  vertical-align: middle;
+}
+
+/* ------------------------- one screen, no scrolling ------------------------ */
+
+/*
+ * The board takes whatever height the chrome leaves it and the camera fits the
+ * building into that. Before the camera existed this had to compute a width from
+ * the board's aspect ratio to keep the whole map on screen; now "the whole map"
+ * is the camera's opening shot and the stage just needs to be as big as it can.
+ */
+.cz-player .cz-map-wrap,
+.cz-tv .cz-map-wrap {
+  min-height: 10rem;
+}
+
+/* The dock: map in the middle, hands at the bottom, nothing below the fold. */
+.cz-player .cz-bottom {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+/* A sheet may hold twenty items; it scrolls inside itself, never the page. */
+.cz-player .cz-sheet {
+  max-height: 32dvh;
+  overflow-y: auto;
+}

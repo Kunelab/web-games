@@ -77,11 +77,7 @@ export default function Register() {
           )}
         </Field>
 
-        <Field
-          label="Mot de passe"
-          hint={`${MIN_PASSWORD_LENGTH} caractères minimum`}
-          error={error ?? undefined}
-        >
+        <Field label="Mot de passe" hint={`${MIN_PASSWORD_LENGTH} caractères minimum`} error={error ?? undefined}>
           {({ id, describedBy, invalid }) => (
             <Input
               id={id}

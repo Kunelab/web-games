@@ -1,4 +1,4 @@
-import type { AnswerField, FieldMeta, KindTiming, Readiness, SessionConfig } from 'game-core';
+import type { AnswerField, FieldMeta, FinalAward, KindTiming, Readiness, SessionConfig } from 'game-core';
 
 import { apiBaseUrl } from '../tools/api-url';
 
@@ -67,8 +67,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     const body = typeof payload === 'object' && payload !== null ? (payload as Record<string, unknown>) : {};
     const rawMessage = body.message;
 
-    const message =
-      (typeof rawMessage === 'string' ? rawMessage : '') || `La requête a échoué (${response.status})`;
+    const message = (typeof rawMessage === 'string' ? rawMessage : '') || `La requête a échoué (${response.status})`;
     const details = body.details;
 
     throw new ApiError(message, response.status, details);
@@ -159,6 +158,36 @@ export interface PanelItem {
 export interface PanelTheme {
   id: string;
   label: string;
+  /** Themes sharing a group render under one heading. */
+  group: string;
+  /** True when the nationality picker applies. */
+  byNationality: boolean;
+}
+
+export interface PanelNationality {
+  id: string;
+  label: string;
+}
+
+/** A window on the 0–100 obscurity scale: 0 household names, 100 deep cuts. */
+export interface DifficultyRange {
+  min: number;
+  max: number;
+}
+
+export interface DifficultyPreset extends DifficultyRange {
+  id: string;
+  label: string;
+}
+
+/** One subject from the generalized Wikipedia lookup. */
+export interface WikiSubject {
+  title: string;
+  label: string;
+  imageUrl: string;
+  description: string;
+  pageUrl: string;
+  monthlyViews: number;
 }
 
 export interface YoutubeMetadata {
@@ -186,6 +215,47 @@ export interface SessionSummary {
   total: number;
 }
 
+/** One player's line in a recorded game. */
+export interface ResultPlayer {
+  name: string;
+  score: number;
+  rank: number;
+  correct: number;
+  wrong: number;
+  fastestMs: number | null;
+  roundsWon: number;
+  bestCombo: number;
+}
+
+/** A finished game as the history page reads it. */
+export interface GameResult {
+  id: number;
+  code: string;
+  playlistName: string;
+  finishedAt: number;
+  roundsTotal: number;
+  players: ResultPlayer[];
+  awards: FinalAward[];
+}
+
+/** Lifetime tallies for one nickname. */
+export interface PlayerCareer {
+  name: string;
+  games: number;
+  wins: number;
+  totalPoints: number;
+  bestScore: number;
+  correct: number;
+  wrong: number;
+  awards: number;
+  fastestEverMs: number | null;
+  bestComboEver: number;
+  /** Achievement keys, in prestige order. See app/badges.ts for the labels. */
+  badges: string[];
+  /** The badge worn as a title, usually the last of `badges`. */
+  title: string | null;
+}
+
 /* --------------------------------------------------------------------- calls */
 
 export const api = {
@@ -210,21 +280,33 @@ export const api = {
   categories: () => request<string[]>('/media/categories'),
   getMedia: (id: number) => request<MediaItem>(`/media/${id}`),
   createMedia: (body: MediaInputBody) => request<MediaItem>('/media', { method: 'POST', body }),
-  updateMedia: (id: number, body: MediaInputBody) =>
-    request<MediaItem>(`/media/${id}`, { method: 'PATCH', body }),
+  updateMedia: (id: number, body: MediaInputBody) => request<MediaItem>(`/media/${id}`, { method: 'PATCH', body }),
   duplicateMedia: (id: number) => request<MediaItem>(`/media/${id}/duplicate`, { method: 'POST' }),
   deleteMedia: (id: number) => request<void>(`/media/${id}`, { method: 'DELETE' }),
   mediaUsage: (id: number) => request<{ playlists: number }>(`/media/${id}/usage`),
 
-  /* youtube */
-  panelThemes: () => request<{ themes: PanelTheme[] }>('/media/panel/themes'),
-  buildPanel: (themes: string[], count: number) =>
-    request<{ items: PanelItem[] }>(
-      `/media/panel?themes=${encodeURIComponent(themes.join(','))}&count=${count}`
-    ),
+  /* wikipedia */
+  panelThemes: () =>
+    request<{
+      themes: PanelTheme[];
+      nationalities: PanelNationality[];
+      difficultyPresets: DifficultyPreset[];
+      defaultRange: DifficultyRange;
+    }>('/media/panel/themes'),
+  buildPanel: (themes: string[], count: number, range: DifficultyRange, nationalities: string[]) => {
+    const params = new URLSearchParams({
+      themes: themes.join(','),
+      count: String(count),
+      dmin: String(range.min),
+      dmax: String(range.max)
+    });
+    if (nationalities.length > 0) params.set('nats', nationalities.join(','));
+    return request<{ items: PanelItem[] }>(`/media/panel?${params.toString()}`);
+  },
+  wikiSearch: (query: string) =>
+    request<{ results: WikiSubject[] }>(`/media/wiki/search?q=${encodeURIComponent(query)}`),
 
-  youtubeLookup: (ref: string) =>
-    request<YoutubeMetadata>('/media/youtube/lookup', { method: 'POST', body: { ref } }),
+  youtubeLookup: (ref: string) => request<YoutubeMetadata>('/media/youtube/lookup', { method: 'POST', body: { ref } }),
   youtubeImport: (playlistRef: string, category?: string) =>
     request<{ imported: number; notReady: number; items: MediaItem[] }>('/media/youtube/import', {
       method: 'POST',
@@ -248,6 +330,51 @@ export const api = {
     request<StartedSession>('/play/sessions', { method: 'POST', body: { playlistId, config } }),
   sessionSummary: (code: string) => request<SessionSummary>(`/play/sessions/${code}`, { allowAnonymous: true }),
   endSession: (code: string) => request<void>(`/play/sessions/${code}`, { method: 'DELETE' }),
-  mySessions: () =>
-    request<{ code: string; hostToken: string; phase: string; playlistName: string }[]>('/play/mine')
+  mySessions: () => request<{ code: string; hostToken: string; phase: string; playlistName: string }[]>('/play/mine'),
+
+  /* history */
+  results: (limit = 30) => request<GameResult[]>(`/play/results?limit=${limit}`),
+  careers: () => request<PlayerCareer[]>('/play/careers'),
+
+  /* CoronaZ */
+  czCreate: (config: unknown, seed?: number, gmLoadout?: string[]) =>
+    request<{ code: string; hostToken: string; gmToken?: string }>('/zombie/sessions', {
+      method: 'POST',
+      body: { config, seed, gmLoadout }
+    }),
+  czSummary: (code: string) =>
+    request<{ code: string; phase: string; scenario: string; mode: string; players: number }>(
+      `/zombie/sessions/${code}`,
+      { allowAnonymous: true }
+    ),
+  czEnd: (code: string) => request<void>(`/zombie/sessions/${code}`, { method: 'DELETE' }),
+  czMine: () =>
+    request<{ code: string; hostToken: string; gmToken?: string; phase: string; scenario: string }[]>('/zombie/mine'),
+  czCareers: () => request<CzCareer[]>('/zombie/careers'),
+  czMe: () => request<CzCareer>('/zombie/me'),
+  czUnlockGm: (classId: string) => request<CzCareer>('/zombie/unlock', { method: 'POST', body: { classId } })
 };
+
+/** One nickname's CoronaZ roguelite ledger. */
+export interface CzCareer {
+  name: string;
+  stats: {
+    raids: number;
+    wins: number;
+    deaths: number;
+    escapes: number;
+    kills: number;
+    bossKills: number;
+    searches: number;
+    fastestWinTurns: Record<string, number>;
+    gmRaids: number;
+    gmWins: number;
+    gmSpawns: number;
+    rations: number;
+    unlockedHeroes: string[];
+    unlockedGm: string[];
+  };
+  trophies: string[];
+  heroPerks: string[];
+  gmPerks: string[];
+}

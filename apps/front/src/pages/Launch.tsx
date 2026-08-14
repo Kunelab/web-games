@@ -25,9 +25,11 @@ export default function Launch() {
   const [config, setConfig] = useState<SessionConfig>(defaultSessionConfig);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [started, setStarted] = useState<{ code: string; hostToken: string; skipped: { title: string; missing: string[] }[] } | null>(
-    null
-  );
+  const [started, setStarted] = useState<{
+    code: string;
+    hostToken: string;
+    skipped: { title: string; missing: string[] }[];
+  } | null>(null);
 
   async function start() {
     setStarting(true);
@@ -104,6 +106,14 @@ export default function Launch() {
             <Button variant="primary" size="lg" onClick={() => void navigate(`/partie/${started.code}`)}>
               Ouvrir l’écran de jeu
             </Button>
+
+            {/* One device does both: the stage on top, your answers underneath.
+                Oral mode already IS the no-phones mode, so it needs no twin. */}
+            {!config.oral && (
+              <Button variant="secondary" size="lg" onClick={() => void navigate(`/partie/${started.code}?solo=1`)}>
+                Jouer en solo sur cet appareil
+              </Button>
+            )}
           </div>
 
           {!config.oral && (
@@ -199,10 +209,7 @@ export default function Launch() {
                 }
               />
 
-              <Field
-                label="Essais par réponse"
-                hint="Nombre de mauvaises réponses avant qu’un champ se bloque."
-              >
+              <Field label="Essais par réponse" hint="Nombre de mauvaises réponses avant qu’un champ se bloque.">
                 {({ id: fieldId, describedBy }) => (
                   <Input
                     id={fieldId}
@@ -231,12 +238,12 @@ export default function Launch() {
           <div className="editor-section" style={{ maxWidth: '22rem' }}>
             <h2 className="editor-section-title">Comment ça se joue</h2>
             <p className="field-hint">
-              La télé montre le média, la salle répond à voix haute, vous montrez la réponse quand tout le
-              monde s’est prononcé. Rien n’est chronométré et rien n’est compté.
+              La télé montre le média, la salle répond à voix haute, vous montrez la réponse quand tout le monde s’est
+              prononcé. Rien n’est chronométré et rien n’est compté.
             </p>
             <p className="field-hint">
-              La partie démarre même s’il n’y a personne, ce qui en fait le moyen le plus rapide d’écouter une
-              playlist du début à la fin pour vérifier qu’elle tient debout.
+              La partie démarre même s’il n’y a personne, ce qui en fait le moyen le plus rapide d’écouter une playlist
+              du début à la fin pour vérifier qu’elle tient debout.
             </p>
             <p className="field-hint">
               Un téléphone peut quand même rejoindre avec le code si vous voulez tester l’écran joueur.
@@ -246,17 +253,17 @@ export default function Launch() {
           <div className="editor-section" style={{ maxWidth: '22rem' }}>
             <h2 className="editor-section-title">Comment se calcule le score</h2>
             <p className="field-hint">
-              Chaque réponse est une course à part : le premier à trouver le titre marque le maximum sur ce
-              champ, même si quelqu’un d’autre a trouvé l’artiste avant lui.
+              Chaque réponse est une course à part : le premier à trouver le titre marque le maximum sur ce champ, même
+              si quelqu’un d’autre a trouvé l’artiste avant lui.
             </p>
             <p className="field-hint">
-              Trois choses entrent dans le calcul : la place obtenue sur la réponse, qui compte le plus ; le
-              temps qu’il restait au chrono ; et le temps par rapport aux autres joueurs qui ont trouvé, ce qui
-              récompense celui qui savait quand la question était difficile pour tout le monde.
+              Trois choses entrent dans le calcul : la place obtenue sur la réponse, qui compte le plus ; le temps qu’il
+              restait au chrono ; et le temps par rapport aux autres joueurs qui ont trouvé, ce qui récompense celui qui
+              savait quand la question était difficile pour tout le monde.
             </p>
             <p className="field-hint">
-              Le retard réseau est compensé : c’est le moment où le joueur a appuyé qui est retenu, pas celui où
-              son message est arrivé. Les points ont des décimales, c’est normal.
+              Le retard réseau est compensé : c’est le moment où le joueur a appuyé qui est retenu, pas celui où son
+              message est arrivé. Les points ont des décimales, c’est normal.
             </p>
           </div>
         )}

@@ -224,11 +224,7 @@ export default function Library() {
                 onClick={() => void duplicate(item)}
               />
 
-              <IconButton
-                icon={<TrashIcon />}
-                label={`Supprimer ${item.title}`}
-                onClick={() => void askDelete(item)}
-              />
+              <IconButton icon={<TrashIcon />} label={`Supprimer ${item.title}`} onClick={() => void askDelete(item)} />
             </li>
           ))}
         </ul>
@@ -355,4 +351,3 @@ function TrashIcon() {
     </svg>
   );
 }
-

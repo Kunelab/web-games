@@ -1,0 +1,42 @@
+# Runs exactly what a developer runs: the workspace-level lint, typecheck and test
+# scripts. Nothing here is CI-specific except the checkout, so a green local run
+# and a green pipeline mean the same thing.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The version comes from the root package.json's `packageManager` field.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # `prepare` builds game-core, which both apps import; without it the
+      # typecheck of the apps has nothing to resolve.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # game-core unit tests plus the backend smoke test, which boots the real app
+      # against a throwaway SQLite file (see apps/back/src/smoke-run.ts).
+      - name: Test
+        run: pnpm test

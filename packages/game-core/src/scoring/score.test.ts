@@ -11,7 +11,9 @@ function field(key: string, points: number, directBonus = 0): AnswerField {
   return { key, label: key, value: key, aliases: [], points, tolerance: 0.17, directBonus };
 }
 
-function submission(overrides: Partial<ScoredSubmission> & Pick<ScoredSubmission, 'playerId' | 'fieldKey'>): ScoredSubmission {
+function submission(
+  overrides: Partial<ScoredSubmission> & Pick<ScoredSubmission, 'playerId' | 'fieldKey'>
+): ScoredSubmission {
   return { answeredAt: START, correct: true, direct: false, ...overrides };
 }
 
@@ -211,22 +213,13 @@ describe('scoreRound', () => {
     const fields = [field('title', 1), field('artist', 1)];
 
     const complete = scoreRound(
-      [
-        submission({ playerId: 'p1', fieldKey: 'title' }),
-        submission({ playerId: 'p1', fieldKey: 'artist' })
-      ],
+      [submission({ playerId: 'p1', fieldKey: 'title' }), submission({ playerId: 'p1', fieldKey: 'artist' })],
       fields,
       START,
       ANSWER_MS,
       config
     );
-    const partial = scoreRound(
-      [submission({ playerId: 'p2', fieldKey: 'title' })],
-      fields,
-      START,
-      ANSWER_MS,
-      config
-    );
+    const partial = scoreRound([submission({ playerId: 'p2', fieldKey: 'title' })], fields, START, ANSWER_MS, config);
 
     assert.equal(complete[0]?.perfectBonus, 5);
     assert.equal(partial[0]?.perfectBonus, 0);

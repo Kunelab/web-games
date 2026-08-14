@@ -44,15 +44,15 @@ Node 22 or later, pnpm 10 or later.
 
 Run from the repository root. Each one fans out across the workspace.
 
-| Command          | What it does                                                     |
-| ---------------- | ---------------------------------------------------------------- |
-| `pnpm dev`       | Vite, the API with `tsx watch`, and `game-core` in watch mode     |
-| `pnpm build`     | Builds `game-core`, then both apps                                |
-| `pnpm typecheck` | Types only, every package                                         |
-| `pnpm lint`      | ESLint, type-aware, every package                                 |
-| `pnpm test`      | `game-core` unit tests, then the API's end-to-end smoke run       |
-| `pnpm smoke`     | Just the smoke run                                                |
-| `pnpm format`    | Prettier across the workspace                                     |
+| Command          | What it does                                                  |
+| ---------------- | ------------------------------------------------------------- |
+| `pnpm dev`       | Vite, the API with `tsx watch`, and `game-core` in watch mode |
+| `pnpm build`     | Builds `game-core`, then both apps                            |
+| `pnpm typecheck` | Types only, every package                                     |
+| `pnpm lint`      | ESLint, type-aware, every package                             |
+| `pnpm test`      | `game-core` unit tests, then the API's end-to-end smoke run   |
+| `pnpm smoke`     | Just the smoke run                                            |
+| `pnpm format`    | Prettier across the workspace                                 |
 
 `pnpm install` runs `prepare`, which builds `game-core`. Without that step both
 apps fail to resolve it on a fresh clone, because the package's entry point is
@@ -115,3 +115,36 @@ Per-app configuration is documented in [apps/back/README.md](apps/back/README.md
 and [apps/front/README.md](apps/front/README.md). The origin and cookie rules in
 the backend README are worth reading before deploying to anything reachable by
 more than one hostname.
+
+### Docker
+
+The [Dockerfile](Dockerfile) builds one image containing the API and the built
+frontend; [docker-compose.yml](docker-compose.yml) runs it with the database on a
+named volume, so an image upgrade keeps every account, playlist and game result.
+
+```bash
+echo "SECRET=$(openssl rand -hex 32)" > .env   # signs the session cookies
+docker compose up -d --build
+```
+
+The frontend's API origin is baked at build time by Vite; the compose defaults
+suit browsing the box directly on `:3000`. Behind a reverse proxy on 80/443,
+clear `VITE_API_PORT` in the build args and set `FRONT_PROTOCOL=https`.
+
+### Backups
+
+[scripts/backup-db.sh](scripts/backup-db.sh) snapshots the live database with
+SQLite's own backup API — safe under load, where a plain `cp` of a WAL database
+is not — gzips it, and keeps the last 30. Point a nightly cron at it; the header
+of the script has examples for both the bare install and the container.
+
+### Accounts and roles
+
+Registration is open by default and closable with `REGISTRATION_OPEN=false`.
+Roles (`member` / `admin` / `super-admin`) are managed from the shell, never over
+HTTP:
+
+```bash
+pnpm --filter back admin list
+pnpm --filter back admin role maxime admin
+```

@@ -91,9 +91,7 @@ export const isProduction = env.NODE_ENV === 'production';
  * an `apps/back/apps/back/` directory the first time someone passed the path
  * they saw in a root-level script.
  */
-export const databaseFile = isAbsolute(env.DATABASE_FILE)
-  ? env.DATABASE_FILE
-  : resolve(packageRoot, env.DATABASE_FILE);
+export const databaseFile = isAbsolute(env.DATABASE_FILE) ? env.DATABASE_FILE : resolve(packageRoot, env.DATABASE_FILE);
 
 /** The canonical frontend origin, used when a single value is needed. */
 export const frontOrigin = `${env.FRONT_PROTOCOL}://${env.FRONT_URL}${env.FRONT_PORT}`;

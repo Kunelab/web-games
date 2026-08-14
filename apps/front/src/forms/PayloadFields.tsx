@@ -1,7 +1,17 @@
 import type { FieldMeta } from 'game-core';
 import { useEffect, useState } from 'react';
 
-import { api, ApiError, type PanelItem, type PanelTheme, type YoutubeMetadata } from '../api/client';
+import {
+  api,
+  ApiError,
+  type DifficultyPreset,
+  type DifficultyRange,
+  type PanelItem,
+  type PanelNationality,
+  type PanelTheme,
+  type WikiSubject,
+  type YoutubeMetadata
+} from '../api/client';
 import { Button, Chip, Field, IconButton, Input, Select, Switch, Textarea } from '../ui';
 import './forms.css';
 
@@ -35,6 +45,8 @@ export interface PayloadFieldsProps {
   errors: Record<string, string>;
   /** Called when a YouTube lookup succeeds, so answers can be prefilled. */
   onYoutubeMetadata?: (metadata: YoutubeMetadata) => void;
+  /** Called when a Wikipedia lookup is adopted, so answers can be prefilled. */
+  onWikiSubject?: (subject: WikiSubject) => void;
   /** Required by the `panel` control, ignored by every other kind. */
   panel?: PanelBinding;
 }
@@ -45,6 +57,7 @@ export function PayloadFields({
   onChange,
   errors,
   onYoutubeMetadata,
+  onWikiSubject,
   panel
 }: PayloadFieldsProps) {
   const groups = groupFields(fields);
@@ -63,6 +76,7 @@ export function PayloadFields({
                   error={errors[field.name]}
                   onChange={(next) => onChange({ ...value, [field.name]: next })}
                   onYoutubeMetadata={onYoutubeMetadata}
+                  onWikiSubject={onWikiSubject}
                   panel={panel}
                 />
               </div>
@@ -101,10 +115,11 @@ interface PayloadFieldProps {
   error?: string;
   onChange: (next: unknown) => void;
   onYoutubeMetadata?: (metadata: YoutubeMetadata) => void;
+  onWikiSubject?: (subject: WikiSubject) => void;
   panel?: PanelBinding;
 }
 
-function PayloadField({ field, value, error, onChange, onYoutubeMetadata, panel }: PayloadFieldProps) {
+function PayloadField({ field, value, error, onChange, onYoutubeMetadata, onWikiSubject, panel }: PayloadFieldProps) {
   if (field.control === 'switch') {
     return (
       <Switch
@@ -190,13 +205,16 @@ function PayloadField({ field, value, error, onChange, onYoutubeMetadata, panel 
             );
 
           case 'image':
-            return (
-              <ImageInput
+            return field.wikiSearch ? (
+              <WikiImageInput
                 {...shared}
                 value={asString(value)}
                 placeholder={field.placeholder}
                 onChange={onChange}
+                onSubject={onWikiSubject}
               />
+            ) : (
+              <ImageInput {...shared} value={asString(value)} placeholder={field.placeholder} onChange={onChange} />
             );
 
           case 'list':
@@ -377,9 +395,7 @@ function YoutubeInput({ value, onChange, onMetadata, placeholder, ...aria }: You
       onMetadata?.(metadata);
       setMessage(`Trouvé : ${metadata.rawTitle}`);
     } catch (error) {
-      setMessage(
-        error instanceof ApiError ? error.message : 'La recherche a échoué. Le code reste enregistré.'
-      );
+      setMessage(error instanceof ApiError ? error.message : 'La recherche a échoué. Le code reste enregistré.');
     } finally {
       setBusy(false);
     }
@@ -413,12 +429,7 @@ function YoutubeInput({ value, onChange, onMetadata, placeholder, ...aria }: You
           <img src={`https://img.youtube.com/vi/${id}/default.jpg`} alt="" width={80} height={60} />
           <div className="stack-1">
             <code className="yt-id">{id}</code>
-            <a
-              className="link-quiet"
-              href={`https://www.youtube.com/watch?v=${id}`}
-              target="_blank"
-              rel="noreferrer"
-            >
+            <a className="link-quiet" href={`https://www.youtube.com/watch?v=${id}`} target="_blank" rel="noreferrer">
               Ouvrir sur YouTube
             </a>
           </div>
@@ -455,10 +466,134 @@ function ImageInput({ value, onChange, placeholder, ...aria }: ImageInputProps) 
           onChange(event.target.value);
         }}
       />
-      {value && !broken && (
-        <img className="image-preview" src={value} alt="" onError={() => setBroken(true)} />
-      )}
+      {value && !broken && <img className="image-preview" src={value} alt="" onError={() => setBroken(true)} />}
       {value && broken && <p className="field-error">Cette image ne charge pas.</p>}
+    </div>
+  );
+}
+
+/**
+ * An image field with the panel pipeline behind it: type a name, get pictures.
+ *
+ * Picking a result fills the URL and hands the whole subject to the editor, which
+ * uses the title as the answer and the opening lines as material. Manual paste
+ * keeps working exactly as before — the lookup is an offer, not a mode.
+ */
+function WikiImageInput({
+  value,
+  onChange,
+  onSubject,
+  placeholder,
+  ...aria
+}: ImageInputProps & { onSubject?: (subject: WikiSubject) => void }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<WikiSubject[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function search() {
+    const wanted = query.trim();
+    if (wanted.length < 2 || busy) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { results: found } = await api.wikiSearch(wanted);
+      setResults(found);
+      if (found.length === 0) setMessage('Rien trouvé avec une image utilisable.');
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : 'La recherche a échoué.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="stack-2">
+      <ImageInput value={value} onChange={onChange} placeholder={placeholder} {...aria} />
+
+      <div className="row-attached">
+        <Input
+          value={query}
+          placeholder="Chercher sur Wikipédia : tour eiffel, marie curie…"
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              void search();
+            }
+          }}
+        />
+        <Button variant="secondary" size="sm" busy={busy} onClick={() => void search()}>
+          Chercher
+        </Button>
+      </div>
+
+      {message && <p className="field-hint">{message}</p>}
+
+      {results.length > 0 && (
+        <ul className="wiki-results">
+          {results.map((result) => (
+            <li key={result.pageUrl}>
+              <img src={result.imageUrl} alt="" loading="lazy" />
+              <span>
+                <span className="wiki-result-title">{result.label}</span>
+                {result.description && <span className="wiki-result-desc">{result.description}</span>}
+              </span>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  onChange(result.imageUrl);
+                  onSubject?.(result);
+                  setResults([]);
+                }}
+              >
+                Utiliser
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Two native range inputs stacked on one track.
+ *
+ * A dual-thumb slider without a dependency: both inputs cover the full track,
+ * pointer events land on whichever thumb is nearer thanks to the higher z-index
+ * on the thumb halves, and each thumb clamps against the other so the window can
+ * be narrowed to a sliver but never inverted. The highlighted band between the
+ * thumbs is a background gradient recomputed from the values.
+ */
+function DifficultySlider({ range, onChange }: { range: DifficultyRange; onChange: (next: DifficultyRange) => void }) {
+  const highlight = `linear-gradient(to right,
+    var(--rule) ${range.min}%,
+    var(--accent) ${range.min}%,
+    var(--accent) ${range.max}%,
+    var(--rule) ${range.max}%)`;
+
+  return (
+    <div className="range-slider" style={{ background: highlight }}>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={5}
+        value={range.min}
+        aria-label="Notoriété minimale"
+        onChange={(event) => onChange({ ...range, min: Math.min(Number(event.target.value), range.max) })}
+      />
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={5}
+        value={range.max}
+        aria-label="Notoriété maximale"
+        onChange={(event) => onChange({ ...range, max: Math.max(Number(event.target.value), range.min) })}
+      />
     </div>
   );
 }
@@ -485,7 +620,11 @@ const PANEL_SIZES = [10, 20, 30, 40, 50];
  */
 function PanelInput({ cells, binding, ...aria }: PanelInputProps) {
   const [themes, setThemes] = useState<PanelTheme[]>([]);
+  const [nationalities, setNationalities] = useState<PanelNationality[]>([]);
+  const [presets, setPresets] = useState<DifficultyPreset[]>([]);
   const [chosen, setChosen] = useState<string[]>([]);
+  const [chosenNats, setChosenNats] = useState<string[]>(['fr', 'us']);
+  const [range, setRange] = useState<DifficultyRange>({ min: 0, max: 70 });
   const [count, setCount] = useState(20);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -499,16 +638,31 @@ function PanelInput({ cells, binding, ...aria }: PanelInputProps) {
   const [broken, setBroken] = useState<string[]>([]);
 
   useEffect(() => {
-    // The list of themes is the server's to know, so the editor never hardcodes it.
+    // Themes, groups and nationalities are the server's to know: nothing here is
+    // hardcoded, so adding a sub-category is a server-only change.
     api
       .panelThemes()
-      .then((response) => setThemes(response.themes))
+      .then((response) => {
+        setThemes(response.themes);
+        setNationalities(response.nationalities);
+        setPresets(response.difficultyPresets);
+        setRange(response.defaultRange);
+      })
       .catch(() => setMessage('Les thèmes de panel sont indisponibles.'));
   }, []);
 
   function toggle(id: string) {
     setChosen((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]));
   }
+
+  function toggleNat(id: string) {
+    setChosenNats((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]));
+  }
+
+  /** The nationality picker only earns its space when a people theme is in play. */
+  const peopleSelected = themes.some(
+    (theme) => theme.byNationality && (chosen.length === 0 || chosen.includes(theme.id))
+  );
 
   async function generate() {
     const wanted = chosen.length > 0 ? chosen : themes.map((theme) => theme.id);
@@ -519,7 +673,7 @@ function PanelInput({ cells, binding, ...aria }: PanelInputProps) {
     setBroken([]);
 
     try {
-      const { items } = await api.buildPanel(wanted, count);
+      const { items } = await api.buildPanel(wanted, count, range, chosenNats);
       binding.onGenerated(items);
       setMessage(
         items.length < count
@@ -533,14 +687,66 @@ function PanelInput({ cells, binding, ...aria }: PanelInputProps) {
     }
   }
 
+  /** Themes render under their group heading, in the order the server sent. */
+  const groups: { name: string; themes: PanelTheme[] }[] = [];
+  for (const theme of themes) {
+    const group = groups.find((candidate) => candidate.name === theme.group);
+    if (group) group.themes.push(theme);
+    else groups.push({ name: theme.group, themes: [theme] });
+  }
+
   return (
     <div className="stack-3" id={aria.id} aria-describedby={aria['aria-describedby']}>
-      <div className="panel-themes">
-        {themes.map((theme) => (
-          <Chip key={theme.id} active={chosen.includes(theme.id)} onClick={() => toggle(theme.id)}>
-            {theme.label}
-          </Chip>
-        ))}
+      {groups.map((group) => (
+        <div key={group.name}>
+          <span className="panel-group-label">{group.name}</span>
+          <div className="panel-themes">
+            {group.themes.map((theme) => (
+              <Chip key={theme.id} active={chosen.includes(theme.id)} onClick={() => toggle(theme.id)}>
+                {theme.label}
+              </Chip>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {peopleSelected && nationalities.length > 0 && (
+        <div>
+          <span className="panel-group-label">Nationalités</span>
+          <div className="panel-themes">
+            {nationalities.map((nationality) => (
+              <Chip
+                key={nationality.id}
+                active={chosenNats.includes(nationality.id)}
+                onClick={() => toggleNat(nationality.id)}
+              >
+                {nationality.label}
+              </Chip>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <span className="panel-group-label">
+          Difficulté · {range.min}–{range.max}
+        </span>
+        <div className="panel-themes">
+          {presets.map((preset) => (
+            <Chip
+              key={preset.id}
+              active={range.min === preset.min && range.max === preset.max}
+              onClick={() => setRange({ min: preset.min, max: preset.max })}
+            >
+              {preset.label}
+            </Chip>
+          ))}
+        </div>
+        <DifficultySlider range={range} onChange={setRange} />
+        <p className="field-hint">
+          Notoriété mesurée sur les vues mensuelles de chaque sujet, dans sa catégorie : 0 pioche les têtes d’affiche,
+          100 va chercher les inconnus. Resserrez la plage ou mélangez tout.
+        </p>
       </div>
 
       <div className="panel-actions">
@@ -564,12 +770,7 @@ function PanelInput({ cells, binding, ...aria }: PanelInputProps) {
               {broken.includes(cell) ? (
                 <span className="cell-failed">image indisponible</span>
               ) : (
-                <img
-                  src={cell}
-                  alt=""
-                  loading="lazy"
-                  onError={() => setBroken((current) => [...current, cell])}
-                />
+                <img src={cell} alt="" loading="lazy" onError={() => setBroken((current) => [...current, cell])} />
               )}
               <span className="panel-cell-label">{binding.labels[index] ?? '—'}</span>
               <IconButton
@@ -583,9 +784,7 @@ function PanelInput({ cells, binding, ...aria }: PanelInputProps) {
       )}
 
       {broken.length > 0 && (
-        <p className="field-error">
-          {broken.length} image(s) ne se chargent pas. Retirez-les avant d’enregistrer.
-        </p>
+        <p className="field-error">{broken.length} image(s) ne se chargent pas. Retirez-les avant d’enregistrer.</p>
       )}
 
       {message && <p className="field-hint">{message}</p>}
