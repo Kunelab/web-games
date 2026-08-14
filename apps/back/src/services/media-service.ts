@@ -235,15 +235,15 @@ export const mediaService = {
       return undefined;
     }
 
-    const existing = await db
-      .select({ title: media.title })
-      .from(media)
-      .where(ownerFilter(media.user_id, user));
+    const existing = await db.select({ title: media.title }).from(media).where(ownerFilter(media.user_id, user));
 
     return this.create(
       {
         kind: source.kind,
-        title: copyName(source.title, existing.map((row) => row.title)),
+        title: copyName(
+          source.title,
+          existing.map((row) => row.title)
+        ),
         category: source.category,
         date: source.date,
         answers: source.answers,

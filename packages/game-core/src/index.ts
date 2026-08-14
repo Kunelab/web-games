@@ -40,25 +40,22 @@ export { mediaReadiness, partitionPlayable, type Readiness } from './media/readi
 
 export { blindtest, blindtestPayloadSchema, type BlindtestPayload } from './media/kinds/blindtest.js';
 export { quiz, quizPayloadSchema, type QuizPayload } from './media/kinds/quiz.js';
-export {
-  imageReveal,
-  imageRevealPayloadSchema,
-  type ImageRevealPayload
-} from './media/kinds/image-reveal.js';
-export {
-  imageMemory,
-  imageMemoryPayloadSchema,
-  type ImageMemoryPayload
-} from './media/kinds/image-memory.js';
+export { imageReveal, imageRevealPayloadSchema, type ImageRevealPayload } from './media/kinds/image-reveal.js';
+export { imageMemory, imageMemoryPayloadSchema, type ImageMemoryPayload } from './media/kinds/image-memory.js';
+export { estimation, estimationPayloadSchema, type EstimationPayload } from './media/kinds/estimation.js';
 
 export { normalizeAnswer, splitArtistTitle } from './matching/normalize.js';
 export { boundedLevenshtein } from './matching/levenshtein.js';
 export { phoneticFold } from './matching/phonetic.js';
 export { matchAnswer, matchAnyField, typoBudget, type MatchResult, type MatchRoute } from './matching/match.js';
 
+export { parseEstimate, scoreEstimationRound, type EstimationGuess } from './scoring/estimation.js';
+
 export {
   buildLeaderboard,
   defaultScoringConfig,
+  emptyPlayerRoundScore,
+  finalizeRoundScores,
   scoreRound,
   scoringConfigSchema,
   type LeaderboardRow,
@@ -92,6 +89,7 @@ export {
   isJoinCode,
   joinCodeSchema,
   sessionConfigSchema,
+  type FinalAward,
   type HostRoundView,
   type PlayerView,
   type RevealView,

@@ -47,7 +47,15 @@ export const imageReveal = defineKind<ImageRevealPayload>({
   defaultPayload: { src: '', mode: 'pixelate', intensity: 40, startZoom: 2 },
 
   formFields: [
-    { name: 'src', label: 'Image', control: 'image', placeholder: 'https://… ou /guess_img/…', width: 'full' },
+    {
+      name: 'src',
+      label: 'Image',
+      control: 'image',
+      placeholder: 'https://… ou /guess_img/…',
+      width: 'full',
+      // "tour eiffel" becomes a source image plus a prefilled answer.
+      wikiSearch: true
+    },
     {
       name: 'mode',
       label: 'Effet',

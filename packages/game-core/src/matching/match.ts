@@ -166,12 +166,7 @@ function fuzzyMatch(candidate: string, target: string, tolerance: number): Match
  * The answer-wide budget still caps the total, so a long answer cannot collect one
  * free edit per word indefinitely.
  */
-function editsWithinBudget(
-  candidate: string,
-  target: string,
-  tolerance: number,
-  total: number
-): number | null {
+function editsWithinBudget(candidate: string, target: string, tolerance: number, total: number): number | null {
   if (total <= 0) {
     return null;
   }

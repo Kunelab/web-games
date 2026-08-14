@@ -7,6 +7,7 @@
 const KIND_COLORS: Record<string, string> = {
   blindtest: 'var(--kind-blindtest)',
   quiz: 'var(--kind-quiz)',
+  estimation: 'var(--kind-estimation)',
   'image-reveal': 'var(--kind-image-reveal)',
   'image-memory': 'var(--kind-image-memory)'
 };
@@ -19,6 +20,7 @@ export function kindColor(kind: string): string {
 const KIND_LABELS: Record<string, string> = {
   blindtest: 'Blind test',
   quiz: 'Question',
+  estimation: 'Estimation',
   'image-reveal': 'Image',
   'image-memory': 'Panel'
 };

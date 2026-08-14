@@ -15,9 +15,7 @@ export const blindtestPayloadSchema = z
      * YouTube video id, 11 characters. Empty is allowed so a draft can be saved;
      * `missingForPlay` is what stops an empty one reaching a game.
      */
-    code: z
-      .string()
-      .regex(/^([A-Za-z0-9_-]{11})?$/, "Ce n'est pas un identifiant YouTube valide"),
+    code: z.string().regex(/^([A-Za-z0-9_-]{11})?$/, "Ce n'est pas un identifiant YouTube valide"),
     startGuess: z.number().int().min(0).max(86_400),
     endGuess: z.number().int().min(0).max(86_400),
     startReveal: z.number().int().min(0).max(86_400),

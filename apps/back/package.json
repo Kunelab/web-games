@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx src/smoke-run.ts",
     "smoke": "tsx src/smoke-run.ts",
+    "admin": "tsx src/cli/admin.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{ts,js,json,md}\"",
@@ -39,7 +40,8 @@
     "fastify-type-provider-zod": "^7.0.0",
     "socket.io": "^4.8.3",
     "zod": "^4.4.3",
-    "game-core": "workspace:*"
+    "game-core": "workspace:*",
+    "coronaz-core": "workspace:*"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

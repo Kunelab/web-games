@@ -16,6 +16,11 @@ const games = [
     text: 'Avec ou sans choix multiples. Répondre à l’aveugle, sans voir les propositions, rapporte davantage.'
   },
   {
+    kind: 'estimation',
+    name: 'Estimation',
+    text: 'Une question chiffrée, chacun avance son nombre. La réponse la plus proche l’emporte.'
+  },
+  {
     kind: 'image-reveal',
     name: 'Image qui se révèle',
     text: 'Une image pixelisée devient nette peu à peu. Le premier à reconnaître marque le plus.'
@@ -24,6 +29,11 @@ const games = [
     kind: 'image-memory',
     name: 'Le panel',
     text: 'Un panel à mémoriser, puis citez-en le plus possible. Chaque élément est une course à part.'
+  },
+  {
+    kind: 'coronaz',
+    name: 'CoronaZ',
+    text: 'Survie coopérative contre la horde, façon jeu de plateau : la carte sur la télé, votre survivant en main.'
   }
 ];
 
@@ -35,8 +45,8 @@ export default function Home() {
       <section className="home-hero">
         <h1 className="home-title">Des jeux à faire deviner, entre amis.</h1>
         <p className="home-lede">
-          Vous préparez une playlist, vous l’affichez sur la télé, vos amis rejoignent en scannant un QR code.
-          Le score récompense celui qui répond le premier, pas celui qui a la meilleure connexion.
+          Vous préparez une playlist, vous l’affichez sur la télé, vos amis rejoignent en scannant un QR code. Le score
+          récompense celui qui répond le premier, pas celui qui a la meilleure connexion.
         </p>
         <div className="page-actions">
           {user ? (

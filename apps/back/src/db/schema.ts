@@ -236,7 +236,70 @@ export const gameSessions = sqliteTable(
   (table) => [index('GameSessions_last_activity_idx').on(table.last_activity_at)]
 );
 
+/**
+ * A finished game, kept.
+ *
+ * `GameSessions` rows are working state and are deleted when a game ends or goes
+ * idle, which meant no game left any trace: no history, no stats, no "who won last
+ * week". One row is written here at the moment a session reaches `finished`, with
+ * the standings and tallies denormalised as JSON — the session state they come from
+ * is about to be deleted, so there is nothing to join against later.
+ */
+export const gameResults = sqliteTable(
+  'GameResults',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** The join code the game ran under. Codes recycle, so not unique here. */
+    code: text('code').notNull(),
+    playlist_id: integer('playlist_id').references(() => playlists.id, { onDelete: 'set null' }),
+    playlist_name: text('playlist_name').notNull(),
+    host_user_id: integer('host_user_id').references(() => users.id),
+    /** Unix epoch milliseconds. */
+    finished_at: integer('finished_at').notNull(),
+    rounds_total: integer('rounds_total').notNull(),
+    /** JSON: final standings plus per-player tallies. */
+    players: text('players').notNull(),
+    /** JSON: the FinalAward list handed out at the ceremony. */
+    awards: text('awards').notNull().default('[]'),
+    created_at: text('created_at').default(now)
+  },
+  (table) => [index('GameResults_finished_at_idx').on(table.finished_at)]
+);
+
+/**
+ * A CoronaZ raid in progress. Same contract as `GameSessions`: the engine state
+ * is one JSON snapshot rewritten on each phase change, so a restart resumes the
+ * raid. Kept as its own table because the two engines share nothing but the idea.
+ */
+export const zombieSessions = sqliteTable(
+  'ZombieSessions',
+  {
+    code: text('code').primaryKey(),
+    host_user_id: integer('host_user_id').references(() => users.id),
+    phase: text('phase').notNull(),
+    /** JSON CzState. */
+    state: text('state').notNull(),
+    created_at: text('created_at').default(now),
+    last_activity_at: integer('last_activity_at').notNull()
+  },
+  (table) => [index('ZombieSessions_last_activity_idx').on(table.last_activity_at)]
+);
+
+/**
+ * The roguelite substrate: one row per nickname (game masters under their
+ * login), lifetime CoronaZ tallies as JSON. Trophies and perks are *derived*
+ * from these numbers on read, never stored — a rebalanced threshold applies
+ * retroactively for free.
+ */
+export const czCareers = sqliteTable('CzCareers', {
+  name: text('name').primaryKey(),
+  /** JSON CzCareerStats. */
+  stats: text('stats').notNull(),
+  updated_at: text('updated_at').default(now)
+});
+
 export type MediaRow = typeof media.$inferSelect;
+export type GameResultRow = typeof gameResults.$inferSelect;
 export type NewMediaRow = typeof media.$inferInsert;
 export type PlaylistItemRow = typeof playlistItems.$inferSelect;
 export type GameSessionRow = typeof gameSessions.$inferSelect;

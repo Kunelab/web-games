@@ -44,6 +44,11 @@ export interface FieldMeta {
   width?: 'full' | 'half';
   /** Fields sharing a group are rendered under one heading. */
   group?: string;
+  /**
+   * `image` controls only: offer a Wikipedia lookup that fills the URL and hands
+   * the subject (title, description) back to the editor for answer prefill.
+   */
+  wikiSearch?: boolean;
 }
 
 /** Phases a round goes through, which differ by kind. */

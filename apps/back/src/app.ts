@@ -20,6 +20,8 @@ import mediaRoutes from './routes/media.js';
 import playRoutes from './routes/play.js';
 import playlistRoutes from './routes/playlists.js';
 import userRoutes from './routes/user.js';
+import zombieRoutes from './routes/zombie.js';
+import { CzManager } from './zombie/manager.js';
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -121,12 +123,16 @@ export async function buildApp(): Promise<FastifyInstance> {
   const games = new GameManager(app.log);
   app.decorate('games', games);
 
+  const cz = new CzManager(app.log);
+  app.decorate('cz', cz);
+
   await app.register(
     async (api) => {
       await api.register(userRoutes);
       await api.register(mediaRoutes);
       await api.register(playlistRoutes);
       await api.register(playRoutes);
+      await api.register(zombieRoutes);
     },
     { prefix: '/api' }
   );
@@ -167,7 +173,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.code(statusCode).send({ message: error.message });
   });
 
-  app.decorate('io', registerRealtime(app, games));
+  app.decorate('io', registerRealtime(app, games, cz));
 
   if (mediaMigration.ran && (mediaMigration.videos > 0 || mediaMigration.images > 0)) {
     app.log.info(
@@ -191,11 +197,18 @@ export async function buildApp(): Promise<FastifyInstance> {
       app.log.info({ restored }, 'restored games in progress');
     }
     games.startSweeping();
+
+    const raids = await cz.restore();
+    if (raids > 0) {
+      app.log.info({ restored: raids }, 'restored CoronaZ raids in progress');
+    }
+    cz.startSweeping();
   });
 
   app.addHook('onClose', async () => {
     sessionStore.stopSweeping();
     games.stopSweeping();
+    cz.stopSweeping();
     await app.io.close();
   });
 

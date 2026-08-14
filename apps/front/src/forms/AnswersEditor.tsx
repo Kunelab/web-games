@@ -1,10 +1,4 @@
-import {
-  ANSWER_TOLERANCE,
-  maxFieldPoints,
-  toleranceName,
-  type AnswerField,
-  type AnswerToleranceName
-} from 'game-core';
+import { ANSWER_TOLERANCE, maxFieldPoints, toleranceName, type AnswerField, type AnswerToleranceName } from 'game-core';
 import { useState } from 'react';
 
 import { Button, Field, IconButton, Input, Select, Switch } from '../ui';

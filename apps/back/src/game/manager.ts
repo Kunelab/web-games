@@ -5,6 +5,7 @@ import { defaultSessionConfig, sessionConfigSchema, type SessionConfig } from 'g
 import { db } from '../db/index.js';
 import { gameSessions } from '../db/schema.js';
 import { mediaService, type MediaView } from '../services/media-service.js';
+import { resultsService } from '../services/results-service.js';
 import { assetUrlFor, sweepAssets } from './assets.js';
 import {
   advance,
@@ -193,6 +194,26 @@ export class GameManager {
 
   /** Persists, notifies listeners, and arms the timer for the next transition. */
   async afterTransition(state: SessionState): Promise<void> {
+    /**
+     * A game that just finished leaves its permanent trace now, before anything
+     * else: the live session row is deleted the moment the host presses "Terminer",
+     * and this is the only transition at which the full standings still exist.
+     * Oral games score nothing, and a game nobody joined has nothing to keep.
+     */
+    if (
+      state.phase === 'finished' &&
+      !state.resultsRecorded &&
+      !state.config.oral &&
+      Object.keys(state.players).length > 0
+    ) {
+      state.resultsRecorded = true;
+      try {
+        await resultsService.record(state);
+      } catch (error) {
+        this.log.error({ err: error, code: state.code }, 'could not record game result');
+      }
+    }
+
     await this.persist(state);
     this.listener?.(state);
     this.scheduleNext(state);
@@ -232,11 +253,7 @@ export class GameManager {
     this.timers.set(state.code, timer);
   }
 
-  private async runScheduledTransition(
-    code: string,
-    roundId: string,
-    phase: string
-  ): Promise<void> {
+  private async runScheduledTransition(code: string, roundId: string, phase: string): Promise<void> {
     const state = this.sessions.get(code);
     // The round may have been advanced by the host in the meantime, in which case
     // this timer is stale and must do nothing.

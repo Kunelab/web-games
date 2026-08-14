@@ -197,19 +197,13 @@ export const playlistService = {
    * The copy is always private, whatever the original was. Publishing is a
    * decision, and inheriting it from something you merely copied is not one you made.
    */
-  async duplicate(
-    id: number,
-    userId: number
-  ): Promise<{ playlist: PlaylistView; dropped: number } | undefined> {
+  async duplicate(id: number, userId: number): Promise<{ playlist: PlaylistView; dropped: number } | undefined> {
     const source = await this.getById(id, userId);
     if (!source) {
       return undefined;
     }
 
-    const existing = await db
-      .select({ name: playlists.name })
-      .from(playlists)
-      .where(eq(playlists.user_id, userId));
+    const existing = await db.select({ name: playlists.name }).from(playlists).where(eq(playlists.user_id, userId));
 
     const mediaIds = source.items.map((item) => item.id);
 

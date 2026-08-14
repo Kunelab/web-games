@@ -33,6 +33,11 @@ export interface PlayerView {
   connected: boolean;
   score: number;
   rank: number;
+  /**
+   * Badge key of the title this nickname has earned across past games, when it has
+   * one. Pure cosmetics: the client maps the key to its French label.
+   */
+  title?: string;
 }
 
 /** What a player receives for the current round. */
@@ -69,6 +74,14 @@ export interface RevealView {
   roundId: string;
   answers: { key: string; label: string; value: string }[];
   explanation?: string;
+  /**
+   * Everyone's number on an estimation round, closest first.
+   *
+   * Only that kind fills this: guesses are the spectacle of the reveal there, where
+   * on every other kind who-typed-what stays private. `delta` is signed, so the
+   * screen can say "trop haut" or "trop bas".
+   */
+  guesses?: { playerId: string; name: string; value: number; delta: number }[];
   roundScores: {
     playerId: string;
     name: string;
@@ -104,6 +117,20 @@ export interface HostRoundView {
   answers: { key: string; label: string; value: string; points: number }[];
 }
 
+/**
+ * A distinction handed out with the final standings.
+ *
+ * The key names the achievement and the client owns the French label for it, so
+ * adding an award is a server change plus one dictionary entry. `value` is already
+ * formatted for display because only the server has the numbers it comes from.
+ */
+export interface FinalAward {
+  key: string;
+  playerId: string;
+  playerName: string;
+  value: string;
+}
+
 export interface SessionView {
   code: string;
   phase: SessionPhase;
@@ -124,6 +151,8 @@ export interface SessionView {
   hostRound?: HostRoundView | null;
   /** Items excluded from this session because they were incomplete. */
   skipped?: { title: string; missing: string[] }[];
+  /** Present once the session is finished: the ceremony. */
+  final?: { awards: FinalAward[] };
 }
 
 export const sessionConfigSchema = z.object({

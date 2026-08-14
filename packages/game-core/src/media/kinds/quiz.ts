@@ -47,7 +47,7 @@ export const quiz = defineKind<QuizPayload>({
       label: 'Image (optionnelle)',
       control: 'image',
       placeholder: 'https://…',
-      help: "Affichée à côté de la question.",
+      help: 'Affichée à côté de la question.',
       width: 'full'
     },
     {

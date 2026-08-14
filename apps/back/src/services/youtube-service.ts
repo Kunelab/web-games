@@ -74,9 +74,7 @@ function parseIsoDuration(duration: string | undefined): number | null {
   if (!match) return null;
 
   const [, days, hours, minutes, seconds] = match;
-  return (
-    Number(days ?? 0) * 86_400 + Number(hours ?? 0) * 3_600 + Number(minutes ?? 0) * 60 + Number(seconds ?? 0)
-  );
+  return Number(days ?? 0) * 86_400 + Number(hours ?? 0) * 3_600 + Number(minutes ?? 0) * 60 + Number(seconds ?? 0);
 }
 
 /**

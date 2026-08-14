@@ -67,13 +67,55 @@ interface PanelSource {
   keep?: number;
 }
 
+/**
+ * A category pattern for people, filled per nationality: `{m}` receives the
+ * masculine adjective and `{f}` the feminine, because that is how the French
+ * Wikipedia names them ("Acteur américain", "Chanteuse italienne").
+ */
+interface PanelSourceTemplate {
+  template: string;
+  depth: number;
+  keep?: number;
+}
+
 /** Kept per window by default, out of the fifty a search returns. */
 const DEFAULT_KEEP = 24;
+
+/**
+ * The nationalities the people themes can draw from.
+ *
+ * Adjectives, not country names, because the categories are adjectival. A
+ * nationality whose category happens not to exist for some profession degrades
+ * gracefully: the search returns nothing and the other sources fill the panel.
+ */
+export const NATIONALITIES = [
+  { id: 'fr', label: 'Française', m: 'français', f: 'française' },
+  { id: 'us', label: 'Américaine', m: 'américain', f: 'américaine' },
+  { id: 'gb', label: 'Britannique', m: 'britannique', f: 'britannique' },
+  { id: 'it', label: 'Italienne', m: 'italien', f: 'italienne' },
+  { id: 'es', label: 'Espagnole', m: 'espagnol', f: 'espagnole' },
+  { id: 'de', label: 'Allemande', m: 'allemand', f: 'allemande' },
+  { id: 'be', label: 'Belge', m: 'belge', f: 'belge' },
+  { id: 'ca', label: 'Canadienne', m: 'canadien', f: 'canadienne' },
+  { id: 'jp', label: 'Japonaise', m: 'japonais', f: 'japonaise' },
+  { id: 'kr', label: 'Sud-coréenne', m: 'sud-coréen', f: 'sud-coréenne' }
+] as const;
+
+export type NationalityId = (typeof NATIONALITIES)[number]['id'];
+export const nationalityIds = NATIONALITIES.map((nationality) => nationality.id);
+
+/** What the people themes use when the host picks no nationality at all. */
+const DEFAULT_NATIONALITIES: NationalityId[] = ['fr', 'us'];
 
 export interface PanelTheme {
   id: string;
   label: string;
-  sources: PanelSource[];
+  /** Themes sharing a group render under one heading in the editor. */
+  group: string;
+  /** Fixed categories, for themes where nationality makes no sense. */
+  sources?: PanelSource[];
+  /** Nationality-templated categories, for the people themes. */
+  sourceTemplates?: PanelSourceTemplate[];
   /** True where a drawing rather than a photograph is the norm, i.e. flags. */
   allowVector?: boolean;
   /** Strips a title down to the answer, e.g. "Drapeau du Japon" to "Japon". */
@@ -81,21 +123,70 @@ export interface PanelTheme {
 }
 
 export const PANEL_THEMES: PanelTheme[] = [
+  /* The people themes: one per profession, each templated by nationality, so
+   * "chanteurs italiens et coréens" is a selection rather than a feature request. */
   {
-    id: 'celebrites',
-    label: 'Célébrités',
-    sources: [
-      { category: 'Actrice américaine de cinéma', depth: 20 },
-      { category: 'Acteur américain de cinéma', depth: 20 },
-      { category: 'Actrice française de cinéma', depth: 20 },
-      { category: 'Acteur français de cinéma', depth: 20 },
-      { category: 'Chanteuse américaine', depth: 0, keep: 12 },
-      { category: 'Chanteur américain', depth: 0, keep: 12 }
+    id: 'acteurs',
+    label: 'Acteurs & actrices',
+    group: 'Célébrités',
+    sourceTemplates: [
+      { template: 'Acteur {m} de cinéma', depth: 20 },
+      { template: 'Actrice {f} de cinéma', depth: 20 }
     ]
   },
   {
+    id: 'chanteurs',
+    label: 'Chanteurs & chanteuses',
+    group: 'Célébrités',
+    sourceTemplates: [
+      { template: 'Chanteur {m}', depth: 10, keep: 16 },
+      { template: 'Chanteuse {f}', depth: 10, keep: 16 }
+    ]
+  },
+  {
+    id: 'ecrivains',
+    label: 'Écrivains',
+    group: 'Célébrités',
+    sourceTemplates: [
+      { template: 'Écrivain {m}', depth: 10, keep: 16 },
+      { template: 'Romancier {m}', depth: 0, keep: 10 }
+    ]
+  },
+  {
+    id: 'scientifiques',
+    label: 'Scientifiques',
+    group: 'Célébrités',
+    sourceTemplates: [
+      { template: 'Physicien {m}', depth: 0, keep: 10 },
+      { template: 'Chimiste {m}', depth: 0, keep: 8 },
+      { template: 'Mathématicien {m}', depth: 0, keep: 8 },
+      { template: 'Biologiste {m}', depth: 0, keep: 8 }
+    ]
+  },
+  {
+    id: 'affaires',
+    label: 'Monde des affaires',
+    group: 'Célébrités',
+    sourceTemplates: [
+      { template: "Homme d'affaires {m}", depth: 0, keep: 12 },
+      { template: "Femme d'affaires {f}", depth: 0, keep: 10 }
+    ]
+  },
+  {
+    id: 'sportifs',
+    label: 'Sportifs',
+    group: 'Célébrités',
+    sourceTemplates: [
+      { template: 'Footballeur international {m}', depth: 10, keep: 14 },
+      { template: 'Joueur {m} de tennis', depth: 0, keep: 10 },
+      { template: 'Joueuse {f} de tennis', depth: 0, keep: 8 }
+    ]
+  },
+
+  {
     id: 'animaux',
     label: 'Animaux',
+    group: 'Thèmes',
     sources: [
       { category: 'Mammifère (nom vernaculaire)', depth: 20 },
       { category: 'Oiseau (nom vernaculaire)', depth: 20, keep: 16 }
@@ -107,6 +198,7 @@ export const PANEL_THEMES: PanelTheme[] = [
   {
     id: 'drapeaux',
     label: 'Drapeaux',
+    group: 'Thèmes',
     // Every country is a fair answer, so this one is drawn from end to end.
     sources: [{ category: 'Drapeau national', depth: 100, keep: 50 }],
     allowVector: true,
@@ -116,6 +208,7 @@ export const PANEL_THEMES: PanelTheme[] = [
   {
     id: 'nourriture',
     label: 'Nourriture',
+    group: 'Thèmes',
     sources: [
       { category: 'Fruit alimentaire', depth: 0, keep: 14 },
       { category: 'Pâtisserie', depth: 20, keep: 16 },
@@ -130,6 +223,7 @@ export const PANEL_THEMES: PanelTheme[] = [
   {
     id: 'objets',
     label: 'Objets',
+    group: 'Thèmes',
     sources: [
       { category: 'Ustensile de cuisine', depth: 20 },
       { category: 'Appareil électroménager', depth: 0 },
@@ -144,6 +238,78 @@ export const PANEL_THEMES: PanelTheme[] = [
 ];
 
 export const panelThemeIds = PANEL_THEMES.map((theme) => theme.id);
+
+/**
+ * The categories a theme actually draws from, given the host's nationalities.
+ *
+ * Static sources pass through untouched; templates expand once per nationality.
+ * The expansion happens at draw time rather than at startup so the pool cache is
+ * keyed by the real category name and shared between hosts whatever they picked.
+ */
+function sourcesFor(theme: PanelTheme, nationalities: NationalityId[]): PanelSource[] {
+  const sources: PanelSource[] = [...(theme.sources ?? [])];
+  const picked = nationalities.length > 0 ? nationalities : DEFAULT_NATIONALITIES;
+
+  for (const template of theme.sourceTemplates ?? []) {
+    for (const id of picked) {
+      const nationality = NATIONALITIES.find((candidate) => candidate.id === id);
+      if (!nationality) continue;
+      sources.push({
+        category: template.template.replace('{m}', nationality.m).replace('{f}', nationality.f),
+        depth: template.depth,
+        keep: template.keep
+      });
+    }
+  }
+
+  return sources;
+}
+
+/* --------------------------------------------------------------- difficulty */
+
+/**
+ * Difficulty is a band on a hidden 0–100 obscurity score, not a preset.
+ *
+ * Every drawn subject gets a score: 0 is the most-viewed thing in its own
+ * category this month, 100 the least. Within its own category, never globally —
+ * an obscure actress still outdraws every famous kitchen tool on raw pageviews,
+ * so absolute counts say nothing about how hard a subject is to name.
+ *
+ * The host slides a [min, max] window over that scale. [0,35] is faces everyone
+ * knows, [55,100] is for the table that found that insulting, [0,100] mixes the
+ * whole curve in one panel. The named presets are just saved windows, and they
+ * live here so the client renders whatever the server currently believes
+ * "facile" means.
+ */
+export interface DifficultyRange {
+  min: number;
+  max: number;
+}
+
+export const DEFAULT_DIFFICULTY_RANGE: DifficultyRange = { min: 0, max: 70 };
+
+export const DIFFICULTY_PRESETS = [
+  { id: 'facile', label: 'Facile', min: 0, max: 35 },
+  { id: 'moyen', label: 'Moyen', min: 15, max: 70 },
+  { id: 'difficile', label: 'Difficile', min: 55, max: 100 },
+  { id: 'tout', label: 'Tout mélangé', min: 0, max: 100 }
+] as const;
+
+/**
+ * Where the search windows may start, for a given band.
+ *
+ * The band also has to steer the *fetch*, not just the filter: a [70,100] draw
+ * filtered out of head-of-ranking windows would keep almost nothing. The window
+ * zone maps the band onto each category's own depth, extended one window past
+ * the tuned end so the hard tail exists to be drawn from. Fully proportional, so
+ * a narrow band in the middle fetches middle windows.
+ */
+function windowZone(range: DifficultyRange, depth: number): { first: number; last: number } {
+  const extended = depth + 20;
+  const first = Math.floor(((range.min / 100) * extended) / 20) * 20;
+  const last = Math.max(first, Math.floor(((range.max / 100) * extended) / 20) * 20);
+  return { first, last };
+}
 
 export interface PanelItem {
   /** The answer, cleaned of qualifiers and prefixes. */
@@ -176,15 +342,27 @@ const searchResponseSchema = z.object({
         .array(
           z.object({
             title: z.string(),
-            thumbnail: z
-              .object({ source: z.string(), width: z.number(), height: z.number() })
-              .optional()
+            thumbnail: z.object({ source: z.string(), width: z.number(), height: z.number() }).optional(),
+            /** Daily counts for the last ~60 days, some days null. */
+            pageviews: z.record(z.string(), z.number().nullable()).optional(),
+            /** Plain-text opening sentences, only asked for by the lookup. */
+            extract: z.string().optional()
           })
         )
         .default([])
     })
     .optional()
 });
+
+/** Roughly a month of views, from the API's sixty-day window. */
+function monthlyViews(pageviews: Record<string, number | null> | undefined): number {
+  if (!pageviews) return 0;
+  let total = 0;
+  for (const count of Object.values(pageviews)) {
+    total += count ?? 0;
+  }
+  return Math.round(total / 2);
+}
 
 /**
  * One window of a category, most recognisable first.
@@ -210,7 +388,9 @@ async function searchCategory(category: string, offset: number): Promise<PanelCa
     gsrsort: 'relevance',
     gsrqiprofile: 'popular_inclinks_pv',
     gsroffset: String(offset),
-    prop: 'pageimages',
+    // Pageviews ride along in the same request: difficulty needs real popularity
+    // numbers and this is where they cost nothing extra.
+    prop: 'pageimages|pageviews',
     piprop: 'thumbnail',
     pithumbsize: String(THUMBNAIL_WIDTH),
     pilimit: String(SEARCH_LIMIT),
@@ -245,7 +425,8 @@ async function searchCategory(category: string, offset: number): Promise<PanelCa
       // same per-round asset token.
       source: page.thumbnail.source.split('?')[0] ?? page.thumbnail.source,
       width: page.thumbnail.width,
-      height: page.thumbnail.height
+      height: page.thumbnail.height,
+      views: monthlyViews(page.pageviews)
     });
   }
 
@@ -257,6 +438,8 @@ interface PanelCandidate {
   source: string;
   width: number;
   height: number;
+  /** Monthly page views: the closest thing to fame that can be measured. */
+  views: number;
 }
 
 /* -------------------------------------------------------------------- filters */
@@ -334,7 +517,8 @@ const MIN_ASPECT = 0.4;
 const MAX_ASPECT = 2.6;
 
 /** Filenames that are placeholders rather than pictures of anything. */
-const FILLER_FILE = /replace[_ -]?this|no[_ -]?(free[_ -]?)?image|placeholder|question[_ -]?mark|disambig|^blank|signature|coat[_ -]?of[_ -]?arms|armoiries|blason|locator|location[_ -]?map|\.ogg$|\.webm$/i;
+const FILLER_FILE =
+  /replace[_ -]?this|no[_ -]?(free[_ -]?)?image|placeholder|question[_ -]?mark|disambig|^blank|signature|coat[_ -]?of[_ -]?arms|armoiries|blason|locator|location[_ -]?map|\.ogg$|\.webm$/i;
 
 function significantWords(text: string): string[] {
   return normalizeAnswer(text)
@@ -417,6 +601,13 @@ function looksLikeAPicture(candidate: PanelCandidate, theme: PanelTheme): boolea
  */
 interface PooledItem extends PanelItem {
   rank: number;
+  /** Monthly page views, for the difficulty bands. */
+  views: number;
+  /**
+   * Where these views stand within this item's own category pool, 0 (most seen)
+   * to 1 (least). Assigned at draw time: it depends on what else is pooled.
+   */
+  viewRank: number;
 }
 
 interface Pool {
@@ -451,16 +642,23 @@ function cachedPool(theme: PanelTheme, source: PanelSource, now: number): Pooled
  * several panels in a row keeps widening the choice instead of re-fetching the same
  * window, and only the first panel of a session pays for a round trip.
  */
-async function fillPool(theme: PanelTheme, source: PanelSource, now: number): Promise<PooledItem[]> {
+async function fillPool(
+  theme: PanelTheme,
+  source: PanelSource,
+  now: number,
+  range: DifficultyRange
+): Promise<PooledItem[]> {
   const key = poolKey(theme, source);
   const existing = pools.get(key);
-  const pool: Pool =
-    existing && now - existing.fetchedAt < POOL_TTL_MS ? existing : { items: [], fetchedAt: now };
+  const pool: Pool = existing && now - existing.fetchedAt < POOL_TTL_MS ? existing : { items: [], fetchedAt: now };
 
   // Windows start on a round number so that repeated draws reuse the same few
   // windows, which keeps the cache useful instead of fetching a new offset forever.
-  const windows = Math.floor(source.depth / 20) + 1;
-  const offset = Math.floor(Math.random() * windows) * 20;
+  // The difficulty band decides which stretch of the fame ranking those windows
+  // may come from at all.
+  const zone = windowZone(range, source.depth);
+  const windows = Math.floor((zone.last - zone.first) / 20) + 1;
+  const offset = zone.first + Math.floor(Math.random() * windows) * 20;
 
   let candidates = await searchCategory(source.category, offset);
 
@@ -492,7 +690,9 @@ async function fillPool(theme: PanelTheme, source: PanelSource, now: number): Pr
       theme: theme.id,
       // Relative to this category's head, and counting the window offset, so an
       // item drawn from deeper down ranks below the same category's top.
-      rank: (offset + fresh.length) / keep
+      rank: (offset + fresh.length) / keep,
+      views: candidate.views,
+      viewRank: 0
     });
   }
 
@@ -528,36 +728,51 @@ const MIN_CATEGORIES_PER_DRAW = 2;
  * categories drawn, and only as many as the shortfall needs: a theme with nine
  * categories must not fire nine requests to build a panel of twenty.
  */
-async function themeCandidates(theme: PanelTheme, needed: number, now: number): Promise<PooledItem[]> {
-  const sources = shuffle(theme.sources);
+async function themeCandidates(
+  theme: PanelTheme,
+  allSources: PanelSource[],
+  needed: number,
+  now: number,
+  range: DifficultyRange
+): Promise<PooledItem[]> {
+  const sources = shuffle(allSources);
   const collected: PooledItem[] = [];
   const unused: PanelSource[] = [];
 
   for (const source of sources) {
     const cached = cachedPool(theme, source, now);
     if (cached) {
-      collected.push(...cached);
+      collected.push(...withViewRanks(cached));
     } else {
       unused.push(source);
     }
   }
 
-  const fetchedCategories = theme.sources.length - unused.length;
+  const fetchedCategories = allSources.length - unused.length;
   const shortfall = needed - collected.length;
 
   if (unused.length > 0 && (shortfall > 0 || fetchedCategories < MIN_CATEGORIES_PER_DRAW)) {
     const forShortfall = shortfall > 0 ? Math.ceil(shortfall / YIELD_PER_CATEGORY) : 0;
-    const wanted = Math.min(
-      unused.length,
-      Math.max(forShortfall, MIN_CATEGORIES_PER_DRAW - fetchedCategories)
-    );
-    const fetched = await Promise.all(
-      unused.slice(0, wanted).map((source) => fillPool(theme, source, now))
-    );
-    collected.push(...fetched.flat());
+    const wanted = Math.min(unused.length, Math.max(forShortfall, MIN_CATEGORIES_PER_DRAW - fetchedCategories));
+    const fetched = await Promise.all(unused.slice(0, wanted).map((source) => fillPool(theme, source, now, range)));
+    collected.push(...fetched.map((pool) => withViewRanks(pool)).flat());
   }
 
   return shuffle(collected);
+}
+
+/**
+ * Stamps each item with where its views stand *within its own pool*.
+ *
+ * Per pool, never globally: an obscure actress still outdraws every kitchen tool
+ * on raw numbers, so absolute views say nothing about difficulty. Rank within the
+ * category is the comparison a player actually experiences.
+ */
+function withViewRanks(pool: PooledItem[]): PooledItem[] {
+  const sorted = [...pool].sort((a, b) => b.views - a.views);
+  const positions = new Map(sorted.map((item, index) => [item, index]));
+  const span = Math.max(1, pool.length - 1);
+  return pool.map((item) => ({ ...item, viewRank: (positions.get(item) ?? 0) / span }));
 }
 
 /* ----------------------------------------------------------------------- draw */
@@ -578,13 +793,27 @@ function withSlack(count: number): number {
 
 export const MAX_PANEL_SIZE = 50;
 
+export interface BuildPanelOptions {
+  /** The obscurity window, 0 (household names) to 100 (deep cuts). */
+  difficulty?: DifficultyRange;
+  /** For the people themes; the object themes ignore it. */
+  nationalities?: NationalityId[];
+}
+
 /**
  * A panel of `count` subjects drawn from the given themes.
  *
  * Several themes mix evenly rather than by pool size, so "everything" does not
- * become "mostly whichever category is biggest".
+ * become "mostly whichever category is biggest". The difficulty band then narrows
+ * each theme's contribution to the right slice of its fame curve, and relaxes
+ * rather than failing when the band leaves the draw short: a hard panel padded
+ * with a few nearby subjects beats an error.
  */
-export async function buildPanel(themeIds: string[], count: number): Promise<PanelItem[]> {
+export async function buildPanel(
+  themeIds: string[],
+  count: number,
+  options: BuildPanelOptions = {}
+): Promise<PanelItem[]> {
   const themes = PANEL_THEMES.filter((theme) => themeIds.includes(theme.id));
   if (themes.length === 0) {
     throw new PanelError('Aucun thème connu demandé', 400);
@@ -593,14 +822,27 @@ export async function buildPanel(themeIds: string[], count: number): Promise<Pan
     throw new PanelError(`Un panel va de 1 à ${MAX_PANEL_SIZE} éléments`, 400);
   }
 
+  const range = normalizeRange(options.difficulty ?? DEFAULT_DIFFICULTY_RANGE);
+  const nationalities = options.nationalities ?? [];
   const now = Date.now();
   const perTheme = withSlack(Math.ceil(count / themes.length));
 
-  const byTheme = await Promise.all(themes.map((theme) => themeCandidates(theme, perTheme, now)));
+  const byTheme = await Promise.all(
+    themes.map((theme) => themeCandidates(theme, sourcesFor(theme, nationalities), perTheme, now, range))
+  );
 
   const drawn: PooledItem[] = [];
   for (const themeItems of byTheme) {
-    drawn.push(...themeItems.slice(0, perTheme));
+    const inBand: PooledItem[] = [];
+    const outOfBand: PooledItem[] = [];
+    for (const item of themeItems) {
+      const score = item.viewRank * 100;
+      (score >= range.min && score <= range.max ? inBand : outOfBand).push(item);
+    }
+    // The band first; the rest as backfill, pushed to the back so the slice
+    // prefers the band and only pads with neighbours when it has to.
+    outOfBand.sort((a, b) => bandDistance(a.viewRank * 100, range) - bandDistance(b.viewRank * 100, range));
+    drawn.push(...[...inBand, ...outOfBand].slice(0, perTheme));
   }
 
   const panel = dedupe(byJitteredRank(drawn)).slice(0, count);
@@ -609,8 +851,22 @@ export async function buildPanel(themeIds: string[], count: number): Promise<Pan
     throw new PanelError('Aucune image utilisable trouvée, réessayez', 502);
   }
 
-  // `rank` is internal: what the editor receives is a panel, not a ranking.
-  return panel.map(({ rank: _rank, ...item }) => item);
+  // `rank` and the view fields are internal: the editor receives a panel.
+  return panel.map(({ rank: _rank, views: _views, viewRank: _viewRank, ...item }) => item);
+}
+
+/** A malformed range is repaired rather than rejected: sliders send junk. */
+function normalizeRange(range: DifficultyRange): DifficultyRange {
+  const min = Math.max(0, Math.min(100, Math.round(range.min)));
+  const max = Math.max(0, Math.min(100, Math.round(range.max)));
+  return min <= max ? { min, max } : { min: max, max: min };
+}
+
+/** How far outside the band a score sits, for ordering the backfill. */
+function bandDistance(score: number, range: DifficultyRange): number {
+  if (score < range.min) return range.min - score;
+  if (score > range.max) return score - range.max;
+  return 0;
 }
 
 /** How far a candidate can jump, as a share of its category's head. */
@@ -627,8 +883,7 @@ const RANK_JITTER = 0.6;
  */
 function byJitteredRank(items: PooledItem[]): PooledItem[] {
   return [...items].sort(
-    (left, right) =>
-      left.rank + Math.random() * RANK_JITTER - (right.rank + Math.random() * RANK_JITTER)
+    (left, right) => left.rank + Math.random() * RANK_JITTER - (right.rank + Math.random() * RANK_JITTER)
   );
 }
 
@@ -661,4 +916,90 @@ function dedupe(items: PooledItem[]): PooledItem[] {
 /** Test seam, and a way to force a fresh draw. */
 export function clearPanelPools(): void {
   pools.clear();
+}
+
+/* ------------------------------------------------------------- wiki lookup */
+
+/**
+ * One subject with everything a media kind might want from it.
+ *
+ * This is the panel pipeline generalised: the same image rules, the same
+ * answer-label cleaning, pointed at a free-text query instead of a category. The
+ * image-reveal editor uses it to turn "chercher : tour eiffel" into a source
+ * image plus a ready answer; any future kind gets it for free.
+ */
+export interface WikiSubject {
+  /** The article title as Wikipedia spells it. */
+  title: string;
+  /** The title cleaned into an answer: no parenthetical qualifier. */
+  label: string;
+  imageUrl: string;
+  /** The article's opening sentences, plain text: quiz-explanation material. */
+  description: string;
+  pageUrl: string;
+  monthlyViews: number;
+}
+
+/** Big enough for a full-screen reveal, unlike the panel's grid thumbnails. */
+const LOOKUP_IMAGE_WIDTH = 1200;
+
+export async function lookupSubjects(query: string, limit = 5): Promise<WikiSubject[]> {
+  const url = new URL(WIKI_API);
+  const params: Record<string, string> = {
+    action: 'query',
+    format: 'json',
+    formatversion: '2',
+    generator: 'search',
+    gsrsearch: query,
+    gsrnamespace: '0',
+    gsrlimit: String(Math.min(limit * 3, 20)),
+    prop: 'pageimages|pageviews|extracts',
+    piprop: 'thumbnail',
+    pithumbsize: String(LOOKUP_IMAGE_WIDTH),
+    pilimit: '20',
+    pilicense: 'free',
+    exintro: '1',
+    explaintext: '1',
+    exsentences: '2',
+    exlimit: '20'
+  };
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+
+  const response = await fetch(url, {
+    headers: { 'user-agent': USER_AGENT, accept: 'application/json' },
+    signal: AbortSignal.timeout(8_000)
+  });
+  if (!response.ok) {
+    throw new PanelError(`Wikipedia a répondu ${response.status}`, 502);
+  }
+
+  const parsed = searchResponseSchema.safeParse(await response.json());
+  if (!parsed.success) {
+    throw new PanelError('Réponse inattendue de Wikipedia', 502);
+  }
+
+  const subjects: WikiSubject[] = [];
+  for (const page of parsed.data.query?.pages ?? []) {
+    if (subjects.length >= limit) break;
+    if (!page.thumbnail) continue;
+
+    const file = decodeURIComponent(page.thumbnail.source);
+    if (FILLER_FILE.test(file)) continue;
+    if (page.thumbnail.width < MIN_THUMBNAIL_SIDE && page.thumbnail.height < MIN_THUMBNAIL_SIDE) {
+      continue;
+    }
+
+    subjects.push({
+      title: page.title,
+      label: page.title.replace(/\s*\([^)]*\)\s*$/, '').trim(),
+      imageUrl: page.thumbnail.source.split('?')[0] ?? page.thumbnail.source,
+      description: page.extract ?? '',
+      pageUrl: `https://fr.wikipedia.org/wiki/${encodeURIComponent(page.title.replace(/ /g, '_'))}`,
+      monthlyViews: monthlyViews(page.pageviews)
+    });
+  }
+
+  return subjects;
 }

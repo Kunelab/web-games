@@ -1,12 +1,16 @@
-import type { JoinAck } from 'game-core';
+import { toServerTime, type AnswerAck, type JoinAck } from 'game-core';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { api } from '../api/client';
+import { badgeMeta } from '../app/badges';
+import { useAuth } from '../hooks/useAuth';
 import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
+import { RoundPanel } from './Player';
 import { useYoutubePlayer } from '../hooks/useYoutube';
 import { joinUrl } from '../tools/api-url';
 import { Button, Loading } from '../ui';
+import { Ceremony } from '../ui/Ceremony';
 import { RevealImage } from '../ui/RevealImage';
 import './play.css';
 
@@ -20,14 +24,18 @@ import './play.css';
 export default function Host() {
   const { code = '' } = useParams<{ code: string }>();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  // Solo: this screen presents AND answers — no television, no second device.
+  const solo = params.get('solo') === '1';
   const { socket, connected, session, error, serverNow } = useGameSocket();
 
   const [hostToken] = useState(() => sessionStorage.getItem(`kune.host.${code}`) ?? '');
-  const [opened, setOpened] = useState(false);
   const [openError, setOpenError] = useState<string | null>(null);
 
+  // Re-runs on every reconnect: a fresh socket after a drop knows nothing, so
+  // the television re-presents its token each time the line comes back.
   useEffect(() => {
-    if (!socket || !connected || !hostToken || opened) return;
+    if (!socket || !connected || !hostToken) return;
 
     async function open(target: NonNullable<typeof socket>) {
       try {
@@ -36,7 +44,7 @@ export default function Host() {
         const ack = (await target.timeout(5000).emitWithAck('host:open', { code, hostToken })) as JoinAck;
 
         if (ack.ok) {
-          setOpened(true);
+          setOpenError(null);
         } else {
           setOpenError(ack.error ?? "Impossible d'ouvrir cette partie.");
         }
@@ -46,13 +54,12 @@ export default function Host() {
     }
 
     void open(socket);
-  }, [socket, connected, hostToken, code, opened]);
+  }, [socket, connected, hostToken, code]);
 
   const round = session?.hostRound ?? null;
   const remaining = useCountdown(round?.phaseEndsAt ?? null, serverNow);
 
-  const blindtestCode =
-    round?.kind === 'blindtest' ? ((round.payload as { code?: string }).code ?? '') : '';
+  const blindtestCode = round?.kind === 'blindtest' ? ((round.payload as { code?: string }).code ?? '') : '';
 
   // A label is a prompt only if the host wrote one. Generated answers have none.
   const prompts = (round?.answers ?? []).map((answer) => answer.label.trim()).filter(Boolean);
@@ -115,8 +122,7 @@ export default function Host() {
             <p className="play-label">À l’oral</p>
             <p className="host-prompt">Personne n’a besoin de téléphone.</p>
             <p className="play-note">
-              Les réponses se disent à voix haute. C’est vous qui décidez quand les montrer et quand
-              passer.
+              Les réponses se disent à voix haute. C’est vous qui décidez quand les montrer et quand passer.
             </p>
             {/* Nothing to wait for, so nothing disables this. */}
             <Button variant="primary" size="lg" onClick={() => socket?.emit('host:start', { hostToken })}>
@@ -140,6 +146,20 @@ export default function Host() {
               {session.players.map((player) => (
                 <li key={player.id} className={player.connected ? '' : 'away'}>
                   {player.name}
+                  {/* The title earned across past evenings: the cheap glory that
+                      makes a returning nickname feel like a returning player. */}
+                  {player.title && <span className="chip-title">{badgeMeta(player.title).title}</span>}
+                  {/* Kicking exists for the misclick and the stray phone, so it lives
+                      here in the lobby, not on the score strip mid-game. */}
+                  <button
+                    type="button"
+                    className="chip-kick"
+                    aria-label={`Retirer ${player.name}`}
+                    title={`Retirer ${player.name}`}
+                    onClick={() => socket?.emit('host:kick', { hostToken, playerId: player.id })}
+                  >
+                    ×
+                  </button>
                 </li>
               ))}
             </ul>
@@ -159,9 +179,7 @@ export default function Host() {
         <>
           <div className="host-stage">
             {/* The clip plays here and only here: players receive nothing of it. */}
-            {blindtestCode && (
-              <HiddenAudio code={blindtestCode} payload={round.payload} phase={round.phase} />
-            )}
+            {blindtestCode && <HiddenAudio code={blindtestCode} payload={round.payload} phase={round.phase} />}
 
             {round.phase === 'reveal' ? (
               <div className="host-stage-content">
@@ -170,6 +188,25 @@ export default function Host() {
                 <HostMedia round={round} serverNow={serverNow} revealed />
                 <p className="play-label">Réponse</p>
                 <p className="host-answer">{round.answers.map((answer) => answer.value).join(' · ')}</p>
+                {/* On an estimation the guesses ARE the reveal: the whole room wants
+                    to see who said what and by how much they missed. */}
+                {round.kind === 'estimation' && session.reveal?.guesses && session.reveal.guesses.length > 0 && (
+                  <ul className="guess-list">
+                    {session.reveal.guesses.map((guess, index) => (
+                      <li key={guess.playerId} className={index === 0 ? 'closest' : undefined}>
+                        <span className="score-name">{guess.name}</span>
+                        <span className="tabular">{guess.value.toLocaleString('fr-FR')}</span>
+                        <span className="guess-delta">
+                          {guess.delta === 0
+                            ? 'exact !'
+                            : guess.delta > 0
+                              ? `+${guess.delta.toLocaleString('fr-FR')}`
+                              : guess.delta.toLocaleString('fr-FR')}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <p className="play-note">{round.title}</p>
               </div>
             ) : (
@@ -180,9 +217,7 @@ export default function Host() {
                   /* The huge countdown owns the screen only when nothing else is on
                      it. Beside a picture or a grid it becomes a corner detail, or it
                      takes the room the thing being guessed needs. */
-                  <p className={`host-timer tabular ${round.kind === 'blindtest' ? '' : 'compact'}`}>
-                    {remaining}
-                  </p>
+                  <p className={`host-timer tabular ${round.kind === 'blindtest' ? '' : 'compact'}`}>{remaining}</p>
                 )}
                 {/* Only real prompts go on the television. With none, the useful thing
                     to say is how much there is to find, not a row of separators. */}
@@ -198,6 +233,8 @@ export default function Host() {
               </div>
             )}
           </div>
+
+          {solo && <SoloAnswers code={code} />}
 
           <div className="host-bottom">
             {/* Nobody scored anything in an oral game, so the strip would be a row of
@@ -246,26 +283,88 @@ export default function Host() {
       )}
 
       {session.phase === 'finished' && !session.oral && (
-        <div className="host-lobby">
-          <div className="stack-4" style={{ alignItems: 'center' }}>
-            <p className="play-label">Classement final</p>
-            <ol className="final-standings">
-              {session.players.map((player) => (
-                <li key={player.id}>
-                  <span className="rank tabular">{player.rank}</span>
-                  <span className="score-name">{player.name}</span>
-                  <span className="score-value tabular">{player.score}</span>
-                </li>
-              ))}
-            </ol>
-            <Button variant="secondary" onClick={() => void navigate('/playlists')}>
-              Retour aux playlists
-            </Button>
-          </div>
+        <div className="host-finished">
+          <p className="play-label">Classement final</p>
+          <Ceremony players={session.players} awards={session.final?.awards ?? []} />
+          <Button variant="secondary" onClick={() => void navigate('/playlists')}>
+            Retour aux playlists
+          </Button>
         </div>
       )}
 
       {error && <p className="play-error">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * Solo play's answer half: a second socket on the same page, seated as a
+ * regular player, feeding the same RoundPanel a phone would show — minus the
+ * media, which the stage above already presents. The server neither knows nor
+ * cares that the host and this player share a screen.
+ */
+function SoloAnswers({ code }: { code: string }) {
+  const { socket, connected, session, serverNow, clock } = useGameSocket();
+  const { user } = useAuth();
+  const [seated, setSeated] = useState(false);
+
+  const tokenKey = `kune.player.${code}`;
+
+  // Re-seats on every reconnect: the token reclaims the same chair.
+  useEffect(() => {
+    if (!socket || !connected) return;
+
+    socket
+      .timeout(5000)
+      .emitWithAck('session:join', {
+        code,
+        playerName: user?.login ?? 'Solo',
+        playerToken: localStorage.getItem(tokenKey) ?? undefined
+      })
+      .then((raw: unknown) => {
+        const ack = raw as JoinAck;
+        if (ack.ok) {
+          if (ack.playerToken) localStorage.setItem(tokenKey, ack.playerToken);
+          if (ack.playerId) localStorage.setItem(`${tokenKey}.id`, ack.playerId);
+          setSeated(true);
+        }
+      })
+      .catch(() => undefined);
+  }, [socket, connected, code, user, tokenKey]);
+
+  const myId = localStorage.getItem(`${tokenKey}.id`);
+
+  if (!seated || !session || session.phase !== 'playing' || !session.round) {
+    return null;
+  }
+
+  return (
+    <div className="host-solo-panel">
+      <RoundPanel
+        key={session.round.roundId}
+        session={session}
+        serverNow={serverNow}
+        offsetMs={clock.offsetMs}
+        myId={myId}
+        hidePresentation
+        onSubmit={async (fieldKey, value, direct) => {
+          if (!socket || !session.round) return { ok: false };
+          return (await socket.timeout(5000).emitWithAck('answer:submit', {
+            roundId: session.round.roundId,
+            fieldKey,
+            value,
+            clientTime: toServerTime(clock),
+            direct
+          })) as AnswerAck;
+        }}
+        onRevealChoices={async (fieldKey) => {
+          if (!socket || !session.round) return;
+          await socket.timeout(5000).emitWithAck('answer:revealChoices', {
+            roundId: session.round.roundId,
+            fieldKey
+          });
+        }}
+      />
     </div>
   );
 }
@@ -298,12 +397,13 @@ function HostMedia({
     cells?: string[];
     question?: string;
     imageUrl?: string;
+    mode?: 'pixelate' | 'blur';
     intensity?: number;
     startZoom?: number;
     keepVisible?: boolean;
   };
 
-  if (round.kind === 'quiz') {
+  if (round.kind === 'quiz' || round.kind === 'estimation') {
     return (
       <div className="stack-4">
         {payload.question && <p className="host-question">{payload.question}</p>}
@@ -318,14 +418,14 @@ function HostMedia({
      * answer time when it does not. An oral round is host-driven and has no deadline,
      * and deriving the duration from that would hand over a sharp picture at once.
      */
-    const duration =
-      round.phaseEndsAt !== null ? round.phaseEndsAt - round.phaseStartAt : round.answerMs;
+    const duration = round.phaseEndsAt !== null ? round.phaseEndsAt - round.phaseStartAt : round.answerMs;
 
     return (
       <div className="host-reveal-frame">
         <RevealImage
           className="host-image"
           src={payload.src}
+          mode={payload.mode ?? 'blur'}
           intensity={payload.intensity ?? 40}
           startZoom={payload.startZoom ?? 1}
           startAt={round.phaseStartAt}
@@ -395,9 +495,7 @@ function PanelGrid({ cells }: { cells: string[] }) {
     // Relaid out only when the median actually moves, so a panel does not reshuffle
     // once per image as fifty of them arrive.
     setContentAspect((current) =>
-      median !== null && (current === null || Math.abs(median - current) / current > 0.02)
-        ? median
-        : current
+      median !== null && (current === null || Math.abs(median - current) / current > 0.02) ? median : current
     );
   }
 
@@ -495,8 +593,7 @@ function panelColumns(
     // target counts the same as being twice as wide. A small charge per empty slot
     // breaks near-ties towards a layout that fills its last row, without letting a
     // tidy grid of badly shaped cells win outright.
-    const score =
-      Math.abs(Math.log(aspect / target)) + (columns * rows - count) * EMPTY_SLOT_COST;
+    const score = Math.abs(Math.log(aspect / target)) + (columns * rows - count) * EMPTY_SLOT_COST;
 
     if (score < bestScore) {
       best = columns;
@@ -513,15 +610,7 @@ function panelColumns(
  * Kept nearly invisible rather than unmounted: destroying and recreating the iframe
  * between phases costs a reload and a gap in the audio.
  */
-function HiddenAudio({
-  code,
-  payload,
-  phase
-}: {
-  code: string;
-  payload: unknown;
-  phase: string;
-}) {
+function HiddenAudio({ code, payload, phase }: { code: string; payload: unknown; phase: string }) {
   const revealing = phase === 'reveal';
   const window_ = payload as {
     startGuess?: number;

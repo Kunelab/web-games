@@ -12,6 +12,18 @@ export default function Playlists() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const playlists = useAsync(() => api.listPlaylists(), []);
+  /**
+   * Games this account is hosting right now. The host token normally lives in
+   * sessionStorage, so a television that lost its tab, or a different device
+   * entirely, had no way back into a running game. The server reissues the token
+   * to its owner here, and "Reprendre" plants it where the host screen looks.
+   */
+  const liveSessions = useAsync(() => api.mySessions(), []);
+
+  function resume(session: { code: string; hostToken: string }) {
+    sessionStorage.setItem(`kune.host.${session.code}`, session.hostToken);
+    void navigate(`/partie/${session.code}`);
+  }
 
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -90,6 +102,22 @@ export default function Playlists() {
       {playlists.loading && <Loading />}
       {playlists.error && <p className="field-error">{playlists.error}</p>}
       {notice && <p className="field-hint">{notice}</p>}
+
+      {(liveSessions.data ?? []).length > 0 && (
+        <div className="live-banner">
+          {(liveSessions.data ?? []).map((session) => (
+            <div className="live-banner-row" key={session.code}>
+              <span>
+                Partie en cours : <strong className="tabular">{session.code}</strong> · {session.playlistName}
+                {session.phase === 'lobby' && ' (en attente de joueurs)'}
+              </span>
+              <Button variant="secondary" size="sm" onClick={() => resume(session)}>
+                Reprendre
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {!playlists.loading && mine.length === 0 && shared.length === 0 && (
         <EmptyState

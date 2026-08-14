@@ -25,6 +25,7 @@ import {
   toSessionView
 } from './game/session.js';
 import type { MediaView } from './services/media-service.js';
+import { resultsService } from './services/results-service.js';
 
 const app = await buildApp();
 await app.ready();
@@ -87,7 +88,11 @@ for (let attempt = 0; attempt < 11; attempt++) {
   });
   attempts.push(response.statusCode);
 }
-check('wrong passwords are refused', attempts.slice(0, 10).every((status) => status === 400), attempts);
+check(
+  'wrong passwords are refused',
+  attempts.slice(0, 10).every((status) => status === 400),
+  attempts
+);
 check('and repeated attempts are rate limited', attempts[10] === 429, attempts[10]);
 
 /* -------------------------------- kinds ----------------------------------- */
@@ -95,8 +100,15 @@ section('media kinds');
 
 const kinds = await app.inject({ method: 'GET', url: '/api/media/kinds', headers });
 const kindList = JSON.parse(kinds.body) as { id: string; formFields: unknown[] }[];
-check('kind registry is served', kindList.length >= 4, kindList.map((kind) => kind.id));
-check('kinds carry form metadata', kindList.every((kind) => Array.isArray(kind.formFields)));
+check(
+  'kind registry is served',
+  kindList.length >= 4,
+  kindList.map((kind) => kind.id)
+);
+check(
+  'kinds carry form metadata',
+  kindList.every((kind) => Array.isArray(kind.formFields))
+);
 
 /* -------------------------------- media ----------------------------------- */
 section('media CRUD');
@@ -264,7 +276,11 @@ const playlistView = JSON.parse(playlist.body) as {
   notReadyCount: number;
   owner: { login: string } | null;
 };
-check('order is preserved', playlistView.items[0]?.id === blindItem.id, playlistView.items.map((i) => i.id));
+check(
+  'order is preserved',
+  playlistView.items[0]?.id === blindItem.id,
+  playlistView.items.map((i) => i.id)
+);
 check('owner is nested', playlistView.owner?.login === login, playlistView.owner);
 check('kinds are counted', playlistView.kindCounts.blindtest === 2, playlistView.kindCounts);
 check('the draft counts as not ready', playlistView.notReadyCount === 1, playlistView.notReadyCount);
@@ -276,7 +292,11 @@ const reordered = await app.inject({
   payload: { mediaIds: [quizItem.id, blindItem.id] }
 });
 const reorderedView = JSON.parse(reordered.body) as { items: MediaView[] };
-check('reordering works', reorderedView.items[0]?.id === quizItem.id, reorderedView.items.map((i) => i.id));
+check(
+  'reordering works',
+  reorderedView.items[0]?.id === quizItem.id,
+  reorderedView.items.map((i) => i.id)
+);
 check('and dropping an item works', reorderedView.items.length === 2, reorderedView.items.length);
 
 const renamed = await app.inject({
@@ -303,7 +323,11 @@ const clonedView = JSON.parse(clonedPlaylist.body) as {
 };
 check('the copy is a new playlist', clonedView.id !== playlistView.id, clonedView.id);
 check('named as a copy', clonedView.name === 'Renommée (copie)', clonedView.name);
-check('contents and order come across', clonedView.items.map((item) => item.id).join() === [quizItem.id, blindItem.id].join(), clonedView.items.map((item) => item.id));
+check(
+  'contents and order come across',
+  clonedView.items.map((item) => item.id).join() === [quizItem.id, blindItem.id].join(),
+  clonedView.items.map((item) => item.id)
+);
 check('nothing was dropped', clonedView.dropped === 0, clonedView.dropped);
 // Publishing is a decision, and copying something public is not making it.
 check('the copy is private whatever the original was', clonedView.public === false, clonedView.public);
@@ -332,7 +356,11 @@ assert(otherCookie);
 const otherHeaders = { cookie: `${otherCookie.name}=${otherCookie.value}` };
 
 const otherMedia = await app.inject({ method: 'GET', url: '/api/media', headers: otherHeaders });
-check('a second user sees no media of the first', (JSON.parse(otherMedia.body) as unknown[]).length === 0, otherMedia.body);
+check(
+  'a second user sees no media of the first',
+  (JSON.parse(otherMedia.body) as unknown[]).length === 0,
+  otherMedia.body
+);
 
 const crossDelete = await app.inject({
   method: 'DELETE',
@@ -480,7 +508,11 @@ check(
   aliceView.fields.every((field) => field.choices === undefined),
   aliceView.fields
 );
-check('but the player is told choices exist', aliceView.fields.some((field) => field.hasChoices), aliceView.fields);
+check(
+  'but the player is told choices exist',
+  aliceView.fields.some((field) => field.hasChoices),
+  aliceView.fields
+);
 
 const firstFieldKey = round.answers[0]?.key ?? '';
 const correctValue = round.answers[0]?.value ?? '';
@@ -629,12 +661,105 @@ section('pooled answers');
       receivedAt: Date.now()
     })
   );
-  check('four wrong guesses are accepted', guesses.slice(0, 4).every((r) => r.ok));
+  check(
+    'four wrong guesses are accepted',
+    guesses.slice(0, 4).every((r) => r.ok)
+  );
   check('the fifth is refused for the round', guesses[4]?.error === "Plus d'essais pour ce tour", guesses[4]);
   check(
     'and every written answer is then locked',
     (toRoundView(spam, waster.id, { imageUrl: () => '' })?.lockedFieldKeys.length ?? 0) === 2
   );
+}
+
+/* ------------------------------- estimation ------------------------------- */
+section('estimation');
+
+{
+  // One number each, closest wins. Every submission is a commitment, not an attempt.
+  const item: MediaView = {
+    ...quizItem,
+    id: 9_002,
+    kind: 'estimation',
+    answers: [answerFieldSchema.parse({ key: 'estimate', value: '100', points: 3 })],
+    payload: { question: 'Combien de km ?', imageUrl: '', unit: 'km' }
+  };
+
+  const est = createSession({
+    playlistName: 'estimation',
+    playlistId: null,
+    hostUserId: 1,
+    items: [item],
+    config: defaultSessionConfig,
+    existingCodes: new Set()
+  });
+  const near = joinSession(est, 'Near', undefined).player;
+  const far = joinSession(est, 'Far', undefined).player;
+  const exact = joinSession(est, 'Exact', undefined).player;
+  advance(est, () => item);
+  const roundId = est.round?.id ?? '';
+
+  const send = (playerId: string, value: string) =>
+    submitAnswer({
+      state: est,
+      playerId,
+      roundId,
+      fieldKey: 'estimate',
+      value,
+      claimedAt: Date.now(),
+      receivedAt: Date.now()
+    });
+
+  check('a non-number is refused', send(near.id, 'beaucoup').error === 'Entre un nombre');
+  check('a number is accepted', send(near.id, '150').ok === true);
+  send(near.id, '110');
+  check(
+    'a revision replaces the previous number',
+    est.round?.submissions.filter((s) => s.playerId === near.id).length === 1,
+    est.round?.submissions
+  );
+  send(far.id, '1 000');
+  send(exact.id, '100');
+
+  closeAnswers(est);
+  const scored = est.round?.scored ?? {};
+  check(
+    'closer numbers score higher',
+    (scored[exact.id] ?? 0) > (scored[near.id] ?? 0) && (scored[near.id] ?? 0) > (scored[far.id] ?? 0),
+    scored
+  );
+  check('the exact value earns its bonus', scored[exact.id] === 4.5, scored);
+
+  const reveal = toRevealView(est);
+  check(
+    'the reveal lists every guess, closest first',
+    reveal?.guesses?.map((guess) => guess.name).join(',') === 'Exact,Near,Far',
+    reveal?.guesses
+  );
+  check('deltas are signed', reveal?.guesses?.some((guess) => guess.delta === 10) === true, reveal?.guesses);
+
+  // Finish the game: the ceremony appears, and the history row is written.
+  advance(est, () => item);
+  check('the estimation session finishes', est.phase === 'finished', est.phase);
+
+  const finalView = toSessionView(est, null, true, { imageUrl: () => '' });
+  check('the ceremony hands out awards', (finalView.final?.awards.length ?? 0) > 0, finalView.final);
+
+  await resultsService.record(est);
+
+  const history = await app.inject({ method: 'GET', url: '/api/play/results', headers });
+  check(
+    'history lists the recorded game',
+    history.statusCode === 200 && (JSON.parse(history.body) as unknown[]).length === 1,
+    history.body
+  );
+
+  const careers = await app.inject({ method: 'GET', url: '/api/play/careers', headers });
+  const careerRows = JSON.parse(careers.body) as { name: string; wins: number }[];
+  check('careers aggregate by nickname', careerRows.find((row) => row.name === 'Exact')?.wins === 1, careerRows);
+
+  const anonymousHistory = await app.inject({ method: 'GET', url: '/api/play/results' });
+  check('history requires a login', anonymousHistory.statusCode === 401, anonymousHistory.statusCode);
 }
 
 /* ------------------------------- oral mode -------------------------------- */
@@ -692,6 +817,38 @@ section('oral mode');
   if (auto.round?.phase === 'study') openAnswers(auto);
   closeAnswers(auto);
   check('but auto-advance still governs the reveal', auto.round?.phaseEndsAt !== null);
+}
+
+/* --------------------------------- CoronaZ -------------------------------- */
+section('coronaz');
+
+{
+  const started = await app.inject({
+    method: 'POST',
+    url: '/api/zombie/sessions',
+    headers,
+    payload: { config: { mode: 'gm', scenario: 'purge', width: 6, height: 4 } }
+  });
+  check('a raid session starts', started.statusCode === 201, started.body);
+  const raid = JSON.parse(started.body) as { code: string; hostToken: string; gmToken?: string };
+  check('a host token is issued', typeof raid.hostToken === 'string' && raid.hostToken.length > 10);
+  check('a gm token is issued in gm mode', typeof raid.gmToken === 'string');
+
+  const lookup = await app.inject({ method: 'GET', url: `/api/zombie/sessions/${raid.code}` });
+  check('the raid code can be looked up without a login', lookup.statusCode === 200);
+  check('the lookup leaks no tokens', !lookup.body.includes(raid.hostToken), lookup.body);
+
+  const anonymous = await app.inject({ method: 'POST', url: '/api/zombie/sessions', payload: {} });
+  check('creating a raid needs a login', anonymous.statusCode === 401, anonymous.statusCode);
+
+  const mine = await app.inject({ method: 'GET', url: '/api/zombie/mine', headers });
+  check(
+    'the host finds their live raid',
+    (JSON.parse(mine.body) as { code: string }[]).some((entry) => entry.code === raid.code)
+  );
+
+  const deleted = await app.inject({ method: 'DELETE', url: `/api/zombie/sessions/${raid.code}`, headers });
+  check('the host can end the raid', deleted.statusCode === 204, deleted.statusCode);
 }
 
 /* --------------------------- asset token opacity -------------------------- */

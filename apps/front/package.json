@@ -21,6 +21,7 @@
     "@radix-ui/react-select": "^2.3.7",
     "@radix-ui/react-switch": "^1.3.7",
     "game-core": "workspace:*",
+    "coronaz-core": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-qr-code": "^2.2.0",

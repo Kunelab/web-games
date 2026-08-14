@@ -8,25 +8,25 @@ own with `pnpm --filter front dev` once `game-core` has been built.
 
 ## Scripts
 
-| Script              | What it does                                      |
-| ------------------- | ------------------------------------------------- |
-| `pnpm dev`          | Vite dev server with HMR, bound to all interfaces |
-| `pnpm build`        | Typecheck (`tsc -b`) then bundle to `dist/`       |
-| `pnpm typecheck`    | Types only, no output                             |
-| `pnpm lint`         | ESLint, type-aware                                |
-| `pnpm format`       | Prettier                                          |
-| `pnpm preview`      | Serve the built `dist/` locally                   |
+| Script           | What it does                                      |
+| ---------------- | ------------------------------------------------- |
+| `pnpm dev`       | Vite dev server with HMR, bound to all interfaces |
+| `pnpm build`     | Typecheck (`tsc -b`) then bundle to `dist/`       |
+| `pnpm typecheck` | Types only, no output                             |
+| `pnpm lint`      | ESLint, type-aware                                |
+| `pnpm format`    | Prettier                                          |
+| `pnpm preview`   | Serve the built `dist/` locally                   |
 
 `pnpm build` fails on a type error, so a broken build cannot ship.
 
 ## Environment
 
-| Variable             | Default          | Purpose                                     |
-| -------------------- | ---------------- | ------------------------------------------- |
-| `VITE_API_PROTOCOL`  | `http`           | API scheme                                  |
-| `VITE_API_URL`       | current hostname | API host. Best left unset, see below        |
-| `VITE_API_PORT`      | none             | API port, with or without a leading colon   |
-| `VITE_BUZZER_ORIGIN` | current origin   | Origin the join QR code points players at   |
+| Variable             | Default          | Purpose                                   |
+| -------------------- | ---------------- | ----------------------------------------- |
+| `VITE_API_PROTOCOL`  | `http`           | API scheme                                |
+| `VITE_API_URL`       | current hostname | API host. Best left unset, see below      |
+| `VITE_API_PORT`      | none             | API port, with or without a leading colon |
+| `VITE_BUZZER_ORIGIN` | current origin   | Origin the join QR code points players at |
 
 These are assembled once in [src/tools/api-url.ts](src/tools/api-url.ts). The API
 origin is also what socket.io connects to.

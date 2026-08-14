@@ -1,10 +1,4 @@
-import {
-  ANSWER_TOLERANCE,
-  mediaReadiness,
-  normalizeAnswer,
-  type AnswerField,
-  type KindTiming
-} from 'game-core';
+import { ANSWER_TOLERANCE, mediaReadiness, normalizeAnswer, type AnswerField, type KindTiming } from 'game-core';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -14,6 +8,7 @@ import {
   type KindDescriptor,
   type MediaItem,
   type PanelItem,
+  type WikiSubject,
   type YoutubeMetadata
 } from '../api/client';
 import { kindColor } from '../app/kinds';
@@ -39,10 +34,7 @@ export default function MediaEditor() {
   const mediaId = id === undefined ? null : Number(id);
 
   const kinds = useAsync(() => api.kinds(), []);
-  const existing = useAsync(
-    () => (mediaId === null ? Promise.resolve(null) : api.getMedia(mediaId)),
-    [mediaId]
-  );
+  const existing = useAsync(() => (mediaId === null ? Promise.resolve(null) : api.getMedia(mediaId)), [mediaId]);
 
   if (kinds.loading || existing.loading) {
     return <Loading />;
@@ -63,12 +55,7 @@ export default function MediaEditor() {
   // from props. That replaces copying the loaded item into state inside an effect,
   // which cost an extra render and a frame of empty inputs.
   return (
-    <Editor
-      key={existing.data?.id ?? 'new'}
-      item={existing.data ?? null}
-      kinds={kinds.data ?? []}
-      mediaId={mediaId}
-    />
+    <Editor key={existing.data?.id ?? 'new'} item={existing.data ?? null} kinds={kinds.data ?? []} mediaId={mediaId} />
   );
 }
 
@@ -86,9 +73,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
   const [category, setCategory] = useState(item?.category ?? '');
   const [date, setDate] = useState(item?.date ?? '');
   const [answers, setAnswers] = useState<AnswerField[]>(item?.answers ?? []);
-  const [payload, setPayload] = useState<Record<string, unknown>>(
-    (item?.payload ?? {}) as Record<string, unknown>
-  );
+  const [payload, setPayload] = useState<Record<string, unknown>>((item?.payload ?? {}) as Record<string, unknown>);
   const [timing, setTiming] = useState<KindTiming | null>(item?.timing ?? null);
 
   const [saving, setSaving] = useState(false);
@@ -136,6 +121,35 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
     if (!date && metadata.year) {
       setDate(`${metadata.year}-01-01`);
     }
+  }
+
+  /**
+   * Fills what Wikipedia knows when a lookup result is adopted, same contract as
+   * the YouTube prefill: nothing the host already wrote is overwritten. The
+   * subject's name becomes the librarian title and the first empty answer; the
+   * full article title rides along as an alias when it differs.
+   */
+  function applyWiki(subject: WikiSubject) {
+    if (!title.trim()) {
+      setTitle(subject.label.slice(0, 200));
+    }
+
+    setAnswers((current) => {
+      const firstEmpty = current.findIndex((answer) => !answer.value.trim());
+      if (firstEmpty === -1) return current;
+      return current.map((answer, index) =>
+        index === firstEmpty
+          ? {
+              ...answer,
+              value: subject.label,
+              aliases:
+                subject.title !== subject.label && !answer.aliases.includes(subject.title)
+                  ? [...answer.aliases, subject.title]
+                  : answer.aliases
+            }
+          : answer
+      );
+    });
   }
 
   /**
@@ -270,6 +284,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
                 onChange={setPayload}
                 errors={fieldErrors}
                 onYoutubeMetadata={applyYoutube}
+                onWikiSubject={applyWiki}
                 panel={{
                   labels: answers.map((answer) => answer.value),
                   onGenerated: applyPanel,

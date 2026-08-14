@@ -97,9 +97,7 @@ export function useGameSocket(): GameConnection {
           try {
             // socket.io's ack typing does not survive `timeout()`, so the shape is
             // asserted once here rather than leaking `any` into the estimate.
-            const pong = (await target
-              .timeout(3000)
-              .emitWithAck('clock:ping', { clientSent })) as ClockPongPayload;
+            const pong = (await target.timeout(3000).emitWithAck('clock:ping', { clientSent })) as ClockPongPayload;
 
             samples.push({
               clientSent: pong.clientSent,

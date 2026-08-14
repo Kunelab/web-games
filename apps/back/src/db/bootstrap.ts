@@ -133,6 +133,42 @@ const statements = [
     "last_activity_at" INTEGER NOT NULL
   )`,
 
+  // Finished games, kept for history and stats. Live sessions are deleted when
+  // they end; this row is what remains.
+  `CREATE TABLE IF NOT EXISTS "GameResults" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "code" TEXT NOT NULL,
+    "playlist_id" INTEGER REFERENCES "Playlists" ("id") ON DELETE SET NULL,
+    "playlist_name" TEXT NOT NULL,
+    "host_user_id" INTEGER REFERENCES "Users" ("id"),
+    "finished_at" INTEGER NOT NULL,
+    "rounds_total" INTEGER NOT NULL,
+    "players" TEXT NOT NULL,
+    "awards" TEXT NOT NULL DEFAULT '[]',
+    "created_at" TEXT DEFAULT CURRENT_TIMESTAMP
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS "GameResults_finished_at_idx" ON "GameResults" ("finished_at")`,
+
+  // CoronaZ raids in progress, restored on boot like quiz sessions.
+  `CREATE TABLE IF NOT EXISTS "ZombieSessions" (
+    "code" TEXT PRIMARY KEY,
+    "host_user_id" INTEGER REFERENCES "Users" ("id"),
+    "phase" TEXT NOT NULL,
+    "state" TEXT NOT NULL,
+    "created_at" TEXT DEFAULT CURRENT_TIMESTAMP,
+    "last_activity_at" INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS "ZombieSessions_last_activity_idx" ON "ZombieSessions" ("last_activity_at")`,
+
+  // CoronaZ lifetime tallies per nickname: the roguelite's memory.
+  `CREATE TABLE IF NOT EXISTS "CzCareers" (
+    "name" TEXT PRIMARY KEY,
+    "stats" TEXT NOT NULL,
+    "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP
+  )`,
+
   `CREATE INDEX IF NOT EXISTS "Media_user_id_idx" ON "Media" ("user_id")`,
   `CREATE INDEX IF NOT EXISTS "Media_kind_idx" ON "Media" ("kind")`,
   `CREATE INDEX IF NOT EXISTS "Media_category_idx" ON "Media" ("category")`,

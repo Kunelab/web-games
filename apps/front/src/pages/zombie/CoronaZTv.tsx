@@ -1,0 +1,360 @@
+import { heroDef, LAYOUTS, SCENARIO_LABELS, type CzJoinAck, type CzView } from 'coronaz-core';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router';
+
+import { api } from '../../api/client';
+import { useCountdown } from '../../hooks/useGameSocket';
+import { useCzSocket } from '../../hooks/useCzSocket';
+import { buzzerOrigin } from '../../tools/api-url';
+import { Button, Loading } from '../../ui';
+import { awardMeta } from '../../app/awards';
+import { MuteButton } from './CoronaZPlayer';
+import { CzMap } from './CzMap';
+import { sfxDefeat, sfxEscape, sfxHordePhase, sfxKill, sfxObjective } from './czSound';
+import './coronaz.css';
+import '../play.css';
+
+/**
+ * The television's ears: state diffs become sound. Kills thud, objectives
+ * chime, the horde's phase growls, the ending sings or sinks. Kept out of the
+ * component body so the effect reads as what it is — a reaction to the state.
+ */
+function useTvSounds(view: ReturnType<typeof useCzSocket>['view']) {
+  const previous = useRef<{ phase: string; kills: number; objectivesDone: number } | null>(null);
+
+  useEffect(() => {
+    if (!view) return;
+    const done = view.objectives.filter((objective) => objective.done).length;
+    const last = previous.current;
+    previous.current = { phase: view.phase, kills: view.killsTotal, objectivesDone: done };
+    if (!last) return;
+
+    if (view.killsTotal > last.kills) sfxKill();
+    if (done > last.objectivesDone) sfxObjective();
+    if (view.phase !== last.phase) {
+      if (view.phase === 'enemy') sfxHordePhase();
+      if (view.phase === 'won') sfxEscape();
+      if (view.phase === 'lost') sfxDefeat();
+    }
+  }, [view]);
+}
+
+/**
+ * The television: the shared board, readable from the sofa.
+ *
+ * It sees exactly what the team sees — the shared fog — so nobody has to look
+ * away from it. All it adds is the meta the room wants at a glance: the phase,
+ * the clock, the objective, everyone's health, and the log of what just bit whom.
+ */
+export default function CoronaZTv() {
+  const { code = '' } = useParams<{ code: string }>();
+  const navigate = useNavigate();
+  const { socket, connected, view, error, serverNow, applyView } = useCzSocket();
+
+  const [hostToken] = useState(() => sessionStorage.getItem(`kune.cz.host.${code}`) ?? '');
+  const [openError, setOpenError] = useState<string | null>(null);
+
+  // Re-runs on every reconnect, not just the first: a fresh socket knows
+  // nothing, so the television re-presents its token each time the line comes
+  // back. Opening twice is harmless; staying detached is a frozen screen.
+  useEffect(() => {
+    if (!socket || !connected || !hostToken) return;
+
+    socket
+      .timeout(5000)
+      .emitWithAck('cz:open', { code, hostToken })
+      .then((ack: CzJoinAck) => {
+        if (ack.ok) {
+          // The ack carries the state; the server also pushes it. Either path
+          // alone gets this screen off "Connexion à la partie…".
+          if (ack.view) applyView(ack.view);
+          setOpenError(null);
+        } else {
+          setOpenError(ack.error ?? 'Impossible d’ouvrir cette partie.');
+        }
+      })
+      .catch(() => setOpenError('Le serveur ne répond pas.'));
+  }, [socket, connected, hostToken, code, applyView]);
+
+  const remaining = useCountdown(view?.phaseEndsAt ?? null, serverNow);
+  useTvSounds(view);
+
+  if (!hostToken) {
+    return (
+      <div className="jeu-screen jeu-center">
+        <p className="play-note">Cet écran ne connaît pas le jeton de cette partie.</p>
+        <Button variant="secondary" onClick={() => void navigate('/coronaz')}>
+          Préparer une partie
+        </Button>
+      </div>
+    );
+  }
+
+  if (openError) {
+    return (
+      <div className="jeu-screen jeu-center">
+        <p className="play-note">{openError}</p>
+        <Button variant="secondary" onClick={() => void navigate('/coronaz')}>
+          Retour
+        </Button>
+      </div>
+    );
+  }
+
+  if (!view) {
+    return (
+      <div className="jeu-screen jeu-center">
+        <Loading label="Connexion à la partie…" />
+      </div>
+    );
+  }
+
+  const ended = view.phase === 'won' || view.phase === 'lost';
+
+  return (
+    <div className="jeu-screen jeu-fixed">
+      <header className="host-top">
+        <span className="host-code">{view.code}</span>
+        <span className="host-progress tabular">
+          Tour {view.turn} · {SCENARIO_LABELS[view.scenario].name}
+          {/* Which world this is: the same scenario plays differently in a
+              suburb and in a bunker, so the room should know which it got. */}
+          {' · '}
+          {LAYOUTS.find((layout) => layout.id === view.layout)?.name ?? view.layout}
+        </span>
+        <MuteButton />
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            void api.czEnd(code).finally(() => void navigate('/coronaz'));
+          }}
+        >
+          Terminer
+        </Button>
+      </header>
+
+      {view.phase === 'lobby' && (
+        <div className="host-lobby">
+          <div className="stack-4" style={{ alignItems: 'center' }}>
+            <p className="play-label">Rejoindre avec ce code</p>
+            <p className="host-bigcode">{view.code}</p>
+            <p className="play-note">{`${buzzerOrigin}/coronaz/rejoindre/${view.code}`}</p>
+          </div>
+          <div className="stack-4" style={{ alignItems: 'center' }}>
+            <p className="play-label">{view.heroes.length} survivant(s) · 5 max</p>
+            <ul className="player-chips">
+              {view.heroes.map((hero) => (
+                <li key={hero.playerId} className={hero.connected ? '' : 'away'}>
+                  {heroDef(hero.heroId).emoji} {hero.name}
+                  {hero.isBot && ' 🤖'}
+                  {hero.isBot && (
+                    <button
+                      type="button"
+                      className="chip-kick"
+                      aria-label={`Retirer ${hero.name}`}
+                      onClick={() => socket?.emit('cz:removeBot', { hostToken, playerId: hero.playerId })}
+                    >
+                      ×
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+
+            {/* Machine teammates: solo players raid with a full table. */}
+            {view.heroes.length < 5 && (
+              <div className="cz-actions">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => socket?.emit('cz:addBot', { hostToken, skill: 'expert' }, () => undefined)}
+                >
+                  + Bot expert
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => socket?.emit('cz:addBot', { hostToken, skill: 'newbie' }, () => undefined)}
+                >
+                  + Bot novice
+                </Button>
+              </div>
+            )}
+
+            <p className="cz-goal">{SCENARIO_LABELS[view.scenario].goal}</p>
+            <p className="play-note">Graine du monde : {view.seed}</p>
+            <Button
+              variant="primary"
+              size="lg"
+              disabled={view.heroes.length === 0}
+              onClick={() => socket?.emit('cz:start', { hostToken })}
+            >
+              Lancer le raid
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {(view.phase === 'heroes' || view.phase === 'enemy') && (
+        <div className="cz-tv">
+          {/* Nobody pans a television: it follows the survivors while they act
+              and frames the whole floor once the horde starts moving. */}
+          <CzMap view={view} camera="auto" />
+          <aside className="cz-side">
+            <div>
+              <p className={`cz-phase ${view.phase === 'enemy' ? 'enemy' : ''}`}>
+                {view.phase === 'heroes' ? 'Aux survivants' : 'La horde joue'}
+              </p>
+              {view.phaseEndsAt !== null && (
+                <p className={`cz-timer tabular ${remaining <= 5 ? 'urgent' : ''}`}>{remaining}</p>
+              )}
+            </div>
+
+            <GoalLine view={view} />
+
+            {view.objectives.length > 0 && (
+              <ul className="cz-objectives">
+                {view.objectives.map((objective) => (
+                  <li key={objective.id} className={objective.done ? 'done' : ''}>
+                    {objective.done ? '✔' : '▹'} {objective.label}
+                    {!objective.done && objective.target > 1 && (
+                      <span className="tabular">
+                        {' '}
+                        {Math.min(objective.progress, objective.target)}/{objective.target}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <ul className="cz-hero-list">
+              {view.heroes.map((hero) => (
+                <li key={hero.playerId} className={!hero.alive ? 'down' : hero.escaped ? 'out' : ''}>
+                  <span>{heroDef(hero.heroId).emoji}</span>
+                  <span>
+                    {hero.name}
+                    {hero.escaped ? ' · sorti' : ''}
+                  </span>
+                  <span className="cz-hp tabular">{hero.hp}❤</span>
+                  <span className="cz-ap tabular">
+                    {view.phase === 'heroes' && hero.alive && !hero.escaped
+                      ? hero.ready
+                        ? 'prêt'
+                        : `${hero.ap} PA`
+                      : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+
+            <ul className="cz-log">
+              {[...view.log].reverse().map((entry, index) => (
+                <li key={`${entry.turn}-${index}`}>{entry.text}</li>
+              ))}
+            </ul>
+          </aside>
+        </div>
+      )}
+
+      {ended && <CzEndScreen view={view} onExit={() => void navigate('/coronaz')} />}
+
+      {error && <p className="play-error">{error}</p>}
+    </div>
+  );
+}
+
+function GoalLine({ view }: { view: CzView }) {
+  if (view.scenario === 'escape') {
+    return (
+      <p className="cz-goal">
+        Clés :{' '}
+        <strong className="tabular">
+          {view.keysCollected} / {view.keysTotal}
+        </strong>{' '}
+        · puis la sortie 🚪
+      </p>
+    );
+  }
+  if (view.scenario === 'purge') {
+    return (
+      <p className="cz-goal">
+        Victimes :{' '}
+        <strong className="tabular">
+          {view.killsTotal} / {view.killTarget}
+        </strong>
+      </p>
+    );
+  }
+  if (view.scenario === 'endless') {
+    return (
+      <p className="cz-goal">
+        Personne ne sort. Tour <strong className="tabular">{view.turn}</strong> ·{' '}
+        <strong className="tabular">{view.killsTotal}</strong> victimes. La horde grossit.
+      </p>
+    );
+  }
+  return (
+    <p className="cz-goal">
+      Tenir :{' '}
+      <strong className="tabular">
+        {view.turn} / {view.survivalTurns}
+      </strong>{' '}
+      tours
+    </p>
+  );
+}
+
+/** Shared by the TV and the phones: verdict, scores, distinctions. */
+export function CzEndScreen({ view, onExit }: { view: CzView; onExit?: () => void }) {
+  return (
+    <div className="cz-end">
+      <p className={`cz-verdict ${view.phase === 'won' ? 'won' : 'lost'}`}>
+        {view.phase === 'won' ? 'SURVÉCU' : 'DÉVORÉS'}
+      </p>
+      {/* The seed is the rematch: same world, same dice, new decisions. */}
+      <p className="play-note">
+        Tour {view.turn} · graine {view.seed} — rejouable à l’identique depuis la mise en place.
+      </p>
+
+      <ol className="final-standings">
+        {(view.scores ?? []).map((score, index) => (
+          <li key={score.playerId}>
+            <span className="rank tabular">{index + 1}</span>
+            <span className="score-name">
+              {heroDef(score.heroId).emoji} {score.name}
+              {!score.alive && ' 💀'}
+              {score.escaped && ' 🚪'}
+            </span>
+            <span className="score-value tabular">{score.score} pts</span>
+          </li>
+        ))}
+      </ol>
+
+      {(view.awards ?? []).length > 0 && (
+        <ul className="awards">
+          {(view.awards ?? []).map((award) => {
+            const meta = awardMeta(award.key);
+            return (
+              <li key={award.key}>
+                <span className="award-emoji" aria-hidden="true">
+                  {meta.emoji}
+                </span>
+                <span className="award-title">{meta.title}</span>
+                <span className="award-holder">{award.playerName}</span>
+                <span className="award-value">{award.value}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {onExit && (
+        <Button variant="secondary" onClick={onExit}>
+          Retour
+        </Button>
+      )}
+    </div>
+  );
+}

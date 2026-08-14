@@ -52,6 +52,8 @@
      list, so it is a token rather than a per-screen decision. */
   --kind-blindtest: #d99a3f;
   --kind-quiz: #6f8fbf;
+  --kind-estimation: #c4726d;
+  --kind-coronaz: #9d4a44;
   --kind-image-reveal: #7fae86;
   --kind-image-memory: #b083c4;
 }
@@ -111,8 +113,6 @@
   --leading: 1.4;
 
   /* The spotlight is what makes it read as a stage rather than a dark page. */
-  background:
-    radial-gradient(120% 85% at 50% -15%, #2a2f3f 0%, rgba(42, 47, 63, 0) 60%),
-    var(--bg);
+  background: radial-gradient(120% 85% at 50% -15%, #2a2f3f 0%, rgba(42, 47, 63, 0) 60%), var(--bg);
   color: var(--ink);
 }
