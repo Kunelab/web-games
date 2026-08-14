@@ -40,6 +40,13 @@ export interface PropDef {
   where: Placement;
   /** Rough radius in cells, for keeping props out of each other. */
   radius: number;
+  /**
+   * Roughly how tall it stands, in cells. Only the hit-test reads it: a prop is
+   * drawn *above* the tile it stands on, so a click near the top of a wardrobe
+   * lands on the tile behind unless the pick map knows the wardrobe is there.
+   * Defaults to half a cell, which covers most furniture.
+   */
+  height?: number;
   /** Which rooms it belongs in, and how eagerly (roughly 1–14). */
   programs: Partial<Record<RoomProgram, number>>;
   /** At most this many in one room. One for anything big or unique. */
@@ -120,6 +127,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'desk',
     where: 'wall',
     radius: 0.42,
+    height: 0.55,
     maxPerRoom: 2,
     programs: { office: 10, archive: 5, lab: 4, backstage: 4, server: 2, dorm: 2, living: 2 },
     companions: [{ kind: 'chair', count: [1, 1] }],
@@ -135,6 +143,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'workbench',
     where: 'wall',
     radius: 0.45,
+    height: 0.55,
     maxPerRoom: 2,
     programs: { workshop: 12, lab: 6, storage: 3, dock: 3 },
     draw: (ctx, cx, cy, context) => {
@@ -150,6 +159,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'filecabinet',
     where: 'wall',
     radius: 0.3,
+    height: 0.65,
     maxPerRoom: 3,
     programs: { office: 9, archive: 9, lab: 3, backstage: 2 },
     draw: (ctx, cx, cy) => {
@@ -163,6 +173,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'printer',
     where: 'wall',
     radius: 0.24,
+    height: 0.35,
     maxPerRoom: 1,
     maxPerZone: 2,
     programs: { office: 7, archive: 5 },
@@ -178,6 +189,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'whiteboard',
     where: 'wall',
     radius: 0.34,
+    height: 0.85,
     maxPerRoom: 1,
     programs: { office: 7, lab: 8, workshop: 4, server: 3 },
     draw: (ctx, cx, cy, context) => {
@@ -192,6 +204,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'rack',
     where: 'wall',
     radius: 0.32,
+    height: 1,
     maxPerRoom: 3,
     programs: { server: 14, lab: 4, workshop: 3 },
     draw: (ctx, cx, cy, context) => {
@@ -211,6 +224,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'shelf',
     where: 'wall',
     radius: 0.4,
+    height: 0.85,
     maxPerRoom: 3,
     programs: { archive: 12, storage: 10, office: 4, workshop: 4, lab: 4, bar: 4, kitchen: 4, server: 3 },
     draw: (ctx, cx, cy, context) => {
@@ -229,6 +243,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'bookcase',
     where: 'wall',
     radius: 0.4,
+    height: 0.9,
     maxPerRoom: 2,
     programs: { archive: 10, living: 7, office: 5, bedroom: 4, lobby: 2 },
     draw: (ctx, cx, cy, context) => {
@@ -251,6 +266,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'locker',
     where: 'wall',
     radius: 0.32,
+    height: 0.95,
     maxPerRoom: 3,
     programs: { storage: 8, workshop: 7, dorm: 8, restroom: 6, backstage: 6, corridor: 4, lab: 4 },
     draw: (ctx, cx, cy, context) => {
@@ -269,6 +285,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'crate',
     where: 'floor',
     radius: 0.24,
+    height: 0.35,
     maxPerRoom: 3,
     clutter: true,
     programs: { storage: 12, dock: 10, workshop: 8, alley: 6, backstage: 4, parking: 3, hall: 2 },
@@ -286,6 +303,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'boxpile',
     where: 'corner',
     radius: 0.3,
+    height: 0.75,
     maxPerRoom: 2,
     programs: { storage: 10, dock: 8, archive: 6, workshop: 5, alley: 4, corridor: 3 },
     draw: (ctx, cx, cy, context) => {
@@ -304,6 +322,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'pallet',
     where: 'floor',
     radius: 0.3,
+    height: 0.1,
     maxPerRoom: 2,
     clutter: true,
     programs: { storage: 8, dock: 10, workshop: 6 },
@@ -316,6 +335,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'barrel',
     where: 'floor',
     radius: 0.22,
+    height: 0.5,
     maxPerRoom: 3,
     clutter: true,
     programs: { workshop: 8, storage: 7, dock: 6, alley: 5, lab: 4 },
@@ -326,6 +346,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'safe',
     where: 'corner',
     radius: 0.26,
+    height: 0.4,
     maxPerRoom: 1,
     maxPerZone: 1,
     programs: { office: 4, archive: 4, storage: 4, bar: 3 },
@@ -345,6 +366,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'bed',
     where: 'corner',
     radius: 0.5,
+    height: 0.35,
     maxPerRoom: 1,
     programs: { bedroom: 14, dorm: 10 },
     companions: [{ kind: 'nightstand', count: [1, 1] }],
@@ -369,6 +391,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'nightstand',
     where: 'floor',
     radius: 0.16,
+    height: 0.45,
     maxPerRoom: 2,
     programs: { bedroom: 4, dorm: 3 },
     draw: (ctx, cx, cy) => {
@@ -384,6 +407,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'wardrobe',
     where: 'wall',
     radius: 0.34,
+    height: 1.05,
     maxPerRoom: 1,
     programs: { bedroom: 10, dorm: 6, living: 3 },
     draw: (ctx, cx, cy, context) => {
@@ -402,6 +426,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'sofa',
     where: 'wall',
     radius: 0.45,
+    height: 0.5,
     maxPerRoom: 1,
     programs: { living: 12, lobby: 10, backstage: 6, bar: 4, dorm: 3 },
     draw: (ctx, cx, cy, context) => {
@@ -425,6 +450,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'table',
     where: 'centre',
     radius: 0.5,
+    height: 0.5,
     maxPerRoom: 1,
     programs: { kitchen: 10, canteen: 12, living: 7, hall: 4, bar: 4, dorm: 3 },
     companions: [{ kind: 'chair', count: [2, 4] }],
@@ -434,6 +460,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'chair',
     where: 'floor',
     radius: 0.2,
+    height: 0.55,
     maxPerRoom: 4,
     programs: { office: 4, canteen: 4, kitchen: 3, living: 2, bar: 2, backstage: 2 },
     draw: (ctx, cx, cy, context) => {
@@ -456,6 +483,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'rug',
     where: 'centre',
     radius: 0.5,
+    height: 0.02,
     maxPerRoom: 1,
     programs: { living: 10, lobby: 8, bedroom: 8, office: 4, archive: 3 },
     draw: (ctx, cx, cy, context) => {
@@ -470,6 +498,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'counter',
     where: 'wall',
     radius: 0.45,
+    height: 0.55,
     maxPerRoom: 2,
     programs: { bar: 14, kitchen: 12, canteen: 8, lobby: 6, lab: 4 },
     draw: (ctx, cx, cy, context) => {
@@ -485,6 +514,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'stove',
     where: 'wall',
     radius: 0.3,
+    height: 0.5,
     maxPerRoom: 1,
     maxPerZone: 2,
     programs: { kitchen: 10, canteen: 8 },
@@ -512,6 +542,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'fridge',
     where: 'corner',
     radius: 0.32,
+    height: 1,
     maxPerRoom: 1,
     maxPerZone: 2,
     programs: { kitchen: 9, canteen: 6, bar: 5, lab: 3 },
@@ -528,6 +559,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'sink',
     where: 'wall',
     radius: 0.24,
+    height: 0.45,
     maxPerRoom: 2,
     programs: { bath: 12, restroom: 10, kitchen: 6, lab: 5 },
     draw: (ctx, cx, cy) => {
@@ -542,6 +574,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'toilet',
     where: 'corner',
     radius: 0.22,
+    height: 0.5,
     maxPerRoom: 2,
     programs: { bath: 14, restroom: 12 },
     draw: (ctx, cx, cy) => {
@@ -557,6 +590,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'urinal',
     where: 'wall',
     radius: 0.18,
+    height: 0.55,
     maxPerRoom: 3,
     programs: { restroom: 10 },
     draw: (ctx, cx, cy) => {
@@ -570,6 +604,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'bathtub',
     where: 'wall',
     radius: 0.45,
+    height: 0.35,
     maxPerRoom: 1,
     maxPerZone: 2,
     programs: { bath: 9 },
@@ -588,6 +623,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'decks',
     where: 'wall',
     radius: 0.3,
+    height: 0.6,
     maxPerRoom: 1,
     maxPerZone: 1,
     programs: { hall: 12, backstage: 4 },
@@ -611,6 +647,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'vending',
     where: 'wall',
     radius: 0.3,
+    height: 0.95,
     maxPerRoom: 1,
     maxPerZone: 2,
     programs: { corridor: 7, lobby: 8, canteen: 8, hall: 4, parking: 3, dock: 3 },
@@ -625,6 +662,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'radiator',
     where: 'wall',
     radius: 0.26,
+    height: 0.3,
     maxPerRoom: 2,
     clutter: true,
     programs: { corridor: 8, office: 6, bath: 6, bedroom: 6, living: 5, dorm: 5, archive: 4, lobby: 4, restroom: 4 },
@@ -637,6 +675,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'plant',
     where: 'floor',
     radius: 0.2,
+    height: 0.9,
     maxPerRoom: 2,
     clutter: true,
     programs: { lobby: 10, yard: 9, office: 7, corridor: 6, living: 6, hall: 4, bedroom: 4, archive: 3 },
@@ -666,6 +705,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'trolley',
     where: 'floor',
     radius: 0.24,
+    height: 0.4,
     maxPerRoom: 1,
     clutter: true,
     programs: { lab: 7, dock: 6, canteen: 5, kitchen: 5, storage: 5, corridor: 4 },
@@ -686,6 +726,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'cot',
     where: 'wall',
     radius: 0.4,
+    height: 0.35,
     maxPerRoom: 2,
     programs: { dorm: 10, backstage: 4, storage: 3, lab: 3 },
     draw: (ctx, cx, cy, context) => {
@@ -701,6 +742,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'pipes',
     where: 'wall',
     radius: 0.2,
+    height: 0.6,
     maxPerRoom: 2,
     clutter: true,
     programs: { server: 6, workshop: 6, storage: 4, dock: 4, restroom: 3 },
@@ -720,6 +762,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'car',
     where: 'floor',
     radius: 0.45,
+    height: 0.6,
     maxPerRoom: 1,
     programs: { street: 9, parking: 14, alley: 4, yard: 3 },
     draw: (ctx, cx, cy, context) => {
@@ -749,6 +792,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'dumpster',
     where: 'wall',
     radius: 0.34,
+    height: 0.5,
     maxPerRoom: 1,
     programs: { alley: 12, parking: 6, street: 4, dock: 6, yard: 4 },
     draw: (ctx, cx, cy, context) => {
@@ -765,6 +809,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'lamppost',
     where: 'floor',
     radius: 0.16,
+    height: 1.6,
     maxPerRoom: 1,
     programs: { street: 12, crossing: 10, parking: 6, yard: 4, alley: 3 },
     draw: (ctx, cx, cy) => {
@@ -786,6 +831,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'bench',
     where: 'wall',
     radius: 0.3,
+    height: 0.25,
     maxPerRoom: 1,
     programs: { yard: 10, street: 6, parking: 3 },
     draw: (ctx, cx, cy, context) => {
@@ -797,6 +843,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'planter',
     where: 'floor',
     radius: 0.24,
+    height: 0.4,
     maxPerRoom: 2,
     clutter: true,
     programs: { yard: 9, street: 6, crossing: 5, parking: 3 },
@@ -821,6 +868,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'fence',
     where: 'wall',
     radius: 0.3,
+    height: 0.55,
     maxPerRoom: 2,
     programs: { yard: 12, parking: 8, dock: 6, alley: 4 },
     draw: (ctx, cx, cy, context) => {
@@ -864,6 +912,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'bollard',
     where: 'floor',
     radius: 0.12,
+    height: 0.3,
     maxPerRoom: 3,
     clutter: true,
     programs: { street: 6, crossing: 6, parking: 5, dock: 4 },
@@ -873,6 +922,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'hydrant',
     where: 'floor',
     radius: 0.14,
+    height: 0.35,
     maxPerRoom: 1,
     clutter: true,
     programs: { street: 7, crossing: 5, alley: 4 },
@@ -888,6 +938,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'streetsign',
     where: 'floor',
     radius: 0.14,
+    height: 1,
     maxPerRoom: 1,
     programs: { crossing: 12, street: 5 },
     draw: (ctx, cx, cy, context) => {
@@ -911,6 +962,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'bin',
     where: 'floor',
     radius: 0.18,
+    height: 0.35,
     maxPerRoom: 2,
     clutter: true,
     programs: {
@@ -949,6 +1001,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'papers',
     where: 'floor',
     radius: 0.12,
+    height: 0.02,
     maxPerRoom: 3,
     clutter: true,
     programs: {
@@ -986,6 +1039,7 @@ export const PROPS: readonly PropDef[] = [
     kind: 'blood',
     where: 'floor',
     radius: 0.16,
+    height: 0.02,
     maxPerRoom: 2,
     clutter: true,
     programs: {

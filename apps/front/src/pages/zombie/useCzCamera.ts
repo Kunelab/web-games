@@ -182,8 +182,17 @@ export function useCzCamera({
     let moved = false;
 
     const onPointerDown = (event: PointerEvent) => {
-      // Let the entity layer's buttons have their clicks.
       if (event.button !== 0 && event.pointerType === 'mouse') return;
+      /**
+       * Hands off anything that starts on a creature.
+       *
+       * The tokens are real buttons inside this element, and capturing the pointer
+       * here redirects the whole gesture — including the `pointerup` — to the
+       * stage, so the button never completes a click and tapping a zombie did
+       * nothing at all. Panning from a token is worth losing; attacking is not.
+       */
+      if (event.target instanceof Element && event.target.closest('.cz-token')) return;
+
       active.set(event.pointerId, { x: event.clientX, y: event.clientY });
       moved = false;
       if (active.size === 2) {

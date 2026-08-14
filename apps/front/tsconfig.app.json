@@ -17,5 +17,8 @@
 
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo"
   },
-  "include": ["src"]
+  // Tests live beside the code they cover but compile under tsconfig.test.json,
+  // which is where the node types are.
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
 }

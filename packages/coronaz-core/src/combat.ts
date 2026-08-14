@@ -1,5 +1,14 @@
 import { roleOf } from './content/registry.js';
-import { heroDef, itemDef, weaponStats, zombieDef, type ItemDef, type Rarity, type WeaponStats } from './data.js';
+import {
+  heroDef,
+  itemDef,
+  vestCharges,
+  weaponStats,
+  zombieDef,
+  type ItemDef,
+  type Rarity,
+  type WeaponStats
+} from './data.js';
 import { lineOfSight } from './map.js';
 import { d6, pick } from './rng.js';
 import { log, updateObjectives, zombiesInRoom, type CzState, type HeroState, type ZombieState } from './state.js';
@@ -213,15 +222,25 @@ export function resolveZombieAttack(state: CzState, zombie: ZombieState): void {
   }
 
   const vestIndex = victim.gear.findIndex((item) => item && itemDef(item.def).gear?.vest);
-  if (vestIndex !== -1) {
-    // Omar's craft: once per raid, the plate holds.
+  const vest = vestIndex === -1 ? null : victim.gear[vestIndex as 0 | 1];
+  if (vest) {
+    // Omar's craft: once per raid, the plate holds and costs nothing.
     if (heroDef(victim.heroId).ability === 'bulwark' && !flags.bulwark) {
       flags.bulwark = true;
       log(state, `Le gilet renforcé d'${victim.name} tient bon (${def.name})`);
       return;
     }
-    victim.gear[vestIndex as 0 | 1] = null;
-    log(state, `Le gilet de ${victim.name} encaisse ${def.name}`);
+
+    // A good plate holds more than once: that is what an epic vest is *for*.
+    const charges = vestCharges(itemDef(vest.def), vest.rarity);
+    vest.spent = (vest.spent ?? 0) + 1;
+    const left = charges - vest.spent;
+    if (left <= 0) {
+      victim.gear[vestIndex as 0 | 1] = null;
+      log(state, `Le gilet de ${victim.name} encaisse ${def.name} et rend l’âme`);
+    } else {
+      log(state, `Le gilet de ${victim.name} encaisse ${def.name} (${left} impact${left > 1 ? 's' : ''} encore)`);
+    }
     return;
   }
 

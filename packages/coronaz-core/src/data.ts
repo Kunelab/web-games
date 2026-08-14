@@ -538,9 +538,13 @@ export function weaponStats(def: ItemDef, rarity: number): WeaponStats | undefin
 }
 
 /**
- * What rarity does to gear. Only the numbers move: a legendary vest still eats
- * exactly one attack, because "absorbs an attack" has no dial to turn, and the
- * rarity is worth the colour and the glow alone on those.
+ * What rarity does to gear.
+ *
+ * Every piece has to answer "what is an epic one *for*", and two of them did not:
+ * a rare vest and an epic vest both ate one attack, a rare torch and an epic torch
+ * both lit one free search. A rarity you can see and cannot feel is a decoration,
+ * so the two binary effects were given a dial each — see `vestCharges` and
+ * `torchReach` — and the numeric ones keep scaling here.
  */
 export function gearStats(def: ItemDef, rarity: number): GearStats | undefined {
   const base = def.gear;
@@ -553,6 +557,25 @@ export function gearStats(def: ItemDef, rarity: number): GearStats | undefined {
   if (base.heal !== undefined) next.heal = Math.max(10, base.heal + delta * 10);
   if (base.adrenaline !== undefined) next.adrenaline = Math.max(1, base.adrenaline + delta);
   return next;
+}
+
+/**
+ * How many attacks a vest absorbs before it is finished. A beautiful plate is one
+ * that holds twice — the difference between surviving an ambush and not.
+ */
+export function vestCharges(def: ItemDef, rarity: number): number {
+  if (!def.gear?.vest) return 0;
+  return 1 + Math.max(0, clampRarity(rarity) - def.tier);
+}
+
+/**
+ * How far a torch throws light, in rooms. A plain one lights what you are standing
+ * in (and pays for a free search); a good one lights the rooms next door, which on
+ * a dark map is worth more than any number.
+ */
+export function torchReach(def: ItemDef, rarity: number): number {
+  if (!def.gear?.flashlight) return 0;
+  return Math.max(0, clampRarity(rarity) - def.tier);
 }
 
 /** 40/30/15/10/5, straight from the original loot query. */

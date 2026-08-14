@@ -100,43 +100,72 @@
   pointer-events: none;
 }
 
+/*
+ * A piece *stands on* its tile: the element's bottom edge is the point on the
+ * floor. It used to be centred on that point, which left every creature floating
+ * with nothing to say which tile it was on — the complaint that started this.
+ */
 .cz-token {
   position: absolute;
-  transform: translate(-50%, -75%);
+  transform: translate(-50%, -100%);
   aspect-ratio: 1 / 1;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  overflow: hidden;
+  overflow: visible;
   /* The slide: a state update moves the piece, the browser draws the walk. */
   transition:
     left 450ms cubic-bezier(0.3, 0.9, 0.4, 1),
     top 450ms cubic-bezier(0.3, 0.9, 0.4, 1),
     width 250ms ease;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.55);
+  filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.6));
+}
+
+/* The face is round; the foot below it is what marks the ground. */
+.cz-token > img,
+.cz-token-face {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  object-fit: cover;
+}
+
+/**
+ * The footprint. An ellipse centred exactly on the tile the creature occupies, so
+ * "which square is that thing on" is answered without counting.
+ */
+.cz-token-foot {
+  position: absolute;
+  left: 50%;
+  bottom: -14%;
+  width: 78%;
+  height: 30%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  background: color-mix(in srgb, currentColor 22%, transparent);
+  pointer-events: none;
 }
 
 .cz-token-hero {
   background: radial-gradient(circle at 35% 30%, #2c2c31, #17171a);
   border: 2px solid;
-  z-index: 3;
   pointer-events: none;
 }
 .cz-token-hero.me {
-  box-shadow:
-    0 0 10px var(--accent),
-    0 2px 6px rgb(0 0 0 / 0.55);
-  z-index: 4;
+  box-shadow: 0 0 10px var(--accent);
 }
 
 .cz-token-zombie {
-  border: 2px solid #3c1f1f;
+  border: 2px solid;
   background: #17171a;
   padding: 0;
   color: inherit;
   font: inherit;
-  z-index: 2;
 }
 .cz-token-zombie img {
   width: 100%;

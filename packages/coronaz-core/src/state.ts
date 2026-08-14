@@ -10,10 +10,11 @@ import {
   heroDef,
   itemDef,
   STARTING_ROLES,
+  torchReach,
   zombieDef,
   type Rarity
 } from './data.js';
-import { lineOfSight, type Board } from './map.js';
+import { getRoom, lineOfSight, neighbors, openSpace, type Board } from './map.js';
 import { generateBoard } from './mapgen/index.js';
 import { pick, rand, randInt, seedRng, shuffled, type RngState } from './rng.js';
 
@@ -34,6 +35,11 @@ export interface ItemInstance {
    * tier. Drives its stats (see `weaponStats`) and how loudly it glows.
    */
   rarity: Rarity;
+  /**
+   * How much of it has been used up: hits taken by a vest, for now. Absent means
+   * untouched, which is what nearly every item is for its whole life.
+   */
+  spent?: number;
 }
 
 export interface HeroState {
@@ -262,7 +268,7 @@ export function createGame(options: {
  */
 export function threat(state: CzState): number {
   const pace = state.config.scenario === 'endless' ? 1.6 : 1;
-  const progress = state.turn / boardPressure(state);
+  const progress = state.turn / (boardPressure(state) * partyPace(state));
   return progress * (1 + progress / 12) * state.config.escalation * pace;
 }
 
@@ -399,6 +405,50 @@ export const REFERENCE_ROOMS = 32;
 export function boardPressure(state: CzState): number {
   const ratio = state.board.rooms.length / REFERENCE_ROOMS;
   return Math.max(0.6, Math.min(2.5, Math.sqrt(ratio)));
+}
+
+/** The party size the difficulty presets were calibrated on. */
+export const REFERENCE_HEROES = 3;
+
+/**
+ * How much horde this *table* is worth.
+ *
+ * The opening horde has always scaled with the party. The reinforcements never
+ * did, and that asymmetry was invisible in a bench that only ever ran three
+ * heroes: a lone survivor with three action points was receiving the same waves as
+ * five survivors with fifteen. Measured across party sizes, solo on `difficile`
+ * won 2.8% of its raids and a table of five won 94%, which is two different games
+ * wearing one preset's name.
+ *
+ * What a party can answer is roughly its action points, so what arrives scales
+ * linearly with heads. Deliberately the *seated* count rather than the living one:
+ * the horde easing off every time somebody dies would turn a bad turn into a
+ * comfortable one, and losing a friend should not be a difficulty setting.
+ */
+export function partyPressure(state: CzState): number {
+  return seatedHeroes(state) / REFERENCE_HEROES;
+}
+
+function seatedHeroes(state: CzState): number {
+  return Math.max(1, Object.keys(state.heroes).length);
+}
+
+/**
+ * How long this table's raid takes, relative to the three-hero reference — and so
+ * how much the escalation's arc should be stretched for them.
+ *
+ * The second half of the solo problem, and the subtler one. Scaling the horde's
+ * *volume* to the party is not enough, because a lone survivor also takes longer to
+ * do the job: measured, 14 turns against a trio's 11.6. Threat is quadratic in
+ * progress, so those extra turns arrive as a third more world-gone-to-hell on top
+ * of having a third of the bodies. Stretching the arc to the table's expected pace
+ * is what makes `normal` mean the same evening alone as it does with friends.
+ *
+ * Under three it stretches, over three it compresses, which is also the answer to a
+ * table of five winning every raid on the easier presets.
+ */
+export function partyPace(state: CzState): number {
+  return Math.max(0.8, Math.min(1.25, 1 + (REFERENCE_HEROES - seatedHeroes(state)) * 0.08));
 }
 
 /**
@@ -706,12 +756,36 @@ export function heroesInRoom(state: CzState, roomId: string): HeroState[] {
   return activeHeroes(state).filter((hero) => hero.roomId === roomId);
 }
 
-/** Rooms the team currently sees: union of every active hero's line of sight. */
+/**
+ * How far an open space is seen from inside it. Four rooms is a good stretch of
+ * street without handing over the whole district.
+ */
+const OPEN_SIGHT = 4;
+
+/**
+ * Rooms the team currently sees.
+ *
+ * Three sources, and the last two are what stop the fog reading as broken:
+ *
+ * - **straight lines**, the Zombicide rule, which is also what a gun can reach;
+ * - **the open space you are standing in**, because an arch means there is no wall
+ *   there, and lighting four rays across a street while leaving the rest of it
+ *   black looks like a bug rather than like darkness;
+ * - **next door**, for anyone carrying a torch good enough to throw light that far.
+ */
 export function visibleRooms(state: CzState): Set<string> {
   const visible = new Set<string>();
   for (const hero of activeHeroes(state)) {
     for (const id of lineOfSight(state.board, hero.roomId).keys()) {
       visible.add(id);
+    }
+    for (const id of openSpace(state.board, hero.roomId, OPEN_SIGHT)) {
+      visible.add(id);
+    }
+    if (hero.gear.some((item) => item && torchReach(itemDef(item.def), item.rarity) > 0)) {
+      for (const room of neighbors(state.board, getRoom(state.board, hero.roomId))) {
+        visible.add(room.id);
+      }
     }
   }
   return visible;

@@ -6,16 +6,16 @@ import { loadArtManifest, onArtLoaded } from './iso/art';
 import {
   boardBounds,
   boundsSize,
-  cellAtScreen,
   diamond,
   fitZoom,
   project,
+  screenToWorld,
   TILE_H,
   worldToScreen,
   type Camera,
   type Vec2
 } from './iso/geometry';
-import { renderScene, sceneSignature } from './iso/scene';
+import { pickCellAt, renderScene, sceneSignature } from './iso/scene';
 import { useCzCamera, type FollowTarget } from './useCzCamera';
 
 /**
@@ -168,25 +168,54 @@ export function CzMap({
       sceneImage.height / sceneRatio
     );
 
-    // The tappable rooms, breathing.
+    /**
+     * Where you are, and where one step takes you.
+     *
+     * Outlined as *rooms*, not as tiles. A room owns up to four cells, so the tile
+     * beside you may belong to a different room while a tile three cells away is a
+     * single step — which is exactly what "I cannot click the tile next to me but a
+     * far one counts as next to me" means. Filling each cell separately drew the
+     * boundaries *between* cells of one room and hid the boundary that matters, so
+     * now only a room's outer border is stroked, and your own room is stroked too.
+     */
+    const outline = (room: CzRoomView, colour: string, width: number) => {
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = width / camera.zoom;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for (const edge of roomOutline(room, view.width, view.height)) {
+        ctx.moveTo(edge[0].x, edge[0].y);
+        ctx.lineTo(edge[1].x, edge[1].y);
+      }
+      ctx.stroke();
+    };
+
+    const fillRoom = (room: CzRoomView, colour: string) => {
+      ctx.fillStyle = colour;
+      for (const cell of room.cells) {
+        const shape = diamond(cell % view.width, Math.floor(cell / view.width));
+        ctx.beginPath();
+        ctx.moveTo(shape[0].x, shape[0].y);
+        for (const point of shape.slice(1)) ctx.lineTo(point.x, point.y);
+        ctx.closePath();
+        ctx.fill();
+      }
+    };
+
     if (highlights.size > 0) {
       const wave = 0.45 + 0.3 * Math.sin(pulse * 3.2);
-      ctx.lineWidth = 2 / camera.zoom;
       for (const room of view.rooms) {
         if (!highlights.has(room.id)) continue;
-        for (const cell of room.cells) {
-          const shape = diamond(cell % view.width, Math.floor(cell / view.width));
-          ctx.beginPath();
-          ctx.moveTo(shape[0].x, shape[0].y);
-          for (const point of shape.slice(1)) ctx.lineTo(point.x, point.y);
-          ctx.closePath();
-          ctx.fillStyle = `rgb(110 190 255 / ${(wave * 0.28).toFixed(3)})`;
-          ctx.fill();
-          ctx.strokeStyle = `rgb(150 210 255 / ${wave.toFixed(3)})`;
-          ctx.stroke();
-        }
+        fillRoom(room, `rgb(110 190 255 / ${(wave * 0.22).toFixed(3)})`);
+        outline(room, `rgb(160 215 255 / ${wave.toFixed(3)})`, 2.5);
       }
     }
+
+    const standing = myPlayerId
+      ? view.heroes.find((hero) => hero.playerId === myPlayerId && hero.alive && !hero.escaped)
+      : undefined;
+    const myRoom = standing ? view.rooms.find((room) => room.id === standing.roomId) : undefined;
+    if (myRoom) outline(myRoom, 'rgb(255 255 255 / 0.5)', 2);
   });
 
   /* ------------------------------- interaction ------------------------------ */
@@ -201,15 +230,13 @@ export function CzMap({
     if (event.target instanceof Element && event.target.closest('.cz-token')) return;
 
     const rect = element.getBoundingClientRect();
-    const hit = cellAtScreen(
-      { x: event.clientX - rect.left, y: event.clientY - rect.top },
-      camera,
-      viewport,
-      view.width,
-      view.height
-    );
-    if (!hit) return;
-    const room = view.rooms.find((candidate) => candidate.cells.includes(hit.index));
+    // Ask the picture what is under the pointer, not the projection: everything is
+    // drawn standing up from its tile, so the floor's inverse is off by whatever
+    // furniture happens to be in the way.
+    const world = screenToWorld({ x: event.clientX - rect.left, y: event.clientY - rect.top }, camera, viewport);
+    const cell = pickCellAt(scene, world);
+    if (cell === null) return;
+    const room = view.rooms.find((candidate) => candidate.cells.includes(cell));
     if (room && highlights.has(room.id)) onRoomTap(room.id);
   }
 
@@ -286,12 +313,16 @@ export function CzMap({
                     width: `${tokenSize.toFixed(1)}px`,
                     fontSize: `${(tokenSize * 0.52).toFixed(1)}px`,
                     zIndex: 3000 + Math.round((spot.x + spot.y) * 10),
+                    // `color` feeds the footprint's `currentColor`, so the ring on
+                    // the floor matches the ring on the piece.
+                    color: `hsl(${heroHue(hero.heroId)} 70% 55%)`,
                     borderColor: `hsl(${heroHue(hero.heroId)} 70% 55%)`
                   }}
                   title={`${hero.name} · ${hero.hp}/${hero.maxHp} PV`}
                 >
-                  {heroDef(hero.heroId).emoji}
+                  <span className="cz-token-face">{heroDef(hero.heroId).emoji}</span>
                   <span className="cz-token-hp" style={{ width: `${Math.max(6, (hero.hp / hero.maxHp) * 100)}%` }} />
+                  <span className="cz-token-foot" />
                 </div>
               );
             })}
@@ -317,6 +348,7 @@ export function CzMap({
                   fontSize: `${(tokenSize * 0.52).toFixed(1)}px`,
                   zIndex: 2000 + Math.round((spot.x + spot.y) * 10),
                   // The horde speaks Fortnite too: a walker rings grey, a boss gold.
+                  color: RARITY_META[def.rarity].color,
                   borderColor: RARITY_META[def.rarity].color
                 }}
                 title={`${def.name} (${RARITY_META[def.rarity].label}) · ${zombie.hp}/${zombie.maxHp} PV${
@@ -325,11 +357,12 @@ export function CzMap({
                 disabled={!onZombieTap}
                 onClick={onZombieTap ? () => onZombieTap(zombie.id) : undefined}
               >
-                {art ? <img src={art} alt={def.name} /> : def.emoji}
+                {art ? <img src={art} alt={def.name} /> : <span className="cz-token-face">{def.emoji}</span>}
                 <span
                   className="cz-token-hp horde"
                   style={{ width: `${Math.max(6, (zombie.hp / zombie.maxHp) * 100)}%` }}
                 />
+                <span className="cz-token-foot" />
               </button>
             );
           })}
@@ -369,6 +402,41 @@ export function CzMap({
 }
 
 const EMPTY: ReadonlySet<string> = new Set();
+
+/**
+ * The outer border of a room, as world-space segments.
+ *
+ * A cell edge belongs to the outline when the neighbour across it is not part of
+ * the same room. The diamond's corners are north, east, south, west in that order,
+ * and the axes are not the screen's: `-y` is up-*right*, so the boundary with the
+ * cell above is the top-right edge.
+ */
+function roomOutline(room: CzRoomView, width: number, height: number): [Vec2, Vec2][] {
+  const owned = new Set(room.cells);
+  const edges: [Vec2, Vec2][] = [];
+
+  for (const cell of room.cells) {
+    const cx = cell % width;
+    const cy = Math.floor(cell / width);
+    const [n, e, s, w] = diamond(cx, cy);
+
+    const sides = [
+      [0, -1, n, e],
+      [1, 0, e, s],
+      [0, 1, s, w],
+      [-1, 0, w, n]
+    ] as const;
+
+    for (const [dx, dy, from, to] of sides) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      const outside = nx < 0 || ny < 0 || nx >= width || ny >= height;
+      if (outside || !owned.has(ny * width + nx)) edges.push([from, to]);
+    }
+  }
+
+  return edges;
+}
 
 /**
  * The whole building, small, in a corner — and a tap on it moves the camera there.
