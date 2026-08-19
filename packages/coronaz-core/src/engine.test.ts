@@ -14,6 +14,7 @@ import {
   zombiesOfBiome
 } from './content/registry.js';
 import { ARCHETYPES, expectedDamage, ITEM_ROLES, POWER_TOLERANCE } from './content/roles.js';
+import { isStructural, MAX_CLUSTER_ROOMS, roomBudget } from './mapgen/programs.js';
 import { HEROES, itemDef, rarityRange, weaponStats } from './data.js';
 import {
   activateNextZombie,
@@ -28,19 +29,35 @@ import {
 import { rollLoot } from './engine.js';
 import {
   cellIndex,
+  cellXY,
   connectionsOf,
+  edgeBetween,
   distancesFrom,
   edgeAt,
   getRoom,
+  isRubble,
   lineOfSight,
+  MAX_OUTDOOR_ROOM_CELLS,
   MAX_ROOM_CELLS,
   neighbors,
-  shortestPath
+  passable,
+  roomOfCell,
+  seeThrough,
+  shortestPath,
+  type RoomProgram
 } from './map.js';
 import { generateBoard, LAYOUT_IDS } from './mapgen/index.js';
 import { toView } from './protocol.js';
 import { seedRng } from './rng.js';
-import { createGame, joinHero, makeItem, spawnZombie, type CzState } from './state.js';
+import {
+  activeHeroes,
+  createGame,
+  joinHero,
+  makeItem,
+  objectivesDone,
+  spawnZombie,
+  type CzState
+} from './state.js';
 
 function newGame(configOverrides: Record<string, unknown> = {}, seed = 42): CzState {
   return createGame({
@@ -144,15 +161,156 @@ describe('board generation', () => {
     }
   });
 
-  it('keeps every room within the cell cap so a move stays a move', () => {
+  it('keeps every room within its cell cap so a move stays a move', () => {
+    /**
+     * Two caps, because moving indoors and moving outdoors are different problems.
+     *
+     * A move costs one point per room whatever its size, so indoors the cap is what
+     * makes searching a building cost something. Outdoors it was making a plaza
+     * unusable: nine one-cell rooms is nine action points to cross a square, so
+     * nobody ever crossed one. Outdoor rooms are rectangles of up to nine cells now,
+     * and this is where that stays honest.
+     */
     for (const { layout, seed, board } of boardsAcrossLayouts()) {
       for (const room of board.rooms) {
+        const cap = room.outdoor ? MAX_OUTDOOR_ROOM_CELLS : MAX_ROOM_CELLS;
         assert(
-          room.cells.length >= 1 && room.cells.length <= MAX_ROOM_CELLS,
-          `${layout} ${seed}: room ${room.id} owns ${room.cells.length} cells`
+          room.cells.length >= 1 && room.cells.length <= cap,
+          `${layout} ${seed}: ${room.outdoor ? 'outdoor' : 'indoor'} room ${room.id} owns ${room.cells.length} cells`
+        );
+        // And every outdoor room is a rectangle: an L-shaped piece of pavement reads
+        // as damage, which is why the outdoors is tiled rather than flood-filled.
+        if (room.outdoor) {
+          assert.equal(
+            room.w * room.h,
+            room.cells.length,
+            `${layout} ${seed}: outdoor room ${room.id} is not a rectangle`
+          );
+        }
+      }
+    }
+  });
+
+  it('lets sight and gunfire through a window but never a body', () => {
+    /**
+     * The whole reason windows exist, pinned in one test.
+     *
+     * Every other boundary answers "can I see it" and "can I walk there" the same
+     * way, which is why the fight went blind the moment anyone stepped indoors. A
+     * window is the one that disagrees, and both halves of the disagreement have to
+     * hold: a survivor can shoot through it, and neither he nor the horde can step
+     * through it. Getting the second half wrong would be far worse than not having
+     * windows at all, because a room the horde reaches through the glass is a room
+     * nobody can defend.
+     */
+    assert.equal(passable('window'), false, 'a window is not a way in');
+    assert.equal(seeThrough('window'), true, 'a window is a line of sight');
+    assert.equal(passable('door'), true);
+    assert.equal(seeThrough('wall'), false);
+
+    let glazed = 0;
+    for (const { layout, seed, board } of boardsAcrossLayouts([5, 58, 1234])) {
+      for (const room of board.rooms) {
+        for (const cell of room.cells) {
+          const { x, y } = cellXY(board, cell);
+          for (const [dx, dy] of [
+            [1, 0],
+            [0, 1]
+          ] as const) {
+            if (edgeBetween(board, x, y, x + dx, y + dy) !== 'window') continue;
+            glazed += 1;
+
+            const other = roomOfCell(board, cellIndex(board, x + dx, y + dy));
+            assert(other, `${layout} ${seed}: a window onto nothing at ${x},${y}`);
+            if (!other || other.id === room.id) continue;
+
+            // Visible through the glass, and not a neighbour you can walk to.
+            assert(
+              lineOfSight(board, room.id, 2).has(other.id),
+              `${layout} ${seed}: cannot see through the window at ${x},${y}`
+            );
+            /**
+             * If the two rooms *are* neighbours, it is because some other boundary
+             * between them is a door or an arch: never because of this pane.
+             * `connectionsOf` only ever yields door and arch, so what this checks is
+             * that no link between them was created *at* this window's cells.
+             */
+            const throughHere = connectionsOf(board, room).some(
+              (link) => link.roomId === other.id && link.from === cell && link.dx === dx && link.dy === dy
+            );
+            assert(!throughHere, `${layout} ${seed}: the window at ${x},${y} is a doorway`);
+          }
+        }
+      }
+    }
+
+    assert(glazed > 20, `only ${glazed} windows generated across three seeds`);
+  });
+
+  it('keeps a cluster of one kind of room within its budget', () => {
+    /**
+     * The rule a bunker broke spectacularly.
+     *
+     * Repetition is not the problem: five laboratory rooms in a row is one laboratory
+     * you walk through, and that is good. Fifty of them is the word "laboratory"
+     * printed across half the board, which is what a 22x22 facility generated,
+     * measured at 77 in the worst seed.
+     *
+     * Two numbers hold it: how many separate clusters of a programme a building may
+     * have, and how many rooms one cluster may run to. Structural programmes are
+     * exempt from both, on purpose: corridors, streets and squares are what makes a
+     * map read as one place, and a street should be as long as the street.
+     */
+    const worst = new Map<string, number>();
+
+    for (const { layout, seed, board } of boardsAcrossLayouts([3, 58, 4242])) {
+      const byId = new Map(board.rooms.map((room) => [room.id, room]));
+      const seen = new Set<string>();
+      const clusters = new Map<string, number>();
+
+      for (const room of board.rooms) {
+        if (seen.has(room.id) || room.outdoor || isStructural(room.program)) continue;
+        const queue = [room];
+        seen.add(room.id);
+        let size = 0;
+        while (queue.length > 0) {
+          const current = queue.pop();
+          if (!current) break;
+          size += 1;
+          for (const other of neighbors(board, current)) {
+            if (seen.has(other.id) || other.zone !== current.zone || other.program !== room.program) continue;
+            seen.add(other.id);
+            const found = byId.get(other.id);
+            if (found) queue.push(found);
+          }
+        }
+
+        assert(
+          size <= MAX_CLUSTER_ROOMS,
+          `${layout} ${seed}: a cluster of ${size} ${room.program} rooms (ceiling ${MAX_CLUSTER_ROOMS})`
+        );
+        const key = `${room.zone}:${room.program}`;
+        clusters.set(key, (clusters.get(key) ?? 0) + 1);
+        worst.set(room.program, Math.max(worst.get(room.program) ?? 0, size));
+      }
+
+      // And no building holds more clusters of one room than its budget allows.
+      for (const [key, count] of clusters) {
+        const program = key.slice(key.indexOf(':') + 1) as RoomProgram;
+        const allowed = roomBudget(program).clusters;
+        assert(
+          count <= allowed,
+          `${layout} ${seed}: ${count} separate ${program} clusters in one building (max ${allowed})`
         );
       }
     }
+
+    // A sanity check on the other side: if nothing ever clustered, the arch-joined
+    // rooms this generator is built on would have quietly stopped happening.
+    assert(
+      [...worst.values()].some((size) => size >= 3),
+      'no programme ever formed a cluster: rooms are not being joined at all'
+    );
   });
 
   it('makes open space out of arch clusters rather than giant rooms', () => {
@@ -211,7 +369,7 @@ describe('board generation', () => {
     }
   });
 
-  it('carves the grid into rooms with nothing left over and nothing shared', () => {
+  it('carves the grid into rooms, rubble aside, and shares no cell twice', () => {
     for (const { layout, seed, board } of boardsAcrossLayouts([3, 41, 777, 90210])) {
       const cells = board.width * board.height;
 
@@ -223,9 +381,39 @@ describe('board generation', () => {
           assert.equal(board.cellRoom[cell], room.id, 'the cell index agrees with the room');
         }
       }
-      assert.equal(owner.size, cells, `${layout} ${seed} left a cell unassigned`);
+
+      // Every cell is either floor or rubble, and rubble is a deliberate share of
+      // the grid rather than a hole the carver forgot.
+      let blocked = 0;
+      for (let cell = 0; cell < cells; cell++) {
+        if (isRubble(board, cell)) {
+          blocked += 1;
+          assert(!owner.has(cell), 'rubble cannot belong to a room');
+        } else {
+          assert(owner.has(cell), `${layout} ${seed}: cell ${cell} is neither room nor rubble`);
+        }
+      }
+      assert(blocked > 0, `${layout} ${seed}: no rubble at all`);
+      assert(blocked < cells * 0.3, `${layout} ${seed}: ${blocked}/${cells} cells are rubble`);
+
       assert.equal(board.edgeRight.length, cells);
       assert.equal(board.edgeDown.length, cells);
+    }
+  });
+
+  it('never lets rubble cut the world in two', () => {
+    // Rubble is chosen before anything is carved, so the room-level repair pass
+    // cannot save a district it has severed: it opens doors between rooms, and
+    // rubble is not a room. The generator therefore refuses any heap that splits
+    // the free space, and this is that promise.
+    for (const { layout, seed, board } of boardsAcrossLayouts()) {
+      const first = board.rooms[0];
+      assert(first);
+      assert.equal(
+        distancesFrom(board, first.id).size,
+        board.rooms.length,
+        `${layout} ${seed}: rubble stranded part of the map`
+      );
     }
   });
 
@@ -250,12 +438,15 @@ describe('board generation', () => {
     for (let y = 0; y < board.height; y++) {
       for (let x = 0; x < board.width; x++) {
         const cell = cellIndex(board, x, y);
+        if (isRubble(board, cell)) continue;
         for (const [side, nx, ny] of [
           ['right', x + 1, y],
           ['down', x, y + 1]
         ] as const) {
           if (nx >= board.width || ny >= board.height) continue;
-          const same = board.cellRoom[cell] === board.cellRoom[cellIndex(board, nx, ny)];
+          const neighbour = cellIndex(board, nx, ny);
+          if (isRubble(board, neighbour)) continue;
+          const same = board.cellRoom[cell] === board.cellRoom[neighbour];
           assert.equal(
             edgeAt(board, cell, side) === 'open',
             same,
@@ -310,7 +501,7 @@ describe('hero actions', () => {
     assert.equal(bad.ok, false);
   });
 
-  it('searching finds loot, costs AP, and Chuck gets one free', () => {
+  it('searching finds loot, and the two free crates are spent in the right order', () => {
     const state = newGame({ startingZombies: 0 });
     const { hero } = joinHero(state, 'Chuck', undefined);
     hero.heroId = 'chuck';
@@ -320,11 +511,71 @@ describe('hero actions', () => {
     assert.equal(free.ok, true);
     assert(free.loot);
     assert.equal(hero.ap, 3, 'the scavenger’s first search is free');
+    assert.equal(hero.freeRaidSearchUsed, false, 'the renewable freebie goes first');
+
+    // The raid's own free crate, which everyone gets once, whatever they are.
+    const gift = applyHeroAction(state, hero.playerId, { type: 'search' });
+    assert.equal(gift.ok, true);
+    assert.equal(hero.ap, 3);
+    assert.equal(hero.freeRaidSearchUsed, true);
 
     const paid = applyHeroAction(state, hero.playerId, { type: 'search' });
     assert.equal(paid.ok, true);
     assert.equal(hero.ap, 2);
-    assert.equal(hero.bag.length, 2);
+    assert.equal(hero.bag.length, 3);
+  });
+
+  it('everyone gets one free crate a raid, torch or no torch', () => {
+    const state = newGame({ startingZombies: 0 });
+    const { hero } = joinHero(state, 'Sans lampe', undefined);
+    hero.heroId = 'rosa';
+    startGame(state, 0);
+
+    assert.equal(applyHeroAction(state, hero.playerId, { type: 'search' }).ok, true);
+    assert.equal(hero.ap, 3, 'the first crate of the raid costs nothing');
+    assert.equal(applyHeroAction(state, hero.playerId, { type: 'search' }).ok, true);
+    assert.equal(hero.ap, 2, 'and only the first');
+
+    // It does not come back next turn: it is once a raid, not once a phase.
+    hero.ap = 3;
+    hero.freeSearchUsed = false;
+    assert.equal(applyHeroAction(state, hero.playerId, { type: 'search' }).ok, true);
+    assert.equal(hero.ap, 2);
+  });
+
+  it('a survivor can walk away, and the raid goes on without them', () => {
+    const state = newGame({ startingZombies: 0, scenario: 'escape' });
+    const { hero: leaver } = joinHero(state, 'Partant', undefined);
+    const { hero: stayer } = joinHero(state, 'Restante', undefined);
+    startGame(state, 0);
+
+    const result = applyHeroAction(state, leaver.playerId, { type: 'forfeit' });
+    assert.equal(result.ok, true);
+    assert.equal(leaver.forfeited, true);
+    assert.equal(leaver.alive, true, 'walking away is not dying');
+    assert.equal(state.phase, 'heroes', 'the others are still playing');
+    assert.equal(activeHeroes(state).length, 1);
+
+    // No actions afterwards: the door only opens outwards.
+    assert.equal(applyHeroAction(state, leaver.playerId, { type: 'search' }).ok, false);
+
+    // The last one out ends the raid, exactly as a death would.
+    assert.equal(applyHeroAction(state, stayer.playerId, { type: 'forfeit' }).ok, true);
+    assert.equal(state.phase, 'lost');
+  });
+
+  it('the game master can concede, in or out of his own phase', () => {
+    const state = newGame({ startingZombies: 2, mode: 'gm' });
+    joinHero(state, 'Assiégée', undefined);
+    startGame(state, 0);
+
+    assert.equal(state.phase, 'heroes', 'not the horde’s turn');
+    const result = applyGmAction(state, { type: 'gmForfeit' });
+    assert.equal(result.ok, true);
+    assert.equal(state.phase, 'won', 'the survivors take the raid');
+
+    // And not twice.
+    assert.equal(applyGmAction(state, { type: 'gmForfeit' }).ok, false);
   });
 
   it('equip swaps in place and never loses an item', () => {
@@ -472,9 +723,12 @@ describe('objectives and escalation', () => {
       hero.ap = 3;
       applyHeroAction(state, hero.playerId, { type: 'attack', zombieId: boss.id, hand: 0 });
     }
-    assert.equal(
-      state.objectives.every((objective) => objective.done),
-      true
+    // What the door waits for is the *required* quests; the optional ones are
+    // drawn alongside them and are nobody's obligation.
+    assert.equal(objectivesDone(state), true);
+    assert(
+      state.objectives.some((objective) => objective.optional),
+      'a bonus quest was drawn too'
     );
 
     hero.ap = 3;
@@ -545,33 +799,36 @@ describe('objectives and escalation', () => {
     assert.deepEqual([...seen].sort(), [-1, 1], 'both a worse and a better roll happen');
   });
 
-  it('rarity moves a weapon’s numbers, and the fight reads them', () => {
+  it('rarity moves a weapon’s numbers by a share, and the fight reads them', () => {
+    // Every weapon connects, so rarity buys damage; and it buys a *proportion* of
+    // the weapon's own damage, so a rank means the same thing to a bat and to a
+    // sniper rifle. 58 × 1.18 = 68, 58 ÷ 1.18 = 49.
+    const sniper = itemDef('sniper');
+    assert.equal(weaponStats(sniper, 4)?.damage, 58);
+    assert.equal(weaponStats(sniper, 5)?.damage, 68);
+    assert.equal(weaponStats(sniper, 3)?.damage, 49);
+    assert.equal(weaponStats(sniper, 3)?.accuracy, 1, 'nothing misses any more');
+
+    // The same rank on the cheapest weapon in the table is still visible, which is
+    // the whole reason the step is a share: a flat ten would have doubled it.
     const bat = itemDef('bat');
-    // The bat hits on 3+; a rank up buys the threshold, a rank down sells it.
-    assert.equal(weaponStats(bat, 1)?.accuracy, 3);
-    assert.equal(weaponStats(bat, 2)?.accuracy, 2);
-    // A chipped flamethrower has accuracy to give up, so it gives that up first
-    // and keeps its terrifying damage.
-    const flamer = itemDef('flamethrower');
-    assert.equal(weaponStats(flamer, 4)?.accuracy, 2);
-    assert.equal(weaponStats(flamer, 4)?.damage, 100);
+    assert.equal(weaponStats(bat, 1)?.damage, 14);
+    assert.equal(weaponStats(bat, 2)?.damage, 17);
 
-    // Where the threshold has nowhere left to go, the rank pays in damage. No
-    // item in the table is at either bound, and the point is that none can be.
-    const perfect = { ...flamer, tier: 4 as const };
-    assert.equal(weaponStats(perfect, 5)?.damage, 110);
-    const hopeless = { ...flamer, weapon: { ...flamer.weapon!, accuracy: 5 } };
-    assert.equal(weaponStats(hopeless, 4)?.damage, 90);
+    // Dice never move: they are how many things you kill, not how hard.
+    const pistol = itemDef('pistol');
+    assert.equal(weaponStats(pistol, 1)?.dice, 3);
+    assert.equal(weaponStats(pistol, 3)?.dice, 3);
+    assert.equal(weaponStats(pistol, 1)?.damage, 9);
 
-    // And the resolver uses the instance, not the printout: a legendary sniper
-    // hits on 2+, so this shot cannot miss what a common one would.
+    // And the resolver reads the instance, not the printout.
     const state = newGame({ startingZombies: 0 });
     const { hero } = joinHero(state, 'Tireuse', undefined);
     startGame(state, 0);
     hero.hands = [makeItem(state, 'sniper', 5), null];
     const chosen = weaponFor(hero, 0);
     assert(!('error' in chosen));
-    assert.equal(chosen.weapon.accuracy, 2);
+    assert.equal(chosen.weapon.damage, 68);
     assert.equal(chosen.rarity, 5);
   });
 
@@ -584,9 +841,10 @@ describe('objectives and escalation', () => {
     const chosen = weaponFor(hero, 2);
     assert(!('error' in chosen));
     assert.equal(chosen.rarity, 1);
-    // Two dice printed, doubled by akimbo, at the chipped pistol's accuracy.
-    assert.equal(chosen.dice, 4);
-    assert.equal(chosen.weapon.accuracy, 5);
+    // Six barrels either way; the pair fires at the chipped one's damage, not the
+    // pristine one's.
+    assert.equal(chosen.dice, 6);
+    assert.equal(chosen.weapon.damage, 9);
   });
 });
 
@@ -630,6 +888,97 @@ describe('biomes', () => {
           drift <= POWER_TOLERANCE,
           `${biome.id}/${role.id}: ${power.toFixed(1)} expected damage against a budget of ${role.power} (${(drift * 100).toFixed(0)}% out)`
         );
+      }
+    }
+  });
+
+  it('never lets a lower tier out-damage a higher one', () => {
+    /**
+     * The rule the first playtest was missing. Measured per attack, tier 4 used to
+     * average 23.3 against tier 3's 31.7 — so a Desert Eagle lost to an AK and a
+     * sniper rifle lost to an *uncommon* chainsaw, which is exactly what "rare
+     * weapons are trash" means. Ten pairs were inverted.
+     *
+     * Stated as the strong claim, because the weak one ("averages rise") allowed
+     * every inversion that mattered: the weakest weapon of a tier must beat the
+     * strongest weapon of the tier below.
+     */
+    for (const biome of BIOMES) {
+      const byTier = new Map<number, { role: string; power: number }[]>();
+      for (const role of ITEM_ROLES) {
+        if (role.kind !== 'weapon') continue;
+        const weapon = itemFor(biome.id, role.id).weapon;
+        assert(weapon);
+        const list = byTier.get(role.tier) ?? [];
+        list.push({ role: role.id, power: expectedDamage(weapon) });
+        byTier.set(role.tier, list);
+      }
+
+      for (let tier = 2; tier <= 5; tier++) {
+        const here = byTier.get(tier) ?? [];
+        const below = byTier.get(tier - 1) ?? [];
+        if (here.length === 0 || below.length === 0) continue;
+        const weakest = here.reduce((a, b) => (b.power < a.power ? b : a));
+        const strongest = below.reduce((a, b) => (b.power > a.power ? b : a));
+        assert(
+          weakest.power > strongest.power,
+          `${biome.id}: ${weakest.role} (T${tier}, ${weakest.power.toFixed(1)}) does not beat ` +
+            `${strongest.role} (T${tier - 1}, ${strongest.power.toFixed(1)})`
+        );
+      }
+    }
+  });
+
+  it('makes a rarer copy of the same weapon strictly better', () => {
+    // Within one weapon, up a rank must never be sideways or worse.
+    for (const biome of BIOMES) {
+      for (const role of ITEM_ROLES) {
+        if (role.kind !== 'weapon') continue;
+        const def = itemFor(biome.id, role.id);
+        const range = rarityRange(def.tier);
+        for (let rarity = range.min; rarity < range.max; rarity++) {
+          const lower = weaponStats(def, rarity);
+          const higher = weaponStats(def, rarity + 1);
+          assert(lower && higher);
+          assert(
+            expectedDamage(higher) > expectedDamage(lower),
+            `${def.id}: rarity ${rarity + 1} (${expectedDamage(higher).toFixed(1)}) is not better than ` +
+              `rarity ${rarity} (${expectedDamage(lower).toFixed(1)})`
+          );
+        }
+      }
+    }
+  });
+
+  it('never computes a weapon that heals what it shoots', () => {
+    /**
+     * Walks all five rarities, not just the range a drop can roll.
+     *
+     * The monotonicity check above stops at tier ±1, which is why nothing caught a
+     * tier-3 rifle asked for rarity 1 back when a rank cost a flat ten damage: it
+     * computed 20 - 2×10 = 0, and a tier-5 minigun four ranks down came out at -20,
+     * i.e. a gun that put hit points back. A proportional step cannot reach zero,
+     * but any caller may ask for any rarity (the item card does), so the property is
+     * worth pinning: strictly increasing, and always at least one point of damage.
+     */
+    for (const biome of BIOMES) {
+      for (const role of ITEM_ROLES) {
+        if (role.kind !== 'weapon') continue;
+        const def = itemFor(biome.id, role.id);
+        for (let rarity = 1; rarity <= 5; rarity++) {
+          const stats = weaponStats(def, rarity);
+          assert(stats);
+          assert(stats.damage >= 1, `${def.id} at rarity ${rarity}: ${stats.damage} damage`);
+          assert(stats.dice >= 1, `${def.id} at rarity ${rarity}: ${stats.dice} dice`);
+          if (rarity > 1) {
+            const worse = weaponStats(def, rarity - 1);
+            assert(worse);
+            assert(
+              expectedDamage(stats) > expectedDamage(worse),
+              `${def.id}: rarity ${rarity} is not strictly better than ${rarity - 1}`
+            );
+          }
+        }
       }
     }
   });

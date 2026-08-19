@@ -1,4 +1,12 @@
-import { heroDef, RARITY_META, zombieDef, type CzRoomView, type CzView } from 'coronaz-core';
+import {
+  heroDef,
+  PROGRAM_LABELS,
+  RARITY_META,
+  SHINY_LOOT,
+  zombieDef,
+  type CzRoomView,
+  type CzView
+} from 'coronaz-core';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { heroHue, zombieSprite } from './czAssets';
@@ -11,7 +19,6 @@ import {
   project,
   screenToWorld,
   TILE_H,
-  worldToScreen,
   type Camera,
   type Vec2
 } from './iso/geometry';
@@ -212,13 +219,50 @@ export function CzMap({
     }
 
     const standing = myPlayerId
-      ? view.heroes.find((hero) => hero.playerId === myPlayerId && hero.alive && !hero.escaped)
+      ? view.heroes.find((hero) => hero.playerId === myPlayerId && hero.alive && !hero.escaped && !hero.forfeited)
       : undefined;
     const myRoom = standing ? view.rooms.find((room) => room.id === standing.roomId) : undefined;
     if (myRoom) outline(myRoom, 'rgb(255 255 255 / 0.5)', 2);
   });
 
+  /**
+   * What the pointer is over, when it is over somewhere you could go.
+   *
+   * The map knows a great deal a player cannot see: this room is a pharmacy, that one
+   * is an armoury, the one past it is a morgue. Outdoors that hardly matters, because
+   * a street looks like a street; inside a bunker every door looks the same, and the
+   * whole point of giving rooms programmes and loot bonuses is lost if the only way
+   * to find out is to spend an action point walking in.
+   */
+  const [hover, setHover] = useState<{ room: CzRoomView; x: number; y: number } | null>(null);
+
   /* ------------------------------- interaction ------------------------------ */
+
+  /** Which room a point on the picture is over, via the pick map. */
+  function roomUnder(event: React.PointerEvent<HTMLDivElement>): CzRoomView | undefined {
+    const element = containerRef.current;
+    if (!element) return undefined;
+    const rect = element.getBoundingClientRect();
+    const world = screenToWorld({ x: event.clientX - rect.left, y: event.clientY - rect.top }, camera, viewport);
+    const cell = pickCellAt(scene, world);
+    if (cell === null) return undefined;
+    return view.rooms.find((candidate) => candidate.cells.includes(cell));
+  }
+
+  function onHover(event: React.PointerEvent<HTMLDivElement>) {
+    // Only where you could actually go, and only on a device with a pointer: a
+    // finger has nothing to hover with, and a label under a thumb is in the way.
+    if (event.pointerType !== 'mouse') return;
+    const element = containerRef.current;
+    if (!element || !onRoomTap) return;
+    const room = roomUnder(event);
+    if (!room || !highlights.has(room.id) || room.seen === 'hidden') {
+      setHover(null);
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    setHover({ room, x: event.clientX - rect.left, y: event.clientY - rect.top });
+  }
 
   function onClick(event: React.PointerEvent<HTMLDivElement>) {
     const element = containerRef.current;
@@ -269,7 +313,7 @@ export function CzMap({
     };
 
     for (const hero of view.heroes) {
-      if (!hero.alive || hero.escaped) continue;
+      if (!hero.alive || hero.escaped || hero.forfeited) continue;
       place(hero.playerId, roomById.get(hero.roomId), 'hero');
     }
     for (const zombie of [...view.zombies].sort((a, b) => a.id.localeCompare(b.id))) {
@@ -278,9 +322,27 @@ export function CzMap({
     return result;
   }, [view.heroes, view.zombies, roomById, view.width]);
 
-  const tokenSize = Math.max(16, 30 * camera.zoom);
+  /**
+   * Token size in *world* pixels, not screen pixels. The layer below carries the
+   * camera, so the zoom is applied once, by the browser, to everything at once.
+   */
+  const tokenSize = 30;
 
-  const screenOf = (spot: Vec2): Vec2 => worldToScreen(project(spot.x, spot.y), camera, viewport);
+  /**
+   * The camera, as one transform on the whole entity layer.
+   *
+   * The pieces used to be positioned in screen coordinates, which meant a camera
+   * move changed every token's `left` and `top` — and each one is CSS-transitioned
+   * so that a *state* update looks like a walk. Recentring or zooming therefore set
+   * every creature crawling towards its new screen position, lagging behind the
+   * canvas: the wiggle. Positioned in world coordinates under a transformed parent,
+   * a camera move is instant (the transform is not transitioned) and only an actual
+   * step still animates.
+   */
+  const cameraTransform = {
+    transform: `translate(${(viewport.x / 2 - camera.x * camera.zoom).toFixed(2)}px, ${(viewport.y / 2 - camera.y * camera.zoom).toFixed(2)}px) scale(${camera.zoom.toFixed(4)})`,
+    transformOrigin: '0 0'
+  } as React.CSSProperties;
 
   return (
     <div className={`cz-map-wrap ${compact ? 'compact' : ''}`}>
@@ -291,18 +353,34 @@ export function CzMap({
         role="application"
         aria-label="Plateau"
         onPointerUp={onClick}
+        onPointerMove={onHover}
+        onPointerLeave={() => setHover(null)}
       >
         <canvas ref={canvasRef} className="cz-canvas" />
 
+        {/* The name of the room you are about to walk into, and whether it is worth
+            it. Positioned in screen space, so it does not ride the camera. */}
+        {hover && (
+          <span
+            className="cz-room-tip"
+            style={{ left: `${hover.x}px`, top: `${hover.y}px` }}
+            aria-hidden="true"
+          >
+            {PROGRAM_LABELS[hover.room.program]}
+            {hover.room.loot >= SHINY_LOOT && <span className="cz-room-rich"> ✨</span>}
+            {hover.room.hasKey && ' 🔑'}
+          </span>
+        )}
+
         {/* The pieces: absolutely positioned so a state update slides them. */}
-        <div className="cz-entities">
+        <div className="cz-entities" style={cameraTransform}>
           {view.heroes
-            .filter((hero) => hero.alive && !hero.escaped)
+            .filter((hero) => hero.alive && !hero.escaped && !hero.forfeited)
             .map((hero) => {
               const spot = spots.get(hero.playerId);
               const room = roomById.get(hero.roomId);
               if (!spot || room?.seen === 'hidden') return null;
-              const at = screenOf(spot);
+              const at = project(spot.x, spot.y);
               return (
                 <div
                   key={hero.playerId}
@@ -330,7 +408,7 @@ export function CzMap({
           {view.zombies.map((zombie) => {
             const spot = spots.get(zombie.id);
             if (!spot) return null;
-            const at = screenOf(spot);
+            const at = project(spot.x, spot.y);
             const def = zombieDef(zombie.def);
             const art = zombieSprite(zombie.def);
             const big = def.boss ? 1.35 : 1;
@@ -510,7 +588,7 @@ function CzMinimap({
     };
     for (const zombie of view.zombies) dot(zombie.roomId, 'rgb(229 72 77 / 0.9)', 1.6);
     for (const hero of view.heroes) {
-      if (hero.alive && !hero.escaped) dot(hero.roomId, 'rgb(120 205 255 / 0.95)', 2.2);
+      if (hero.alive && !hero.escaped && !hero.forfeited) dot(hero.roomId, 'rgb(120 205 255 / 0.95)', 2.2);
     }
 
     // The camera's window on the plan.
@@ -555,7 +633,7 @@ function actionShot(view: CzView, viewport: Vec2, focus: string | null): FollowT
   const wide = { ...boardMiddle(view), zoom: fitZoom(viewport, view.width, view.height) };
   if (view.phase !== 'heroes') return wide;
 
-  const active = view.heroes.filter((hero) => hero.alive && !hero.escaped);
+  const active = view.heroes.filter((hero) => hero.alive && !hero.escaped && !hero.forfeited);
   const mine = focus ? active.filter((hero) => hero.playerId === focus) : [];
   const heroes = mine.length > 0 ? mine : active;
   if (heroes.length === 0) return wide;

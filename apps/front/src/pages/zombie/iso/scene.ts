@@ -1,8 +1,9 @@
-import type { CzRoomView, CzView } from 'coronaz-core';
+import { SHINY_LOOT, type CzRoomView, type CzView } from 'coronaz-core';
 
 import {
   fillPolygon,
   paintFloor,
+  paintGlint,
   paintLip,
   paintThreshold,
   paintWall,
@@ -112,10 +113,11 @@ export function pickCellAt(scene: Scene, world: Vec2): number | null {
  * is why the scene survives most state broadcasts untouched.
  */
 export function sceneSignature(view: CzView): string {
+  // Rubble never moves, but it does belong to the picture.
   const rooms = view.rooms
     .map((room) => `${room.id}:${room.seen[0]}:${room.kind[0]}:${room.hasKey ? 1 : 0}:${room.decor}`)
     .join(',');
-  return `${view.width}x${view.height}|${view.edgeRight}|${view.edgeDown}|${rooms}`;
+  return `${view.width}x${view.height}|${view.edgeRight}|${view.edgeDown}|${view.rubble.length}|${rooms}`;
 }
 
 const decorCache = new Map<string, Map<string, RoomDecor>>();
@@ -176,6 +178,7 @@ export function renderScene(view: CzView, devicePixelRatio = 1): Scene {
   /** Stamps a shape into the pick map as "this cell". */
   const stamp = (cell: number, points: Vec2[]) => fillPolygon(ink, points, pickColor(cell));
 
+  const blocked = new Set(view.rubble);
   const roomOf = new Map<number, CzRoomView>();
   for (const room of view.rooms) {
     for (const cell of room.cells) roomOf.set(cell, room);
@@ -224,6 +227,20 @@ export function renderScene(view: CzView, devicePixelRatio = 1): Scene {
     return here.zone !== other.zone;
   };
 
+  /**
+   * Which sides of a cell furniture may back onto.
+   *
+   * A window is deliberately **not** one of them, even though it is a solid wall.
+   * Backing a wardrobe onto a window is a small cosmetic gain and it cost a measured
+   * functional regression: a prop against a shell wall on the south or east side has
+   * the top of its pick-map stamp painted over by the tile in front of it, so the
+   * click that should hit the wardrobe hits the street behind. Counting windows as
+   * anchors took tall props from 99 % clickable to 68 %.
+   *
+   * The underlying weakness is the stamping order, not the windows, and it is worth
+   * fixing one day; until then the cheap answer is not to put furniture there. Nobody
+   * has ever complained about a bare windowsill.
+   */
   const wallsOf = (cell: number): CellWalls => {
     const x = cell % view.width;
     const y = Math.floor(cell / view.width);
@@ -270,7 +287,12 @@ export function renderScene(view: CzView, devicePixelRatio = 1): Scene {
 
       const cell = cx + cy * view.width;
       const room = roomOf.get(cell);
-      if (!room) continue;
+      if (!room) {
+        // Rubble: a cell no room owns. Drawn, and deliberately not stamped into
+        // the pick map — there is nothing there to aim at.
+        if (blocked.has(cell)) paintRubble(ctx, cx, cy);
+        continue;
+      }
 
       // The floor is clickable everywhere, dark included: walking into the unknown
       // is the game, so the pick map covers the void too.
@@ -285,6 +307,19 @@ export function renderScene(view: CzView, devicePixelRatio = 1): Scene {
       const decor = decorByRoom.get(room.id);
 
       paintFloor(ctx, cx, cy, colors, room.floor, room.decor + cell);
+
+      /**
+       * The glitter on a room worth robbing.
+       *
+       * The loot bonus is a number on the room and the player cannot read numbers
+       * off a map, so a pharmacy paying 80 % more than a corridor would have been
+       * invisible: the game would be asking for a decision it never showed you. A
+       * warm haze on the floor and a few specks is enough — it says "there is
+       * something in here" from across the street, and the room's own name says what.
+       */
+      if (room.loot >= SHINY_LOOT) {
+        paintGlint(ctx, cx, cy, room.loot, room.decor + cell);
+      }
 
       if (room.kind === 'fungus') {
         const creep = sprite('/coronaz/terrain/creep.png');
@@ -322,6 +357,10 @@ export function renderScene(view: CzView, devicePixelRatio = 1): Scene {
         } else if (code === 'D') {
           paintWall(ctx, cx, cy, side, colors, { paper, door: true, translucent });
           paintThreshold(ctx, cx, cy, side, colors, 'door');
+        } else if (code === 'W') {
+          // Glass. Never translucent as a *wall*, because the whole point is that the
+          // pane is the see-through part and the wall around it is not.
+          paintWall(ctx, cx, cy, side, colors, { paper, window: true });
         } else if (code === 'A') paintThreshold(ctx, cx, cy, side, colors, 'seam');
       }
 
@@ -360,7 +399,7 @@ export function renderScene(view: CzView, devicePixelRatio = 1): Scene {
         fillPolygon(ctx, diamond(cx, cy), 'rgb(4 5 9 / 0.5)');
         for (const side of ['north', 'west'] as const) {
           const code = edge(cx, cy, side);
-          if (code === '#' || code === 'D') dimWall(ctx, cx, cy, side);
+          if (code === '#' || code === 'D' || code === 'W') dimWall(ctx, cx, cy, side);
         }
       }
     }
@@ -385,6 +424,36 @@ function propQuad(prop: PlacedProp): Vec2[] {
     project(prop.cx - radius, prop.cy)
   ];
   return [s, e, { x: e.x, y: e.y - height }, { x: n.x, y: n.y - height }, { x: w.x, y: w.y - height }, w];
+}
+
+/**
+ * Collapsed: masonry, a flooded lot, a crater. Nothing enters it and nothing sees
+ * through it, so it is drawn as mass rather than as floor — a raised heap with a
+ * hard edge, which is what tells a player at a glance that this is not a dark room
+ * they have yet to visit but a place there is no point walking towards.
+ */
+function paintRubble(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
+  const shape = diamond(cx, cy);
+  fillPolygon(ctx, shape, 'rgb(26 24 26)');
+
+  // A low mound, so it reads as solid from the side.
+  const lift = (point: Vec2, by: number): Vec2 => ({ x: point.x, y: point.y - by });
+  const [n, e, s, w] = shape;
+  fillPolygon(ctx, [w, s, lift(s, 7), lift(w, 7)], 'rgb(34 31 33)');
+  fillPolygon(ctx, [s, e, lift(e, 7), lift(s, 7)], 'rgb(41 38 40)');
+  fillPolygon(ctx, [lift(n, 7), lift(e, 7), lift(s, 7), lift(w, 7)], 'rgb(48 44 46)');
+
+  // Broken slabs on top: deterministic from the cell, so it never shimmers.
+  let noise = (cx * 73856093) ^ (cy * 19349663);
+  const centre = project(cx, cy);
+  for (let i = 0; i < 5; i++) {
+    noise = (noise * 1103515245 + 12345) & 0x7fffffff;
+    const u = (((noise >> 8) % 100) / 100 - 0.5) * TILE_W * 0.5;
+    noise = (noise * 1103515245 + 12345) & 0x7fffffff;
+    const v = (((noise >> 8) % 100) / 100 - 0.5) * TILE_H * 0.4;
+    ctx.fillStyle = i % 2 === 0 ? 'rgb(58 54 56)' : 'rgb(38 35 37)';
+    ctx.fillRect(centre.x + u, centre.y + v - 7, 5, 3);
+  }
 }
 
 /** Unexplored: a hole in the floor plan you can still walk into. */

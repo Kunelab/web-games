@@ -471,6 +471,463 @@ Le MJ agressif a perdu dix points sans qu'on touche à son économie : ses parti
 durent un tour de plus et son revenu suit la menace. À surveiller si quelqu'un
 trouve la horde trop dure à jouer contre.
 
+## v5 : les primes, les mutations, le compte
+
+Cette passe ne touche ni la carte ni la caméra : elle répond à « qu'est-ce qu'on
+joue, pour qui, et pourquoi ce chiffre ».
+
+### Objectifs : sept sortes, dont quatre facultatives
+
+Les objectifs étaient trois (boss, victimes, fournitures) et tous obligatoires : en
+Évasion ils verrouillent la sortie. Quatre s'ajoutent, et elles sont **facultatives**
+par nature.
+
+| Sorte      | Ce qu'elle demande             | Verrouille la sortie |
+| ---------- | ------------------------------ | -------------------- |
+| `boss`     | abattre un boss                | oui                  |
+| `kills`    | un quota de victimes           | oui (ou prime)       |
+| `searches` | un quota de fournitures        | oui                  |
+| `explore`  | voir 45 % des salles           | non                  |
+| `treasure` | trouver une pièce épique       | non                  |
+| `intact`   | sortir sans perdre personne    | non                  |
+| `speed`    | sortir avant un tour donné     | non                  |
+
+Une prime **ne bloque rien et paie le double** (6 points contre 3) : personne n'était
+obligé de la prendre. C'est ce qui la rend jouable comme une prime et non comme une
+corvée : on l'abandonne sans rien perdre. Deux dials dans la mise en place
+(`secondaryObjectives`, `optionalObjectives`) et une liste d'autorisation
+(`objectiveKinds`) qui couvre les sept : un hôte qui déteste courir après un boss le
+raye, plutôt que de tout couper.
+
+Les clés comptent enfin comme un objectif à l'écran. Elles verrouillaient la sortie
+depuis toujours mais n'apparaissaient nulle part dans la liste : le joueur lisait
+« abattre un boss » et ignorait qu'il manquait deux clés. `czGoals()` unifie les deux
+familles, trie l'obligatoire avant la prime et préfixe les primes d'une étoile.
+
+### Le handicap volontaire, des deux côtés
+
+Deux façons de rendre le raid plus dur en échange de points, choisies par les
+joueurs et non par l'hôte :
+
+- **Aucun atout.** Un survivant qui ne prend rien marque **+12** à la fin, l'équivalent
+  d'un boss. Un handicap que personne ne remarque est un handicap que personne ne
+  prend ; celui-ci se voit sur le tableau final (🙌).
+- **Les mutations de la horde.** Cinq cases à cocher dans le salon d'attente, chacune
+  renforce les zombies et **multiplie le score de tout le monde**.
+
+| Mutation      | Effet sur la horde        | Récompense |
+| ------------- | ------------------------- | ---------- |
+| Peau épaisse  | +10 PV                    | +15 %      |
+| Griffes       | +10 dégâts                | +20 %      |
+| Vive          | +1 PA                     | +30 %      |
+| Féconde       | renforts ×1,5             | +25 %      |
+| Titans        | +40 PV aux boss           | +15 %      |
+
+Le multiplicateur s'affiche dans le salon d'attente avant qu'on coche quoi que ce
+soit, et sur l'écran de fin à côté des scores : la table sait ce qu'elle achète.
+
+### Le butin tombe aussi des cadavres
+
+Vider une salle ne payait qu'en points. Un cadavre lâche maintenant une pièce avec
+une probabilité qui suit sa rareté (10 % + 5 % par rang, **toujours** pour un boss),
+si le sac a de la place. Ça change le calcul d'une salle pleine : elle valait qu'on
+la contourne, elle vaut maintenant qu'on la vide.
+
+### Le score va au compte Kune
+
+Les carrières étaient indexées sur le pseudo tapé sur le téléphone, ce qui marche
+dans un salon et pas ailleurs : « Max » perdait tout en devenant « MaxAubry ». Quand
+la connexion socket porte le cookie de session (un navigateur connecté), la carrière
+s'indexe sur le **compte**, préfixé `@` pour ne jamais collider avec un pseudo ; sinon
+elle reste sur le pseudo, que le téléphone garde déjà dans son `localStorage`. Le
+salon d'attente le dit en une ligne (🔗 compte, ou 📱 ce pseudo) : on sait où va la
+soirée avant de la jouer.
+
+L'identité est vérifiée **côté serveur** (signature du cookie `kune.sid` puis lecture
+de la session en base). Faire confiance à un login envoyé par le client laisserait
+n'importe qui créditer le compte de n'importe qui.
+
+### Toutes les armes touchent
+
+L'accuracy est morte : chaque arme porte `accuracy: 1`, donc chaque dé touche. Le
+budget de puissance des rôles a été refait autour de ce fait, et une attaque n'a plus
+qu'une question : combien de dés as-tu apportés. Les dés sont **encore tirés** du flux
+aléatoire, volontairement : une graine doit rejouer à l'identique, et sauter des
+tirages ferait dériver toutes les parties sauvegardées.
+
+Conséquence à connaître, mesurée plus bas : sans jet à rater, le seul stat qui compte
+contre les cinq archétypes à 10 PV est le **nombre de dés**, parce que tout ce qui
+frappe pour 10 ou plus les tue d'un coup. Une batte vaut un sniper contre un
+traînard. C'est le sujet de la proposition « dégâts et armure ».
+
+### Ce que le banc dit de cette passe
+
+120 parties par case, trois héros experts, mindset `balanced`, évasion. Le banc
+expose deux dials neufs, `--luck lucky|unlucky` et `--noperks`, parce que les deux
+questions posées à cette passe ne se lisent pas dans une moyenne.
+
+| Préréglage         | v4     | v5     | Cible    |
+| ------------------ | ------ | ------ | -------- |
+| facile             | 99,5 % | 100 %  | ≥ 99 %   |
+| normal             | 96,8 % | 95,8 % | 94-95 %  |
+| difficile          | 72,3 % | 74,2 % | ~70 %    |
+| cauchemar          | ~30 %  | 44,2 % | ~41 %    |
+| apocalypse         | -      | 16,7 % | ~20 %    |
+| contre MJ agressif | 35 %   | 39,2 % | 40-50 %  |
+
+La courbe est revenue à sa place sans qu'on y touche : le 100 % de précision et le
+butin sur cadavre rendent surtout service **là où l'équipe était marginale**, donc
+`cauchemar` remonte de quatorze points et `facile` ne bouge pas, puisqu'il était déjà
+au plafond. Rien à resserrer sur les préréglages.
+
+Par taille de table :
+
+| Préréglage | 1      | 2      | 3      | 4      | 5      |
+| ---------- | ------ | ------ | ------ | ------ | ------ |
+| normal     | 62,5 % | 94,2 % | 95,8 % | 97,5 % | 96,7 % |
+| difficile  | 44,2 % | 73,3 % | 74,2 % | 86,7 % | 87,5 % |
+
+Le solo était le vrai blessé de la v4 (52,8 % en `normal`, 28,4 % en `difficile`) et
+c'est lui qui profite le plus des deux changements : un survivant seul rate moins et
+ramasse sur chaque cadavre. Duo et trio sont désormais à égalité sur `difficile`
+(73,3 contre 74,2), ce qui est plat mais pas creux.
+
+**Le vrai problème est la variance, pas la moyenne.** Avec les six premiers tirages
+forcés :
+
+| Préréglage | butin ingrat | normal | butin généreux |
+| ---------- | ------------ | ------ | -------------- |
+| normal     | 76,7 %       | 95,8 % | 98,3 %         |
+| difficile  | 26,7 %       | 74,2 % | 83,3 %         |
+
+Cinquante-sept points d'écart en `difficile`, pour la même équipe, le même
+préréglage et la même carte. Et l'écart est **asymétrique** : la chance ne rapporte
+que neuf points (le plafond est proche), la malchance en coûte quarante-sept. Ce
+n'est donc pas « le butin décide » mais « le bas de la table de butin tue » : six
+armes à 1 dé × 10 dégâts ne peuvent pas nettoyer une salle, quoi que fasse le
+joueur, parce que sans jet à rater la seule façon de tuer deux choses est d'avoir
+deux dés.
+
+Enfin, le handicap volontaire est bon marché :
+
+| Préréglage | avec atouts | sans atout | score moyen |
+| ---------- | ----------- | ---------- | ----------- |
+| normal     | 95,8 %      | 92,5 %     | 171 → 193   |
+| difficile  | 74,2 %      | 70,0 %     | 199 → 216   |
+
+Trois à quatre points de victoire pour douze points de score : le prix est
+défendable, mais il dit aussi que les atouts pèsent peu. À surveiller le jour où on
+retouchera les atouts eux-mêmes.
+
+## v6 : l'armure, la grille de dix, et la porte de sortie
+
+### La grille de dix a sauté
+
+Chaque valeur du jeu était un multiple de dix. C'était sans conséquence tant que les
+armes pouvaient rater ; c'est devenu le problème central quand elles ont arrêté. Un
+traînard avait exactement 10 PV, donc **toutes** les armes du jeu en tuaient un par
+coup, et un sniper jetait 88 % de ses dégâts pour faire ce qu'une batte faisait
+aussi bien. Les dés étaient devenus le seul stat qui comptait contre les deux
+créatures les plus courantes du plateau.
+
+L'échelle ×10 reste (un « +10 PV » se lit, un « +1 PV » ressemble à une erreur
+d'arrondi), la **grille** disparaît : 9, 11, 19, 27, 29, 42, 68, 98, 148 PV. Les PV
+des héros et les bonus plats des atouts restent ronds volontairement, parce que ce
+sont les chiffres qu'un joueur lit sur sa propre carte à chaque tour et que rien
+chez eux n'était cassé.
+
+### L'armure
+
+Une réduction plate sur **chaque coup**, avec un minimum de 1 qui passe toujours :
+l'armure rend une arme mauvaise, jamais inutile.
+
+| | Traînard | Coureur | Horreur | Mutant | Masse | Brute | Colosse | Abomination |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| PV | 9 | 11 | 19 | 29 | 42 | 68 | 98 | 148 |
+| Armure | 0 | 0 | 0 | 1 | 2 | 3 | 4 | 6 |
+
+C'est le stat qui redonne son métier à une arme lourde. Contre un colosse, il faut
+10 attaques à la batte, 5 à la pioche (qui perce), 3 à la tronçonneuse et 2 au
+sniper ; contre une salle de traînards, le minigun en tue six d'un coup et le sniper
+un seul. Les armes de foule répondent à la foule, les armes lourdes à l'armure, et
+une main gauche et une main droite ont enfin une question à trancher.
+
+**Perforante** (pioche, tronçonneuse, Desert Eagle, sniper) ignore la moitié de
+l'armure. Ce n'est pas un bonus par-dessus le budget, c'est *dedans* : c'est
+l'essentiel de ce qu'un gros calibre est censé être.
+
+Côté héros, le gilet n'est plus un booléen. Il l'était : un gilet rare et un gilet
+légendaire encaissaient exactement une attaque, une fois. Il donne maintenant **-1
+dégât par rang, du commun au légendaire**, sur chaque blessure. Deux gilets ne
+s'additionnent pas (le meilleur porté compte) sinon deux plaques légendaires
+rendaient la moitié du bestiaire inoffensive. Le « la plaque tient, entièrement »
+reste, comme capacité d'Omar, là où il a sa place.
+
+### Le haut de l'arsenal est redescendu
+
+Le sommet valait douze fois le bas (lance-flammes 120 contre batte 10), ce qui
+faisait de la soirée une loterie sur l'apparition d'un tier 5 : le banc mesurait
+57 points d'écart de victoire entre une table forcée à bien ouvrir et une table
+forcée à mal ouvrir, sur le même préréglage. Les paliers sont resserrés à
+**14-24 / 33-36 / 45-48 / 56-58 / 70-72**, soit cinq fois le bas au lieu de douze.
+
+La rareté a suivi, par nécessité. Un rang valait dix dégâts plats, ce qui sur une
+arme à six dés fait +83 % de sa production totale : la rareté aurait rendu par une
+porte ce que la compression venait de retirer par l'autre. Un rang vaut maintenant
+**+18 % des dégâts de l'arme**, ce qui règle du même coup le vieux déséquilibre (dix
+dégâts, c'était +100 % sur une batte et +12,5 % sur un sniper : le même « rang »
+voulait dire deux choses différentes selon ce qu'on tenait).
+
+### Le plancher de pitié et la caisse offerte
+
+Deux corrections de l'ouverture, qui est là où un raid se décide :
+
+- **Le plancher de pitié** : si les deux premières trouvailles d'un héros n'ont rien
+  donné de mieux que du tier 1, la troisième est plancher au tier 2. Ça ne touche
+  que le cas catastrophe et ça ne déplace pas le plafond, qui n'a jamais été le
+  problème.
+- **La caisse offerte** : une fouille gratuite par raid, pour tout le monde, quoi
+  qu'on porte. Dépensée après la fouille gratuite renouvelable (lampe, Chuck), parce
+  que c'est ce qu'un joueur ferait si le jeu lui posait la question.
+
+### Abandonner, et annuler
+
+Trois portes qui n'existaient pas :
+
+- **Un survivant peut abandonner** en cours de raid, gratuitement et en deux taps.
+  Il sort du plateau comme un mort, mais ce n'est pas une mort : la carrière compte
+  l'abandon à part, il ne touche ni la victoire ni son bonus (sinon abandonner
+  serait la façon la moins chère de farmer une victoire), et il garde le score qu'il
+  avait gagné jusqu'à la porte.
+- **Le maître du jeu peut concéder**, dans n'importe quelle phase, ce qui est la
+  seule action de la horde jouable hors de son tour : un MJ qui veut arrêter ne
+  devrait pas attendre que son tour revienne pour le dire.
+- **L'hôte peut annuler un raid** depuis la liste de la mise en place. Les parties en
+  cours y restaient indéfiniment, sans autre moyen de les vider que de les jouer
+  jusqu'au bout ou de redémarrer le serveur.
+
+## v7 : une ville plutôt qu'un hangar
+
+Le diagnostic tenait en une phrase : vu d'en haut, le biome moderne ressemblait à un
+seul immense hangar. Trois causes, chacune corrigée à sa racine plutôt qu'en aval.
+
+### 1. Dehors n'avait pas de sortes
+
+Tout ce qui n'était pas un mur était une « rue ». Un parking, un jardin et un
+boulevard étaient donc le même sol gris avec les mêmes poubelles dessus, et l'oeil
+n'avait rien pour comprendre où il se trouvait. Il y a maintenant neuf extérieurs,
+dont trois neufs et décisifs :
+
+| Programme  | Sol      | Ce que c'est                               |
+| ---------- | -------- | ------------------------------------------ |
+| `street`   | bitume   | la chaussée, deux cases de large           |
+| `sidewalk` | dallage  | le trottoir, une case, réverbères et bancs |
+| `square`   | pavés    | la place : fontaine, kiosque, bancs        |
+| `park`     | herbe    | arbres et haies                            |
+
+Un trottoir n'est pas une chaussée et une place n'est pas un parking : c'est la
+première chose que l'oeil lit, avant même la forme des bâtiments.
+
+### 2. Tout était meublé à la même densité
+
+Un chiffre unique, 1,9 accessoire par case, partout, dedans comme dehors. Quatre
+cases de bitume recevaient donc huit objets. Une chaussée ne porte pas huit objets ;
+elle porte une voiture garée, et tout le reste est au bord du trottoir.
+
+La densité est désormais une propriété du **type de lieu**, et c'est ce qui lui donne
+une identité vue d'en haut. Mesuré sur les cinq layouts :
+
+| Lieu        | accessoires/case |
+| ----------- | ---------------- |
+| chaussée    | 0,11             |
+| trottoir    | 0,49             |
+| place       | 0,58             |
+| parc        | 0,75             |
+| couloir     | 0,74             |
+| séjour      | 1,19             |
+| salle d'eau | 1,80             |
+
+Onze fois plus dense dans un séjour que sur la chaussée. Deux règles ont dû changer
+avec : la pièce maîtresse d'une salle n'est plus posée d'office (chaque bout de bitume
+recevait une voiture, quoi que dise la densité), et la passe de détritus suit la même
+échelle (elle rajoutait deux poubelles et une flaque de sang sur une route vide, ce
+qui défaisait discrètement le travail de la passe précédente).
+
+Quatre accessoires neufs, parce qu'une place ne peut pas être faite d'objets
+d'intérieur : **arbre, haie, fontaine, kiosque**. Un arbre ne peut pas être dedans,
+une fontaine ne peut pas être dans une ruelle : ce sont eux qui disent « place » de
+l'autre bout de la carte.
+
+### 3. Les bâtiments n'avaient pas de noms
+
+Un immeuble et des bureaux se ressemblent depuis la rue, donc la carte était un champ
+de boîtes grises. Une ville a des repères. Le layout **`ville`** en plante toujours
+deux : un **commissariat** et un **hôpital** (mesuré : commissariat sur 100 % des
+cartes, hôpital sur 88 %). Ce sont aussi les deux bâtiments que la table de butin
+paie le mieux, donc la silhouette et la raison d'aller vers elle sont la même chose.
+
+Neuf salles neuves les remplissent : accueil, chambres, bloc opératoire, pharmacie,
+morgue, cellule, salle des scellés, armurerie. Elles n'étaient meublées par rien du
+tout au départ (un hôpital sortait en boîtes vides) ; elles le sont maintenant depuis
+le catalogue existant, parce qu'une chambre d'hôpital *est* un lit et un chariot.
+
+### `ville` : une avenue, ses trottoirs, une place
+
+Une seule chaussée droite qui traverse la carte, ses deux trottoirs, puis des lots de
+part et d'autre : un lot par côté devient une place ou un parc, les autres reçoivent
+un bâtiment en retrait. Droite et unique volontairement : les rues qui tournent
+produisaient des salles extérieures en L, qui se lisent comme un défaut, et une
+grille de rues était le labyrinthe qui faisait de l'ancienne ville un dédale plutôt
+qu'un lieu.
+
+Le retrait ne s'applique **pas** au bord du plateau. Un retrait uniforme entourait
+toute la carte d'un anneau de cour d'une case, ce qui d'en haut se lisait comme une
+douve : la ville avait l'air d'une maquette sur un plateau au lieu d'un morceau
+découpé dans quelque chose de plus grand.
+
+### Les salles extérieures sont des rectangles
+
+Dehors était découpé par la même fonction que l'intérieur : une graine qui pousse en
+tache, donc des L, des tétrominos et des cases orphelines. Deux choses n'allaient
+pas. Ça se voyait (un trottoir en L est un défaut) et ça se **jouait** mal : un
+déplacement coûte un point d'action par salle quelle que soit sa taille, donc un
+boulevard découpé en quinze petits L coûtait quinze points à descendre. Traverser la
+carte, c'était patauger.
+
+Dehors est maintenant **pavé** : 2x2 partout où il en tient un, puis des dominos,
+puis des cases seules. Les terrains ouverts (place, parc, cour) passent d'abord en
+3x3, parce qu'une place doit faire deux ou trois enjambées de large. Le plafond de
+salle passe donc de 4 à **9 cases dehors** et reste à 4 dedans : un rez-de-chaussée
+d'un seul tenant se traverserait pour un point, et toute la tension d'une fouille
+sous pression vient de ce qu'on paie pour se déplacer dedans. Résultat mesuré : 0 %
+de salles extérieures non rectangulaires, 3,05 cases par salle extérieure sur `ville`
+contre 2,08 avant.
+
+### Le butin dépend de la salle
+
+Une salle était un conteneur interchangeable, donc explorer était une corvée facturée
+en points d'action et la réponse était toujours « fouiller la chose la plus proche ».
+Chaque programme porte maintenant un bonus de butin, dépensé comme une **chance d'un
+rang** de la table (les rangs sont ce dont la table est faite ; une fraction de rang
+devrait s'arrondir, et la moitié des valeurs ne feraient alors rien du tout).
+
+| Bande          | Part des salles | Exemples                                |
+| -------------- | --------------- | --------------------------------------- |
+| -20 % à -15 %  | 28 %            | chaussée, carrefour, trottoir           |
+| -15 % à 0 %    | 44 %            | cour, parc, couloir, sanitaires, séjour |
+| 0 %            | 10 %            | chambre, bureau, dortoir                |
+| +1 % à +29 %   | 9 %             | bar, atelier, quai, morgue              |
+| +30 % à +59 %  | 6,5 %           | réserve, archives, serveurs, labo, bloc |
+| +60 % à +100 % | 1,9 %           | scellés, pharmacie, armurerie           |
+
+La salle de départ ajoute +15 % par-dessus son programme : la première fouille du
+raid s'y fait, au tour un, avec trois points d'action et une batte, et elle donne le
+ton de la soirée.
+
+**Et ça se voit.** Les salles au-dessus de +40 % scintillent : un halo chaud sur le
+sol et quelques éclats, peints sur le sol et non en contour (un contour voudrait dire
+« sélectionnée », ce que la carte utilise déjà). Le téléphone affiche en plus le nom
+de la salle où l'on se tient et « bon butin » ou « rien à fouiller ici ». Un joueur
+doit pouvoir *vouloir* une pièce sans avoir lu de tableau. Mesuré : 3,8 salles
+brillantes par carte, soit 2,5 % des salles.
+
+Un piège trouvé en chemin : une salle plus grande que le plafond devient plusieurs
+salles, et chacune héritait du programme. Pour une chambre d'hôpital c'est juste (une
+grande chambre *est* plusieurs chambres) ; pour une armurerie c'était un doublon de
+jackpot avec un air sérieux, mesuré à 2,1 armureries par ville pour un seul
+commissariat. Les six programmes qui portent le butin restent singuliers et le
+débordement devient la salle ordinaire d'à côté, ce qui est aussi à quoi ressemble un
+vrai bâtiment : une cage fermée, et les étagères autour.
+
+## v8 : les fenêtres, les repères, et une clé derrière quelque chose
+
+### La première cloison où voir et passer ne sont plus la même question
+
+Toutes les cloisons du jeu répondaient la même chose à « puis-je voir » et « puis-je
+passer » : un mur bloque les deux, une porte laisse les deux. Conséquence, le combat
+devenait aveugle dès qu'on rentrait quelque part. Un `window` sépare enfin les deux
+réponses.
+
+| Cloison  | Passer | Voir et tirer |
+| -------- | ------ | ------------- |
+| `wall`   | non    | non           |
+| `door`   | oui    | oui           |
+| `arch`   | oui    | oui           |
+| `window` | **non**| **oui**       |
+
+Un survivant peut donc surveiller la rue depuis le magasin, tirer à couvert, et se
+faire tirer dessus à travers la vitre. Une salle peut être dangereuse sans être
+accessible. Tout ça avec un seul état de cloison et **aucune** règle de déplacement
+modifiée : `connectionsOf` n'accepte toujours que `door` et `arch`, donc une fenêtre
+ne peut pas casser la connexité ni laisser passer la horde. Un test l'affirme dans les
+deux sens, parce que se tromper sur la seconde moitié serait bien pire que de ne pas
+avoir de fenêtres du tout.
+
+Le vitrage suit l'appétit de la salle : rien dans une salle d'eau, des sanitaires ou
+une cellule (le principe de la pièce est qu'on n'y voit pas), 72 % des murs éligibles
+d'un séjour ou d'une chambre, 15 % d'une réserve ou d'une armurerie, 48 % ailleurs.
+Mesuré : 17 fenêtres sur une ville, 55 sur un quartier, 36 sur un lotissement, 6 dans
+un bunker (qui n'a presque pas de mur extérieur, ce qui est correct).
+
+Le taux a dû monter d'un tiers à une moitié en cours de route, parce que l'offre de
+mur éligible est bien plus petite qu'elle n'y paraît : les côtés d'un bâtiment posés
+sur le bord du plateau n'ont rien à voir derrière eux, et dans une ville la plupart
+des bâtiments d'un pâté sont enclavés par les autres. Un tiers donnait douze fenêtres
+sur une ville entière.
+
+Une **fenêtre n'est pas un appui pour les meubles**, et c'est un compromis assumé :
+compter les fenêtres comme mur solide côté ameublement faisait tomber la part des
+grands accessoires cliquables de 99 % à 68 %. Un meuble collé à une façade au sud ou à
+l'est se fait recouvrir le haut de son empreinte par la tuile devant lui dans la carte
+de sélection, donc le clic qui devrait viser l'armoire vise la rue. La faiblesse est
+dans l'ordre d'empilement, pas dans les fenêtres ; en attendant, la réponse pas chère
+est de ne rien poser là. Personne ne s'est jamais plaint d'un rebord de fenêtre vide.
+
+### Les repères sont tirés d'une réserve, et il en manque toujours
+
+Une ville plantait systématiquement un commissariat et un hôpital, donc la troisième
+ville ressemblait à la première. Il y a maintenant six repères possibles, dont quatre
+neufs (**caserne de pompiers, école, supermarché, église**), et une ville en tire deux
+ou trois.
+
+Il en manque donc la plupart, à chaque partie, et c'est le but plutôt qu'une limite :
+en 22 × 22 on ne peut pas tout faire tenir de toute façon. Un raid où la pharmacie
+n'est nulle part est un raid qui parle d'autre chose, et une table qui sait qu'une
+caserne *pourrait* être là a une raison de regarder.
+
+Chaque repère porte une salle que la table de butin paie, donc tirer dans la réserve
+déplace le bon butin et pas seulement la toiture. Mesuré sur 60 villes :
+
+| Salle-repère        | Présente sur |
+| ------------------- | ------------ |
+| pharmacie           | 73 %         |
+| morgue              | 58 %         |
+| laboratoire         | 30 %         |
+| salle des scellés   | 27 %         |
+| armurerie           | 25 %         |
+| bloc opératoire     | 15 %         |
+
+2,3 sortes de salles-repères par ville sur six possibles.
+
+### Une clé derrière quelque chose
+
+Les clés atterrissaient dans la salle la plus passante, ce qui en faisait une corvée
+facturée en points d'action : entrer, ramasser, sortir. Pendant ce temps les salles que
+la table de butin paie double étaient entièrement optionnelles, donc une table qui les
+ignorait ne perdait que des points.
+
+La moitié des clés (arrondie au plancher, au moins une) va maintenant dans une salle
+brillante quand il en existe une. Les deux décisions deviennent la même décision, et
+c'est la façon la moins chère de rendre les bonnes salles porteuses au lieu de
+décoratives. Mesuré : 32 % des clés d'une ville et 35 % de celles d'un bunker sont
+derrière du bon butin.
+
+Volontairement **pas toutes** : mettre les trois clés derrière les trois meilleures
+salles serait un autre jeu. Et une ville qui n'a tiré aucun repère n'a aucune salle de
+ce genre (100 % des lotissements, par construction), ce qui ne doit surtout pas
+produire un raid impossible : le repli sur les salles ordinaires est la voie normale,
+pas un cas d'erreur.
+
 ## Reste à faire
 
 - **Les autres biomes.** Le système existe et n'a qu'une entrée. Cyberpunk et

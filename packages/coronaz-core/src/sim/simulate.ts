@@ -39,6 +39,17 @@ export interface PartyMember {
   skill: string;
   /** Forces a specific survivor; omitted = random from the base roster. */
   heroId?: string;
+  /**
+   * Pins this seat's opening finds to the best or the worst the table can produce.
+   *
+   * A raid's outcome hangs on the first few crates far more than on anything else,
+   * and a win rate averaged over hundreds of games hides that completely. Bench a
+   * blessed party against a cursed one and the *spread* is the answer to "how much
+   * of this game is the dice".
+   */
+  luck?: 'lucky' | 'unlucky';
+  /** Plays with no loadout at all, for the handicap bonus. */
+  noPerks?: boolean;
 }
 
 export interface GameOutcome {
@@ -123,8 +134,12 @@ export function runGame(options: {
     if (spec?.heroId) {
       switchHero(state, hero.playerId, spec.heroId);
     }
+    if (spec?.luck) hero.forcedLuck = spec.luck;
     // Every bot builds a loadout: the targets describe games as they are played.
-    setLoadout(state, hero.playerId, randomHeroLoadout(state.rng, hero.heroId));
+    // Unless the bench is measuring what going without is worth.
+    if (!spec?.noPerks) {
+      setLoadout(state, hero.playerId, randomHeroLoadout(state.rng, hero.heroId));
+    }
   }
   startGame(state, 0);
 

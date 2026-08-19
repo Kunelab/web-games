@@ -11,14 +11,23 @@ import { rectArea, type Rect } from './builder.js';
  *
  * `target` is how many spaces the building's programme wants. Splitting stops when
  * it has enough, or when no piece can be halved without producing a cupboard.
+ *
+ * `maxArea` overrides that: a piece bigger than it keeps being cut whatever the
+ * target says. This is what bounds a *cluster*, and it exists because the target
+ * alone could not. A facility filling a 22x22 board asked for about twelve spaces,
+ * so each one came out around forty cells and then split into a dozen rooms that all
+ * inherited the same programme: fifty laboratories in one building, measured, and
+ * seventy-seven in the worst seed. A ward that is four rooms is a ward; a laboratory
+ * that is thirteen rooms is a rendering of the word "laboratory".
  */
 export function partition(
   rng: RngState,
   rect: Rect,
-  options: { target: number; minSide?: number; minArea?: number }
+  options: { target: number; minSide?: number; minArea?: number; maxArea?: number }
 ): Rect[] {
   const minSide = options.minSide ?? 1;
   const minArea = options.minArea ?? 2;
+  const maxArea = options.maxArea ?? Infinity;
   const spaces: Rect[] = [rect];
 
   /** Splitting the largest piece first keeps the sizes from drifting apart. */
@@ -37,10 +46,12 @@ export function partition(
   };
 
   let guard = 0;
-  while (spaces.length < options.target && guard++ < 200) {
+  while (guard++ < 900) {
     const index = largest();
     const space = spaces[index];
     if (!space) break;
+    // Enough pieces *and* none of them oversized: only then is it finished.
+    if (spaces.length >= options.target && rectArea(space) <= maxArea) break;
 
     const split = splitOnce(rng, space, minSide, minArea);
     if (!split) break; // Nothing left worth cutting.

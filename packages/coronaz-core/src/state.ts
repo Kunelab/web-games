@@ -15,6 +15,7 @@ import {
   type Rarity
 } from './data.js';
 import { getRoom, lineOfSight, neighbors, openSpace, type Board } from './map.js';
+import { mutationDef, mutationEffects, MUTATIONS } from './mutations.js';
 import { generateBoard } from './mapgen/index.js';
 import { pick, rand, randInt, seedRng, shuffled, type RngState } from './rng.js';
 
@@ -47,6 +48,13 @@ export interface HeroState {
   /** Secret the phone stores, to reclaim the seat after a reload. */
   token: string;
   name: string;
+  /**
+   * The Kune account this seat belongs to, when the phone happens to be logged
+   * in. Rewards are banked here rather than under the nickname, so a player who
+   * renames himself keeps his rations. Anonymous phones leave it undefined and
+   * fall back to the nickname, as before.
+   */
+  account?: string;
   connected: boolean;
   /** Earned across past games, cosmetic. */
   title?: string;
@@ -62,8 +70,24 @@ export interface HeroState {
   ready: boolean;
   alive: boolean;
   escaped: boolean;
+  /**
+   * Walked away mid-raid. Out of play like a death, but not a death: the career
+   * ledger counts it separately, because "I had to leave" and "the horde ate me"
+   * are different evenings and a leaderboard that confuses them is lying.
+   */
+  forfeited?: boolean;
   /** Chuck's ability, and the flashlight: reset each hero phase. */
   freeSearchUsed: boolean;
+  /**
+   * The one free crate of the raid, spent once and never refilled.
+   *
+   * Every survivor gets one search that costs no action point, whatever they are
+   * carrying. It exists for the same reason as the pity floor: the opening is where
+   * a raid is decided, and a table that finds nothing in the first two turns has
+   * already lost without having played. This is the version of that help that costs
+   * the player nothing to understand, because it is simply a free search.
+   */
+  freeRaidSearchUsed: boolean;
   /** Yuri's ability: reset each enemy phase. */
   toughUsed: boolean;
   kills: number;
@@ -93,6 +117,16 @@ export interface HeroState {
   bankedAp?: number;
   /** Once-per-raid ability spends (magpie's double loot, bulwark's vest). */
   raidFlags?: Record<string, boolean>;
+  /** How many finds this hero has drawn, searches and corpses together. */
+  lootsDrawn: number;
+  /** The best tier this hero has actually turned up, for the pity floor. */
+  bestTierFound: number;
+  /**
+   * Set only by the simulator and by tests: pins this hero's opening finds to the
+   * best or the worst the table can give, so a bench can report the spread between
+   * a blessed run and a cursed one rather than only their average.
+   */
+  forcedLuck?: 'lucky' | 'unlucky';
   /** A machine teammate: the server plays this seat. */
   isBot?: boolean;
   /** How the machine plays it. */
@@ -112,14 +146,39 @@ export interface ZombieState {
   bonusDmg: number;
 }
 
-/** A side quest drawn at map generation. In escape it gates the exit. */
+/** What a side quest can ask for. */
+export type CzObjectiveKind =
+  /** Kill anything that counts as a boss. */
+  | 'boss'
+  /** A body count. */
+  | 'kills'
+  /** A supply count: crates opened. */
+  | 'searches'
+  /** See a share of the world. */
+  | 'explore'
+  /** Find something genuinely good. */
+  | 'treasure'
+  /** Get out with everyone still standing. */
+  | 'intact'
+  /** Get out quickly. */
+  | 'speed';
+
+/**
+ * A side quest drawn at map generation.
+ *
+ * Required ones gate the exit in an escape; **optional** ones never gate anything
+ * and pay score instead. That split is the point: a table that wants a clean sweep
+ * can chase the bonus, and a table that is bleeding can walk away from it.
+ */
 export interface CzObjective {
   id: string;
-  kind: 'boss' | 'kills' | 'searches';
+  kind: CzObjectiveKind;
   target: number;
   progress: number;
   done: boolean;
   label: string;
+  /** Pays score, blocks nothing. */
+  optional?: boolean;
 }
 
 /** What the game master has permanently bought for the horde. */
@@ -161,6 +220,10 @@ export interface CzState {
   bossKills: number;
   /** Team-wide searches, for the supply objectives. */
   searchesTotal: number;
+  /** The best rarity anyone has found, for the treasure objective. */
+  bestRarityFound: number;
+  /** Reserved for the speed objective's bookkeeping. */
+  objectivesSpeedTurn?: number;
   /** The side quests this map was generated with. */
   objectives: CzObjective[];
   /** Per-room noise laid this turn; the horde homes in on it. */
@@ -234,6 +297,7 @@ export function createGame(options: {
     killsTotal: 0,
     bossKills: 0,
     searchesTotal: 0,
+    bestRarityFound: 0,
     objectives: [],
     noise: {},
     explored: [],
@@ -280,34 +344,131 @@ function rollObjectives(state: CzState): void {
   if (state.config.scenario === 'purge' || state.config.scenario === 'endless') return;
 
   const heroesExpected = 3;
-  const templates: (() => CzObjective)[] = [
-    () => ({
-      id: 'boss',
+  /** Only what the host left on the list. */
+  const allowed = new Set<string>(state.config.objectiveKinds);
+  const templates: { kind: CzObjective['kind']; make: () => CzObjective }[] = [
+    {
       kind: 'boss',
-      target: 1,
-      progress: 0,
-      done: false,
-      label: 'Abattre un boss'
-    }),
-    () => {
-      const target = 6 + randInt(state.rng, 5) + state.config.reinforcement * 2;
-      return { id: 'kills', kind: 'kills', target, progress: 0, done: false, label: `Éliminer ${target} zombies` };
+      make: () => ({ id: 'boss', kind: 'boss', target: 1, progress: 0, done: false, label: 'Abattre un boss' })
     },
-    () => {
-      const target = heroesExpected * 2 + randInt(state.rng, 4);
-      return {
-        id: 'searches',
-        kind: 'searches',
-        target,
-        progress: 0,
-        done: false,
-        label: `Récupérer ${target} fournitures`
-      };
+    {
+      kind: 'kills',
+      make: () => {
+        const target = 6 + randInt(state.rng, 5) + state.config.reinforcement * 2;
+        return { id: 'kills', kind: 'kills', target, progress: 0, done: false, label: `Éliminer ${target} zombies` };
+      }
+    },
+    {
+      kind: 'searches',
+      make: () => {
+        const target = heroesExpected * 2 + randInt(state.rng, 4);
+        return {
+          id: 'searches',
+          kind: 'searches',
+          target,
+          progress: 0,
+          done: false,
+          label: `Récupérer ${target} fournitures`
+        };
+      }
     }
   ];
 
-  for (const make of shuffled(state.rng, templates).slice(0, state.config.secondaryObjectives)) {
-    state.objectives.push(make());
+  /**
+   * The optional half: quests that pay score and gate nothing.
+   *
+   * Written as their own table because they are a different kind of promise. A
+   * required quest is a door you cannot open yet; an optional one is a reason to
+   * take one more room before you leave, and it has to be safe to abandon.
+   */
+  const bonuses: { kind: CzObjectiveKind; make: () => CzObjective }[] = [
+    {
+      kind: 'explore',
+      make: () => {
+        const target = Math.max(6, Math.round(state.board.rooms.length * 0.45));
+        return {
+          id: 'explore',
+          kind: 'explore',
+          target,
+          progress: 0,
+          done: false,
+          optional: true,
+          label: `Explorer ${target} salles`
+        };
+      }
+    },
+    {
+      kind: 'treasure',
+      make: () => ({
+        id: 'treasure',
+        kind: 'treasure',
+        target: 4,
+        progress: 0,
+        done: false,
+        optional: true,
+        label: 'Mettre la main sur une pièce épique'
+      })
+    },
+    {
+      kind: 'intact',
+      make: () => ({
+        id: 'intact',
+        kind: 'intact',
+        target: 1,
+        progress: 0,
+        done: false,
+        optional: true,
+        label: 'Ne perdre personne'
+      })
+    },
+    {
+      kind: 'speed',
+      make: () => {
+        const target = 8 + randInt(state.rng, 4);
+        return {
+          id: 'speed',
+          kind: 'speed',
+          target,
+          progress: 0,
+          done: false,
+          optional: true,
+          label: `Sortir avant le tour ${target}`
+        };
+      }
+    },
+    {
+      kind: 'kills',
+      make: () => {
+        const target = 14 + randInt(state.rng, 9) + state.config.reinforcement * 3;
+        return {
+          id: 'kills-bonus',
+          kind: 'kills',
+          target,
+          progress: 0,
+          done: false,
+          optional: true,
+          label: `Prime : ${target} victimes`
+        };
+      }
+    }
+  ];
+
+  const pool = shuffled(
+    state.rng,
+    templates.filter((template) => allowed.has(template.kind))
+  );
+  for (const template of pool.slice(0, state.config.secondaryObjectives)) {
+    state.objectives.push(template.make());
+  }
+
+  const bonusPool = shuffled(
+    state.rng,
+    bonuses.filter(
+      (bonus) => allowed.has(bonus.kind) && !state.objectives.some((existing) => existing.kind === bonus.kind)
+    )
+  );
+  for (const bonus of bonusPool.slice(0, state.config.optionalObjectives)) {
+    state.objectives.push(bonus.make());
   }
 
   // A boss objective needs a boss to exist: one colossus stalks the map from the
@@ -321,19 +482,41 @@ function rollObjectives(state: CzState): void {
 
 /** Recomputed after every kill or search; cheap, and the single source of truth. */
 export function updateObjectives(state: CzState): void {
+  const progressOf = (kind: CzObjectiveKind): number => {
+    switch (kind) {
+      case 'boss':
+        return state.bossKills;
+      case 'kills':
+        return state.killsTotal;
+      case 'searches':
+        return state.searchesTotal;
+      case 'explore':
+        return state.explored.length;
+      case 'treasure':
+        return state.bestRarityFound;
+      case 'intact':
+        // Counts down: it is "nobody has fallen", checked at the end of the raid.
+        return Object.values(state.heroes).every((hero) => hero.alive) ? 1 : 0;
+      case 'speed':
+        // Beat the clock: satisfied while the turn is still under the target.
+        return state.turn <= 0 ? 0 : Math.max(0, 1 + (state.objectivesSpeedTurn ?? 0));
+    }
+  };
+
   for (const objective of state.objectives) {
-    objective.progress =
-      objective.kind === 'boss' ? state.bossKills : objective.kind === 'kills' ? state.killsTotal : state.searchesTotal;
+    objective.progress = progressOf(objective.kind);
     const wasDone = objective.done;
-    objective.done = objective.progress >= objective.target;
+    // A 'speed' objective is judged when the raid ends, not while it runs.
+    objective.done = objective.kind === 'speed' ? state.turn <= objective.target : objective.progress >= objective.target;
     if (objective.done && !wasDone) {
       log(state, `Objectif rempli : ${objective.label}`);
     }
   }
 }
 
+/** Whether every *required* side quest is done: what the exit actually waits for. */
 export function objectivesDone(state: CzState): boolean {
-  return state.objectives.every((objective) => objective.done);
+  return state.objectives.every((objective) => objective.optional || objective.done);
 }
 
 /**
@@ -484,6 +667,7 @@ export function seedZombies(state: CzState): void {
  */
 export function spawnZombie(state: CzState, roomId: string, def: string): ZombieState {
   const definition = zombieDef(def);
+  const mutated = mutationEffects(state.config.mutations);
 
   let bonusHp: number;
   let bonusDmg: number;
@@ -502,6 +686,10 @@ export function spawnZombie(state: CzState, roomId: string, def: string): Zombie
     bonusHp = Math.floor(level / 8) * 10;
     bonusDmg = Math.min(2, Math.floor(level / 20)) * 10;
   }
+
+  // What the table asked for, on top of everything else.
+  bonusHp += mutated.hp + (definition.boss ? mutated.bossHp : 0);
+  bonusDmg += mutated.damage;
 
   const maxHp = Math.max(10, definition.hp + bonusHp);
   const zombie: ZombieState = {
@@ -539,12 +727,15 @@ export function joinHero(
   state: CzState,
   name: string,
   token: string | undefined,
-  perks: string[] = []
+  perks: string[] = [],
+  account?: string
 ): { hero: HeroState; reconnected: boolean } {
   if (token) {
     const existing = Object.values(state.heroes).find((hero) => hero.token === token);
     if (existing) {
       existing.connected = true;
+      // Re-read on every reconnect: the player may have logged in since.
+      if (account) existing.account = account;
       return { hero: existing, reconnected: true };
     }
   }
@@ -578,6 +769,7 @@ export function joinHero(
     playerId,
     token: cryptoToken(state),
     name: name.trim().slice(0, 24) || definition.name,
+    account,
     connected: true,
     heroId,
     hp: maxHp,
@@ -600,6 +792,9 @@ export function joinHero(
     alive: true,
     escaped: false,
     freeSearchUsed: false,
+    freeRaidSearchUsed: false,
+    lootsDrawn: 0,
+    bestTierFound: 0,
     toughUsed: false,
     kills: 0,
     bossKills: 0,
@@ -709,6 +904,16 @@ export function setLoadout(state: CzState, playerId: string, perkIds: string[]):
 }
 
 /**
+ * Sets the table's mutations. Lobby only, and unknown ids are dropped rather than
+ * refused: a phone whose list is one release behind must not brick the raid.
+ */
+export function setMutations(state: CzState, ids: string[]): void {
+  if (state.phase !== 'lobby') throw new Error('La partie a commencé');
+  const known = [...new Set(ids)].filter((id) => mutationDef(id) !== undefined).slice(0, MUTATIONS.length);
+  state.config.mutations = known;
+}
+
+/**
  * Tokens come from the seeded RNG so the engine stays dependency-free; they only
  * defend a seat in a living-room game, not a bank account.
  */
@@ -745,7 +950,7 @@ export function switchHero(state: CzState, playerId: string, heroId: string): vo
 /* --------------------------------- queries -------------------------------- */
 
 export function activeHeroes(state: CzState): HeroState[] {
-  return Object.values(state.heroes).filter((hero) => hero.alive && !hero.escaped);
+  return Object.values(state.heroes).filter((hero) => hero.alive && !hero.escaped && !hero.forfeited);
 }
 
 export function zombiesInRoom(state: CzState, roomId: string): ZombieState[] {

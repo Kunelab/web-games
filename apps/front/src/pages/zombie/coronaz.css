@@ -94,10 +94,18 @@
 
 /* ------------------------------ entity tokens ----------------------------- */
 
+/*
+ * The creatures' layer carries the camera as a single transform, set inline from
+ * CzMap. Deliberately not transitioned: a camera move must be instant, while each
+ * token's own left/top *is* transitioned so a state update reads as a walk. Both on
+ * one element made recentring drag every piece across the screen at walking pace,
+ * which is what the wiggle was.
+ */
 .cz-entities {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  will-change: transform;
 }
 
 /*
@@ -845,4 +853,66 @@
 .cz-player .cz-sheet {
   max-height: 32dvh;
   overflow-y: auto;
+}
+
+/* The scenario's own goal, louder than the side quests it sits with. */
+.cz-objectives li.primary {
+  color: var(--ink);
+  font-weight: 600;
+}
+.cz-objectives li.primary.done {
+  color: var(--ok, #3fb950);
+}
+
+/* The table's handicap, in the lobby: a cost and its price on one line. */
+.cz-mutations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.cz-mutation-reward {
+  color: var(--ok, #3fb950);
+  font-weight: 600;
+}
+
+/* A bonus quest is worth chasing, not worth worrying about. */
+.cz-objectives li:not(.primary) {
+  color: var(--ink-soft);
+}
+
+/* Which ledger the evening pays into, shown next to the rations. */
+.cz-ledger {
+  color: var(--ink-soft);
+  font-size: 0.85em;
+}
+
+/* Which room you are standing in, and whether it is worth your action points. */
+.cz-room-line {
+  margin: 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  text-transform: lowercase;
+}
+.cz-room-rich {
+  color: #e8c26a;
+  font-weight: 600;
+}
+.cz-room-poor {
+  opacity: 0.65;
+}
+
+/* The name of the room under the pointer, for rooms you could walk into. */
+.cz-room-tip {
+  position: absolute;
+  transform: translate(-50%, -160%);
+  pointer-events: none;
+  z-index: 4;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm, 4px);
+  background: rgb(12 14 18 / 0.86);
+  color: var(--ink, #e8e6e3);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  text-transform: lowercase;
 }

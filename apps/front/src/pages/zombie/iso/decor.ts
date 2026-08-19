@@ -67,6 +67,63 @@ const WALLPAPER_BY_PROGRAM: Partial<Record<CzRoomView['program'], readonly Wallp
   canteen: ['tiles', 'panel']
 };
 
+/**
+ * How thickly a room of each kind is furnished, in props per cell.
+ *
+ * Everything used to be furnished at 1.9 props per cell, indoors and out, and that
+ * single number is most of why the modern biome read as one gigantic hangar with
+ * furniture strewn across it. A four-cell stretch of road got eight objects on it.
+ * Roads do not have eight objects on them; they have a parked car and a manhole, and
+ * everything else is at the kerb.
+ *
+ * So density is now a property of the *kind of place*, which also gives each one an
+ * identity from above: a road is nearly bare, a pavement has lamp posts and bins, a
+ * square has benches and a fountain, a park has trees, and only interiors are
+ * actually cluttered. The three numbers a room gets from this table (how many props,
+ * how many distinct families, how eager it is) are what make a street look like a
+ * street rather than a living room with the roof off.
+ */
+const DENSITY: Record<CzRoomView['program'], { props: number; families: number }> = {
+  /* Interiors: crowded, because a lived-in room is crowded. */
+  living: { props: 1.8, families: 5 },
+  bedroom: { props: 1.7, families: 4 },
+  kitchen: { props: 1.9, families: 5 },
+  bath: { props: 1.5, families: 4 },
+  office: { props: 1.7, families: 5 },
+  archive: { props: 1.8, families: 3 },
+  lab: { props: 1.7, families: 4 },
+  server: { props: 1.5, families: 3 },
+  workshop: { props: 1.9, families: 5 },
+  storage: { props: 2, families: 3 },
+  lobby: { props: 1, families: 3 },
+  corridor: { props: 0.5, families: 2 },
+  hall: { props: 1.1, families: 4 },
+  bar: { props: 1.8, families: 4 },
+  restroom: { props: 1.5, families: 3 },
+  backstage: { props: 1.6, families: 4 },
+  dorm: { props: 1.6, families: 3 },
+  canteen: { props: 1.6, families: 4 },
+  reception: { props: 1.2, families: 4 },
+  ward: { props: 1.6, families: 4 },
+  surgery: { props: 1.6, families: 4 },
+  pharmacy: { props: 1.9, families: 4 },
+  morgue: { props: 1.3, families: 3 },
+  cell: { props: 0.8, families: 2 },
+  evidence: { props: 1.9, families: 3 },
+  armoury: { props: 1.8, families: 3 },
+
+  /* Outdoors. A road is the emptiest thing on the map, on purpose. */
+  street: { props: 0.14, families: 1 },
+  crossing: { props: 0.3, families: 2 },
+  sidewalk: { props: 0.4, families: 2 },
+  square: { props: 0.45, families: 3 },
+  park: { props: 0.6, families: 3 },
+  alley: { props: 0.8, families: 3 },
+  yard: { props: 0.5, families: 3 },
+  parking: { props: 0.5, families: 2 },
+  dock: { props: 1, families: 3 }
+};
+
 interface Anchor {
   cx: number;
   cy: number;
@@ -170,20 +227,37 @@ function furnishRoom(
   const placed: PlacedProp[] = [];
   const roomCount = new Map<string, number>();
   /**
-   * How many *different* families of furniture a room may hold. A one-cell
-   * bathroom with a toilet, a sink and a bin is furnished; the same room with a
-   * toilet, a sink, a bin, a radiator, a locker and a plant is a jumble sale.
-   * Clutter (paper, blood, bins) is exempt: that is what makes a room look lived
-   * in rather than showroom-empty.
+   * How many *different* families of furniture a room may hold: the smaller of what
+   * its kind allows and what its size allows. A one-cell bathroom with a toilet, a
+   * sink and a bin is furnished; the same room with a toilet, a sink, a bin, a
+   * radiator, a locker and a plant is a jumble sale. Clutter (paper, blood, bins) is
+   * exempt indoors: that is what makes a room look lived in rather than
+   * showroom-empty.
    */
-  const familyBudget = Math.min(5, 2 + Math.ceil(cells.length / 2));
+  const density = DENSITY[room.program];
+  const familyBudget = Math.min(density.families, 2 + Math.ceil(cells.length / 2));
   const families = new Set<string>();
-  const total = Math.max(2, Math.round(cells.length * 1.9 + randInt(rng, 2)));
+  /**
+   * No floor of two any more. A two-cell piece of road wants nothing on it at all,
+   * and forcing a minimum is exactly how the outdoors filled up: every empty place
+   * on the map was told to find something to hold.
+   */
+  const total = Math.max(0, Math.round(cells.length * density.props + (randInt(rng, 3) - 1) * density.props));
 
   const radiusOf = (kind: string) => propDef(kind)?.radius ?? 0.2;
-  const fits = (kind: string, cx: number, cy: number): boolean => {
+  /**
+   * Whether a prop can stand here without overlapping another.
+   *
+   * `except` is the prop it *belongs* to, and it exists because a chair tucked at a
+   * desk overlaps the desk, by definition: that is what "tucked at" means. Without
+   * the exemption the only ring positions that cleared the generic separation were
+   * the far ones, which then fell outside a small room, and 46 % of office desks came
+   * out with no chair at all. A companion may touch its parent and nothing else.
+   */
+  const fits = (kind: string, cx: number, cy: number, except?: PlacedProp): boolean => {
     const radius = radiusOf(kind);
     return placed.every((other) => {
+      if (other === except) return true;
       const gap = Math.hypot(other.cx - cx, other.cy - cy);
       return gap >= (radius + radiusOf(other.kind)) * 0.78;
     });
@@ -198,13 +272,14 @@ function furnishRoom(
 
   const put = (def: PropDef, anchor: Anchor): boolean => {
     if (!allowed(def) || !fits(def.kind, anchor.cx, anchor.cy)) return false;
-    placed.push({
+    const parent: PlacedProp = {
       kind: def.kind,
       cx: anchor.cx,
       cy: anchor.cy,
       long: anchor.long,
       variant: randInt(rng, 1000)
-    });
+    };
+    placed.push(parent);
     roomCount.set(def.kind, (roomCount.get(def.kind) ?? 0) + 1);
     zoneCount.set(def.kind, (zoneCount.get(def.kind) ?? 0) + 1);
     if (!def.clutter) families.add(def.kind);
@@ -217,26 +292,43 @@ function furnishRoom(
       const [low, high] = companion.count;
       const count = low + randInt(rng, high - low + 1);
       const reach = radiusOf(def.kind) + radiusOf(companion.kind);
+      /**
+       * Which way is *into* the room, from the parent's own position.
+       *
+       * This is the fix for a chair that was never there. The ring below started at
+       * angle zero, so a companion always went towards +x first: a desk against the
+       * east wall put its chair through the wall, the spot failed `inRoom`, and the
+       * desk simply had no chair. Measured at 47 % of office desks seated, which is
+       * about what a coin flip on the wall's direction predicts.
+       *
+       * Aiming at the room's own centre of mass first fixes every companion at once,
+       * and it is also what a person does with a chair: you put it on the side you
+       * can walk up to.
+       */
+      const inward = Math.atan2(
+        cells.reduce((sum, cell) => sum + cell.cy, 0) / cells.length - anchor.cy,
+        cells.reduce((sum, cell) => sum + cell.cx, 0) / cells.length - anchor.cx
+      );
+
       for (let i = 0; i < count; i++) {
         if ((roomCount.get(partner.kind) ?? 0) >= partner.maxPerRoom) break;
-        const angle = (i / Math.max(1, count)) * Math.PI * 2 + randInt(rng, 100) / 160;
+        /** Spread the companions around, but starting from the inward direction. */
+        const angle = inward + (i / Math.max(1, count)) * Math.PI * 1.4 - Math.PI * 0.7 + randInt(rng, 60) / 160;
 
         /**
-         * Around the parent, on a ring — pulled in until it fits.
-         *
-         * A comfortable ring puts a chair outside a one-cell room, and the honest
-         * fix is to tuck it closer rather than to drop it: a chair pushed right up
-         * against the table is what a small kitchen actually looks like, and a
-         * table with no chair at all was the thing that read as broken.
+         * Around the parent, on a ring, pulled in until it fits, and reflected if
+         * that fails: a chair pushed right up against the table is what a small
+         * kitchen actually looks like, and a table with no chair at all was the thing
+         * that read as broken.
          */
-        const spot = [1.05, 0.86, 0.72]
+        const spot = [1.05, 0.86, 0.72, -0.86]
           .map((scale) => ({
             cx: anchor.cx + Math.cos(angle) * reach * scale,
             cy: anchor.cy + Math.sin(angle) * reach * scale * 0.8,
             long: Math.abs(Math.cos(angle)) > 0.5 ? ('y' as const) : ('x' as const),
             where: 'floor' as const
           }))
-          .find((candidate) => inRoom(candidate, cells) && fits(partner.kind, candidate.cx, candidate.cy));
+          .find((candidate) => inRoom(candidate, cells) && fits(partner.kind, candidate.cx, candidate.cy, parent));
         if (!spot) continue;
 
         placed.push({
@@ -261,9 +353,16 @@ function furnishRoom(
     PROPS.filter((prop) => (prop.programs[room.program] ?? 0) > 0)
   ).sort((a, b) => (b.programs[room.program] ?? 0) - (a.programs[room.program] ?? 0));
 
-  // The signature piece first, and it gets the anchor it asks for: a bed in a
-  // corner, a hall's decks against a wall, a table in the middle.
-  const signature = wanted[0];
+  /**
+   * The signature piece first, and it gets the anchor it asks for: a bed in a
+   * corner, a hall's decks against a wall, a table in the middle.
+   *
+   * Skipped entirely where the room's budget is zero, which is what keeps a road a
+   * road. This used to be unconditional, so every two-cell stretch of tarmac was
+   * handed a parked car whatever the density said, and an avenue came out as a
+   * traffic jam: measured at 0.36 props a cell on a table that asked for 0.14.
+   */
+  const signature = total >= 1 ? wanted[0] : undefined;
   if (signature) {
     const spots = shuffled(
       rng,
@@ -291,16 +390,25 @@ function furnishRoom(
     }
   }
 
-  // What the world ending left behind: paper, blood, a kicked-over bin.
+  /**
+   * What the world ending left behind: paper, blood, a kicked-over bin.
+   *
+   * Scaled by the same density, and exempt from the family budget only where the
+   * budget is generous in the first place. It used to run at a flat 40 % chance per
+   * floor anchor with a +2 allowance over the room's total, which meant a bare piece
+   * of road still ended up with two bins and a bloodstain on it: the litter pass was
+   * quietly undoing the discipline of the pass above it.
+   */
   const clutter = wanted.filter((prop) => prop.clutter);
-  if (clutter.length > 0) {
+  const litterRoom = Math.round(total + density.props * 2);
+  if (clutter.length > 0 && litterRoom > 0) {
     for (const spot of shuffled(
       rng,
       anchors.filter((anchor) => anchor.where === 'floor')
     )) {
-      if (placed.length >= total + 2) break;
+      if (placed.length >= litterRoom) break;
       const def = pick(rng, clutter);
-      if (chance(rng, room.kind === 'spawn' ? 0.6 : 0.4)) put(def, spot);
+      if (chance(rng, Math.min(0.6, (room.kind === 'spawn' ? 0.6 : 0.4) * density.props))) put(def, spot);
     }
   }
 

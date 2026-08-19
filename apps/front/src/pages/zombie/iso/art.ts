@@ -526,7 +526,7 @@ export function paintWall(
   cy: number,
   side: 'north' | 'west',
   colors: Palette,
-  options: { door?: boolean; paper?: Wallpaper; height?: number; translucent?: boolean } = {}
+  options: { door?: boolean; window?: boolean; paper?: Wallpaper; height?: number; translucent?: boolean } = {}
 ): void {
   const height = (options.height ?? WALL_H) / TILE_H;
   const [from, to] = wallEdge(cx, cy, side);
@@ -575,6 +575,51 @@ export function paintWall(
     );
   };
 
+  const lerp = (t: number): Vec2 => ({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t });
+
+  /**
+   * A window: full wall, with a pane punched through the upper half.
+   *
+   * Drawn differently from a doorway on purpose, and the difference has to be legible
+   * at a glance, because the two boundaries answer opposite questions. A door is a
+   * gap you walk through, so it is drawn as an absence down to the floor. A window is
+   * a wall you *cannot* walk through that you can nonetheless see and shoot through,
+   * so the wall stays whole to the floor and the pane sits in it: glass, a frame, and
+   * a bar across the middle.
+   */
+  if (options.window) {
+    drawSlab(from, to);
+    paintSkirting(ctx, from, to, colors, false);
+
+    const sill = height * 0.34;
+    const head = height * 0.84;
+    const pane = [lift(lerp(0.22), sill), lift(lerp(0.78), sill), lift(lerp(0.78), head), lift(lerp(0.22), head)];
+    // The glass: dark, because what is behind it is unlit, with a cold sheen on top.
+    fillPolygon(ctx, pane, 'rgb(14 20 28 / 0.72)');
+    fillPolygon(
+      ctx,
+      [pane[0], pane[1], lift(lerp(0.78), sill + (head - sill) * 0.4), lift(lerp(0.22), sill + (head - sill) * 0.4)],
+      'rgb(150 190 215 / 0.22)'
+    );
+
+    ctx.strokeStyle = shade(colors.wallTop, 10);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(pane[0].x, pane[0].y);
+    for (const point of pane.slice(1)) ctx.lineTo(point.x, point.y);
+    ctx.closePath();
+    ctx.stroke();
+
+    // The mullion, which is what stops it reading as a dark rectangle.
+    const midLow = lift(lerp(0.5), sill);
+    const midHigh = lift(lerp(0.5), head);
+    ctx.beginPath();
+    ctx.moveTo(midLow.x, midLow.y);
+    ctx.lineTo(midHigh.x, midHigh.y);
+    ctx.stroke();
+    return;
+  }
+
   if (!options.door) {
     drawSlab(from, to);
     // A skirting under every wall, not only the see-through ones: it is the line
@@ -585,7 +630,6 @@ export function paintWall(
 
   // A doorway: wall, gap, wall, with a frame around the gap and a threshold on
   // the floor so the opening reads even when the far room is dark.
-  const lerp = (t: number): Vec2 => ({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t });
   drawSlab(from, lerp(0.3));
   drawSlab(lerp(0.7), to);
 
@@ -782,4 +826,52 @@ export function paintThreshold(
     ],
     shade(colors.wallTop, 14)
   );
+}
+
+/**
+ * A warm haze and a few specks, for a room that pays better than its neighbours.
+ *
+ * Deliberately painted on the *floor* rather than as an outline or a badge: an
+ * outline reads as "this room is selected" and the map already uses outlines for
+ * that, while a sheen on the ground reads as light coming off something worth
+ * having. Strength tracks the bonus, so an armoury glows visibly harder than a
+ * storage cupboard and the two are still telling the truth about their odds.
+ */
+export function paintGlint(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  bonus: number,
+  seed: number
+): void {
+  const centre = project(cx, cy);
+  const strength = Math.min(1, Math.max(0, (bonus - 0.25) / 0.75));
+
+  const haze = ctx.createRadialGradient(centre.x, centre.y - TILE_H * 0.2, 0, centre.x, centre.y, TILE_W * 0.62);
+  haze.addColorStop(0, `rgb(255 216 130 / ${(0.1 + strength * 0.16).toFixed(3)})`);
+  haze.addColorStop(1, 'rgb(255 216 130 / 0)');
+  ctx.save();
+  ctx.beginPath();
+  const shape = diamond(cx, cy);
+  ctx.moveTo(shape[0].x, shape[0].y);
+  for (const point of shape.slice(1)) ctx.lineTo(point.x, point.y);
+  ctx.closePath();
+  ctx.clip();
+  ctx.fillStyle = haze;
+  ctx.fillRect(centre.x - TILE_W, centre.y - TILE_H, TILE_W * 2, TILE_H * 2);
+
+  // Specks, positioned from the room's own seed so they do not crawl between
+  // repaints: the scene is cached and re-blitted, and a glint that moved every
+  // frame would read as a rendering fault rather than as treasure.
+  const count = 2 + Math.round(strength * 3);
+  for (let i = 0; i < count; i++) {
+    const noise = (seed * 2654435761 + i * 40503) >>> 0;
+    const u = ((noise % 1000) / 1000 - 0.5) * 0.7;
+    const v = (((noise >>> 10) % 1000) / 1000 - 0.5) * 0.7;
+    const at = project(cx + u, cy + v);
+    ctx.fillStyle = `rgb(255 238 190 / ${(0.35 + strength * 0.4).toFixed(2)})`;
+    const size = 1 + ((noise >>> 20) % 2);
+    ctx.fillRect(at.x, at.y - 2, size, size);
+  }
+  ctx.restore();
 }

@@ -84,6 +84,7 @@ export function biomeZombies(biome: BiomeDef) {
       hp: definition.hp,
       ap: definition.ap,
       damage: definition.damage,
+      armor: definition.armor,
       points: definition.points,
       cost: definition.cost,
       rarity: definition.rarity,

@@ -46,6 +46,7 @@ export default function CoronaZGm() {
   const [selected, setSelected] = useState<string | null>(null);
   const [spawnRoom, setSpawnRoom] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [concedeAsked, setConcedeAsked] = useState(false);
 
   // Re-attaches on every reconnect: a fresh socket knows nothing of the raid.
   useEffect(() => {
@@ -120,7 +121,7 @@ export default function CoronaZGm() {
   }
 
   const heroesInSelectedRoom = selectedZombie
-    ? view.heroes.some((hero) => hero.alive && !hero.escaped && hero.roomId === selectedZombie.roomId)
+    ? view.heroes.some((hero) => hero.alive && !hero.escaped && !hero.forfeited && hero.roomId === selectedZombie.roomId)
     : false;
 
   return (
@@ -254,6 +255,21 @@ export default function CoronaZGm() {
             </Button>
           </div>
         )}
+
+        {/* Conceding works in any phase: a game master who wants to stop should not
+            have to wait for his turn to say so. */}
+        <div className="cz-actions">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              if (concedeAsked) void send({ type: 'gmForfeit' });
+              else setConcedeAsked(true);
+            }}
+          >
+            {concedeAsked ? 'Laisser la victoire aux survivants ?' : '🏳️ Abandonner la horde'}
+          </Button>
+        </div>
 
         {feedback && <p className="play-error">{feedback}</p>}
         {error && <p className="play-error">{error}</p>}

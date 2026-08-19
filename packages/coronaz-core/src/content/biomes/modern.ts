@@ -18,78 +18,78 @@ export const modern: BiomeDef = {
       id: 'bat',
       name: 'Batte de baseball',
       emoji: '🏏',
-      weapon: { range: 0, dice: 1, damage: 10, accuracy: 3, melee: true, akimbo: false, noisy: false }
+      weapon: { range: 0, dice: 1, damage: 14, accuracy: 1, melee: true, akimbo: false, noisy: false }
     },
     blade: {
       id: 'machete',
       name: 'Machette',
       emoji: '🔪',
-      weapon: { range: 0, dice: 1, damage: 20, accuracy: 3, melee: true, akimbo: true, noisy: false }
+      weapon: { range: 0, dice: 2, damage: 12, accuracy: 1, melee: true, akimbo: true, noisy: false }
     },
     pick: {
       id: 'pickaxe',
       name: 'Pioche',
       emoji: '⛏️',
-      weapon: { range: 0, dice: 1, damage: 10, accuracy: 2, melee: true, akimbo: false, noisy: false }
+      weapon: { range: 0, dice: 1, damage: 22, accuracy: 1, melee: true, akimbo: false, noisy: false, pierce: true }
     },
     saw: {
       id: 'chainsaw',
       name: 'Tronçonneuse',
       emoji: '🪚',
-      weapon: { range: 0, dice: 1, damage: 40, accuracy: 2, melee: true, akimbo: false, noisy: true }
+      weapon: { range: 0, dice: 1, damage: 36, accuracy: 1, melee: true, akimbo: false, noisy: true, pierce: true }
     },
     sidearm: {
       id: 'pistol',
       name: 'Pistolet',
       emoji: '🔫',
-      weapon: { range: 1, dice: 2, damage: 10, accuracy: 4, melee: false, akimbo: true, noisy: true }
+      weapon: { range: 1, dice: 3, damage: 11, accuracy: 1, melee: false, akimbo: true, noisy: true }
     },
     scatter: {
       id: 'shotgun',
       name: 'Fusil à pompe',
       emoji: '💥',
-      weapon: { range: 1, dice: 2, damage: 20, accuracy: 4, melee: false, akimbo: false, noisy: true }
+      weapon: { range: 1, dice: 2, damage: 17, accuracy: 1, melee: false, akimbo: false, noisy: true }
     },
     smg: {
       id: 'p90',
       name: 'P-90',
       emoji: '🔫',
-      weapon: { range: 1, dice: 4, damage: 10, accuracy: 2, melee: false, akimbo: true, noisy: true }
+      weapon: { range: 1, dice: 4, damage: 12, accuracy: 1, melee: false, akimbo: true, noisy: true }
     },
     rifle: {
       id: 'ak47',
       name: 'AK-47',
       emoji: '🔫',
-      weapon: { range: 2, dice: 3, damage: 20, accuracy: 4, melee: false, akimbo: false, noisy: true }
+      weapon: { range: 2, dice: 3, damage: 15, accuracy: 1, melee: false, akimbo: false, noisy: true }
     },
     magnum: {
       id: 'deagle',
       name: 'Desert Eagle',
       emoji: '🔫',
-      weapon: { range: 2, dice: 1, damage: 40, accuracy: 3, melee: false, akimbo: false, noisy: true }
+      weapon: { range: 2, dice: 1, damage: 56, accuracy: 1, melee: false, akimbo: false, noisy: true, pierce: true }
     },
     marksman: {
       id: 'sniper',
       name: 'Sniper',
       emoji: '🎯',
-      weapon: { range: 3, dice: 1, damage: 30, accuracy: 3, melee: false, akimbo: false, noisy: true }
+      weapon: { range: 3, dice: 1, damage: 58, accuracy: 1, melee: false, akimbo: false, noisy: true, pierce: true }
     },
     flamer: {
       id: 'flamethrower',
       name: 'Lance-flammes',
       emoji: '🔥',
-      weapon: { range: 1, dice: 1, damage: 100, accuracy: 1, melee: false, akimbo: false, noisy: true }
+      weapon: { range: 1, dice: 2, damage: 35, accuracy: 1, melee: false, akimbo: false, noisy: true }
     },
     chaingun: {
       id: 'minigun',
       name: 'Minigun',
       emoji: '⚙️',
-      weapon: { range: 1, dice: 5, damage: 10, accuracy: 3, melee: false, akimbo: false, noisy: true }
+      weapon: { range: 1, dice: 6, damage: 12, accuracy: 1, melee: false, akimbo: false, noisy: true }
     },
 
-    vest: { id: 'vest', name: 'Gilet pare-balles', emoji: '🦺', gear: { vest: true } },
+    vest: { id: 'vest', name: 'Gilet pare-balles', emoji: '🦺', gear: { armor: 3 } },
     torch: { id: 'flashlight', name: 'Lampe torche', emoji: '🔦', gear: { flashlight: true } },
-    medkit: { id: 'medkit', name: 'Kit de soin', emoji: '💊', gear: { heal: 20 } },
+    medkit: { id: 'medkit', name: 'Kit de soin', emoji: '💊', gear: { heal: 18 } },
     stim: { id: 'adrenaline', name: 'Adrénaline', emoji: '💉', gear: { adrenaline: 2 } }
   },
 
@@ -105,5 +105,21 @@ export const modern: BiomeDef = {
     abomination: { id: 'abomination', name: 'Abomination', emoji: '👿' }
   },
 
-  buildings: ['house', 'flats', 'offices', 'club', 'shop', 'workshop', 'facility']
+  buildings: [
+    'house',
+    'flats',
+    'offices',
+    'club',
+    'shop',
+    'workshop',
+    'facility',
+    'police',
+    'hospital',
+    'quarters',
+    'firestation',
+    'school',
+    'supermarket',
+    'church',
+    'spine'
+  ]
 };

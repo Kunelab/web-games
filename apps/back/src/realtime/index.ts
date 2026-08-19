@@ -4,6 +4,7 @@ import {
   czJoinSchema,
   joinHero,
   setLoadout,
+  setMutations,
   switchHero,
   toView,
   type CzClientToServer,
@@ -12,6 +13,8 @@ import {
   type CzState
 } from 'coronaz-core';
 import type { FastifyInstance } from 'fastify';
+
+import { accountOf } from './account.js';
 import {
   answerPayloadSchema,
   joinPayloadSchema,
@@ -24,7 +27,7 @@ import { Server as SocketServer, type Socket } from 'socket.io';
 import { allowedOrigins } from '../env.js';
 import type { GameManager } from '../game/manager.js';
 import { joinSession, revealChoices, submitAnswer, type SessionState } from '../game/session.js';
-import { czCareerService } from '../services/cz-career-service.js';
+import { careerKey, czCareerService } from '../services/cz-career-service.js';
 import { resultsService } from '../services/results-service.js';
 import type { CzManager } from '../zombie/manager.js';
 
@@ -433,6 +436,26 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
       socket.emit('cz:state', toView(state, { kind: 'gm' }));
     });
 
+    socket.on('cz:mutations', (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => undefined;
+      // The socket's own attachment is the credential: only a seated player may
+      // change the table's handicap, and it is stored on the socket at join.
+      const code = typeof socket.data.czCode === 'string' ? socket.data.czCode : '';
+      const state = code ? cz.get(code) : undefined;
+      if (!state || socket.data.czRole?.kind !== 'player') {
+        respond({ ok: false, error: 'Pas dans cette partie' });
+        return;
+      }
+      try {
+        setMutations(state, Array.isArray(payload?.mutations) ? payload.mutations.slice(0, 12) : []);
+        respond({ ok: true });
+        czBroadcast(state);
+        void cz.persist(state);
+      } catch (error) {
+        respond({ ok: false, error: error instanceof Error ? error.message : 'Impossible' });
+      }
+    });
+
     socket.on('cz:join', (payload, ack) => {
       const respond = typeof ack === 'function' ? ack : () => undefined;
       const parsed = czJoinSchema.safeParse(payload);
@@ -449,18 +472,23 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
 
       void (async () => {
         try {
-          // The roguelite perks this nickname has earned, resolved before the seat
+          // A logged-in browser plays under its account: perks read from it and
+          // rations are banked into it, whatever nickname the phone sent.
+          const account = await accountOf(app, socket).catch(() => null);
+          const ledger = account ? `@${account}` : parsed.data.name;
+          // The roguelite perks this ledger has earned, resolved before the seat
           // exists: tough-skin has to be in the max HP from the first breath.
-          const perks = await czCareerService.heroPerks(parsed.data.name).catch(() => []);
-          const { hero } = joinHero(state, parsed.data.name, parsed.data.playerToken, perks);
+          const perks = await czCareerService.heroPerks(ledger).catch(() => []);
+          const { hero } = joinHero(state, parsed.data.name, parsed.data.playerToken, perks, account ?? undefined);
           czAttach(state.code, { kind: 'player', playerId: hero.playerId });
-          const career = await czCareerService.forName(hero.name).catch(() => null);
+          const career = await czCareerService.forName(careerKey(hero)).catch(() => null);
           respond({
             ok: true,
             playerToken: hero.token,
             playerId: hero.playerId,
             view: toView(state, { kind: 'player', playerId: hero.playerId }),
-            career: career ? { rations: career.stats.rations, unlockedHeroes: career.stats.unlockedHeroes } : undefined
+            career: career ? { rations: career.stats.rations, unlockedHeroes: career.stats.unlockedHeroes } : undefined,
+            account: account ?? undefined
           });
           czBroadcast(state);
           void cz.persist(state);
@@ -496,7 +524,7 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
           const me = state.heroes[czRole.playerId];
           // The roster economy is server truth: a locked character stays locked
           // whatever the phone claims.
-          if (me && !(await czCareerService.heroAllowed(me.name, heroId))) {
+          if (me && !(await czCareerService.heroAllowed(careerKey(me), heroId))) {
             respond({ ok: false, error: 'Personnage à débloquer d’abord' });
             return;
           }
@@ -546,12 +574,12 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
       void (async () => {
         try {
           const heroId = typeof payload?.heroId === 'string' ? payload.heroId : '';
-          const result = await czCareerService.unlockHero(me.name, heroId);
+          const result = await czCareerService.unlockHero(careerKey(me), heroId);
           if (!result.ok) {
             respond(result);
             return;
           }
-          const career = await czCareerService.forName(me.name);
+          const career = await czCareerService.forName(careerKey(me));
           respond({
             ok: true,
             career: { rations: career.stats.rations, unlockedHeroes: career.stats.unlockedHeroes }

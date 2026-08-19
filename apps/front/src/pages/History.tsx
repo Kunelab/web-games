@@ -117,7 +117,19 @@ export default function History() {
               <tbody>
                 {(czCareers.data ?? []).map((career) => (
                   <tr key={career.name}>
-                    <td>{career.name}</td>
+                    {/* An "@" key is a Kune account, not a nickname typed on a phone. */}
+                    <td>
+                      {career.name.startsWith('@') ? (
+                        <>
+                          <span className="career-account" title="Compte Kune">
+                            🔗
+                          </span>{' '}
+                          {career.name.slice(1)}
+                        </>
+                      ) : (
+                        career.name
+                      )}
+                    </td>
                     <td className="num tabular">{career.stats.raids + career.stats.gmRaids}</td>
                     <td className="num tabular">{career.stats.wins + career.stats.gmWins}</td>
                     <td className="num tabular">{career.stats.kills}</td>

@@ -1,18 +1,10 @@
 import { resolveHeroAttack, resolveZombieAttack, type Hand } from './combat.js';
-import { archetypeOf, itemFor, itemsOfBiome, zombieFor } from './content/registry.js';
-import {
-  clampRarity,
-  gearStats,
-  heroDef,
-  itemDef,
-  RARITY_META,
-  RARITY_WEIGHTS,
-  zombieDef,
-  type ItemDef,
-  type Rarity
-} from './data.js';
+import { archetypeOf, itemFor, zombieFor } from './content/registry.js';
+import { gearStats, heroDef, itemDef, RARITY_META, zombieDef } from './data.js';
+import { rollLoot } from './loot.js';
+import { mutationEffects } from './mutations.js';
 import { getRoom, neighbors, shortestPath } from './map.js';
-import { chance, pick, rand, randInt } from './rng.js';
+import { chance, randInt } from './rng.js';
 import {
   activeHeroes,
   bagCapacity,
@@ -57,7 +49,9 @@ export type HeroAction =
   | { type: 'equip'; uid: number; slot: 'hand0' | 'hand1' | 'gear0' | 'gear1' | 'bag' }
   | { type: 'drop'; uid: number }
   | { type: 'give'; uid: number; toPlayerId: string }
-  | { type: 'ready' };
+  | { type: 'ready' }
+  /** Walk away mid-raid. The others keep playing. */
+  | { type: 'forfeit' };
 
 export interface ActionResult {
   ok: boolean;
@@ -75,8 +69,26 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
   if (state.phase !== 'heroes') return { ok: false, error: 'Ce n’est pas la phase des héros' };
   if (!hero.alive) return { ok: false, error: 'Vous êtes tombé' };
   if (hero.escaped) return { ok: false, error: 'Vous êtes déjà sorti' };
+  if (hero.forfeited) return { ok: false, error: 'Vous avez abandonné ce raid' };
 
   switch (action.type) {
+    case 'forfeit': {
+      /**
+       * Abandoning, which the game had no word for.
+       *
+       * A survivor could previously only leave a raid by dying in it or by playing
+       * it to the end, so a table of four where one person has to catch a train
+       * either waited or was stuck. Free, immediate, and irreversible on purpose:
+       * it is a door, not a tactic. The raid ends by itself if this was the last
+       * one standing, which is the same check a death runs.
+       */
+      hero.forfeited = true;
+      hero.ready = true;
+      hero.ap = 0;
+      log(state, `${hero.name} abandonne le raid.`);
+      checkEnd(state);
+      return { ok: true };
+    }
     case 'ready':
       // Ethan pockets one unspent point for tomorrow; everyone else just rests.
       if (heroDef(hero.heroId).ability === 'tactician' && hero.ap > 0) {
@@ -103,6 +115,15 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
     (heroDef(hero.heroId).ability === 'scavenger' ||
       hero.gear.some((item) => item && itemDef(item.def).gear?.flashlight));
 
+  /**
+   * The raid's one free crate, spent only when nothing else would have paid for it.
+   *
+   * Checked after the renewable free search on purpose: a survivor with a torch
+   * should burn the torch's search first and keep the once-per-raid one in his
+   * pocket, which is what a player would do if the game asked him.
+   */
+  const freeRaidSearch = action.type === 'search' && !freeSearch && !hero.freeRaidSearchUsed;
+
   const freeMove = action.type === 'move' && !hero.freeMoveUsed && heroDef(hero.heroId).ability === 'fleet';
 
   const freeUse =
@@ -115,13 +136,15 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
           (itemDef(item.def).gear?.heal !== undefined && heroDef(hero.heroId).ability === 'medic'))
     );
 
-  if (hero.ap <= 0 && !freeSearch && !freeUse && !freeMove) {
+  if (hero.ap <= 0 && !freeSearch && !freeRaidSearch && !freeUse && !freeMove) {
     return { ok: false, error: 'Plus de PA ce tour' };
   }
 
   const spend = () => {
     if (freeSearch) {
       hero.freeSearchUsed = true;
+    } else if (freeRaidSearch) {
+      hero.freeRaidSearchUsed = true;
     } else if (freeMove) {
       hero.freeMoveUsed = true;
     } else {
@@ -287,64 +310,9 @@ function consume(hero: HeroState, uid: number): void {
   }
 }
 
-/** What a crate turned out to hold: which item, and how good this one is. */
-export interface LootRoll {
-  def: ItemDef;
-  rarity: Rarity;
-}
-
-/**
- * Loot: tier first, item second, condition third.
- *
- * The tier roll uses the original's 40/30/15/10/5 curve and decides *what* turns
- * up; `lootLuck` shifts it by whole ranks. Loot fatigue then pulls it back down
- * as a hero keeps searching: the fourth crate is never as good as the first,
- * which is the heroes' half of the escalation bargain — their power plateaus at
- * mid-game while the horde keeps compounding.
- *
- * The third roll is this version's: the item's own rarity, one rank either side
- * of its tier. It is what makes a search worth watching even when the tier is
- * one you have seen all evening, and it never crosses tiers, so the curve above
- * still owns the pacing.
- */
-export function rollLoot(state: CzState, hero?: HeroState): LootRoll {
-  const total = RARITY_WEIGHTS.reduce((sum, weight) => sum + weight, 0);
-  let roll = Math.floor(total * rand(state.rng));
-  let rank = 0;
-  for (let i = 0; i < RARITY_WEIGHTS.length; i++) {
-    roll -= RARITY_WEIGHTS[i] ?? 0;
-    if (roll < 0) {
-      rank = i;
-      break;
-    }
-  }
-
-  // Margot's charm bends the fatigue curve, never the table itself.
-  const fatigueStep = hero && heroDef(hero.heroId).ability === 'lucky' ? 8 : 4;
-  const fatigue = hero ? Math.floor(hero.searches / fatigueStep) : 0;
-  // The Fouineur loadout perk lifts the raid's first crate by one rank.
-  const fouineur = hero?.loadout.includes('fouineur') && hero.searches === 1 ? 1 : 0;
-  let tier = Math.min(4, Math.max(0, rank + state.config.lootLuck - fatigue + fouineur)) + 1;
-
-  // Lucky find: the raid's first crate is never junk. One guaranteed floor,
-  // once, which is a good start and not a build.
-  if (hero?.perks.includes('lucky-find') && hero.searches === 1) {
-    tier = Math.max(tier, 3);
-  }
-
-  // Only what this world contains: the biome is the whole loot table.
-  const candidates = itemsOfBiome(state.config.biome).filter((item) => item.tier === tier);
-  const def = pick(state.rng, candidates);
-
-  // Condition. Luck tilts it both ways, and a bad roll on a good tier is still a
-  // good find: the tier is the pacing, this is the texture.
-  const upChance = 0.22 + Math.max(0, state.config.lootLuck) * 0.06;
-  const downChance = Math.max(0.05, 0.28 - state.config.lootLuck * 0.06);
-  const condition = rand(state.rng);
-  const wobble = condition < upChance ? 1 : condition < upChance + downChance ? -1 : 0;
-
-  return { def, rarity: clampRarity(def.tier + wobble) };
-}
+/* Loot lives in loot.ts: both searching and killing produce it, and combat cannot
+   import the engine. Re-exported here because every caller already looks for it. */
+export { dropFromKill, FORCED_LUCK_DRAWS, rollLoot, type LootRoll } from './loot.js';
 
 /* ------------------------------ inventory --------------------------------- */
 
@@ -540,7 +508,7 @@ export function startHeroPhase(state: CzState, now = Date.now()): void {
   state.phase = 'heroes';
   state.turn += 1;
   for (const hero of Object.values(state.heroes)) {
-    if (!hero.alive || hero.escaped) continue;
+    if (!hero.alive || hero.escaped || hero.forfeited) continue;
     hero.ap =
       HERO_AP +
       (state.turn === 1 && hero.perks.includes('sprinter') ? 1 : 0) +
@@ -581,8 +549,9 @@ export function beginEnemyPhase(state: CzState, now = Date.now()): void {
   if (state.phase !== 'heroes') return;
   state.phase = 'enemy';
 
+  const mutated = mutationEffects(state.config.mutations);
   for (const zombie of Object.values(state.zombies)) {
-    zombie.ap = zombieDef(zombie.def).ap;
+    zombie.ap = zombieDef(zombie.def).ap + mutated.ap;
   }
   for (const hero of Object.values(state.heroes)) {
     hero.toughUsed = false;
@@ -683,7 +652,7 @@ export function spawnReinforcements(state: CzState): void {
    * its action points, so what arrives has to scale with heads or a preset means
    * two different games depending on how many people turned up.
    */
-  const odds = Math.min(1, (base + level / 60) * partyPressure(state));
+  const odds = Math.min(1, (base + level / 60) * partyPressure(state) * mutationEffects(state.config.mutations).reinforcement);
 
   for (const room of state.board.rooms) {
     if (room.kind !== 'spawn') continue;
@@ -745,7 +714,9 @@ export type GmAction =
   /** Permanent horde upgrades: every future spawn carries them. */
   | { type: 'gmUpgrade'; upgrade: 'hide' | 'claws' }
   /** One-shot orders for this phase. */
-  | { type: 'gmOrder'; order: 'rush' };
+  | { type: 'gmOrder'; order: 'rush' }
+  /** Concede the raid to the survivors. */
+  | { type: 'gmForfeit' };
 
 /**
  * The game master's shop. Costs escalate per level so the second rank of claws
@@ -765,8 +736,21 @@ export const GM_ORDERS: Record<'rush', { label: string; cost: number }> = {
 };
 
 export function applyGmAction(state: CzState, action: GmAction): ActionResult {
-  if (state.phase !== 'enemy') return { ok: false, error: 'Ce n’est pas la phase de la horde' };
   if (state.config.mode !== 'gm') return { ok: false, error: 'L’IA joue cette partie' };
+  /**
+   * Conceding is the one thing the horde may do out of turn.
+   *
+   * Every other game-master action needs the enemy phase, but a game master who
+   * wants to stop should not have to wait for his turn to come round to say so, and
+   * the survivors should not have to keep playing a raid nobody is running.
+   */
+  if (action.type === 'gmForfeit') {
+    if (state.phase === 'won' || state.phase === 'lost') return { ok: false, error: 'La partie est finie' };
+    log(state, 'Le maître du jeu abandonne : la horde se retire.');
+    finish(state, 'won', 'La horde abandonne le terrain.');
+    return { ok: true };
+  }
+  if (state.phase !== 'enemy') return { ok: false, error: 'Ce n’est pas la phase de la horde' };
 
   switch (action.type) {
     case 'gmMove': {
@@ -889,6 +873,10 @@ export interface FinalScore {
   damageTaken: number;
   alive: boolean;
   escaped: boolean;
+  /** Took no perk at all, and was paid for it. Shown on the end screen. */
+  bareHanded: boolean;
+  /** Walked away mid-raid, which is neither a death nor an escape. */
+  forfeited: boolean;
 }
 
 /**
@@ -901,31 +889,53 @@ export function finalScores(state: CzState): FinalScore[] {
   // Endless is scored on how long the lights stayed on; team objectives pay
   // everyone, since they gate everyone's exit.
   const enduranceBonus = state.config.scenario === 'endless' ? Math.floor(state.turn / 2) : 0;
-  const objectivesDoneCount = state.objectives.filter((objective) => objective.done).length;
-  const objectiveBonus = objectivesDoneCount * 3;
+
+  const required = state.objectives.filter((objective) => !objective.optional);
+  const bonuses = state.objectives.filter((objective) => objective.optional);
+  const requiredDone = required.filter((objective) => objective.done).length;
+  const bonusesDone = bonuses.filter((objective) => objective.done).length;
+  // A bonus quest pays more than a required one: nobody had to take it.
+  const objectiveBonus = requiredDone * 3 + bonusesDone * 6;
+
+  /** What the table earned for handicapping itself. */
+  const mutationReward = mutationEffects(state.config.mutations).reward;
 
   return Object.values(state.heroes)
-    .map((hero) => ({
-      playerId: hero.playerId,
-      name: hero.name,
-      heroId: hero.heroId,
-      score:
+    .map((hero) => {
+      const raw =
         hero.killPoints +
         hero.keysPicked * 5 +
         hero.searches +
         enduranceBonus +
         objectiveBonus +
         // Lettré: the scholar's cut, score only.
-        (hero.loadout.includes('lettre') ? objectivesDoneCount * 2 : 0) +
+        (hero.loadout.includes('lettre') ? (requiredDone + bonusesDone) * 2 : 0) +
+        /**
+         * Bare-handed: a survivor who took no loadout at all scores more.
+         *
+         * Perks are a real advantage, so declining them is a real handicap, and a
+         * handicap nobody notices is a handicap nobody takes. Flat rather than a
+         * multiplier, like everything else here, and worth about a boss.
+         */
+        (hero.loadout.length === 0 ? 12 : 0) +
         (hero.escaped ? 10 : 0) +
         (won ? 5 : 0) +
-        (hero.alive ? 3 : 0),
-      kills: hero.kills,
-      keysPicked: hero.keysPicked,
-      searches: hero.searches,
-      damageTaken: hero.damageTaken,
-      alive: hero.alive,
-      escaped: hero.escaped
-    }))
+        (hero.alive ? 3 : 0);
+
+      return {
+        playerId: hero.playerId,
+        name: hero.name,
+        heroId: hero.heroId,
+        score: Math.round(raw * mutationReward),
+        kills: hero.kills,
+        keysPicked: hero.keysPicked,
+        searches: hero.searches,
+        damageTaken: hero.damageTaken,
+        alive: hero.alive,
+        escaped: hero.escaped,
+        bareHanded: hero.loadout.length === 0,
+        forfeited: hero.forfeited === true
+      };
+    })
     .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, 'fr'));
 }

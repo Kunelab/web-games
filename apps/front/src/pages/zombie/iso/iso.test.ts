@@ -430,6 +430,45 @@ describe('furnishing', () => {
     assert.deepEqual([...new Set(problems)].slice(0, 10), [], 'the furnishing broke its own rules');
   });
 
+  it('leaves the road nearly bare and the interiors busy', () => {
+    /**
+     * The measurement behind "the modern biome feels like one big hangar".
+     *
+     * Everything was furnished at 1.9 props per cell, so a stretch of road carried as
+     * much stuff as a kitchen and the whole map read as one interior with the roof
+     * torn off. What makes a town legible from above is that the *density* differs by
+     * kind of place, so that is what this pins: a road is nearly empty, a pavement
+     * and a square are sparse, and an interior is crowded.
+     */
+    const cells = new Map<string, number>();
+    const props = new Map<string, number>();
+
+    for (const layout of LAYOUT_IDS) {
+      for (const seed of [77, 4242]) {
+        const view = board(layout, seed);
+        const walls = wallsOf(view);
+        for (const zone of new Set(view.rooms.map((room) => room.zone))) {
+          const zoneRooms = view.rooms.filter((room) => room.zone === zone);
+          const decor = furnishZone(zoneRooms, view.width, walls);
+          for (const room of zoneRooms) {
+            cells.set(room.program, (cells.get(room.program) ?? 0) + room.cells.length);
+            props.set(room.program, (props.get(room.program) ?? 0) + (decor.get(room.id)?.props.length ?? 0));
+          }
+        }
+      }
+    }
+
+    const per = (program: string): number => (props.get(program) ?? 0) / Math.max(1, cells.get(program) ?? 0);
+
+    assert(cells.get('street'), 'no street was generated to measure');
+    assert(per('street') < 0.4, 'a road is furnished like a room: ' + per('street').toFixed(2) + ' props a cell');
+    assert(per('living') > 1, 'a living room is bare: ' + per('living').toFixed(2) + ' props a cell');
+    assert(
+      per('living') > per('street') * 3,
+      'a road (' + per('street').toFixed(2) + ') is furnished like a living room (' + per('living').toFixed(2) + ')'
+    );
+  });
+
   it('gives a table its chairs', () => {
     // A table alone in a room was the clearest sign nothing here was thinking
     // about rooms rather than about objects.

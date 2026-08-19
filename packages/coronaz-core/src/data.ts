@@ -13,11 +13,18 @@
  * zombie stats, rarity weights) and completed where the original had data but no
  * rule (abilities, kill points, loadout perks).
  *
- * All HP and damage are ×10 versus the board game's printout (a pistol hits for
- * 10, a walker has 10 HP). Pure renumbering — every ratio is identical, the
- * simulator's win rates cannot move because of it — but flat bonuses become
- * legible ("+10 PV" reads; "+1 PV" reads like a rounding error) and it leaves
- * headroom for finer-grained effects later.
+ * All HP and damage sit on a ×10 scale versus the board game's printout, which was
+ * done for legibility (a flat "+10 PV" reads; "+1 PV" reads like a rounding error)
+ * and to leave headroom for finer-grained effects later.
+ *
+ * That headroom is now spent, and it had to be. Every value being an exact multiple
+ * of ten was harmless while weapons could miss, and became the central problem when
+ * they stopped: a walker had exactly 10 hit points, so every weapon in the game
+ * killed one per hit and a sniper rifle threw 88 % of its damage away doing it. The
+ * grid is therefore gone from the creature table and the arsenal (9, 11, 14, 21, 22,
+ * 46, 58, 112...), while the scale stays. Hero hit points and the flat perk bonuses
+ * are deliberately left on round numbers: they are what a player reads on his own
+ * card every turn, and nothing about them was broken.
  */
 
 import { allItems, allZombies } from './content/registry.js';
@@ -28,7 +35,10 @@ export const STAT_SCALE = 10;
 /* --------------------------------- heroes --------------------------------- */
 
 export type HeroAbility =
-  /** Ranged attacks reroll one missed die. */
+  /**
+   * +1 die on ranged attacks. It used to reroll a missed die, which was the right
+   * ability while weapons could miss and is worth nothing now that they cannot.
+   */
   | 'marksman'
   /** +1 die in melee. */
   | 'assassin'
@@ -44,7 +54,7 @@ export type HeroAbility =
   | 'mule'
   /** Their attacks never lay noise. */
   | 'silent'
-  /** Can attack bare-handed: 1 die, hits on 4+, 10 damage. */
+  /** Can attack bare-handed: one die, ten damage. */
   | 'brawler'
   /** Entering a room also marks its neighbours as explored. */
   | 'scout'
@@ -102,7 +112,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'marksman',
     favoriteWeapon: 'marksman',
     personalPerks: ['fetiche', 'discret', 'coriace'],
-    blurb: 'Tireur d’élite. Relance un dé raté à distance.',
+    blurb: 'Tireur d’élite. Un dé de plus à distance.',
     emoji: '🎯'
   },
   {
@@ -375,6 +385,8 @@ export interface ZombieDef {
   hp: number;
   ap: number;
   damage: number;
+  /** Flat reduction on every hit it takes; `pierce` halves it. */
+  armor: number;
   /** Points a kill is worth. */
   points: number;
   /** What the game master pays to spawn one. */
@@ -429,11 +441,21 @@ export interface WeaponStats {
   akimbo: boolean;
   /** Marks the room with noise, which is what the horde homes in on. */
   noisy: boolean;
+  /** Halves the target's armour, rounded down. Paid for out of the power budget. */
+  pierce?: boolean;
 }
 
 export interface GearStats {
-  /** Absorbs one attack entirely, then needs re-equipping. */
-  vest?: boolean;
+  /**
+   * Flat reduction on every wound taken, before the minimum of 1. The value here is
+   * what a copy at the role's own tier gives; `gearArmor` scales it by rarity, which
+   * is what makes a legendary plate worth carrying over a common one.
+   *
+   * Replaces the old `vest: true`, which absorbed one entire attack and was
+   * therefore binary: a rare vest and a legendary vest did exactly the same thing,
+   * once. Omar keeps that moment as his ability, where it belongs.
+   */
+  armor?: number;
   /** One free search per turn while equipped. */
   flashlight?: boolean;
   /** Consumable: heals this many HP for 1 AP, then is spent. */
@@ -499,6 +521,15 @@ export function itemDef(id: string): ItemDef {
  */
 export const RARITY_SPREAD = 1;
 
+/**
+ * What one rank of rarity multiplies a weapon's damage by.
+ *
+ * 1.18 is the largest step that keeps a rank *visible* on the smallest weapon in
+ * the table (a 1d×14 bat reads 12 / 14 / 17) without letting two ranks jump a tier
+ * band, which would put a legendary sidearm above a plain sniper rifle again.
+ */
+export const RARITY_STEP = 1.18;
+
 export function clampRarity(value: number): Rarity {
   return Math.min(5, Math.max(1, Math.round(value))) as Rarity;
 }
@@ -509,18 +540,24 @@ export function rarityRange(tier: Rarity): { min: Rarity; max: Rarity } {
 }
 
 /**
- * What rarity does to a weapon.
+ * What rarity does to a weapon: about 18 % of its own output per rank.
  *
- * Accuracy is the lever, because it is the only one that means roughly the same
- * thing to every weapon in the table: a rank moves the hit threshold by one, so
- * a pistol gains a third and a minigun gains a fifth rather than a flat bonus
- * doubling the minigun and vanishing on the flamethrower. Where accuracy has
- * nowhere left to go (the flamethrower already hits on 1+) the rank pays in
- * damage instead, so no rarity is ever inert.
+ * It used to be a flat ten damage a rank, which was defensible while every number
+ * in the game was a multiple of ten and the arsenal spanned 10 to 120. Two changes
+ * made it incoherent. The damage grid is gone, so ten is no longer the natural
+ * quantum of anything; and the tier ladder was compressed to 14-72, so a flat ten
+ * on a six-dice weapon is +83 % of its whole output, which would have handed back
+ * with rarity exactly what the compression took away with tier.
  *
- * Bounded by construction: the spread is one rank, so the best possible roll is
- * worth about a third more damage than the printed weapon and the worst about a
- * quarter less. Never a multiplier, never a new ability.
+ * A share is even-handed by construction, which was the other complaint: ten damage
+ * used to be +100 % on a baseball bat and +12.5 % on a sniper rifle, so the same
+ * "rank" meant two entirely different things depending on what you were holding.
+ * Now every weapon gains the same *proportion*, and the whole ladder keeps its
+ * shape whatever the dice count.
+ *
+ * Spent on damage rather than dice on purpose: dice are how many things you can
+ * kill in one attack, damage is how hard a thing you can kill, and rarity should
+ * make a weapon better at its own job rather than turn it into a different weapon.
  */
 export function weaponStats(def: ItemDef, rarity: number): WeaponStats | undefined {
   const base = def.weapon;
@@ -528,13 +565,7 @@ export function weaponStats(def: ItemDef, rarity: number): WeaponStats | undefin
 
   const delta = clampRarity(rarity) - def.tier;
   if (delta === 0) return base;
-
-  if (delta > 0) {
-    return base.accuracy > 1 ? { ...base, accuracy: base.accuracy - 1 } : { ...base, damage: base.damage + 10 };
-  }
-  return base.accuracy < 5
-    ? { ...base, accuracy: base.accuracy + 1 }
-    : { ...base, damage: Math.max(10, base.damage - 10) };
+  return { ...base, damage: Math.max(1, Math.round(base.damage * Math.pow(RARITY_STEP, delta))) };
 }
 
 /**
@@ -542,9 +573,9 @@ export function weaponStats(def: ItemDef, rarity: number): WeaponStats | undefin
  *
  * Every piece has to answer "what is an epic one *for*", and two of them did not:
  * a rare vest and an epic vest both ate one attack, a rare torch and an epic torch
- * both lit one free search. A rarity you can see and cannot feel is a decoration,
- * so the two binary effects were given a dial each — see `vestCharges` and
- * `torchReach` — and the numeric ones keep scaling here.
+ * both lit one free search. A rarity you can see and cannot feel is a decoration, so
+ * the vest became armour (`gearArmor`, one point a rank, common to legendary) and
+ * the torch became reach (`torchReach`), and the numeric ones keep scaling here.
  */
 export function gearStats(def: ItemDef, rarity: number): GearStats | undefined {
   const base = def.gear;
@@ -554,18 +585,24 @@ export function gearStats(def: ItemDef, rarity: number): GearStats | undefined {
   if (delta === 0) return base;
 
   const next: GearStats = { ...base };
-  if (base.heal !== undefined) next.heal = Math.max(10, base.heal + delta * 10);
+  if (base.heal !== undefined) next.heal = Math.max(8, base.heal + delta * 8);
   if (base.adrenaline !== undefined) next.adrenaline = Math.max(1, base.adrenaline + delta);
+  if (base.armor !== undefined) next.armor = Math.max(1, base.armor + delta);
   return next;
 }
 
 /**
- * How many attacks a vest absorbs before it is finished. A beautiful plate is one
- * that holds twice — the difference between surviving an ambush and not.
+ * How much a plate takes off every wound: one point a rank, common to legendary.
+ *
+ * A tier-3 vest therefore runs 1 / 2 / 3 / 4 / 5, which against a walker's ten
+ * points of damage is the difference between shrugging and bleeding, and never
+ * immunity. Two vests do not stack (the wound path takes the best one): a survivor
+ * wearing two legendary plates would otherwise be untouchable by half the bestiary.
  */
-export function vestCharges(def: ItemDef, rarity: number): number {
-  if (!def.gear?.vest) return 0;
-  return 1 + Math.max(0, clampRarity(rarity) - def.tier);
+export function gearArmor(def: ItemDef, rarity: number): number {
+  const base = def.gear?.armor;
+  if (base === undefined) return 0;
+  return Math.max(1, base + (clampRarity(rarity) - def.tier));
 }
 
 /**

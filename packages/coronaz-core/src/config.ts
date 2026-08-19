@@ -21,13 +21,14 @@ export const gameConfigSchema = z.object({
   scenario: z.enum(SCENARIOS).default('escape'),
 
   /**
-   * The board's size in *cells*, not rooms. Rooms own one to four cells each and
-   * streets eat a good share of the grid, so a 16×10 world comes out around fifty
-   * rooms with a fifth of them outdoors. The ceiling is where it is because the
-   * screens pan and zoom now; nothing has to fit in one glance.
+   * The board's size in *cells*, not rooms. Rooms own one to four cells each,
+   * streets eat a good share of the grid and some of it is rubble you cannot enter
+   * at all, so a 22×22 world comes out around 150 rooms — a district rather than a
+   * building. The screens pan, zoom and carry a minimap; nothing has to fit in one
+   * glance.
    */
-  width: z.number().int().min(6).max(32).default(16),
-  height: z.number().int().min(4).max(24).default(10),
+  width: z.number().int().min(6).max(32).default(22),
+  height: z.number().int().min(4).max(24).default(22),
   /**
    * The shape of the world: a city block, a suburb, one big installation, a venue
    * on a street — or `random`, which is the default and the point.
@@ -42,7 +43,13 @@ export const gameConfigSchema = z.object({
   /** Keys to collect before the exit opens (escape scenario). */
   keys: z.number().int().min(1).max(6).default(3),
   /** Rooms that breed reinforcements. */
-  spawnRooms: z.number().int().min(1).max(5).default(2),
+  spawnRooms: z.number().int().min(1).max(5).default(3),
+  /**
+   * How much of the grid is impassable rubble, as a share of it: collapsed
+   * buildings, flooded lots, a crater. Nothing enters, nothing spawns, and the
+   * generator still guarantees the rest is one connected world.
+   */
+  rubble: z.number().min(0).max(0.35).default(0.12),
   /** Zombies on the board at the start. */
   startingZombies: z.number().int().min(0).max(20).default(6),
   /**
@@ -55,11 +62,29 @@ export const gameConfigSchema = z.object({
   /** Turns to hold out in the survival scenario. */
   survivalTurns: z.number().int().min(3).max(30).default(8),
   /**
-   * Side quests drawn at map generation: kill a boss, reach a body count, strip
-   * the map for supplies. In the escape scenario they gate the exit; elsewhere
-   * they pay bonus points.
+   * How many side quests are drawn at map generation. In the escape scenario they
+   * gate the exit; elsewhere they pay bonus points.
    */
   secondaryObjectives: z.number().int().min(0).max(2).default(1),
+  /**
+   * How many *optional* quests are drawn. They gate nothing and pay score, so this
+   * is the dial for "give us something to chase" rather than for difficulty.
+   */
+  optionalObjectives: z.number().int().min(0).max(3).default(2),
+  /**
+   * Which side quests are allowed to be drawn. A host who dislikes being sent
+   * hunting for a boss can strike it off the list rather than turning the whole
+   * feature off, and an empty list means none whatever the count above says.
+   */
+  objectiveKinds: z
+    .array(z.enum(['boss', 'kills', 'searches', 'explore', 'treasure', 'intact', 'speed']))
+    .default(['boss', 'kills', 'searches', 'explore', 'treasure', 'intact', 'speed']),
+  /**
+   * Mutations the *table* has taken: each one strengthens the horde and pays the
+   * survivors for it. Chosen in the lobby by the players, not by the host, which is
+   * why it lives in the config but is written after creation.
+   */
+  mutations: z.array(z.string().max(24)).default([]),
   /**
    * How much the dark hides. `none`: the whole board is lit (easy evenings).
    * `map`: the layout is known but creatures only appear in line of sight.

@@ -129,7 +129,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.42,
     height: 0.55,
     maxPerRoom: 2,
-    programs: { office: 10, archive: 5, lab: 4, backstage: 4, server: 2, dorm: 2, living: 2 },
+    programs: { office: 10, archive: 5, reception: 9, lab: 4, backstage: 4, server: 2, dorm: 2, living: 2 },
     companions: [{ kind: 'chair', count: [1, 1] }],
     draw: (ctx, cx, cy, context) => {
       slab(ctx, cx, cy, context, { long: 0.68, short: 0.34, h: 0.42 }, WOOD);
@@ -161,7 +161,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.3,
     height: 0.65,
     maxPerRoom: 3,
-    programs: { office: 9, archive: 9, lab: 3, backstage: 2 },
+    programs: { office: 9, archive: 9, evidence: 9, reception: 5, pharmacy: 6, lab: 3, backstage: 2 },
     draw: (ctx, cx, cy) => {
       isoBox(ctx, cx, cy, { w: 0.3, d: 0.26, h: 0.62 }, shade(METAL, -6));
       const front = project(cx + 0.15, cy);
@@ -206,7 +206,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.32,
     height: 1,
     maxPerRoom: 3,
-    programs: { server: 14, lab: 4, workshop: 3 },
+    programs: { server: 14, armoury: 14, evidence: 8, lab: 4, workshop: 3 },
     draw: (ctx, cx, cy, context) => {
       const box = oriented(context.long, { long: 0.34, short: 0.28, h: 0.94 });
       isoBox(ctx, cx, cy, box, hsl(210, 8, 18));
@@ -226,7 +226,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.4,
     height: 0.85,
     maxPerRoom: 3,
-    programs: { archive: 12, storage: 10, office: 4, workshop: 4, lab: 4, bar: 4, kitchen: 4, server: 3 },
+    programs: { archive: 12, storage: 10, pharmacy: 14, evidence: 12, office: 4, workshop: 4, lab: 4, bar: 4, kitchen: 4, server: 3 },
     draw: (ctx, cx, cy, context) => {
       const box = oriented(context.long, { long: 0.72, short: 0.22, h: 0.78 });
       isoBox(ctx, cx, cy, box, DARK_WOOD);
@@ -268,7 +268,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.32,
     height: 0.95,
     maxPerRoom: 3,
-    programs: { storage: 8, workshop: 7, dorm: 8, restroom: 6, backstage: 6, corridor: 4, lab: 4 },
+    programs: { storage: 8, workshop: 7, dorm: 8, armoury: 13, restroom: 6, backstage: 6, corridor: 4, lab: 4, ward: 4 },
     draw: (ctx, cx, cy, context) => {
       const box = oriented(context.long, { long: 0.5, short: 0.24, h: 0.92 });
       isoBox(ctx, cx, cy, box, hsl(205, 16, 34));
@@ -288,7 +288,7 @@ export const PROPS: readonly PropDef[] = [
     height: 0.35,
     maxPerRoom: 3,
     clutter: true,
-    programs: { storage: 12, dock: 10, workshop: 8, alley: 6, backstage: 4, parking: 3, hall: 2 },
+    programs: { storage: 12, dock: 10, evidence: 10, armoury: 8, workshop: 8, alley: 6, backstage: 4, parking: 3, hall: 2 },
     draw: (ctx, cx, cy, context) => {
       isoBox(ctx, cx, cy, { w: 0.36, d: 0.36, h: 0.3 }, shade(WOOD, -8));
       if (context.variant % 3 !== 0) {
@@ -305,7 +305,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.3,
     height: 0.75,
     maxPerRoom: 2,
-    programs: { storage: 10, dock: 8, archive: 6, workshop: 5, alley: 4, corridor: 3 },
+    programs: { storage: 10, dock: 8, archive: 6, evidence: 7, pharmacy: 5, workshop: 5, alley: 4, corridor: 3 },
     draw: (ctx, cx, cy, context) => {
       isoBox(ctx, cx, cy, { w: 0.4, d: 0.4, h: 0.28 }, hsl(35, 26, 40));
       ctx.save();
@@ -349,7 +349,7 @@ export const PROPS: readonly PropDef[] = [
     height: 0.4,
     maxPerRoom: 1,
     maxPerZone: 1,
-    programs: { office: 4, archive: 4, storage: 4, bar: 3 },
+    programs: { office: 4, archive: 4, storage: 4, armoury: 9, evidence: 8, pharmacy: 6, bar: 3 },
     draw: (ctx, cx, cy) => {
       isoBox(ctx, cx, cy, { w: 0.3, d: 0.3, h: 0.36 }, hsl(210, 6, 22));
       const front = project(cx + 0.15, cy);
@@ -368,7 +368,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.5,
     height: 0.35,
     maxPerRoom: 1,
-    programs: { bedroom: 14, dorm: 10 },
+    programs: { bedroom: 14, dorm: 10, ward: 9 },
     companions: [{ kind: 'nightstand', count: [1, 1] }],
     draw: (ctx, cx, cy, context) => {
       const frame = oriented(context.long, { long: 0.8, short: 0.5, h: 0.2 });
@@ -452,6 +452,8 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.5,
     height: 0.5,
     maxPerRoom: 1,
+    // A mortuary slab and an operating table are trolleys here, not tables: a table
+    // comes with chairs, and nobody sits down in either room.
     programs: { kitchen: 10, canteen: 12, living: 7, hall: 4, bar: 4, dorm: 3 },
     companions: [{ kind: 'chair', count: [2, 4] }],
     draw: (ctx, cx, cy, context) => slab(ctx, cx, cy, context, { long: 0.72, short: 0.5, h: 0.4 }, shade(WOOD, -4))
@@ -462,7 +464,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.2,
     height: 0.55,
     maxPerRoom: 4,
-    programs: { office: 4, canteen: 4, kitchen: 3, living: 2, bar: 2, backstage: 2 },
+    programs: { office: 4, canteen: 4, kitchen: 3, reception: 5, ward: 3, living: 2, bar: 2, backstage: 2 },
     draw: (ctx, cx, cy, context) => {
       isoBox(ctx, cx, cy, { w: 0.26, d: 0.26, h: 0.26 }, shade(WOOD, -6));
       const back = oriented(context.long, { long: 0.26, short: 0.06, h: 0.3 });
@@ -500,7 +502,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.45,
     height: 0.55,
     maxPerRoom: 2,
-    programs: { bar: 14, kitchen: 12, canteen: 8, lobby: 6, lab: 4 },
+    programs: { bar: 14, kitchen: 12, reception: 13, pharmacy: 11, canteen: 8, lobby: 6, lab: 4, evidence: 5 },
     draw: (ctx, cx, cy, context) => {
       const box = oriented(context.long, { long: 0.8, short: 0.32, h: 0.46 });
       isoBox(ctx, cx, cy, box, shade(WOOD, -10));
@@ -561,7 +563,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.24,
     height: 0.45,
     maxPerRoom: 2,
-    programs: { bath: 12, restroom: 10, kitchen: 6, lab: 5 },
+    programs: { bath: 12, restroom: 10, surgery: 9, morgue: 7, cell: 6, kitchen: 6, lab: 5, ward: 4 },
     draw: (ctx, cx, cy) => {
       isoBox(ctx, cx, cy, { w: 0.28, d: 0.22, h: 0.4 }, PORCELAIN);
       ctx.save();
@@ -576,7 +578,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.22,
     height: 0.5,
     maxPerRoom: 2,
-    programs: { bath: 14, restroom: 12 },
+    programs: { bath: 14, restroom: 12, cell: 10 },
     draw: (ctx, cx, cy) => {
       isoBox(ctx, cx, cy, { w: 0.22, d: 0.26, h: 0.24 }, PORCELAIN);
       ctx.save();
@@ -650,7 +652,7 @@ export const PROPS: readonly PropDef[] = [
     height: 0.95,
     maxPerRoom: 1,
     maxPerZone: 2,
-    programs: { corridor: 7, lobby: 8, canteen: 8, hall: 4, parking: 3, dock: 3 },
+    programs: { corridor: 7, lobby: 8, canteen: 8, reception: 7, hall: 4, parking: 3, dock: 3 },
     draw: (ctx, cx, cy) => {
       isoBox(ctx, cx, cy, { w: 0.34, d: 0.28, h: 0.9 }, hsl(0, 40, 32));
       const front = project(cx + 0.17, cy);
@@ -665,7 +667,7 @@ export const PROPS: readonly PropDef[] = [
     height: 0.3,
     maxPerRoom: 2,
     clutter: true,
-    programs: { corridor: 8, office: 6, bath: 6, bedroom: 6, living: 5, dorm: 5, archive: 4, lobby: 4, restroom: 4 },
+    programs: { corridor: 8, office: 6, bath: 6, bedroom: 6, living: 5, dorm: 5, archive: 4, lobby: 4, restroom: 4, ward: 5, cell: 4, reception: 4 },
     draw: (ctx, cx, cy, context) => {
       const box = oriented(context.long, { long: 0.44, short: 0.1, h: 0.28 });
       isoBox(ctx, cx, cy, box, shade(PORCELAIN, -14));
@@ -678,7 +680,7 @@ export const PROPS: readonly PropDef[] = [
     height: 0.9,
     maxPerRoom: 2,
     clutter: true,
-    programs: { lobby: 10, yard: 9, office: 7, corridor: 6, living: 6, hall: 4, bedroom: 4, archive: 3 },
+    programs: { lobby: 10, yard: 9, reception: 8, office: 7, corridor: 6, living: 6, hall: 4, bedroom: 4, archive: 3 },
     draw: (ctx, cx, cy, context) => {
       isoCylinder(ctx, cx, cy, { r: 0.2, h: 0.16 }, hsl(20, 30, 34));
       const alive = context.variant % 3 !== 0;
@@ -708,7 +710,7 @@ export const PROPS: readonly PropDef[] = [
     height: 0.4,
     maxPerRoom: 1,
     clutter: true,
-    programs: { lab: 7, dock: 6, canteen: 5, kitchen: 5, storage: 5, corridor: 4 },
+    programs: { lab: 7, surgery: 14, ward: 8, morgue: 13, pharmacy: 6, dock: 6, canteen: 5, kitchen: 5, storage: 5, corridor: 4 },
     draw: (ctx, cx, cy, context) => {
       const box = oriented(context.long, { long: 0.4, short: 0.28, h: 0.06 });
       isoBox(ctx, cx, cy, { w: 0.04, d: 0.04, h: 0.3 }, DARK_METAL, { shadow: false });
@@ -728,7 +730,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.4,
     height: 0.35,
     maxPerRoom: 2,
-    programs: { dorm: 10, backstage: 4, storage: 3, lab: 3 },
+    programs: { dorm: 10, ward: 13, cell: 12, surgery: 6, backstage: 4, storage: 3, lab: 3 },
     draw: (ctx, cx, cy, context) => {
       const frame = oriented(context.long, { long: 0.66, short: 0.34, h: 0.26 });
       isoBox(ctx, cx, cy, frame, shade(METAL, -10));
@@ -757,6 +759,95 @@ export const PROPS: readonly PropDef[] = [
     }
   },
 
+  /* ---------------------------- parks and squares --------------------------- */
+  /**
+   * The four things that turn open ground into a *place*.
+   *
+   * Before these, a park and a car park were the same grey rectangle with bins on
+   * it, which is most of why the outdoors read as one enormous hangar: there was
+   * nothing out there that could only be one kind of place. A tree cannot be
+   * indoors, a fountain cannot be in an alley, and a kiosk says "square" from across
+   * the map.
+   */
+  {
+    kind: 'tree',
+    where: 'floor',
+    radius: 0.4,
+    height: 1.8,
+    maxPerRoom: 2,
+    programs: { park: 14, square: 6, sidewalk: 5, yard: 4 },
+    draw: (ctx, cx, cy, context) => {
+      const trunk = 0.75 + ((context.variant % 5) / 10);
+      isoBox(ctx, cx, cy, { w: 0.13, d: 0.13, h: trunk }, hsl(26, 26, 24));
+      ctx.save();
+      ctx.translate(0, -trunk * TILE_H);
+      // Three overlapping crowns: a canopy from three drums reads better from
+      // above than one sphere would, and it costs three calls.
+      const green = hsl(112 + (context.variant % 3) * 8, 26, 26);
+      for (const [dx, dy, r] of [
+        [0, 0, 0.44],
+        [-0.14, 0.08, 0.3],
+        [0.13, -0.06, 0.28]
+      ] as const) {
+        isoCylinder(ctx, cx + dx, cy + dy, { r, h: 0.36 }, shade(green, dx === 0 ? 0 : -8));
+      }
+      ctx.restore();
+    }
+  },
+  {
+    kind: 'hedge',
+    where: 'wall',
+    radius: 0.32,
+    height: 0.45,
+    maxPerRoom: 3,
+    programs: { park: 11, square: 7, yard: 6 },
+    draw: (ctx, cx, cy, context) => {
+      const box = oriented(context.long, { long: 0.72, short: 0.28, h: 0.38 });
+      isoBox(ctx, cx, cy, box, hsl(118, 22, 22));
+      // A clipped top, so it is a hedge and not a green crate.
+      ctx.save();
+      ctx.translate(0, -0.38 * TILE_H);
+      isoPlate(ctx, cx, cy, { w: box.w * 0.94, d: box.d * 0.94 }, hsl(118, 26, 27));
+      ctx.restore();
+    }
+  },
+  {
+    kind: 'fountain',
+    where: 'centre',
+    radius: 0.6,
+    height: 0.7,
+    maxPerRoom: 1,
+    maxPerZone: 1,
+    programs: { square: 14, park: 8 },
+    draw: (ctx, cx, cy) => {
+      isoCylinder(ctx, cx, cy, { r: 0.62, h: 0.16 }, hsl(210, 6, 52));
+      ctx.save();
+      ctx.translate(0, -0.16 * TILE_H);
+      // The water: a flat disc, because still water seen from up here is a disc.
+      isoPlate(ctx, cx, cy, { w: 1.05, d: 1.05 }, 'rgb(96 150 180 / 0.75)');
+      isoCylinder(ctx, cx, cy, { r: 0.16, h: 0.5 }, hsl(210, 6, 60));
+      ctx.restore();
+    }
+  },
+  {
+    kind: 'kiosk',
+    where: 'floor',
+    radius: 0.5,
+    height: 1.1,
+    maxPerRoom: 1,
+    maxPerZone: 1,
+    programs: { square: 11, park: 7, sidewalk: 5 },
+    draw: (ctx, cx, cy, context) => {
+      const hue = [12, 200, 140][context.variant % 3] ?? 12;
+      isoBox(ctx, cx, cy, { w: 0.66, d: 0.6, h: 0.8 }, hsl(hue, 26, 30));
+      ctx.save();
+      ctx.translate(0, -0.8 * TILE_H);
+      // A canopy wider than the box, which is what makes it a kiosk.
+      isoPlate(ctx, cx, cy, { w: 0.92, d: 0.86 }, shade(hsl(hue, 22, 22), -6));
+      ctx.restore();
+    }
+  },
+
   /* -------------------------------- outdoors ------------------------------- */
   {
     kind: 'car',
@@ -764,7 +855,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.45,
     height: 0.6,
     maxPerRoom: 1,
-    programs: { street: 9, parking: 14, alley: 4, yard: 3 },
+    programs: { street: 10, parking: 14, alley: 4, yard: 2 },
     draw: (ctx, cx, cy, context) => {
       const hue = [0, 30, 210, 0, 120, 45][context.variant % 6] ?? 0;
       const body = oriented(context.long, { long: 0.86, short: 0.44, h: 0.26 });
@@ -794,7 +885,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.34,
     height: 0.5,
     maxPerRoom: 1,
-    programs: { alley: 12, parking: 6, street: 4, dock: 6, yard: 4 },
+    programs: { alley: 12, parking: 5, dock: 6, yard: 3, sidewalk: 3 },
     draw: (ctx, cx, cy, context) => {
       const box = oriented(context.long, { long: 0.6, short: 0.36, h: 0.42 });
       isoBox(ctx, cx, cy, box, hsl(140, 22, 26));
@@ -811,7 +902,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.16,
     height: 1.6,
     maxPerRoom: 1,
-    programs: { street: 12, crossing: 10, parking: 6, yard: 4, alley: 3 },
+    programs: { sidewalk: 14, crossing: 8, square: 7, street: 3, parking: 4, park: 4 },
     draw: (ctx, cx, cy) => {
       isoBox(ctx, cx, cy, { w: 0.1, d: 0.1, h: 1.5 }, shade(DARK_METAL, -4));
       ctx.save();
@@ -833,7 +924,7 @@ export const PROPS: readonly PropDef[] = [
     radius: 0.3,
     height: 0.25,
     maxPerRoom: 1,
-    programs: { yard: 10, street: 6, parking: 3 },
+    programs: { park: 12, square: 10, sidewalk: 8, yard: 8 },
     draw: (ctx, cx, cy, context) => {
       const seat = oriented(context.long, { long: 0.6, short: 0.2, h: 0.22 });
       isoBox(ctx, cx, cy, seat, shade(WOOD, -12));
@@ -846,7 +937,7 @@ export const PROPS: readonly PropDef[] = [
     height: 0.4,
     maxPerRoom: 2,
     clutter: true,
-    programs: { yard: 9, street: 6, crossing: 5, parking: 3 },
+    programs: { square: 9, sidewalk: 8, yard: 8, park: 5, crossing: 3 },
     draw: (ctx, cx, cy, context) => {
       isoBox(ctx, cx, cy, { w: 0.42, d: 0.32, h: 0.2 }, hsl(25, 18, 34));
       ctx.save();
