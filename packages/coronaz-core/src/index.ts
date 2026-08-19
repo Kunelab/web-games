@@ -26,7 +26,7 @@ export {
   rarityRange,
   weaponStats,
   gearStats,
-  vestCharges,
+  gearArmor,
   torchReach,
   type HeroDef,
   type GmClassDef,
@@ -95,14 +95,17 @@ export {
   cellIndex,
   cellXY,
   cellCount,
+  isRubble,
   edgeAt,
   edgeBetween,
   edgeCode,
+  edgeOfCode,
   passable,
   seeThrough,
   connectionsOf,
   isOutdoorProgram,
   MAX_ROOM_CELLS,
+  MAX_OUTDOOR_ROOM_CELLS,
   OUTDOOR_PROGRAMS,
   type Board,
   type Room,
@@ -121,6 +124,8 @@ export {
   layoutDef,
   BUILDING_PROGRAMS,
   PROGRAM_LABELS,
+  SHINY_LOOT,
+  lootBonusFor,
   buildingProgram,
   type LayoutDef,
   type Plot,
@@ -135,6 +140,7 @@ export {
   heroHas,
   heroMaxHp,
   setLoadout,
+  setMutations,
   randomHeroLoadout,
   randomGmLoadout,
   validGmLoadout,
@@ -157,6 +163,7 @@ export {
   type CzState,
   type CzPhase,
   type CzObjective,
+  type CzObjectiveKind,
   type GmUpgrades,
   type HeroState,
   type ZombieState,
@@ -185,6 +192,7 @@ export {
   heroPhaseDone,
   checkEnd,
   rollLoot,
+  dropFromKill,
   finalScores,
   gmIncome,
   GM_UPGRADES,
@@ -212,6 +220,8 @@ export {
   type SkillProfile
 } from './sim/policies.js';
 export { decideGmAction, gmMindsetNames, type GmMindset } from './sim/gm-policies.js';
+
+export { MUTATIONS, mutationDef, mutationEffects, type MutationDef, type MutationEffects } from './mutations.js';
 
 export {
   CZ_TROPHIES,

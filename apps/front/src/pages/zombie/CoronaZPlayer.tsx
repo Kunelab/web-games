@@ -1,11 +1,14 @@
 import {
   gearStats,
   HEROES,
+  MUTATIONS,
+  PROGRAM_LABELS,
+  SHINY_LOOT,
   itemDef,
   RARITY_META,
   roleOf,
   torchReach,
-  vestCharges,
+  gearArmor,
   weaponStats,
   type CzActionAck,
   type CzJoinAck,
@@ -22,6 +25,7 @@ import { useCountdown } from '../../hooks/useGameSocket';
 import { useCzSocket } from '../../hooks/useCzSocket';
 import { itemSprite } from './czAssets';
 import { neighbourRooms } from './czBoard';
+import { czNextGoal } from './czGoals';
 import { CzHeroSelect } from './CzHeroSelect';
 import { rarityVars } from './czRarity';
 import { isMuted, sfxEscape, sfxHeal, sfxKill, sfxLoot, sfxShoot, sfxStep, toggleMute } from './czSound';
@@ -50,6 +54,8 @@ export default function CoronaZPlayer() {
   const [busy, setBusy] = useState(false);
   /** The nickname's roster wallet, refreshed by join and unlock acks. */
   const [career, setCareer] = useState<{ rations: number; unlockedHeroes: string[] } | null>(null);
+  /** The Kune login this raid pays into, when the browser is logged in. */
+  const [account, setAccount] = useState<string | null>(null);
 
   const tokenKey = `kune.cz.player.${code}`;
 
@@ -80,6 +86,7 @@ export default function CoronaZPlayer() {
           localStorage.setItem(`${tokenKey}.name`, actualName);
           if (ack.view) applyView(ack.view);
           if (ack.career) setCareer(ack.career);
+          setAccount(ack.account ?? null);
           setJoined(true);
         } else {
           setJoinError(ack.error ?? 'Impossible de rejoindre.');
@@ -179,7 +186,15 @@ export default function CoronaZPlayer() {
 
   if (view.phase === 'lobby') {
     return (
-      <LobbyScreen view={view} myId={myId} socket={socket} hostToken={hostToken} career={career} onCareer={setCareer} />
+      <LobbyScreen
+        view={view}
+        myId={myId}
+        socket={socket}
+        hostToken={hostToken}
+        career={career}
+        account={account}
+        onCareer={setCareer}
+      />
     );
   }
 
@@ -213,6 +228,7 @@ function LobbyScreen({
   socket,
   hostToken,
   career,
+  account,
   onCareer
 }: {
   view: CzView;
@@ -220,6 +236,7 @@ function LobbyScreen({
   socket: ReturnType<typeof useCzSocket>['socket'];
   hostToken: string;
   career: { rations: number; unlockedHeroes: string[] } | null;
+  account: string | null;
   onCareer: (next: { rations: number; unlockedHeroes: string[] }) => void;
 }) {
   const mine = view.heroes.find((hero) => hero.playerId === myId);
@@ -230,7 +247,11 @@ function LobbyScreen({
   return (
     <div className="jeu-screen cz-lobby">
       <header className="cz-lobby-head">
-        <p className="play-label">Choisis ton survivant{career ? ` · 🥫 ${career.rations} rations` : ''}</p>
+        <p className="play-label">
+          Choisis ton survivant{career ? ` · 🥫 ${career.rations} rations` : ''}
+          {/* Where the evening's score lands: the account when there is one. */}
+          {account ? <span className="cz-ledger"> 🔗 compte {account}</span> : <span className="cz-ledger"> 📱 ce pseudo</span>}
+        </p>
         <span className="play-note">{view.heroes.length} survivant(s) · la partie commence quand la télé le dit</span>
       </header>
 
@@ -249,6 +270,40 @@ function LobbyScreen({
         }
         onLoadout={(perks) => socket?.emit('cz:loadout', { perks }, () => undefined)}
       />
+
+      {/* The table's own handicap. Any player may toggle one: the people who will
+          be eaten choose how hungry the horde is, and are paid for it. */}
+      <section className="cz-mutations">
+        <span className="cz-slot-label">
+          Mutations de la horde · récompense ×{view.mutationReward.toFixed(2)}
+        </span>
+        <div className="cz-perk-grid">
+          {MUTATIONS.map((mutation) => {
+            const taken = view.mutations.includes(mutation.id);
+            return (
+              <button
+                key={mutation.id}
+                type="button"
+                className={`cz-perk ${taken ? 'picked' : ''}`}
+                onClick={() =>
+                  socket?.emit(
+                    'cz:mutations',
+                    {
+                      mutations: taken
+                        ? view.mutations.filter((id) => id !== mutation.id)
+                        : [...view.mutations, mutation.id]
+                    },
+                    () => undefined
+                  )
+                }
+              >
+                {mutation.emoji} {mutation.name} · {mutation.blurb}{' '}
+                <span className="cz-mutation-reward">+{Math.round(mutation.reward * 100)}% de score</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       <footer className="cz-lobby-foot">
         {/* The roguelite payoff: what this nickname has earned, worn into battle. */}
@@ -320,6 +375,7 @@ function PlayScreen({
   const [loot, setLoot] = useState<ItemInstance | null>(null);
   const [attackTarget, setAttackTarget] = useState<string | null>(null);
   const [bagOpen, setBagOpen] = useState(false);
+  const [quitAsked, setQuitAsked] = useState(false);
 
   const myTurn = view.phase === 'heroes' && me.alive && !me.escaped;
   const room = view.rooms.find((candidate) => candidate.id === me.roomId);
@@ -334,6 +390,7 @@ function PlayScreen({
   async function act(action: HeroAction) {
     const result = await send(action);
     setFeedback(result.ok ? null : (result.error ?? 'Impossible'));
+    // A search finds one; a corpse can drop one. Same toast, same one-tap equip.
     if (result.loot) setLoot(result.loot);
 
     // The satisfying part: every action answers out loud.
@@ -427,8 +484,10 @@ function PlayScreen({
       </header>
 
       {/* The one job still open, always in sight: the old game's missing goal. */}
-      {view.objectives.some((objective) => !objective.done) && (
-        <p className="play-note">▹ {view.objectives.find((objective) => !objective.done)?.label}</p>
+      {/* The one job still open, always in sight — keys included, which is what a
+          player on a phone actually needs to know. */}
+      {czNextGoal(view) && (
+        <p className="play-note">▹ {czNextGoal(view)?.label}</p>
       )}
 
       <CzMap
@@ -440,6 +499,17 @@ function PlayScreen({
         onZombieTap={myTurn ? (zombieId) => void onZombieTap(zombieId) : undefined}
         camera="auto"
       />
+
+      {/* Where you are standing, and what it is worth. The map glitters over a good
+          room; this is the line that says why, and it is also the only way a player
+          learns that rooms differ at all. */}
+      {room && (
+        <p className="cz-room-line">
+          {PROGRAM_LABELS[room.program]}
+          {room.loot >= SHINY_LOOT && <span className="cz-room-rich"> ✨ bon butin</span>}
+          {room.loot <= -0.15 && <span className="cz-room-poor"> · rien à fouiller ici</span>}
+        </p>
+      )}
 
       {!me.alive && <p className="play-error">Vous êtes tombé. La partie continue sans vous.</p>}
       {me.escaped && <p className="play-good">Vous êtes dehors. Regardez-les courir.</p>}
@@ -475,6 +545,17 @@ function PlayScreen({
               onClick={() => void act({ type: 'ready' })}
             >
               {me.ready ? 'Prêt ✓' : 'Prêt'}
+            </Button>
+            {/* Two taps to leave: it cannot be undone, and it is next to the button
+                everyone presses every turn. */}
+            <Button
+              variant="ghost"
+              onClick={() => {
+                if (quitAsked) void act({ type: 'forfeit' });
+                else setQuitAsked(true);
+              }}
+            >
+              {quitAsked ? 'Abandonner pour de bon ?' : '🏳️ Abandonner'}
             </Button>
           </div>
         )}
@@ -552,7 +633,7 @@ function InventorySheet({
   const [selected, setSelected] = useState<ItemInstance | null>(null);
 
   const teammates = view.heroes.filter(
-    (hero) => hero.playerId !== me.playerId && hero.alive && !hero.escaped && hero.roomId === me.roomId
+    (hero) => hero.playerId !== me.playerId && hero.alive && !hero.escaped && !hero.forfeited && hero.roomId === me.roomId
   );
 
   const toggle = (item: ItemInstance) => setSelected((current) => (current?.uid === item.uid ? null : item));
@@ -768,27 +849,25 @@ function ItemStats({ item, compact = false }: { item: ItemInstance; compact?: bo
   const facts: string[] = [];
   if (weapon) {
     facts.push(weapon.melee ? '⚔️ Corps à corps' : `🎯 Portée ${weapon.range}`);
-    facts.push(`🎲 ${weapon.dice} dé${weapon.dice > 1 ? 's' : ''} · touche sur ${weapon.accuracy}+`);
+    facts.push(`🎲 ${weapon.dice} touche${weapon.dice > 1 ? 's' : ''} par attaque`);
     facts.push(`💥 ${weapon.damage} dégâts par touche`);
     if (printed && delta !== 0) {
       const better = delta > 0;
       const what =
-        weapon.accuracy !== printed.accuracy
-          ? `touche sur ${weapon.accuracy}+ au lieu de ${printed.accuracy}+`
-          : `${weapon.damage} dégâts au lieu de ${printed.damage}`;
+        weapon.damage !== printed.damage
+          ? `${weapon.damage} dégâts au lieu de ${printed.damage}`
+          : `${weapon.dice} dé${weapon.dice > 1 ? 's' : ''} au lieu de ${printed.dice}`;
       facts.push(`${better ? '✨ Belle pièce' : '🩹 Abîmée'} : ${what}`);
     }
+    if (weapon.pierce) facts.push('🛡️ Perforante : ignore la moitié de l’armure');
     if (weapon.akimbo) facts.push('🙌 Akimbo : une dans chaque main double les dés');
     if (weapon.noisy && !compact) facts.push('📢 Bruyante : attire la horde');
   }
   if (gear?.heal) facts.push(`💊 Rend ${gear.heal} PV`);
   if (gear?.adrenaline) facts.push(`⚡ +${gear.adrenaline} PA immédiats`);
-  if (gear?.vest) {
-    // What an epic vest is for, said out loud: a plate that holds twice.
-    const charges = vestCharges(def, item.rarity) - (item.spent ?? 0);
-    facts.push(
-      charges > 1 ? `🦺 Encaisse ${charges} impacts avant de céder` : '🦺 Encaisse une blessure, puis rend l’âme'
-    );
+  if (gear?.armor !== undefined) {
+    // What a legendary plate is for, said out loud: it takes more off every hit.
+    facts.push(`🦺 -${gearArmor(def, item.rarity)} dégâts sur chaque blessure`);
   }
   if (gear?.flashlight) {
     facts.push('🔦 Une fouille gratuite par tour');

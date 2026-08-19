@@ -9,6 +9,7 @@ import { buzzerOrigin } from '../../tools/api-url';
 import { Button, Loading } from '../../ui';
 import { awardMeta } from '../../app/awards';
 import { MuteButton } from './CoronaZPlayer';
+import { czGoals } from './czGoals';
 import { CzMap } from './CzMap';
 import { sfxDefeat, sfxEscape, sfxHordePhase, sfxKill, sfxObjective } from './czSound';
 import './coronaz.css';
@@ -211,27 +212,19 @@ export default function CoronaZTv() {
               )}
             </div>
 
-            <GoalLine view={view} />
-
-            {view.objectives.length > 0 && (
-              <ul className="cz-objectives">
-                {view.objectives.map((objective) => (
-                  <li key={objective.id} className={objective.done ? 'done' : ''}>
-                    {objective.done ? '✔' : '▹'} {objective.label}
-                    {!objective.done && objective.target > 1 && (
-                      <span className="tabular">
-                        {' '}
-                        {Math.min(objective.progress, objective.target)}/{objective.target}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
+            {/* One list: the keys, the side quests, the way out. The keys used to
+                live in a sentence of their own and read as scenery. */}
+            <ul className="cz-objectives">
+              {czGoals(view).map((goal) => (
+                <li key={goal.key} className={`${goal.done ? 'done' : ''} ${goal.primary ? 'primary' : ''}`}>
+                  {goal.done ? '✔' : '▹'} {goal.label}
+                </li>
+              ))}
+            </ul>
 
             <ul className="cz-hero-list">
               {view.heroes.map((hero) => (
-                <li key={hero.playerId} className={!hero.alive ? 'down' : hero.escaped ? 'out' : ''}>
+                <li key={hero.playerId} className={!hero.alive ? 'down' : hero.escaped || hero.forfeited ? 'out' : ''}>
                   <span>{heroDef(hero.heroId).emoji}</span>
                   <span>
                     {hero.name}
@@ -239,7 +232,7 @@ export default function CoronaZTv() {
                   </span>
                   <span className="cz-hp tabular">{hero.hp}❤</span>
                   <span className="cz-ap tabular">
-                    {view.phase === 'heroes' && hero.alive && !hero.escaped
+                    {view.phase === 'heroes' && hero.alive && !hero.escaped && !hero.forfeited
                       ? hero.ready
                         ? 'prêt'
                         : `${hero.ap} PA`
@@ -265,47 +258,6 @@ export default function CoronaZTv() {
   );
 }
 
-function GoalLine({ view }: { view: CzView }) {
-  if (view.scenario === 'escape') {
-    return (
-      <p className="cz-goal">
-        Clés :{' '}
-        <strong className="tabular">
-          {view.keysCollected} / {view.keysTotal}
-        </strong>{' '}
-        · puis la sortie 🚪
-      </p>
-    );
-  }
-  if (view.scenario === 'purge') {
-    return (
-      <p className="cz-goal">
-        Victimes :{' '}
-        <strong className="tabular">
-          {view.killsTotal} / {view.killTarget}
-        </strong>
-      </p>
-    );
-  }
-  if (view.scenario === 'endless') {
-    return (
-      <p className="cz-goal">
-        Personne ne sort. Tour <strong className="tabular">{view.turn}</strong> ·{' '}
-        <strong className="tabular">{view.killsTotal}</strong> victimes. La horde grossit.
-      </p>
-    );
-  }
-  return (
-    <p className="cz-goal">
-      Tenir :{' '}
-      <strong className="tabular">
-        {view.turn} / {view.survivalTurns}
-      </strong>{' '}
-      tours
-    </p>
-  );
-}
-
 /** Shared by the TV and the phones: verdict, scores, distinctions. */
 export function CzEndScreen({ view, onExit }: { view: CzView; onExit?: () => void }) {
   return (
@@ -315,8 +267,16 @@ export function CzEndScreen({ view, onExit }: { view: CzView; onExit?: () => voi
       </p>
       {/* The seed is the rematch: same world, same dice, new decisions. */}
       <p className="play-note">
-        Tour {view.turn} · graine {view.seed} — rejouable à l’identique depuis la mise en place.
+        Tour {view.turn} · graine {view.seed} · rejouable à l’identique depuis la mise en place.
       </p>
+      {/* Why the numbers are what they are: the table's own handicap, and the
+          survivors who refused their perks. */}
+      {view.mutations.length > 0 && (
+        <p className="play-note">
+          🧬 {view.mutations.length} mutation{view.mutations.length > 1 ? 's' : ''} · scores ×
+          {view.mutationReward.toFixed(2)}
+        </p>
+      )}
 
       <ol className="final-standings">
         {(view.scores ?? []).map((score, index) => (
@@ -326,6 +286,8 @@ export function CzEndScreen({ view, onExit }: { view: CzView; onExit?: () => voi
               {heroDef(score.heroId).emoji} {score.name}
               {!score.alive && ' 💀'}
               {score.escaped && ' 🚪'}
+              {score.forfeited && <span title="A quitté le raid en cours"> 🏳️</span>}
+              {score.bareHanded && <span title="Aucun atout choisi : +12 pts"> 🙌</span>}
             </span>
             <span className="score-value tabular">{score.score} pts</span>
           </li>

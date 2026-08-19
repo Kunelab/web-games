@@ -99,7 +99,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   const sessionStore = new SqliteSessionStore(SESSION_TTL_MS);
   sessionStore.startSweeping();
 
-  await app.register(cookie);
+  await app.register(cookie, { secret: env.SECRET });
   await app.register(session, {
     secret: env.SECRET,
     store: sessionStore,
@@ -119,6 +119,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   await app.register(authPlugin);
+
+  // Exposed so the socket layer can resolve the account behind a handshake
+  // cookie; see realtime/account.ts.
+  app.decorate('sessions', sessionStore);
 
   const games = new GameManager(app.log);
   app.decorate('games', games);

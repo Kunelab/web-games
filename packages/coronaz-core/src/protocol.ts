@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Scenario } from './config.js';
 import { heroDef, type Rarity } from './data.js';
 import { finalScores, gmIncome, type FinalScore } from './engine.js';
+import { mutationEffects } from './mutations.js';
 import { cellIndex, edgeAt, edgeCode, type FloorKind, type RoomKind, type RoomProgram } from './map.js';
 import { visibleRooms, type CzPhase, type CzState, type ItemInstance, type LogEntry } from './state.js';
 
@@ -45,6 +46,12 @@ export interface CzRoomView {
   outdoor: boolean;
   /** Which building, 0 for outdoors. Furnishing keeps a building coherent with it. */
   zone: number;
+  /**
+   * What searching here is worth, as a bonus on the loot roll. Sent so the map can
+   * make the good rooms glitter: a player should be able to *see* that the pharmacy
+   * is worth crossing the street for, without opening a wiki.
+   */
+  loot: number;
   seen: 'visible' | 'explored' | 'hidden';
 }
 
@@ -59,6 +66,8 @@ export interface CzHeroView {
   roomId: string;
   alive: boolean;
   escaped: boolean;
+  /** Walked away mid-raid: out of play, and not a death. */
+  forfeited?: boolean;
   ready: boolean;
   connected: boolean;
   kills: number;
@@ -115,13 +124,22 @@ export interface CzView {
   layout: string;
   /** Which biome it is set in: the arsenal and the bestiary come from it. */
   biome: string;
+  /**
+   * Cells no room owns: collapsed, flooded, impassable. Sent as indices because a
+   * district is a tenth rubble and listing the exceptions is far cheaper than
+   * another string the length of the grid.
+   */
+  rubble: number[];
+  /** The mutations the table took, and what they are worth at the end. */
+  mutations: string[];
+  mutationReward: number;
   /** In cells. Rooms own one to four of them. */
   width: number;
   height: number;
   rooms: CzRoomView[];
   /**
    * The boundaries, one character per cell, row-major: `.` same room, `#` wall,
-   * `D` door, `A` arch, `?` withheld. `edgeRight[i]` is the boundary between cell
+   * `D` door, `A` arch, `W` window, `?` withheld. `edgeRight[i]` is the boundary between cell
    * i and its right neighbour, `edgeDown[i]` the one below it.
    */
   edgeRight: string;
@@ -135,7 +153,16 @@ export interface CzView {
   survivalTurns: number;
   heroPhaseSeconds: number;
   /** The side quests, progress included: everyone sees the same list. */
-  objectives: { id: string; kind: string; target: number; progress: number; done: boolean; label: string }[];
+  objectives: {
+    id: string;
+    kind: string;
+    target: number;
+    progress: number;
+    done: boolean;
+    label: string;
+    /** Pays score, gates nothing. */
+    optional?: boolean;
+  }[];
   log: LogEntry[];
   me?: CzMeView;
   /** Present for the game master during the enemy phase. */
@@ -205,6 +232,8 @@ export function toView(state: CzState, role: CzRole): CzView {
         decor: 0,
         outdoor: room.outdoor,
         zone: room.zone,
+        // A hidden room does not advertise that it is worth robbing.
+        loot: 0,
         seen
       };
     }
@@ -224,6 +253,7 @@ export function toView(state: CzState, role: CzRole): CzView {
       decor: room.decor,
       outdoor: room.outdoor,
       zone: room.zone,
+      loot: room.loot,
       seen
     };
   });
@@ -287,6 +317,7 @@ export function toView(state: CzState, role: CzRole): CzView {
     roomId: hero.roomId,
     alive: hero.alive,
     escaped: hero.escaped,
+    forfeited: hero.forfeited,
     ready: hero.ready,
     connected: hero.connected,
     kills: hero.kills,
@@ -308,6 +339,9 @@ export function toView(state: CzState, role: CzRole): CzView {
     phaseEndsAt: state.phaseEndsAt,
     layout: state.board.layout,
     biome: state.config.biome,
+    rubble: state.board.cellRoom.flatMap((id, cell) => (id === '' ? [cell] : [])),
+    mutations: state.config.mutations,
+    mutationReward: mutationEffects(state.config.mutations).reward,
     width: state.board.width,
     height: state.board.height,
     rooms,
@@ -433,7 +467,8 @@ export const czHeroActionSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('drop'), uid: z.number().int().positive() }),
   z.object({ type: z.literal('give'), uid: z.number().int().positive(), toPlayerId: z.string().max(40) }),
-  z.object({ type: z.literal('ready') })
+  z.object({ type: z.literal('ready') }),
+  z.object({ type: z.literal('forfeit') })
 ]);
 
 export const czGmActionSchema = z.discriminatedUnion('type', [
@@ -441,7 +476,8 @@ export const czGmActionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('gmAttack'), zombieId: z.string().max(16) }),
   z.object({ type: z.literal('gmSpawn'), roomId: z.string().max(16), def: z.string().max(16) }),
   z.object({ type: z.literal('gmUpgrade'), upgrade: z.enum(['hide', 'claws']) }),
-  z.object({ type: z.literal('gmOrder'), order: z.enum(['rush']) })
+  z.object({ type: z.literal('gmOrder'), order: z.enum(['rush']) }),
+  z.object({ type: z.literal('gmForfeit') })
 ]);
 
 export const czJoinSchema = z.object({
@@ -456,8 +492,13 @@ export interface CzJoinAck {
   playerToken?: string;
   playerId?: string;
   view?: CzView;
-  /** The joining nickname's roster economy, for the character picker. */
+  /** The joining ledger's roster economy, for the character picker. */
   career?: { rations: number; unlockedHeroes: string[] };
+  /**
+   * The Kune login the raid's rewards will be banked into, when the browser
+   * happened to carry a session. Absent means the nickname is the ledger.
+   */
+  account?: string;
 }
 
 export interface CzActionAck {
@@ -476,6 +517,14 @@ export interface CzClientToServer {
   'cz:selectHero': (payload: { heroId: string }, ack: (response: { ok: boolean; error?: string }) => void) => void;
   /** The lobby's CoD pick: one signature perk + up to two globals. */
   'cz:loadout': (payload: { perks: string[] }, ack: (response: { ok: boolean; error?: string }) => void) => void;
+  /**
+   * The table's own handicap, toggled in the lobby by any player. Not the host's
+   * dial: the people who will suffer it choose it, and they are paid for it.
+   */
+  'cz:mutations': (
+    payload: { mutations: string[] },
+    ack: (response: { ok: boolean; error?: string }) => void
+  ) => void;
   /** Spends the joining nickname's rations on a locked survivor. */
   'cz:unlockHero': (
     payload: { heroId: string },

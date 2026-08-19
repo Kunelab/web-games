@@ -101,11 +101,17 @@ function parseTeam(raw: string): PartyMember[] {
 
 function chosenParty(): PartyMember[] {
   const team = arg('team', '');
-  if (team) return parseTeam(team);
-  return uniformParty(heroCount, arg('mindset', 'balanced'), arg('skill', 'expert'));
+  const base = team ? parseTeam(team) : uniformParty(heroCount, arg('mindset', 'balanced'), arg('skill', 'expert'));
+  // --luck and --noperks apply to the whole table: what they measure is a run
+  // of loot or a table that refused its perks, not one seat's story.
+  const luck = has('luck') ? (arg('luck', 'lucky') as 'lucky' | 'unlucky') : undefined;
+  return base.map((member) => ({ ...member, luck, noPerks: has('noperks') || member.noPerks }));
 }
 
 const gmClass = arg('gmclass', 'horde');
+
+/** Overrides the preset's escalation, for pricing a difficulty without editing it. */
+const escalation = has('escalation') ? { escalation: Number(arg('escalation', '1')) } : {};
 
 /* ------------------------------- seed replay ------------------------------- */
 
@@ -187,6 +193,9 @@ if (has('seed')) {
   has('perks') ||
   has('gmperks') ||
   has('skill') ||
+  has('escalation') ||
+  has('luck') ||
+  has('noperks') ||
   has('team') ||
   has('gmclass') ||
   process.argv.includes('--scenario')
@@ -199,14 +208,14 @@ if (has('seed')) {
 
   const summary = runMany({
     games,
-    config: { ...DIFFICULTY_PRESETS[preset], scenario: scenario as never, gmClass },
+    config: { ...DIFFICULTY_PRESETS[preset], ...escalation, scenario: scenario as never, gmClass },
     party: chosenParty(),
     gmMindset: gm,
     heroPerks,
     gmPerks
   });
   row(
-    `${scenario}/${preset}/${arg('team', '') ? 'team' : `${arg('mindset', 'balanced')}/${arg('skill', 'expert')}`}${gm ? `/MJ:${gm}:${gmClass}` : ''}${heroPerks ? '+perks' : ''}${gmPerks ? '+gmperks' : ''}`,
+    `${scenario}/${preset}/${arg('team', '') ? 'team' : `${arg('mindset', 'balanced')}/${arg('skill', 'expert')}`}${gm ? `/MJ:${gm}:${gmClass}` : ''}${heroPerks ? '+perks' : ''}${gmPerks ? '+gmperks' : ''}${has('luck') ? `/${arg('luck', 'lucky')}` : ''}${has('noperks') ? '/sans-atout' : ''}`,
     summary
   );
 } else {
@@ -243,6 +252,50 @@ if (has('seed')) {
       gmMindset: gm
     });
     row(`MJ ${gm}`, summary);
+  }
+
+  /**
+   * How much the first six draws decide the evening.
+   *
+   * Loot is the one thing a player cannot play around: the table that opens a
+   * sniper on turn two and the table that opens four bats are the same table
+   * otherwise. Forcing both ends tells us whether the game is *decided* by the
+   * dice or merely coloured by them; the gap is the number to keep small.
+   */
+  console.log(`\n=== Chance au butin (6 premiers tirages forcés, évasion) ===`);
+  for (const preset of ['normal', 'difficile']) {
+    for (const luck of [undefined, 'lucky', 'unlucky'] as const) {
+      const summary = runMany({
+        games,
+        config: { ...DIFFICULTY_PRESETS[preset], scenario: 'escape' },
+        party: uniformParty(heroCount, 'balanced', 'expert').map((member) => ({ ...member, luck }))
+      });
+      row(`${preset} / ${luck ?? 'butin normal'}`, summary);
+    }
+    console.log('');
+  }
+
+  console.log(`=== Tables sans atout (le handicap volontaire, évasion) ===`);
+  for (const preset of ['normal', 'difficile']) {
+    const summary = runMany({
+      games,
+      config: { ...DIFFICULTY_PRESETS[preset], scenario: 'escape' },
+      party: uniformParty(heroCount, 'balanced', 'expert').map((member) => ({ ...member, noPerks: true }))
+    });
+    row(`${preset} / sans atout`, summary);
+  }
+
+  console.log(`\n=== Taille de table (évasion, experts, sans MJ) ===`);
+  for (const preset of ['normal', 'difficile', 'cauchemar']) {
+    for (const size of [1, 2, 3, 4, 5]) {
+      const summary = runMany({
+        games,
+        config: { ...DIFFICULTY_PRESETS[preset], scenario: 'escape' },
+        party: uniformParty(size, 'balanced', 'expert')
+      });
+      row(`${preset} / ${size} joueur(s)`, summary);
+    }
+    console.log('');
   }
 
   console.log(`\n=== Sans fin (score avant la nuit) ===`);

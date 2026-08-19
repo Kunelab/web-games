@@ -2,16 +2,25 @@ import { roleOf } from './content/registry.js';
 import {
   heroDef,
   itemDef,
-  vestCharges,
+  gearArmor,
   weaponStats,
   zombieDef,
   type ItemDef,
   type Rarity,
   type WeaponStats
 } from './data.js';
+import { dropFromKill } from './loot.js';
 import { lineOfSight } from './map.js';
 import { d6, pick } from './rng.js';
-import { log, updateObjectives, zombiesInRoom, type CzState, type HeroState, type ZombieState } from './state.js';
+import {
+  log,
+  updateObjectives,
+  zombiesInRoom,
+  type CzState,
+  type HeroState,
+  type ItemInstance,
+  type ZombieState
+} from './state.js';
 
 /**
  * The dice, straight from the board game the original cloned.
@@ -28,6 +37,8 @@ export interface AttackOutcome {
   error?: string;
   hits?: number;
   killed?: string[];
+  /** What the last corpse dropped, if anything, so the phone can offer it. */
+  loot?: ItemInstance;
 }
 
 /** Bernard's fallback: fists count as a weapon nobody can loot. */
@@ -37,7 +48,7 @@ const BARE_HANDS: ItemDef = {
   kind: 'weapon',
   tier: 1,
   emoji: '👊',
-  weapon: { range: 0, dice: 1, damage: 10, accuracy: 4, melee: true, akimbo: false, noisy: false }
+  weapon: { range: 0, dice: 1, damage: 10, accuracy: 1, melee: true, akimbo: false, noisy: false }
 };
 
 /** A weapon as it will actually be fired: the instance's stats, not the table's. */
@@ -107,6 +118,8 @@ export function resolveHeroAttack(state: CzState, hero: HeroState, target: Zombi
 
   let dice = chosen.dice;
   if (weapon.melee && ability === 'assassin') dice += 1;
+  // Charles: a die of practice at range. His old reroll had nothing left to reroll.
+  if (!weapon.melee && ability === 'marksman') dice += 1;
   // Diego fights best with his back to the wall.
   if (ability === 'daredevil' && hero.hp <= 20) dice += 1;
   // The boss-slayer perk: one flat die, only against the things it was earned on.
@@ -127,18 +140,17 @@ export function resolveHeroAttack(state: CzState, hero: HeroState, target: Zombi
     dice += 1;
   }
 
+  /**
+   * Every die connects.
+   *
+   * Weapons all carry accuracy 1, so there is no roll to lose: an attack's whole
+   * question is how many dice you brought. The dice are still *drawn* from the
+   * seeded stream, deliberately — a raid's luck has to stay reproducible from its
+   * seed, and silently skipping draws would make every saved seed replay
+   * differently from the day it was played.
+   */
   const rolls: number[] = [];
   for (let i = 0; i < dice; i++) rolls.push(d6(state.rng));
-
-  // Charles rerolls one missed die on ranged attacks. Applied before counting so
-  // the log shows the roll that actually decided the outcome.
-  if (!weapon.melee && ability === 'marksman') {
-    const missIndex = rolls.findIndex((roll) => roll < weapon.accuracy);
-    if (missIndex !== -1) {
-      rolls[missIndex] = d6(state.rng);
-    }
-  }
-
   const hits = rolls.filter((roll) => roll >= weapon.accuracy).length;
 
   // Inès never rings the dinner bell; the "discret" perk muffles one shot a turn.
@@ -151,13 +163,35 @@ export function resolveHeroAttack(state: CzState, hero: HeroState, target: Zombi
   }
 
   const killed: string[] = [];
+  let dropped: ItemInstance | null = null;
   let current: ZombieState | undefined = target;
 
+  /**
+   * Armour, applied per hit and not per attack.
+   *
+   * This is the whole reason a heavy weapon exists. Six dice of 12 against a
+   * colossus (armour 9) deliver 3 apiece; one shot of 58 with `pierce` meets 4 and
+   * delivers 54. A hit always lands for at least 1, so armour makes a weapon a bad
+   * answer, never a useless one, and a survivor holding nothing but a bat can still
+   * chip a boss down rather than stand there doing literally nothing.
+   */
+  const bite = (zombie: ZombieState): number => {
+    const armor = zombieDef(zombie.def).armor;
+    const shield = weapon.pierce ? Math.floor(armor / 2) : armor;
+    return Math.max(1, weapon.damage - shield);
+  };
+
   for (let hit = 0; hit < hits && current; hit++) {
-    current.hp -= weapon.damage;
+    current.hp -= bite(current);
     if (current.hp <= 0) {
       killed.push(current.id);
       creditKill(state, hero, current);
+      // The corpse pays: a room of zombies is now worth clearing, not just surviving.
+      const spoils = dropFromKill(state, hero, current.def);
+      if (spoils) {
+        dropped = spoils;
+        log(state, `${hero.name} ramasse ${itemDef(spoils.def).name} sur la carcasse`);
+      }
       const room: string = current.roomId;
       delete state.zombies[current.id];
       // Spare hits find another target in the same room, or stop.
@@ -170,11 +204,11 @@ export function resolveHeroAttack(state: CzState, hero: HeroState, target: Zombi
   log(
     state,
     hits === 0
-      ? `${hero.name} rate ${targetName} (${rolls.join(', ')})`
-      : `${hero.name} touche ${hits} fois (${rolls.join(', ')})${killed.length > 0 ? ` — ${killed.length} victime${killed.length > 1 ? 's' : ''}` : ''}`
+      ? `${hero.name} n'atteint pas ${targetName}`
+      : `${hero.name} touche ${hits} fois ${targetName}${killed.length > 0 ? ` — ${killed.length} victime${killed.length > 1 ? 's' : ''}` : ''}`
   );
 
-  return { ok: true, hits, killed };
+  return { ok: true, hits, killed, loot: dropped ?? undefined };
 }
 
 function creditKill(state: CzState, hero: HeroState, zombie: ZombieState): void {
@@ -205,7 +239,7 @@ function creditKill(state: CzState, hero: HeroState, zombie: ZombieState): void 
  */
 export function resolveZombieAttack(state: CzState, zombie: ZombieState): void {
   const victims = Object.values(state.heroes).filter(
-    (hero) => hero.alive && !hero.escaped && hero.roomId === zombie.roomId
+    (hero) => hero.alive && !hero.escaped && !hero.forfeited && hero.roomId === zombie.roomId
   );
   const victim = victims.length > 0 ? pick(state.rng, victims) : undefined;
   if (!victim) return;
@@ -221,27 +255,19 @@ export function resolveZombieAttack(state: CzState, zombie: ZombieState): void {
     return;
   }
 
-  const vestIndex = victim.gear.findIndex((item) => item && itemDef(item.def).gear?.vest);
-  const vest = vestIndex === -1 ? null : victim.gear[vestIndex as 0 | 1];
-  if (vest) {
-    // Omar's craft: once per raid, the plate holds and costs nothing.
+  /**
+   * The plate. Best one worn, not the sum of both: two legendary vests would
+   * otherwise shrug off half the bestiary outright.
+   */
+  const armor = Math.max(0, ...victim.gear.map((item) => (item ? gearArmor(itemDef(item.def), item.rarity) : 0)));
+  if (armor > 0) {
+    // Omar's craft: once per raid, the plate holds the whole thing.
     if (heroDef(victim.heroId).ability === 'bulwark' && !flags.bulwark) {
       flags.bulwark = true;
-      log(state, `Le gilet renforcé d'${victim.name} tient bon (${def.name})`);
+      log(state, `Le gilet renforcé de ${victim.name} tient bon (${def.name})`);
       return;
     }
-
-    // A good plate holds more than once: that is what an epic vest is *for*.
-    const charges = vestCharges(itemDef(vest.def), vest.rarity);
-    vest.spent = (vest.spent ?? 0) + 1;
-    const left = charges - vest.spent;
-    if (left <= 0) {
-      victim.gear[vestIndex as 0 | 1] = null;
-      log(state, `Le gilet de ${victim.name} encaisse ${def.name} et rend l’âme`);
-    } else {
-      log(state, `Le gilet de ${victim.name} encaisse ${def.name} (${left} impact${left > 1 ? 's' : ''} encore)`);
-    }
-    return;
+    damage = Math.max(1, damage - armor);
   }
 
   if (heroDef(victim.heroId).ability === 'tough' && !victim.toughUsed) {

@@ -35,6 +35,20 @@ export interface CzCareerView {
   gmPerks: string[];
 }
 
+/**
+ * Which ledger a seat pays into: the Kune account when the socket carried a
+ * logged-in session, the nickname otherwise. Accounts are prefixed so a login
+ * can never collide with somebody's nickname.
+ */
+export function careerKey(hero: { name: string; account?: string }): string {
+  return hero.account ? accountKey(hero.account) : hero.name;
+}
+
+/** The ledger of a Kune login. Prefixed so it cannot collide with a nickname. */
+export function accountKey(login: string): string {
+  return `@${login}`;
+}
+
 async function readStats(name: string): Promise<CzCareerStats> {
   const key = name.trim().toLowerCase();
   const [row] = await db.select().from(czCareers).where(eq(czCareers.name, key)).limit(1);
@@ -66,7 +80,7 @@ export const czCareerService = {
 
   /** The perks a game master brings, resolved from the host account's login. */
   async gmPerks(login: string): Promise<string[]> {
-    return gmPerksFor(await readStats(login));
+    return gmPerksFor(await readStats(accountKey(login)));
   },
 
   /**
@@ -83,32 +97,44 @@ export const czCareerService = {
 
     for (const hero of Object.values(state.heroes)) {
       if (hero.isBot) continue;
-      const stats = await readStats(hero.name);
-      stats.rations += Math.max(0, Math.round(scores.get(hero.playerId) ?? 0)) + (won ? 10 : 0);
+      // The account wins over the nickname when the phone is logged in: rations
+      // belong to a person, not to whatever name he typed tonight.
+      const ledger = careerKey(hero);
+      const stats = await readStats(ledger);
+      /**
+       * A survivor who walked away banks what he earned and nothing more.
+       *
+       * He keeps his score (he did the work up to the door) and he is not counted
+       * dead, because he is not: leaving early and being eaten are different
+       * evenings. But the raid was not won by him, so neither the win nor its bonus
+       * follows him, or forfeiting would be the cheapest way to farm a victory.
+       */
+      const credited = won && !hero.forfeited;
+      stats.rations += Math.max(0, Math.round(scores.get(hero.playerId) ?? 0)) + (credited ? 10 : 0);
       stats.raids += 1;
-      stats.wins += won ? 1 : 0;
+      stats.wins += credited ? 1 : 0;
       stats.deaths += hero.alive ? 0 : 1;
       stats.escapes += hero.escaped ? 1 : 0;
       stats.kills += hero.kills;
       stats.bossKills += hero.bossKills;
       stats.searches += hero.searches;
-      if (won) {
+      if (credited) {
         const scenario = state.config.scenario;
         const best = stats.fastestWinTurns[scenario];
         stats.fastestWinTurns[scenario] = best === undefined ? state.turn : Math.min(best, state.turn);
       }
-      await writeStats(hero.name, stats);
+      await writeStats(ledger, stats);
     }
 
     if (state.config.mode === 'gm' && gmLogin) {
-      const stats = await readStats(gmLogin);
+      const stats = await readStats(accountKey(gmLogin));
       stats.gmRaids += 1;
       stats.gmWins += state.phase === 'lost' ? 1 : 0;
       // Everything that ever stood on the board, seeds and summons included.
       stats.gmSpawns += state.nextZombieId - 1;
       // The horde eats too: pressure applied is pressure paid.
       stats.rations += state.turn * 3 + (state.phase === 'lost' ? 15 : 0);
-      await writeStats(gmLogin, stats);
+      await writeStats(accountKey(gmLogin), stats);
     }
   },
 
@@ -141,21 +167,21 @@ export const czCareerService = {
     const definition = gmClassDef(classId);
     if (!definition.cost) return { ok: true };
 
-    const stats = await readStats(login);
+    const stats = await readStats(accountKey(login));
     if (stats.unlockedGm.includes(classId)) return { ok: true };
     if (stats.rations < definition.cost) {
       return { ok: false, error: `Il faut ${definition.cost} rations (vous en avez ${stats.rations})` };
     }
     stats.rations -= definition.cost;
     stats.unlockedGm.push(classId);
-    await writeStats(login, stats);
+    await writeStats(accountKey(login), stats);
     return { ok: true };
   },
 
   async gmClassAllowed(login: string, classId: string): Promise<boolean> {
     const definition = gmClassDef(classId);
     if (!definition.cost) return true;
-    const stats = await readStats(login);
+    const stats = await readStats(accountKey(login));
     return stats.unlockedGm.includes(classId);
   },
 

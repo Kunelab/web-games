@@ -2,7 +2,7 @@ import { gameConfigSchema } from 'coronaz-core';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 
-import { czCareerService } from '../services/cz-career-service.js';
+import { accountKey, czCareerService } from '../services/cz-career-service.js';
 
 /**
  * CoronaZ session lifecycle over REST; everything in-game runs on the socket.
@@ -110,7 +110,7 @@ const zombieRoutes: FastifyPluginAsyncZod = async (app) => {
 
   /** The host's own ledger, for the setup screen's class picker. */
   app.get('/zombie/me', { preHandler: app.requireAuth }, async (request) =>
-    czCareerService.forName(request.currentUser.login)
+    czCareerService.forName(accountKey(request.currentUser.login))
   );
 
   /** Spends the host's rations on a horde class. Survivors unlock over the socket. */
@@ -125,7 +125,7 @@ const zombieRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!result.ok) {
         return reply.code(400).send({ message: result.error });
       }
-      return czCareerService.forName(request.currentUser.login);
+      return czCareerService.forName(accountKey(request.currentUser.login));
     }
   );
 };

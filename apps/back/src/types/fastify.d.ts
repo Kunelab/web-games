@@ -1,6 +1,7 @@
 import type { Server as SocketServer } from 'socket.io';
 
 import type { GameManager } from '../game/manager.js';
+import type { SqliteSessionStore } from '../db/session-store.js';
 import type { CzManager } from '../zombie/manager.js';
 
 /** Everything the API stores in the session cookie. */
@@ -21,6 +22,9 @@ declare module 'fastify' {
 
     /** Owns every live game session. */
     games: GameManager;
+
+    /** The session store, for resolving accounts outside the HTTP lifecycle. */
+    sessions: SqliteSessionStore;
 
     /** Owns every live CoronaZ raid. */
     cz: CzManager;

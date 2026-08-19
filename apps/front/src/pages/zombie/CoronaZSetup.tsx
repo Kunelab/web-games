@@ -23,6 +23,22 @@ import { Badge, Button, Field, Input } from '../../ui';
 import './coronaz.css';
 import '../playlists.css';
 
+/** The side quests a host may allow, and how to say them. */
+/** Quests that can lock the exit. */
+const OBJECTIVE_KINDS = [
+  { id: 'boss' as const, emoji: '💀', label: 'Abattre un boss' },
+  { id: 'kills' as const, emoji: '🧟', label: 'Quota de victimes' },
+  { id: 'searches' as const, emoji: '🎒', label: 'Quota de fournitures' }
+];
+
+/** Quests that pay points and lock nothing, drawn from the same allow-list. */
+const BONUS_KINDS = [
+  { id: 'explore' as const, emoji: '🗺️', label: 'Explorer la carte' },
+  { id: 'treasure' as const, emoji: '💎', label: 'Trouver une pièce épique' },
+  { id: 'intact' as const, emoji: '🤝', label: 'Sortir au complet' },
+  { id: 'speed' as const, emoji: '⏱️', label: 'Sortir vite' }
+];
+
 /**
  * Where a raid is configured and armed.
  *
@@ -42,11 +58,32 @@ export default function CoronaZSetup() {
 
   /** A raid already running under this account: the way back to its screens. */
   const mine = useAsync(() => api.czMine(), []);
+  /** Two-step so a stray tap cannot bin a raid that is being played. */
+  const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState<string | null>(null);
   /** The host's ledger: rations and which horde classes are already bought. */
   const me = useAsync(() => api.czMe(), []);
 
   function set<K extends keyof GameConfig>(key: K, value: GameConfig[K]) {
     setConfig((current) => ({ ...current, [key]: value }));
+  }
+
+  /** Bins one of my live raids. First tap asks, second one does it. */
+  async function cancel(code: string) {
+    if (confirmCancel !== code) {
+      setConfirmCancel(code);
+      return;
+    }
+    setCancelling(code);
+    try {
+      await api.czEnd(code);
+      setConfirmCancel(null);
+      mine.reload();
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : "L'annulation a échoué.");
+    } finally {
+      setCancelling(null);
+    }
   }
 
   async function create() {
@@ -160,6 +197,17 @@ export default function CoronaZSetup() {
                     Écran MJ
                   </Button>
                 )}
+                {/* The way out of a raid nobody is going to finish. Live raids sat
+                    in this banner forever with no way to clear them except playing
+                    them out or restarting the server. */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  busy={cancelling === session.code}
+                  onClick={() => void cancel(session.code)}
+                >
+                  {confirmCancel === session.code ? 'Confirmer ?' : 'Annuler'}
+                </Button>
               </span>
             </div>
           ))}
@@ -388,6 +436,15 @@ export default function CoronaZSetup() {
                   onChange={(v) => set('secondaryObjectives', v)}
                 />
               )}
+              {(config.scenario === 'escape' || config.scenario === 'survival') && (
+                <NumberField
+                  label="Primes (facultatives)"
+                  value={config.optionalObjectives}
+                  min={0}
+                  max={3}
+                  onChange={(v) => set('optionalObjectives', v)}
+                />
+              )}
               <NumberField
                 label="Chrono héros (s, 0 = sans)"
                 value={config.heroPhaseSeconds}
@@ -434,6 +491,70 @@ export default function CoronaZSetup() {
               </Field>
             </div>
           </div>
+
+          {(config.scenario === 'escape' || config.scenario === 'survival') &&
+            (config.secondaryObjectives > 0 || config.optionalObjectives > 0) && (
+              <div className="editor-section">
+                <h2 className="editor-section-title">Quels objectifs et quelles primes ?</h2>
+                <p className="field-hint">
+                  Ce qui peut être tiré. En Évasion ils verrouillent la sortie, ailleurs ils paient des
+                  points ; et si l’un d’eux vous ennuie, rayez-le de la liste plutôt que de tout couper.
+                </p>
+                <div className="cz-perk-grid">
+                  {OBJECTIVE_KINDS.map((objective) => {
+                    const picked = config.objectiveKinds.includes(objective.id);
+                    // The last one standing cannot be unticked: nothing to draw from
+                    // is what the count above is for.
+                    const last = picked && config.objectiveKinds.length === 1;
+                    return (
+                      <button
+                        key={objective.id}
+                        type="button"
+                        className={`cz-perk ${picked ? 'picked' : ''}`}
+                        disabled={last}
+                        onClick={() =>
+                          set(
+                            'objectiveKinds',
+                            picked
+                              ? config.objectiveKinds.filter((kind) => kind !== objective.id)
+                              : [...config.objectiveKinds, objective.id]
+                          )
+                        }
+                      >
+                        {objective.emoji} {objective.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <p className="field-hint">
+                  Primes : elles ne verrouillent rien et rapportent le double de points. Un bonus
+                  qu’on abandonne sans regret, ou qu’on va chercher pour le tableau final.
+                </p>
+                <div className="cz-perk-grid">
+                  {BONUS_KINDS.map((objective) => {
+                    const picked = config.objectiveKinds.includes(objective.id);
+                    return (
+                      <button
+                        key={objective.id}
+                        type="button"
+                        className={`cz-perk ${picked ? 'picked' : ''}`}
+                        onClick={() =>
+                          set(
+                            'objectiveKinds',
+                            picked
+                              ? config.objectiveKinds.filter((kind) => kind !== objective.id)
+                              : [...config.objectiveKinds, objective.id]
+                          )
+                        }
+                      >
+                        {objective.emoji} {objective.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
           {error && <p className="field-error">{error}</p>}
 

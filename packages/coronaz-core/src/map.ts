@@ -36,6 +36,17 @@ export type EdgeKind =
   | 'door'
   /** The shared wall is gone: two rooms, one open space. */
   | 'arch'
+  /**
+   * Glass. Sight and gunfire cross it; bodies do not.
+   *
+   * The first boundary in this game where those two answers differ, and the reason
+   * it is worth adding: the moment you step indoors the fight goes blind, because
+   * every wall stops sight as absolutely as it stops movement. A window means a
+   * survivor can watch the street from the shop, shoot from cover, and be shot at
+   * through it; it means a room can be dangerous without being reachable. All of
+   * that from one edge state, and none of the movement rules change.
+   */
+  | 'window'
   /** Fog: this boundary touches a room the team has never seen. */
   | 'unknown';
 
@@ -44,6 +55,7 @@ const EDGE_CODE: Record<EdgeKind, string> = {
   wall: '#',
   door: 'D',
   arch: 'A',
+  window: 'W',
   unknown: '?'
 };
 
@@ -52,6 +64,8 @@ const EDGE_OF_CODE: Record<string, EdgeKind> = {
   '#': 'wall',
   D: 'door',
   A: 'arch',
+  W: 'window',
+  unknown: 'unknown',
   '?': 'unknown'
 };
 
@@ -59,18 +73,46 @@ export function edgeCode(kind: EdgeKind): string {
   return EDGE_CODE[kind];
 }
 
-/** Whether a creature can cross this boundary. */
+/** The inverse, for the generator: what a stored code means. */
+export function edgeOfCode(code: string): EdgeKind {
+  return EDGE_OF_CODE[code] ?? 'wall';
+}
+
+/** Whether a creature can cross this boundary. Glass does not open. */
 export function passable(kind: EdgeKind): boolean {
   return kind === 'open' || kind === 'door' || kind === 'arch';
 }
 
-/** Whether sight crosses it. Doors were always open gaps; nothing is glazed. */
+/**
+ * Whether sight and gunfire cross it.
+ *
+ * The same answer as `passable` for everything except a window, which is the whole
+ * point of a window. Kept as its own function precisely so the two can disagree:
+ * every rule that asks "can I see it" or "can I shoot it" reads this, and every rule
+ * that asks "can I walk there" reads the other.
+ */
 export function seeThrough(kind: EdgeKind): boolean {
-  return passable(kind);
+  return passable(kind) || kind === 'window';
 }
 
-/** The most cells one room may own. See the note on arch clusters above. */
+/** The most cells one *indoor* room may own. See the note on arch clusters above. */
 export const MAX_ROOM_CELLS = 4;
+
+/**
+ * The most cells one outdoor room may own, which is larger, and deliberately.
+ *
+ * A move costs one action point per room whatever the room's size, so room size *is*
+ * the cost of walking. Indoors that has to stay tight: a house whose ground floor is
+ * one room would be crossed for a single point, and the whole tension of searching a
+ * building under pressure comes from paying to move through it.
+ *
+ * Outdoors the same rule was making the map feel enormous in the wrong way. A square
+ * cut into nine one-cell rooms cost nine points to cross, so nobody crossed it, and
+ * the open ground the layouts had gone to such trouble to create was scenery rather
+ * than space. Nine cells lets a plaza be two or three strides wide, which is what
+ * "everything is not too far" means in action points.
+ */
+export const MAX_OUTDOOR_ROOM_CELLS = 9;
 
 export type RoomKind = 'normal' | 'start' | 'exit' | 'spawn' | 'fungus';
 
@@ -103,16 +145,49 @@ export type RoomProgram =
   /* Institutional */
   | 'dorm'
   | 'canteen'
+  | 'reception'
+  /* Hospital */
+  | 'ward'
+  | 'surgery'
+  | 'pharmacy'
+  | 'morgue'
+  /* Police */
+  | 'cell'
+  | 'evidence'
+  | 'armoury'
   /* Outside */
   | 'street'
   | 'crossing'
+  | 'sidewalk'
+  | 'square'
+  | 'park'
   | 'alley'
   | 'yard'
   | 'parking'
   | 'dock';
 
 /** The outdoor programmes, in one place: the renderer needs to know there is no roof. */
-export const OUTDOOR_PROGRAMS: readonly RoomProgram[] = ['street', 'crossing', 'alley', 'yard', 'parking', 'dock'];
+export const OUTDOOR_PROGRAMS: readonly RoomProgram[] = [
+  'street',
+  'crossing',
+  'sidewalk',
+  'square',
+  'park',
+  'alley',
+  'yard',
+  'parking',
+  'dock'
+];
+
+/**
+ * The outdoors a vehicle uses, as opposed to the outdoors a person uses.
+ *
+ * Worth naming because it is the difference between a town and a car park: a road
+ * carries markings and almost no props, a pavement carries lamp posts and bins, a
+ * square carries benches and planters. Getting that wrong is most of why the old
+ * outdoors read as one enormous hangar with furniture scattered in it.
+ */
+export const ROADWAY_PROGRAMS: readonly RoomProgram[] = ['street', 'crossing', 'alley', 'parking', 'dock'];
 
 export function isOutdoorProgram(program: RoomProgram): boolean {
   return OUTDOOR_PROGRAMS.includes(program);
@@ -135,6 +210,17 @@ export type FloorKind =
 
 export interface Room {
   id: string;
+  /**
+   * What searching *here* is worth, as a bonus on the loot roll: -0.2 is a street,
+   * 0 is an ordinary living room, +1 is a police armoury.
+   *
+   * Rooms used to be interchangeable containers, so exploring was a chore priced
+   * entirely in action points and the answer was always "search the nearest thing".
+   * A pharmacy that pays better than a corridor turns the map itself into the
+   * decision, and it is the room's *programme* that says so, which means the player
+   * can read it off the screen rather than having to learn a table.
+   */
+  loot: number;
   /**
    * The footprint's top-left cell. Kept named `x`/`y` because every rule that
    * used to read a room's coordinates still wants one anchor point.
@@ -175,7 +261,11 @@ export interface Board {
   width: number;
   height: number;
   rooms: Room[];
-  /** Room id per cell, row-major. */
+  /**
+   * Room id per cell, row-major. An empty string is rubble: a cell no room owns,
+   * which nothing can enter and nothing can see through. The generator guarantees
+   * everything that *is* a room stays one connected world around it.
+   */
   cellRoom: string[];
   /** Boundary to each cell's right neighbour, one character per cell. */
   edgeRight: string;
@@ -328,6 +418,11 @@ export function degree(board: Board, room: Room): number {
 
 export function cellCount(board: Board): number {
   return board.width * board.height;
+}
+
+/** Rubble: a cell no room owns. Impassable, unseeable, undrawable as floor. */
+export function isRubble(board: Board, cell: number): boolean {
+  return (board.cellRoom[cell] ?? '') === '';
 }
 
 /**

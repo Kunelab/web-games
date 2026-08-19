@@ -101,20 +101,31 @@ export const skillNames = Object.keys(SKILLS);
  * scored the printed stats would swap a beautiful machete for a chipped one and
  * the bench would be measuring a mistake rather than the balance.
  */
-export function weaponScore(item: ItemInstance): number {
+export function weaponScore(item: ItemInstance, armor = 0): number {
   const weapon = weaponStats(itemDef(item.def), item.rarity);
   if (!weapon) return 0;
   const hitChance = (7 - weapon.accuracy) / 6;
-  return weapon.dice * hitChance * weapon.damage * (weapon.akimbo ? 1.15 : 1);
+  // Armour is per hit, so it is the *per-die* damage it eats. Scoring without it
+  // would have every bot answer a colossus with a submachine gun, and then the
+  // bench would be measuring a mistake rather than the design.
+  const shield = weapon.pierce ? Math.floor(armor / 2) : armor;
+  const perHit = Math.max(1, weapon.damage - shield);
+  return weapon.dice * hitChance * perHit * (weapon.akimbo ? 1.15 : 1);
 }
 
 function bestHandScore(hero: HeroState): number {
   return Math.max(...hero.hands.map((item) => (item ? weaponScore(item) : 0)), 0);
 }
 
+/** What the thing in front of you shrugs off, 0 when nothing is in front of you. */
+function armorOf(target?: ZombieState): number {
+  return target ? zombieDef(target.def).armor : 0;
+}
+
 /** The hand an attack should use, best expected damage first. */
-function bestHand(hero: HeroState, melee: boolean): { hand: 0 | 1 | 2; score: number } | null {
+function bestHand(hero: HeroState, melee: boolean, target?: ZombieState): { hand: 0 | 1 | 2; score: number } | null {
   const options: { hand: 0 | 1 | 2; score: number }[] = [];
+  const armor = armorOf(target);
   const [left, right] = hero.hands;
 
   for (const [item, hand] of [
@@ -126,7 +137,7 @@ function bestHand(hero: HeroState, melee: boolean): { hand: 0 | 1 | 2; score: nu
     if (!def.weapon) continue;
     if (melee && !def.weapon.melee) continue;
     if (!melee && def.weapon.melee) continue;
-    options.push({ hand, score: weaponScore(item) });
+    options.push({ hand, score: weaponScore(item, armor) });
   }
 
   if (left && right && left.def === right.def && itemDef(left.def).weapon?.akimbo) {
@@ -134,7 +145,7 @@ function bestHand(hero: HeroState, melee: boolean): { hand: 0 | 1 | 2; score: nu
     if (def.weapon && def.weapon.melee === melee) {
       // The pair fires at the worse gun's quality, so score the worse gun.
       const worse = left.rarity <= right.rarity ? left : right;
-      options.push({ hand: 2, score: weaponScore(worse) * 2 });
+      options.push({ hand: 2, score: weaponScore(worse, armor) * 2 });
     }
   }
 
@@ -150,7 +161,8 @@ function bestHand(hero: HeroState, melee: boolean): { hand: 0 | 1 | 2; score: nu
 function pickTarget(state: CzState, hero: HeroState, targets: ZombieState[], skill: SkillProfile): ZombieState | null {
   if (targets.length === 0) return null;
   const bossWanted = state.objectives.some((objective) => objective.kind === 'boss' && !objective.done);
-  const punch = Math.max(bestHand(hero, true)?.score ?? 0, bestHand(hero, false)?.score ?? 0);
+  const punchAt = (target: ZombieState): number =>
+    Math.max(bestHand(hero, true, target)?.score ?? 0, bestHand(hero, false, target)?.score ?? 0);
 
   const sorted = [...targets].sort((a, b) => {
     const aBoss = zombieDef(a.def).boss ? 1 : 0;
@@ -158,8 +170,8 @@ function pickTarget(state: CzState, hero: HeroState, targets: ZombieState[], ski
     if (bossWanted && aBoss !== bBoss) return bBoss - aBoss;
 
     if (skill.focusFire) {
-      const aKill = a.hp <= Math.ceil(punch) ? 1 : 0;
-      const bKill = b.hp <= Math.ceil(punch) ? 1 : 0;
+      const aKill = a.hp <= Math.ceil(punchAt(a)) ? 1 : 0;
+      const bKill = b.hp <= Math.ceil(punchAt(b)) ? 1 : 0;
       if (aKill !== bKill) return bKill - aKill;
     }
 
@@ -300,7 +312,7 @@ function intendedAction(state: CzState, hero: HeroState, mindset: Mindset, skill
     const slot = hero.hands[0] === null ? 'hand0' : hero.hands[1] === null ? 'hand1' : 'hand0';
     return { type: 'equip', uid: upgrade.uid, slot };
   }
-  const vest = hero.bag.find((item) => itemDef(item.def).gear?.vest);
+  const vest = hero.bag.find((item) => itemDef(item.def).gear?.armor !== undefined);
   if (vest && hero.gear.some((slot) => slot === null) && rand(state.rng) < skill.equips) {
     return { type: 'equip', uid: vest.uid, slot: hero.gear[0] === null ? 'gear0' : 'gear1' };
   }
@@ -318,8 +330,8 @@ function intendedAction(state: CzState, hero: HeroState, mindset: Mindset, skill
   const inRoom = Object.values(state.zombies).filter((zombie) => zombie.roomId === hero.roomId);
   const roomTarget = pickTarget(state, hero, inRoom, skill);
   if (roomTarget) {
-    const melee = bestHand(hero, true);
-    const ranged = bestHand(hero, false);
+    const melee = bestHand(hero, true, roomTarget);
+    const ranged = bestHand(hero, false, roomTarget);
     const choice = (melee?.score ?? 0) >= (ranged?.score ?? 0) ? melee : ranged;
     if (choice) return { type: 'attack', zombieId: roomTarget.id, hand: choice.hand };
     return null; // Unarmed against the horde: pass and pray.
@@ -339,16 +351,37 @@ function intendedAction(state: CzState, hero: HeroState, mindset: Mindset, skill
     return { type: 'exit' };
   }
 
-  // Ranged pot-shots: when the mission wants kills, or the mindset likes them.
+  /**
+   * Ranged pot-shots, and why they are fussier than they look.
+   *
+   * Anything in line of sight used to be fair game the moment the raid had a kill
+   * objective open, which is most raids. Then windows arrived, sight lines roughly
+   * doubled, and the bench fell eleven points on `cauchemar` and fourteen against an
+   * aggressive game master. The cause was not the windows: it was that a bot would
+   * stand in a shop spending every action point shooting walkers across the street
+   * through the glass, making noise with each shot (which is what the horde homes in
+   * on) and fetching no keys. Turns per raid went up by two and a half, and threat
+   * compounds with turns.
+   *
+   * A person would not play that way, so the bench should not either. A shot at
+   * something a room away is worth taking: it is arriving next turn and it will be in
+   * melee with you if you let it. A shot at something three rooms away, through a
+   * window, while the key is unfetched, is a way of losing slowly.
+   */
   const ranged = bestHand(hero, false);
   if (ranged) {
     const weapon = hero.hands[ranged.hand === 2 ? 0 : ranged.hand];
     const range = weapon ? (itemDef(weapon.def).weapon?.range ?? 0) : 0;
     const sight = lineOfSight(state.board, hero.roomId, range);
-    const visible = Object.values(state.zombies).filter((zombie) => sight.has(zombie.roomId));
     const killsWanted =
       state.config.scenario === 'purge' ||
       state.objectives.some((o) => (o.kind === 'kills' || o.kind === 'boss') && !o.done);
+    /** Nothing left to walk towards: now a pot-shot is the best use of the turn. */
+    const idle = goalRoom(state, hero, skill) === null;
+    /** How far a bot will reach for a target it cannot be reached by. */
+    const patience = idle || mindset.aggression >= 0.8 ? range : 1;
+
+    const visible = Object.values(state.zombies).filter((zombie) => (sight.get(zombie.roomId) ?? 99) <= patience);
     const target = pickTarget(state, hero, visible, skill);
     if (target && (killsWanted || mindset.aggression >= 0.5)) {
       return { type: 'attack', zombieId: target.id, hand: ranged.hand };

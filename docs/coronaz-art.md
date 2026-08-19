@@ -94,6 +94,13 @@ pour qu’un plan se lise de dessus ; seule la coque d’un bâtiment est pleine
 papier peint très contrasté perdra donc la moitié de sa force à l’intérieur, ce qui
 est voulu.
 
+Une **fenêtre** est peinte par le même code de mur, avec un carreau percé dans la
+moitié haute : le mur descend entier jusqu'au sol (on ne passe pas), et la vitre est
+sombre avec un reflet froid en haut et un meneau au milieu. La différence avec une
+porte doit rester lisible d'un coup d'œil, parce que les deux cloisons répondent des
+choses opposées : une porte est une absence jusqu'au sol, une fenêtre est un mur qu'on
+voit à travers. Un papier peint n'a pas à prévoir la découpe, elle est faite par-dessus.
+
 ## `heroes` — les portraits
 
 Hors du dossier `iso`, et hors manifeste : ceux-là sont chargés par nom.

@@ -1,5 +1,7 @@
 import {
   edgeCode,
+  edgeOfCode,
+  MAX_OUTDOOR_ROOM_CELLS,
   MAX_ROOM_CELLS,
   roomId,
   type Board,
@@ -9,6 +11,7 @@ import {
   type RoomProgram
 } from '../map.js';
 import { pick, randInt, shuffled, type RngState } from '../rng.js';
+import { lootBonusFor } from './programs.js';
 
 /**
  * The scratch board a generator writes on, and the vocabulary every layout shares.
@@ -144,6 +147,9 @@ export class BoardBuilder {
       cells: sorted,
       kind: 'normal',
       hasKey: false,
+      // Derived from the programme rather than passed in: a pharmacy is worth
+      // searching because it is a pharmacy, and no caller gets to disagree.
+      loot: lootBonusFor(attributes.program),
       ...attributes
     };
 
@@ -187,6 +193,24 @@ export class BoardBuilder {
     else if (to.y === from.y && to.x === from.x - 1) this.right[b] = edgeCode(kind);
     else if (to.x === from.x && to.y === from.y + 1) this.down[a] = edgeCode(kind);
     else if (to.x === from.x && to.y === from.y - 1) this.down[b] = edgeCode(kind);
+  }
+
+  /** What currently sits between two adjacent cells, so a pass can refuse to overwrite. */
+  edgeBetween(a: number, b: number): EdgeKind {
+    if (a === -1 || b === -1) return 'wall';
+    const from = this.xy(a);
+    const to = this.xy(b);
+    const code =
+      to.y === from.y && to.x === from.x + 1
+        ? this.right[a]
+        : to.y === from.y && to.x === from.x - 1
+          ? this.right[b]
+          : to.x === from.x && to.y === from.y + 1
+            ? this.down[a]
+            : to.x === from.x && to.y === from.y - 1
+              ? this.down[b]
+              : undefined;
+    return code === undefined ? 'wall' : edgeOfCode(code);
   }
 
   roomIdAt(cell: number): string {
@@ -313,4 +337,86 @@ export function borderOf(
     }
   }
   return found;
+}
+
+/**
+ * Cuts a region into rectangles, biggest and squarest first.
+ *
+ * The outdoors used to be cut by `chunk`, which grows a blob from a seed and
+ * therefore produces L shapes, tetrominoes and stray single cells. Two things were
+ * wrong with that. It looked wrong: a street is a rectangle and a square is a
+ * rectangle, and an L-shaped piece of pavement reads as damage. And it *played*
+ * wrong: a move costs one action point per room whatever the room's size, so a
+ * boulevard chopped into fifteen little L-shapes cost fifteen points to walk down,
+ * which is why crossing the map felt like wading.
+ *
+ * So: 2×2 wherever one fits (the shape asked for, and the best ratio of ground
+ * covered to points spent), then dominoes, then singles for the leftovers.
+ *
+ * `coarse` tries 3×3 first, and is meant for open ground: a square or a park is one
+ * space in the world and it should be a few strides across, not nine. Roads and
+ * pavements are never coarse, partly because a 1-cell pavement cannot hold a 3×3
+ * anyway, and partly because a boulevard a horde can cross in two moves is a
+ * boulevard nobody can hold.
+ */
+export function tileRects(rng: RngState, region: readonly number[], width: number, coarse = false): number[][] {
+  const remaining = new Set(region);
+  const pieces: number[][] = [];
+
+  /** The cells of a w×h block anchored at (x, y), or null if any is unavailable. */
+  const block = (x: number, y: number, w: number, h: number): number[] | null => {
+    const cells: number[] = [];
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        if (x + dx >= width) return null;
+        const cell = (y + dy) * width + (x + dx);
+        if (!remaining.has(cell)) return null;
+        cells.push(cell);
+      }
+    }
+    return cells;
+  };
+
+  // Row-major sweep per shape, so blocks line up with each other instead of
+  // interlocking at random: a pavement should look laid, not shattered.
+  const shapes = coarse
+    ? ([
+        [3, 3],
+        [2, 2],
+        [3, 1],
+        [1, 3],
+        [1, 2],
+        [2, 1],
+        [1, 1]
+      ] as const)
+    : ([
+        [2, 2],
+        [1, 2],
+        [2, 1],
+        [1, 1]
+      ] as const);
+
+  for (const [w, h] of shapes) {
+    for (const cell of [...remaining].sort((a, b) => a - b)) {
+      if (!remaining.has(cell)) continue;
+      const found = block(cell % width, Math.floor(cell / width), w, h);
+      if (!found) continue;
+      for (const taken of found) remaining.delete(taken);
+      pieces.push(found);
+    }
+  }
+
+  // No shape in either list exceeds the cap, but the cap is the rule and the shape
+  // list is only an implementation of it: assert rather than assume.
+  for (const piece of pieces) {
+    if (piece.length > MAX_OUTDOOR_ROOM_CELLS) {
+      throw new Error(`tileRects produced a ${piece.length}-cell room`);
+    }
+  }
+
+  // Anything left is a cell no shape could claim, which the 1×1 pass above should
+  // have swept. Kept as a guard: dropping a cell here would leave a hole in the
+  // floor that no room owns, and the connectivity check would blame the layout.
+  for (const cell of remaining) pieces.push([cell]);
+  return pieces;
 }
