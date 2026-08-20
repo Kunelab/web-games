@@ -1,11 +1,13 @@
 import { z } from 'zod';
 
 import type { Scenario } from './config.js';
-import { heroDef, type Rarity } from './data.js';
+import type { Rarity } from './data.js';
 import { finalScores, gmIncome, type FinalScore } from './engine.js';
 import { mutationEffects } from './mutations.js';
+import type { CzEventId } from './events.js';
+import type { CzRaidReward } from './perks.js';
 import { cellIndex, edgeAt, edgeCode, type FloorKind, type RoomKind, type RoomProgram } from './map.js';
-import { visibleRooms, type CzPhase, type CzState, type ItemInstance, type LogEntry } from './state.js';
+import { hasTorch, visibleRooms, type CzPhase, type CzState, type ItemInstance, type LogEntry } from './state.js';
 
 /**
  * What each kind of screen is allowed to see, and the socket contract that
@@ -52,6 +54,14 @@ export interface CzRoomView {
    * is worth crossing the street for, without opening a wiki.
    */
   loot: number;
+  /**
+   * How many more things can be found here.
+   *
+   * Sent for the same reason `loot` is: a rule the player cannot see is a rule that
+   * reads as a bug. A survivor who taps « Fouiller » in a room he emptied two turns
+   * ago should learn that from the room, not from an error message.
+   */
+  finds: number;
   seen: 'visible' | 'explored' | 'hidden';
 }
 
@@ -133,6 +143,14 @@ export interface CzView {
   /** The mutations the table took, and what they are worth at the end. */
   mutations: string[];
   mutationReward: number;
+  /**
+   * What is happening to the district this turn, if anything.
+   *
+   * Sent to every screen because an event nobody can read is indistinguishable from
+   * a bug: a horde that suddenly walks away from you, or a room that suddenly holds
+   * three more things, has to come with a reason printed next to it.
+   */
+  event?: CzEventId | null;
   /** In cells. Rooms own one to four of them. */
   width: number;
   height: number;
@@ -232,8 +250,10 @@ export function toView(state: CzState, role: CzRole): CzView {
         decor: 0,
         outdoor: room.outdoor,
         zone: room.zone,
-        // A hidden room does not advertise that it is worth robbing.
+        // A hidden room does not advertise that it is worth robbing, nor how much
+        // of it is left to rob.
         loot: 0,
+        finds: 0,
         seen
       };
     }
@@ -254,6 +274,9 @@ export function toView(state: CzState, role: CzRole): CzView {
       outdoor: room.outdoor,
       zone: room.zone,
       loot: room.loot,
+      // Clamped: the stock goes to -1 when Chuck takes the one thing everybody
+      // else walked past, and "-1 fouilles restantes" is not a sentence.
+      finds: Math.max(0, room.finds),
       seen
     };
   });
@@ -342,6 +365,7 @@ export function toView(state: CzState, role: CzRole): CzView {
     rubble: state.board.cellRoom.flatMap((id, cell) => (id === '' ? [cell] : [])),
     mutations: state.config.mutations,
     mutationReward: mutationEffects(state.config.mutations).reward,
+    event: state.event ?? null,
     width: state.board.width,
     height: state.board.height,
     rooms,
@@ -363,10 +387,9 @@ export function toView(state: CzState, role: CzRole): CzView {
           hands: me.hands,
           gear: me.gear,
           bag: me.bag,
-          freeSearchAvailable:
-            !me.freeSearchUsed &&
-            (heroDef(me.heroId).ability === 'scavenger' ||
-              me.gear.some((item) => item !== null && item.def === 'flashlight'))
+          // The gear flag, not an item id: a biome that calls its torch something
+          // else must still light the button. See hasTorch.
+          freeSearchAvailable: !me.freeSearchUsed && hasTorch(me)
         }
       : undefined,
     gmBudget: role.kind === 'gm' ? state.gmBudget : undefined,
@@ -540,9 +563,40 @@ export interface CzClientToServer {
   'cz:action': (payload: unknown, ack: (response: CzActionAck) => void) => void;
   'cz:gmAction': (payload: unknown, ack: (response: CzActionAck) => void) => void;
   'cz:gmEnd': (payload: { gmToken: string }) => void;
+  /**
+   * Hands the rest of the horde to the server's own brain, paced exactly as the
+   * AI mode paces it.
+   *
+   * By turn eight a game master has thirty creatures and forty-five seconds, and
+   * the only tools were one tap per room per creature. The two ways out were both
+   * bad: let the clock expire, which silently wastes the whole horde's turn, or
+   * concede. This is the third — the horde still plays, competently, and the
+   * evening keeps its shape. It is a pacing command rather than a `GmAction`
+   * because it resolves over several beats and broadcasts between them, which is
+   * `gmEnd`'s category and not `applyGmAction`'s.
+   */
+  'cz:gmAuto': (payload: { gmToken: string }) => void;
+  /**
+   * Another raid for the same table: same code, same seats, new world.
+   *
+   * Host-only, and only from a finished raid. Keeping the code is the whole trick —
+   * every phone in the room already holds its seat token, so a rematch costs one
+   * tap instead of a walk back through setup and a round of re-joining.
+   */
+  'cz:rematch': (payload: { hostToken: string }) => void;
 }
 
 export interface CzServerToClient {
   'cz:state': (view: CzView) => void;
+  /**
+   * What the raid just paid, once, when it ends.
+   *
+   * Sent rather than folded into `CzView` because it is not state: it is the
+   * difference between two careers, it exists for exactly one moment (the session
+   * is deleted straight after), and every recipient needs a different row of it.
+   * The whole list goes to every participant so a table can read each other's
+   * unlocks out loud, which is most of the fun of a payoff screen.
+   */
+  'cz:rewards': (rewards: CzRaidReward[]) => void;
   'cz:error': (payload: { message: string }) => void;
 }

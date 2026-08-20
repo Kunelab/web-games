@@ -13,6 +13,21 @@ import {
   type CzState
 } from 'coronaz-core';
 import type { FastifyInstance } from 'fastify';
+import {
+  chatRules,
+  mafiaActionSchema,
+  mafiaBallotSchema,
+  mafiaChatSchema,
+  mafiaDayActionSchema,
+  mafiaJoinSchema,
+  mafiaVoteSchema,
+  mafiaWhisperSchema,
+  mafiaWillSchema,
+  toMafiaView,
+  type MafiaClientToServer,
+  type MafiaServerToClient,
+  type MafiaState
+} from 'mafia-core';
 
 import { accountOf } from './account.js';
 import {
@@ -29,6 +44,7 @@ import type { GameManager } from '../game/manager.js';
 import { joinSession, revealChoices, submitAnswer, type SessionState } from '../game/session.js';
 import { careerKey, czCareerService } from '../services/cz-career-service.js';
 import { resultsService } from '../services/results-service.js';
+import type { MafiaManager } from '../mafia/manager.js';
 import type { CzManager } from '../zombie/manager.js';
 
 /** Per-connection bookkeeping, kept out of the game state. */
@@ -39,14 +55,18 @@ interface SocketData {
   /** CoronaZ attachment: one socket is in at most one raid, in one role. */
   czCode?: string;
   czRole?: CzRole;
+  /** Mafia attachment: a seat, or the host screen. */
+  mafiaCode?: string;
+  mafiaPlayerId?: string;
+  mafiaHost?: boolean;
 }
 
-type AllClientToServer = ClientToServerEvents & CzClientToServer;
-type AllServerToClient = ServerToClientEvents & CzServerToClient;
+type AllClientToServer = ClientToServerEvents & CzClientToServer & MafiaClientToServer;
+type AllServerToClient = ServerToClientEvents & CzServerToClient & MafiaServerToClient;
 
 type GameSocket = Socket<AllClientToServer, AllServerToClient, Record<string, never>, SocketData>;
 
-export function registerRealtime(app: FastifyInstance, games: GameManager, cz: CzManager): SocketServer {
+export function registerRealtime(app: FastifyInstance, games: GameManager, cz: CzManager, mafia: MafiaManager): SocketServer {
   const io: SocketServer<AllClientToServer, AllServerToClient, Record<string, never>, SocketData> = new SocketServer(
     app.server,
     {
@@ -85,6 +105,60 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
   }
 
   cz.onTransition(czBroadcast);
+
+  /**
+   * The payoff, once, to everyone who was in the raid.
+   *
+   * The whole list goes to each participant rather than one row each: reading out
+   * what everybody unlocked is most of what an end-of-raid screen is for, and
+   * there is nothing private in a trophy.
+   */
+  cz.onRewards((state, rewards) => {
+    for (const socket of io.sockets.sockets.values()) {
+      if (socket.data.czCode !== state.code || !socket.data.czRole) continue;
+      socket.emit('cz:rewards', rewards);
+    }
+  });
+
+  /**
+   * Mafia: the projection-per-recipient rule matters more here than anywhere
+   * else in the codebase — a shared payload would hand the wolves to the town.
+   * Each socket gets its own `toMafiaView`; the chat event below additionally
+   * checks channel visibility per recipient before delivering a single line.
+   */
+  function mafiaBroadcast(state: MafiaState): void {
+    for (const socket of io.sockets.sockets.values()) {
+      const data = socket.data;
+      if (data.mafiaCode !== state.code) continue;
+      if (data.mafiaPlayerId) {
+        socket.emit('mafia:state', toMafiaView(state, { kind: 'player', playerId: data.mafiaPlayerId }));
+      } else if (data.mafiaHost) {
+        socket.emit('mafia:state', toMafiaView(state, { kind: 'host' }));
+      }
+    }
+  }
+
+  mafia.onTransition(mafiaBroadcast);
+
+  mafia.onMessage((state, message) => {
+    const rules = chatRules();
+    for (const socket of io.sockets.sockets.values()) {
+      const data = socket.data;
+      if (data.mafiaCode !== state.code) continue;
+      if (data.mafiaPlayerId) {
+        if (rules.canRead(message.channel, data.mafiaPlayerId, state)) socket.emit('mafia:message', message);
+      } else if (data.mafiaHost && message.channel === 'day') {
+        socket.emit('mafia:message', message);
+      }
+    }
+  });
+
+  mafia.onRewards((state, rewards) => {
+    for (const socket of io.sockets.sockets.values()) {
+      if (socket.data.mafiaCode !== state.code) continue;
+      socket.emit('mafia:rewards', rewards);
+    }
+  });
 
   /** Probes per measurement pass; the lowest is kept. */
   const RTT_PROBES = 3;
@@ -678,10 +752,196 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
       });
     });
 
+    /* The horde finishes itself, at the AI's pace. Same token check as gmEnd:
+       only the phone holding the game master's token may drive the horde. */
+    socket.on('cz:gmAuto', (payload) => {
+      const { czCode } = socket.data;
+      const state = czCode ? cz.get(czCode) : undefined;
+      if (!state || payload?.gmToken !== state.gmToken) return;
+
+      cz.gmAuto(state.code);
+    });
+
+    /* Again, same table. Host token only: a guest must not be able to wipe the
+       scoreboard everyone is still reading. */
+    socket.on('cz:rematch', (payload) => {
+      const { czCode } = socket.data;
+      const state = czCode ? cz.get(czCode) : undefined;
+      if (!state || payload?.hostToken !== state.hostToken) return;
+
+      void cz.rematch(state.code).catch((error: unknown) => {
+        app.log.error({ err: error, code: state.code }, 'CoronaZ rematch failed');
+      });
+    });
+
+    /* -------------------------------- Mafia -------------------------------- */
+
+    socket.on('mafia:join', (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const parsed = mafiaJoinSchema.safeParse(payload);
+      if (!parsed.success) {
+        respond({ ok: false, error: parsed.error.issues[0]?.message ?? 'Requête invalide' });
+        return;
+      }
+
+      const state = mafia.get(parsed.data.code.trim().toUpperCase());
+      if (!state) {
+        respond({ ok: false, error: 'Aucune partie avec ce code' });
+        return;
+      }
+
+      void (async () => {
+        try {
+          const account = await accountOf(app, socket).catch(() => null);
+          const { player } = mafia.join(state.code, parsed.data.name, parsed.data.playerToken, account ?? undefined);
+          socket.data.mafiaCode = state.code;
+          socket.data.mafiaPlayerId = player.playerId;
+          socket.data.mafiaHost = false;
+          void socket.join(`mafia:${state.code}`);
+          mafia.markConnected(state.code, player.playerId, true);
+          respond({
+            ok: true,
+            playerId: player.playerId,
+            playerToken: player.token,
+            view: toMafiaView(state, { kind: 'player', playerId: player.playerId })
+          });
+        } catch (error) {
+          respond({ ok: false, error: error instanceof Error ? error.message : 'Impossible de rejoindre' });
+        }
+      })();
+    });
+
+    socket.on('mafia:host', (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const code = typeof payload?.code === 'string' ? payload.code.trim().toUpperCase() : '';
+      const state = mafia.get(code);
+      if (!state || payload?.hostToken !== state.hostToken) {
+        respond({ ok: false, error: 'Aucune partie avec ce code' });
+        return;
+      }
+      socket.data.mafiaCode = code;
+      socket.data.mafiaPlayerId = undefined;
+      socket.data.mafiaHost = true;
+      void socket.join(`mafia:${code}`);
+      respond({ ok: true, view: toMafiaView(state, { kind: 'host' }) });
+      // Same lesson as every host screen in this file: push, never wait.
+      socket.emit('mafia:state', toMafiaView(state, { kind: 'host' }));
+    });
+
+    socket.on('mafia:start', (payload) => {
+      const { mafiaCode } = socket.data;
+      const state = mafiaCode ? mafia.get(mafiaCode) : undefined;
+      if (!state || payload?.hostToken !== state.hostToken) {
+        socket.emit('mafia:error', { message: "Action réservée à l'hôte" });
+        return;
+      }
+      try {
+        mafia.start(state.code);
+      } catch (error) {
+        socket.emit('mafia:error', { message: error instanceof Error ? error.message : 'Impossible de lancer' });
+      }
+    });
+
+    socket.on('mafia:addBots', (payload) => {
+      const { mafiaCode } = socket.data;
+      const state = mafiaCode ? mafia.get(mafiaCode) : undefined;
+      if (!state || payload?.hostToken !== state.hostToken) return;
+      const count = typeof payload.count === 'number' ? Math.max(0, Math.min(23, Math.floor(payload.count))) : 0;
+      try {
+        mafia.addBots(state.code, count);
+      } catch (error) {
+        socket.emit('mafia:error', { message: error instanceof Error ? error.message : 'Impossible' });
+      }
+    });
+
+    /** Seat-authenticated mutations share one guard, like the host actions above. */
+    function withMafiaSeat<T>(
+      ack: unknown,
+      parse: () => T | null,
+      run: (code: string, playerId: string, payload: T) => { ok: boolean; error?: string }
+    ): void {
+      const respond = typeof ack === 'function' ? (ack as (r: { ok: boolean; error?: string }) => void) : () => undefined;
+      const { mafiaCode, mafiaPlayerId } = socket.data;
+      if (!mafiaCode || !mafiaPlayerId) {
+        respond({ ok: false, error: "Vous n'êtes pas à une table" });
+        return;
+      }
+      const payload = parse();
+      if (payload === null) {
+        respond({ ok: false, error: 'Requête invalide' });
+        return;
+      }
+      respond(run(mafiaCode, mafiaPlayerId, payload));
+    }
+
+    socket.on('mafia:chat', (payload, ack) => {
+      withMafiaSeat(
+        ack,
+        () => (mafiaChatSchema.safeParse(payload).success ? mafiaChatSchema.parse(payload) : null),
+        (code, playerId, data) => mafia.playerChat(code, playerId, data.channel, data.text)
+      );
+    });
+
+    socket.on('mafia:vote', (payload, ack) => {
+      withMafiaSeat(
+        ack,
+        () => (mafiaVoteSchema.safeParse(payload).success ? mafiaVoteSchema.parse(payload) : null),
+        (code, playerId, data) => mafia.vote(code, playerId, data.targetSlot)
+      );
+    });
+
+    socket.on('mafia:ballot', (payload, ack) => {
+      withMafiaSeat(
+        ack,
+        () => (mafiaBallotSchema.safeParse(payload).success ? mafiaBallotSchema.parse(payload) : null),
+        (code, playerId, data) => mafia.ballot(code, playerId, data.verdict)
+      );
+    });
+
+    socket.on('mafia:action', (payload, ack) => {
+      withMafiaSeat(
+        ack,
+        () => (mafiaActionSchema.safeParse(payload).success ? mafiaActionSchema.parse(payload) : null),
+        (code, playerId, data) => mafia.nightAction(code, playerId, data.targetSlot, data.secondTargetSlot)
+      );
+    });
+
+    socket.on('mafia:whisper', (payload, ack) => {
+      withMafiaSeat(
+        ack,
+        () => (mafiaWhisperSchema.safeParse(payload).success ? mafiaWhisperSchema.parse(payload) : null),
+        (code, playerId, data) => mafia.whisper(code, playerId, data.targetSlot, data.text)
+      );
+    });
+
+    socket.on('mafia:dayAction', (payload, ack) => {
+      withMafiaSeat(
+        ack,
+        () => (mafiaDayActionSchema.safeParse(payload).success ? mafiaDayActionSchema.parse(payload) : null),
+        (code, playerId, data) => mafia.dayAction(code, playerId, data)
+      );
+    });
+
+    socket.on('mafia:will', (payload, ack) => {
+      withMafiaSeat(
+        ack,
+        () => (mafiaWillSchema.safeParse(payload).success ? mafiaWillSchema.parse(payload) : null),
+        (code, playerId, data) => mafia.will(code, playerId, data.text)
+      );
+    });
+
     socket.on('disconnect', () => {
       handleDisconnect(socket);
       czHandleDisconnect(socket);
+      mafiaHandleDisconnect(socket);
     });
+
+    /** Same policy as everywhere: the seat survives, only its light goes out. */
+    function mafiaHandleDisconnect(current: GameSocket): void {
+      const { mafiaCode, mafiaPlayerId } = current.data;
+      if (!mafiaCode || !mafiaPlayerId) return;
+      mafia.markConnected(mafiaCode, mafiaPlayerId, false);
+    }
 
     /** Same policy as the quizzes: the seat survives, only its light goes out. */
     function czHandleDisconnect(current: GameSocket): void {

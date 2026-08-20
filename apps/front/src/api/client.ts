@@ -32,7 +32,7 @@ export function onUnauthorized(listener: Listener): () => void {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal;
   /** Skips the global 401 handling, for the session probe on page load. */
@@ -352,8 +352,39 @@ export const api = {
     request<{ code: string; hostToken: string; gmToken?: string; phase: string; scenario: string }[]>('/zombie/mine'),
   czCareers: () => request<CzCareer[]>('/zombie/careers'),
   czMe: () => request<CzCareer>('/zombie/me'),
-  czUnlockGm: (classId: string) => request<CzCareer>('/zombie/unlock', { method: 'POST', body: { classId } })
+  czUnlockGm: (classId: string) => request<CzCareer>('/zombie/unlock', { method: 'POST', body: { classId } }),
+
+  /* Mafia */
+  mafiaCreate: (config?: {
+    maxPlayers?: number;
+    dayMs?: number;
+    nightMs?: number;
+    setup?: { mode: 'auto' } | { mode: 'chaos' } | { mode: 'preset'; presetId: string } | { mode: 'custom'; slots: string[] };
+  }) => request<{ code: string; hostToken: string }>('/mafia/sessions', { method: 'POST', body: { config } }),
+  mafiaSetups: () => request<{ id: string; name: string; description: string; slots: string[] }[]>('/mafia/setups'),
+  mafiaTemplates: () => request<{ name: string; slots: string[] }[]>('/mafia/templates'),
+  mafiaSaveTemplate: (name: string, slots: string[]) =>
+    request<void>('/mafia/templates', { method: 'PUT', body: { name, slots } }),
+  mafiaDeleteTemplate: (name: string) => request<void>(`/mafia/templates/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  mafiaSummary: (code: string) =>
+    request<{ code: string; phase: string; players: number; maxPlayers: number }>(`/mafia/sessions/${code}`, {
+      allowAnonymous: true
+    }),
+  mafiaEnd: (code: string) => request<void>(`/mafia/sessions/${code}`, { method: 'DELETE' }),
+  mafiaMine: () => request<{ code: string; hostToken: string; phase: string; players: number }[]>('/mafia/mine'),
+  mafiaMe: () => request<MafiaCareer>('/mafia/me')
 };
+
+/** One nickname's Mafia wallet: the points the store will spend. */
+export interface MafiaCareer {
+  points: number;
+  games: number;
+  wins: number;
+  soloWins: number;
+  kills: number;
+  survived: number;
+  unlocked: string[];
+}
 
 /** One nickname's CoronaZ roguelite ledger. */
 export interface CzCareer {

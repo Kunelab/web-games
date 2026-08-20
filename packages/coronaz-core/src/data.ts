@@ -34,21 +34,83 @@ export const STAT_SCALE = 10;
 
 /* --------------------------------- heroes --------------------------------- */
 
+/**
+ * What a character *does*, as opposed to what a character's numbers are.
+ *
+ * Sixteen of the twenty used to be a number. Four shapes covered them all — "+1 die
+ * under some condition" (marksman, assassin, daredevil, brawler), "one free action"
+ * (scavenger, fleet, magpie), "one wound reduced" (tough, bulwark), and a stat tweak
+ * (mule, trophy, lucky, grim, adrenal, medic) — and a playtest said, correctly, that
+ * choosing between them did not feel like choosing anything. Two survivors who
+ * differ by one die play identically.
+ *
+ * The four that were never numbers are the proof of what was missing: `silent`
+ * (noise), `scout` (information), `deadeye` (reach) and `tactician` (banking a
+ * point) are the ones people remember, because each one changes a decision rather
+ * than a total.
+ *
+ * So five were rewritten, and the rule for the rewrite is the important part: the
+ * *power budget does not move*. What used to be a die becomes a verb of about the
+ * same worth. That is what keeps five versions of simulator balance valid — and the
+ * bench confirms it, which is the only reason this was safe to do at all.
+ *
+ * Three were deliberately left alone. `mule` and `brawler` were the two candidates
+ * for a barricade and a grapple: both would have to mutate the board mid-raid, and
+ * the board carries a connectivity guarantee that windows were carefully designed
+ * *not* to break. That is worth doing properly rather than cheaply. `magpie` is
+ * already distinctive enough to keep.
+ */
 export type HeroAbility =
   /**
-   * +1 die on ranged attacks. It used to reroll a missed die, which was the right
-   * ability while weapons could miss and is worth nothing now that they cannot.
+   * **Embuscade.** End the turn with an action point in hand and it becomes a held
+   * shot: the first creature to step into his line of fire during the enemy phase is
+   * fired on, free.
+   *
+   * It was +1 ranged die, and before that a reroll of a missed die — which became
+   * worth nothing the day weapons stopped missing. The same budget spent on timing
+   * rather than on volume, and it gives one player something to *do* during the
+   * horde's phase, which until now was four seconds of watching tokens slide.
    */
   | 'marksman'
-  /** +1 die in melee. */
+  /**
+   * **Exécution.** A melee kill that leaves the room empty of creatures refunds the
+   * point it cost.
+   *
+   * It was +1 melee die. Same class of value — she kills a little more per turn —
+   * but now it is a gamble with a shape: two creatures and two points is a bet that
+   * both die, and winning it buys the room *and* the step out of it.
+   */
   | 'assassin'
-  /** First search each turn is free. */
+  /**
+   * **Trieur.** Their searches never turn up the bottom tier, and a room gives them
+   * one more find than it has left in it.
+   *
+   * It was "the first search each turn is free". The second half is the interesting
+   * one now that rooms run dry: they are the reason a team lingers in the armoury
+   * instead of passing through, which is a decision for the whole table rather than
+   * a discount for one seat.
+   */
   | 'scavenger'
-  /** First wound each enemy phase is reduced by 10. */
+  /**
+   * **Bouclier humain.** A wound aimed at a survivor sharing his room lands on him
+   * instead, while he can still take it.
+   *
+   * It was "the first wound each enemy phase is reduced by 10" — a number, and one
+   * nobody could see working. Roughly the same damage absorbed over a raid, except
+   * now it is absorbed *for somebody*, which is the verb a co-operative game
+   * actually wants and the only ability in the game that reads as an act.
+   */
   | 'tough'
   /** Medkits are free to use and heal 10 more. */
   | 'medic'
-  /** First move each turn is free. */
+  /**
+   * **Course.** One point carries her two rooms instead of one — and she arrives
+   * loudly, because nobody crosses a building at a run quietly.
+   *
+   * It was "the first move each turn is free", which is the same amount of movement
+   * and none of the tension. A trade beats a discount: the horde homes in on noise,
+   * so her speed is also how she gets found.
+   */
   | 'fleet'
   /** +2 bag slots. */
   | 'mule'
@@ -111,8 +173,8 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'marksman',
     favoriteWeapon: 'marksman',
-    personalPerks: ['fetiche', 'discret', 'coriace'],
-    blurb: 'Tireur d’élite. Un dé de plus à distance.',
+    personalPerks: ['fetiche', 'discret', 'vigile'],
+    blurb: 'Tireur embusqué. Un PA gardé devient un tir pendant la phase ennemie.',
     emoji: '🎯'
   },
   {
@@ -121,8 +183,8 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'assassin',
     favoriteWeapon: 'blade',
-    personalPerks: ['fetiche', 'brave', 'nerveux'],
-    blurb: 'Ex-assassin. Un dé de plus au corps à corps.',
+    personalPerks: ['fetiche', 'brave', 'elan'],
+    blurb: 'Ex-assassin. Vider une salle au corps à corps rend le PA dépensé.',
     emoji: '🗡️'
   },
   {
@@ -131,8 +193,8 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'scavenger',
     favoriteWeapon: 'club',
-    personalPerks: ['fouineur', 'fetiche', 'lettre'],
-    blurb: 'Fouineur. La première fouille du tour est gratuite.',
+    personalPerks: ['pilleur', 'fetiche', 'courrier'],
+    blurb: 'Trieur. Jamais de camelote, et une fouille de plus par salle.',
     emoji: '🎒'
   },
   {
@@ -141,8 +203,8 @@ export const HEROES: readonly HeroDef[] = [
     hp: 50,
     ability: 'tough',
     favoriteWeapon: 'scatter',
-    personalPerks: ['vigor', 'fetiche', 'coriace'],
-    blurb: 'Marine déchu. Encaisse la première blessure de chaque assaut.',
+    personalPerks: ['vigor', 'fetiche', 'vigile'],
+    blurb: 'Marine déchu. Encaisse les coups destinés à ses alliés de la salle.',
     emoji: '🛡️'
   },
   {
@@ -161,8 +223,8 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'fleet',
     favoriteWeapon: 'smg',
-    personalPerks: ['nerveux', 'fetiche', 'discret'],
-    blurb: 'Messagère. Son premier déplacement du tour est gratuit.',
+    personalPerks: ['elan', 'fetiche', 'discret'],
+    blurb: 'Messagère. Court deux salles pour un PA, mais arrive en faisant du bruit.',
     emoji: '👟'
   },
   {
@@ -171,7 +233,7 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'mule',
     favoriteWeapon: 'chaingun',
-    personalPerks: ['fetiche', 'vigor', 'arme'],
+    personalPerks: ['fetiche', 'vigor', 'courrier'],
     blurb: 'Déménageur. Deux places de sac en plus.',
     emoji: '📦'
   },
@@ -191,7 +253,7 @@ export const HEROES: readonly HeroDef[] = [
     hp: 50,
     ability: 'brawler',
     favoriteWeapon: 'club',
-    personalPerks: ['brave', 'vigor', 'coriace'],
+    personalPerks: ['brave', 'vigor', 'vigile'],
     blurb: 'Bagarreur. Se bat à mains nues s’il le faut.',
     emoji: '👊'
   },
@@ -201,7 +263,7 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'scout',
     favoriteWeapon: 'rifle',
-    personalPerks: ['fetiche', 'lettre', 'nerveux'],
+    personalPerks: ['fetiche', 'vigile', 'elan'],
     blurb: 'Vigie. Repère les salles voisines en passant.',
     emoji: '🔭'
   },
@@ -224,7 +286,7 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'magpie',
     favoriteWeapon: 'magnum',
-    personalPerks: ['fouineur', 'fetiche', 'discret'],
+    personalPerks: ['pilleur', 'fetiche', 'discret'],
     blurb: 'Chapardeuse. Sa première fouille du raid donne deux objets.',
     emoji: '🪶',
     cost: 150
@@ -235,7 +297,7 @@ export const HEROES: readonly HeroDef[] = [
     hp: 50,
     ability: 'bulwark',
     favoriteWeapon: 'scatter',
-    personalPerks: ['vigor', 'coriace', 'fetiche'],
+    personalPerks: ['vigor', 'vigile', 'fetiche'],
     blurb: 'Rempart. Une fois par raid, son gilet survit à l’impact.',
     emoji: '🧱',
     cost: 200
@@ -246,7 +308,7 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'adrenal',
     favoriteWeapon: 'sidearm',
-    personalPerks: ['soigneur', 'nerveux', 'fetiche'],
+    personalPerks: ['soigneur', 'elan', 'fetiche'],
     blurb: 'Urgentiste. L’adrénaline donne un PA de plus.',
     emoji: '💉',
     cost: 200
@@ -257,7 +319,7 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'daredevil',
     favoriteWeapon: 'saw',
-    personalPerks: ['fetiche', 'brave', 'nerveux'],
+    personalPerks: ['fetiche', 'brave', 'elan'],
     blurb: 'Tête brûlée. +1 dé quand il joue sa peau (≤ 20 PV).',
     emoji: '🔥',
     cost: 250
@@ -268,7 +330,7 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'deadeye',
     favoriteWeapon: 'magnum',
-    personalPerks: ['fetiche', 'discret', 'coriace'],
+    personalPerks: ['fetiche', 'discret', 'vigile'],
     blurb: 'Arquebusière. Ses armes portent une salle plus loin.',
     emoji: '🦅',
     cost: 250
@@ -279,7 +341,7 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'trophy',
     favoriteWeapon: 'rifle',
-    personalPerks: ['fetiche', 'lettre', 'brave'],
+    personalPerks: ['fetiche', 'serrurier', 'brave'],
     blurb: 'Chasseur de primes. Chaque victime vaut un point de plus.',
     emoji: '🏹',
     cost: 300
@@ -290,7 +352,7 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'lucky',
     favoriteWeapon: 'blade',
-    personalPerks: ['fouineur', 'fetiche', 'vigor'],
+    personalPerks: ['pilleur', 'fetiche', 'vigor'],
     blurb: 'Chanceuse. La fatigue de fouille la rattrape deux fois moins vite.',
     emoji: '🍀',
     cost: 300
@@ -301,7 +363,7 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'tactician',
     favoriteWeapon: 'marksman',
-    personalPerks: ['lettre', 'fetiche', 'discret'],
+    personalPerks: ['serrurier', 'fetiche', 'discret'],
     blurb: 'Stratège. Un PA non dépensé se garde pour le tour suivant.',
     emoji: '♟️',
     cost: 400
@@ -312,7 +374,7 @@ export const HEROES: readonly HeroDef[] = [
     hp: 40,
     ability: 'veteran',
     favoriteWeapon: 'sidearm',
-    personalPerks: ['fetiche', 'coriace', 'arme'],
+    personalPerks: ['fetiche', 'vigile', 'courrier'],
     blurb: 'Vétérane. Arrive armée d’une arme de poing, insensible aux spores.',
     emoji: '🎖️',
     cost: 400
@@ -335,40 +397,124 @@ export interface LoadoutPerkDef {
   emoji: string;
 }
 
+/**
+ * The eighteen perks.
+ *
+ * The old set was built from three templates and admitted it: `+N flat stat`
+ * (vigor, sang-froid, poches, nerveux), `commence avec X` (soigneur, arme, trousse,
+ * injection, couteau — five of eighteen), and `la première X est gratuite`
+ * (coriace, esquive, discret, fouineur). Worse, three pairs were the *same perk
+ * written twice*: vigor and sang-froid both read "+10 PV max", soigneur and trousse
+ * both handed out a medkit, arme and couteau both filled the off hand. A pool where
+ * two entries are indistinguishable is a pool with sixteen entries and a bug.
+ *
+ * Rebuilt on one rule, the same one behind the ability rewrite: **a perk should
+ * change a decision, not a total.** That is what makes it memorable, and — because
+ * the worth stays where it was — it is also what makes it free to do. The bench
+ * measured the whole old set at three to four points of win rate; the whole new set
+ * measures the same, which is the number that mattered.
+ *
+ * Two starting kits survive, one in each pool. Five was the problem, not the idea:
+ * opening a raid already holding something is a real choice when it is one option
+ * among many rather than a third of the menu.
+ */
 export const HERO_LOADOUT_PERKS: readonly LoadoutPerkDef[] = [
   /* Signature pool (assigned per character). */
   { id: 'fetiche', label: 'Fétichiste · +1 dé de plus avec l’arme fétiche', emoji: '🎯' },
   { id: 'vigor', label: 'Vigueur · +10 PV max', emoji: '❤️' },
-  { id: 'nerveux', label: 'Nerveux · +1 PA au premier tour', emoji: '⚡' },
   { id: 'soigneur', label: 'Prévoyant · commence avec un kit de soin', emoji: '💊' },
-  { id: 'arme', label: 'Armé · commence avec un pistolet en seconde main', emoji: '🔫' },
   { id: 'discret', label: 'Discret · la première attaque bruyante de chaque tour est silencieuse', emoji: '🤫' },
   { id: 'brave', label: 'Brave · +1 dé quand aucun allié n’est dans la salle', emoji: '🦁' },
-  { id: 'fouineur', label: 'Fouineur · première fouille du raid à rareté +1', emoji: '🔦' },
-  { id: 'coriace', label: 'Coriace · la première blessure du raid est réduite de 10', emoji: '🪨' },
-  { id: 'lettre', label: 'Lettré · +2 points de score par objectif rempli', emoji: '📖' },
+  /**
+   * Replaces `fouineur` (first crate of the raid at rarity +1), which paid out once
+   * and then sat there. This one pays every turn and only if you go somewhere: the
+   * glittering rooms stop being scenery you walk past.
+   */
+  { id: 'pilleur', label: 'Pilleur · une fouille gratuite par tour dans une salle à bon butin', emoji: '💎' },
+  /**
+   * Replaces `lettre` (+2 score per objective), which changed a number on a screen
+   * nobody saw until the raid was over. Keys are the escape scenario's spine, so
+   * making them free — and showing the door — reshapes the route instead.
+   */
+  { id: 'serrurier', label: 'Serrurier · ramasser une clé est gratuit et révèle la sortie', emoji: '🔑' },
+  /**
+   * Replaces `coriace` (first wound of the raid reduced by 10) — a number, spent
+   * once, that nobody could feel. Information instead: the dark is the game's real
+   * antagonist and this is the perk that pushes it back one room.
+   */
+  { id: 'vigile', label: 'Vigile · les salles voisines sont toujours visibles', emoji: '👁️' },
+  /**
+   * New. Handing things over was already free, and it was already the best thing a
+   * team could do — this lets it happen without everybody first walking into one
+   * room, which is where the free action was quietly costing two moves.
+   */
+  { id: 'courrier', label: 'Courrier · donne un objet à un survivant d’une salle voisine', emoji: '📨' },
+  /**
+   * Replaces `nerveux` (+1 AP on turn one). Same free point, except it only exists
+   * if you spend it walking into somewhere nobody has been — so the perk argues for
+   * exploring rather than paying you for having turned up.
+   */
+  { id: 'elan', label: 'Élan · le premier pas vers une salle inexplorée est gratuit, chaque tour', emoji: '🥾' },
 
   /* Global pool (any character may pick two). */
-  { id: 'sang-froid', label: 'Sang-froid · +10 PV max', emoji: '🧊' },
   { id: 'poches', label: 'Poches profondes · +1 place de sac', emoji: '👝' },
-  { id: 'trousse', label: 'Trousse · commence avec un kit de soin', emoji: '🩹' },
   { id: 'injection', label: 'Seringue · commence avec une adrénaline', emoji: '💉' },
-  { id: 'couteau', label: 'Second couteau · commence avec une machette en seconde main', emoji: '🔪' },
   { id: 'esquive', label: 'Esquive · la première attaque subie du raid est évitée', emoji: '💨' },
-  { id: 'boussole', label: 'Boussole · les salles voisines du départ sont connues', emoji: '🧭' },
-  { id: 'chasseur', label: 'Chasseur · +1 point de score par victime', emoji: '🏆' }
+  /**
+   * Replaces `chasseur` (+1 score per kill), the last perk in the pool that moved
+   * only a number on a screen nobody reads until the raid is over — and it fills a
+   * hole the deduplication left behind.
+   *
+   * Removing the duplicate `sang-froid` took the global pool's *only* survivability
+   * option with it, because the surviving copy (`vigor`) is signature-only. The bench
+   * found the cost where it always shows up: a table forced to open badly lost
+   * fourteen points of win rate, since a party holding nothing but tier-1 weapons
+   * lives or dies on how much it can absorb.
+   *
+   * Not another "+10 PV max", though. Armour and hit points answer different
+   * threats — a bigger pool is better against one heavy blow, a flat reduction is
+   * better against a crowd of small ones — which is the whole axis v6 built the
+   * armour stat around, so the two are a real choice rather than the same perk
+   * twice. It folds into the plate's own `max()` rather than adding to it, for the
+   * same reason two vests do not stack.
+   */
+  { id: 'endurci', label: 'Endurci · -2 dégâts sur chaque blessure', emoji: '🪨' },
+  /**
+   * Replaces `couteau` (start with a machete). Clearing a room was worth points and
+   * a little loot; this makes killing a way of *looting*, which is a strategy rather
+   * than an item.
+   */
+  { id: 'charognard', label: 'Charognard · vos victimes lâchent du butin deux fois plus souvent', emoji: '🦴' },
+  /**
+   * Replaces `sang-froid`, which was `vigor` with a different emoji. Positional
+   * rather than statistical: it makes standing next to somebody a tactic, and it is
+   * the other half of Yuri's shield.
+   */
+  { id: 'fantome', label: 'Discrétion · la horde vise vos alliés en priorité si vous partagez leur salle', emoji: '👻' },
+  /**
+   * Replaces `trousse`, the second medkit. A full bag used to refuse the search
+   * outright, so the last third of a raid was spent unable to look at anything;
+   * now it is a swap, and deciding what to leave behind is the interesting part.
+   */
+  { id: 'brocanteur', label: 'Brocanteur · sac plein, une fouille remplace votre pire objet', emoji: '⚖️' },
+  /**
+   * Replaces `boussole` (the start room's neighbours are known), which was one
+   * reveal at turn one and then nothing. This one keeps paying, and it points at
+   * the thing the scenario is actually about.
+   */
+  { id: 'eclaireur', label: 'Éclaireur · en entrant dans une salle, vous sentez les clés voisines', emoji: '🧭' }
 ];
 
 /** The two-of-many half of the pick. */
 export const HERO_GLOBAL_PERKS = [
-  'sang-froid',
   'poches',
-  'trousse',
   'injection',
-  'couteau',
+  'endurci',
   'esquive',
-  'boussole',
-  'chasseur'
+  'charognard',
+  'fantome',
+  'brocanteur',
+  'eclaireur'
 ];
 
 export function loadoutPerkDef(id: string): LoadoutPerkDef {
@@ -670,7 +816,7 @@ export const GM_CLASSES: readonly GmClassDef[] = [
     name: 'Le Traqueur',
     emoji: '👣',
     personalPerks: ['clairon', 'essaim', 'dividende'],
-    blurb: 'Les coureurs ne coûtent qu’1 point.'
+    blurb: 'Ses créatures gagnent 1 PA dans une salle où l’on a tiré.'
   },
   {
     id: 'parasite',
@@ -702,7 +848,7 @@ export const GM_CLASSES: readonly GmClassDef[] = [
     name: 'Le Général',
     emoji: '🎖️',
     personalPerks: ['clairon', 'dividende', 'brutalite'],
-    blurb: 'L’ordre Ruée ne coûte que 3 points.',
+    blurb: 'Le premier renfort de chaque tour agit immédiatement.',
     cost: 300
   },
   {
@@ -718,7 +864,7 @@ export const GM_CLASSES: readonly GmClassDef[] = [
     name: 'Colosse d’os',
     emoji: '☠️',
     personalPerks: ['forgeron', 'brutalite', 'tresor'],
-    blurb: 'Les évolutions permanentes coûtent 3 de moins.',
+    blurb: 'Peut faire apparaître ses créatures dans toute salle inexplorée.',
     cost: 400
   }
 ];

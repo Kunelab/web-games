@@ -20,10 +20,12 @@ import {
   createGame,
   gameConfigSchema,
   playerMindsetNames,
+  rematch,
   randomHeroLoadout,
   setLoadout,
   validGmLoadout,
   type ActionResult,
+  type CzRaidReward,
   type CzState,
   type GameConfig,
   type GmAction,
@@ -55,16 +57,30 @@ const AI_STEP_MS = 700;
 
 export type CzTransitionListener = (state: CzState) => void;
 
+/**
+ * Fired once when a raid's careers have been banked.
+ *
+ * Separate from the transition listener because it is not a state broadcast: it
+ * carries the difference between two careers, it happens exactly once per raid,
+ * and it must land *after* the write rather than on every phase change.
+ */
+export type CzRewardListener = (state: CzState, rewards: CzRaidReward[]) => void;
+
 export class CzManager {
   private readonly sessions = new Map<string, CzState>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private listener: CzTransitionListener | null = null;
+  private rewardListener: CzRewardListener | null = null;
   private sweepTimer: NodeJS.Timeout | undefined;
 
   constructor(private readonly log: FastifyBaseLogger) {}
 
   onTransition(listener: CzTransitionListener): void {
     this.listener = listener;
+  }
+
+  onRewards(listener: CzRewardListener): void {
+    this.rewardListener = listener;
   }
 
   get(code: string): CzState | undefined {
@@ -194,6 +210,35 @@ export class CzManager {
     this.sessions.set(state.code, state);
     await this.persist(state);
     return state;
+  }
+
+  /**
+   * Another raid for the same table, in the same slot.
+   *
+   * Only from a finished raid, and only with the host's token. The code and every
+   * seat token are kept, so every phone in the room is already holding the key to
+   * the new lobby: nothing is read out, nobody re-joins, nobody re-picks. New seed,
+   * so it is a new world — replaying a map is what the setup screen's seed field is
+   * for.
+   */
+  async rematch(code: string): Promise<CzState | null> {
+    const state = this.sessions.get(code);
+    if (!state) return null;
+    // A raid in progress is not a thing to restart out from under the table.
+    if (state.phase !== 'won' && state.phase !== 'lost') return null;
+
+    // Any pending AI beat belongs to the raid that just ended.
+    for (const key of [code, `ai:${code}`]) {
+      const timer = this.timers.get(key);
+      if (timer) clearTimeout(timer);
+      this.timers.delete(key);
+    }
+
+    const next = rematch(state, randomInt(2 ** 31));
+    this.sessions.set(next.code, next);
+    await this.persist(next);
+    this.listener?.(next);
+    return next;
   }
 
   async persist(state: CzState): Promise<void> {
@@ -379,6 +424,27 @@ export class CzManager {
     await this.afterTransition(state);
   }
 
+  /**
+   * The game master hands the rest of the horde to the server.
+   *
+   * Reuses `scheduleAiStep` verbatim, which is the whole point: the creatures the
+   * game master did not get to move play exactly as they would in AI mode, paced
+   * at the same beat, closing with reinforcements and the phase change. Nothing
+   * about the horde's competence depends on which hand moved it.
+   *
+   * A game master who runs out of clock instead loses the horde's whole turn in
+   * silence, and one who runs out of patience had only "concede" — so this is the
+   * difference between a raid that ends badly and a raid that ends.
+   */
+  gmAuto(code: string): void {
+    const state = this.sessions.get(code);
+    if (!state || state.phase !== 'enemy') return;
+    // Already handing over: a second tap must not start a second beat loop, or
+    // the horde would activate twice per tick.
+    if (this.timers.has(`ai:${code}`)) return;
+    this.scheduleAiStep(code);
+  }
+
   private async toEnemyPhase(state: CzState): Promise<void> {
     beginEnemyPhase(state);
     await this.afterTransition(state);
@@ -484,7 +550,11 @@ export class CzManager {
 
     // The careers first: trophies earned tonight should greet the next raid.
     const host = state.hostUserId === null ? undefined : await userService.getById(state.hostUserId);
-    await czCareerService.recordGame(state, host?.login ?? null);
+    const rewards = await czCareerService.recordGame(state, host?.login ?? null);
+    // And say so, before anyone puts the phone down. The rations were always
+    // banked and never shown, so the progression was invisible until the next
+    // lobby — which is a progression nobody has any reason to believe in.
+    if (rewards.length > 0) this.rewardListener?.(state, rewards);
 
     // Shared ranks on ties, same convention as the quiz leaderboard.
     let lastScore: number | null = null;

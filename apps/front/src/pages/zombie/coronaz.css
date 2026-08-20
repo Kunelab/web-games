@@ -68,9 +68,10 @@
   gap: 4px;
   z-index: 9000;
 }
+/* 2.75rem, not 2rem: these are pressed with a thumb on a dark board at night. */
 .cz-camera-controls button {
-  width: 2rem;
-  height: 2rem;
+  width: 2.75rem;
+  height: 2.75rem;
   display: grid;
   place-items: center;
   border: 1px solid var(--rule);
@@ -192,6 +193,71 @@
   outline: 3px solid var(--accent);
 }
 
+/*
+ * A thumb-sized tap target, whatever the camera is doing.
+ *
+ * The piece is 30 world pixels and the layer it lives in carries the camera's
+ * scale, so at the zoom that fits a district on a phone the creature is ten
+ * pixels of glass. Dividing 44px by the published zoom cancels the camera exactly,
+ * so the invisible target stays thumb-sized while the artwork keeps its place on
+ * the board. Never smaller than the piece itself, hence the `max`.
+ */
+.cz-token-zombie.tappable::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, calc(44px / var(--cz-zoom, 1)));
+  height: max(100%, calc(44px / var(--cz-zoom, 1)));
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+}
+
+/*
+ * Whether the tap will land.
+ *
+ * Movement targets have always glowed; attack targets did not, so the only way to
+ * learn a weapon's reach was to tap something and read the refusal off the bottom
+ * of the screen a round trip later. Line of sight through doorways on an isometric
+ * board is not something an eye computes, so combat played as random. Now the
+ * board answers before the tap.
+ */
+.cz-token-zombie.in-reach {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, #e5484d 70%, transparent),
+    0 0 12px 2px color-mix(in srgb, #e5484d 55%, transparent);
+}
+.cz-token-zombie.out-of-reach {
+  opacity: 0.42;
+  filter: grayscale(0.65);
+}
+.cz-token-zombie.out-of-reach .cz-token-foot {
+  opacity: 0.4;
+}
+
+/* Spent: the horde's half of the same idea, on the game master's screen. */
+.cz-token-zombie.spent {
+  opacity: 0.45;
+  filter: grayscale(0.8);
+}
+
+/* How many steps this creature has left, for the hand that has to move them all. */
+.cz-token-ap {
+  position: absolute;
+  top: -12%;
+  right: -12%;
+  min-width: 1.15em;
+  padding: 0 0.15em;
+  border-radius: var(--radius-pill);
+  background: #e5484d;
+  color: #fff;
+  font-size: 0.62em;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  pointer-events: none;
+}
+
 .cz-token-hp {
   position: absolute;
   left: 8%;
@@ -292,6 +358,27 @@
   color: var(--ink-soft);
   max-height: 12rem;
   overflow: hidden;
+}
+
+/*
+ * The same log on a phone: newest first, and it scrolls.
+ *
+ * Not `column-reverse` here. On the television the box is tall and fixed, so
+ * stacking upward puts the freshest line nearest the action; on a phone the box is
+ * short and the freshest line has to be the one you can see without scrolling.
+ */
+.cz-log.phone {
+  flex-direction: column;
+  max-height: 22dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
+.cz-log.phone li:first-child {
+  color: var(--ink);
 }
 
 .cz-timer {
@@ -448,6 +535,40 @@
 .cz-budget {
   font-weight: 700;
   color: #e5484d;
+}
+
+/* How much of the horde still owes a turn: the phase's own progress bar. */
+.cz-gm-queue {
+  font-weight: 700;
+  color: #e8c26a;
+}
+.cz-gm-queue.done {
+  color: var(--ok, #3fb950);
+}
+
+/*
+ * The game master's dock scrolls; the controls below it do not.
+ *
+ * The screen is `100dvh` with `overflow: hidden`, and the panels used to stack
+ * unbounded inside it. On a small phone that put "Finir la phase" under the fold
+ * with no scroll to reach it — the horde's most important control, unreachable
+ * exactly when the horde was at its biggest and the clock at its shortest. So the
+ * scrolling part is bounded and the deciding part is pinned outside it.
+ */
+.cz-gm .cz-gm-dock {
+  margin-top: auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.cz-gm-controls {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--rule);
 }
 
 /* ---------------------------------- end ----------------------------------- */
@@ -915,4 +1036,172 @@
   font-size: 0.72rem;
   white-space: nowrap;
   text-transform: lowercase;
+}
+
+/* ------------------------------ the payoff -------------------------------- */
+
+/*
+ * What the raid paid. It sits under the scoreboard on every screen that shows an
+ * ending, and it scrolls on its own: the verdict and the scores are what the room
+ * shouts about, this is what everyone reads on the way to asking for another one.
+ */
+.cz-rewards {
+  width: 100%;
+  max-width: 34rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.cz-rewards-title {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: var(--text-sm);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.cz-reward {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
+/* Your own row, lit: on a phone the fold is three rows down. */
+.cz-reward.mine {
+  border-color: var(--accent);
+}
+
+.cz-reward-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.cz-reward-name {
+  font-weight: 700;
+}
+.cz-reward-rations {
+  color: var(--ok, #3fb950);
+  font-weight: 700;
+}
+.cz-reward-total {
+  color: var(--ink-faint);
+  font-weight: 400;
+  font-size: 0.85em;
+}
+
+/* Tonight's trophies and the perks they turned on: rare, so allowed to shout. */
+.cz-reward-trophies,
+.cz-reward-perks,
+.cz-reward-next {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+}
+.cz-reward-trophies {
+  color: #e8c26a;
+}
+.cz-reward-perks {
+  color: var(--accent);
+  font-size: var(--text-xs);
+}
+.cz-reward-unlock {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: #e8c26a;
+  font-weight: 600;
+}
+
+/* The reason to come back: a bar at 72 of 100 is an argument, a number is not. */
+.cz-reward-next {
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+}
+.cz-reward-next li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5rem auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+.cz-next-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cz-next-perk {
+  color: var(--ink-faint);
+}
+.cz-next-bar {
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+.cz-next-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+/* Moved tonight: the difference between a goal and a wall. */
+.cz-reward-next li.moved .cz-next-fill {
+  background: var(--ok, #3fb950);
+}
+.cz-next-count {
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+.cz-next-moved {
+  color: var(--ok, #3fb950);
+  font-weight: 700;
+}
+
+/* The end screen has real content below the fold now, so it has to scroll. */
+.cz-end {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-block: var(--space-4);
+}
+
+/* How much of this room is left to search: the visible half of the new rule. */
+.cz-room-finds {
+  color: var(--ink-soft);
+}
+
+/* ------------------------------ the weather ------------------------------- */
+
+/*
+ * This turn's event. One line, loud, and colour-coded by which way it pulls: the
+ * table needs to know within a second whether the thing that just happened is a
+ * gift or a problem, because it only lasts one turn and the decision is now.
+ */
+.cz-event {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid;
+  font-size: var(--text-sm);
+  text-align: center;
+}
+.cz-event.heroes {
+  border-color: color-mix(in srgb, var(--ok, #3fb950) 55%, transparent);
+  background: color-mix(in srgb, var(--ok, #3fb950) 12%, transparent);
+  color: var(--ok, #3fb950);
+}
+.cz-event.horde {
+  border-color: color-mix(in srgb, #e5484d 55%, transparent);
+  background: color-mix(in srgb, #e5484d 12%, transparent);
+  color: #f0787c;
 }

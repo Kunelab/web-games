@@ -16,6 +16,7 @@
     "test": "tsx src/smoke-run.ts",
     "smoke": "tsx src/smoke-run.ts",
     "admin": "tsx src/cli/admin.ts",
+    "mafia:sim": "tsx src/mafia/simulate.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{ts,js,json,md}\"",
@@ -41,7 +42,10 @@
     "socket.io": "^4.8.3",
     "zod": "^4.4.3",
     "game-core": "workspace:*",
-    "coronaz-core": "workspace:*"
+    "coronaz-core": "workspace:*",
+    "chat-core": "workspace:*",
+    "mafia-core": "workspace:*",
+    "@anthropic-ai/sdk": "^0.110.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

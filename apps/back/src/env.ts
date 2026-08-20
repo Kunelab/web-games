@@ -64,7 +64,20 @@ const envSchema = z.object({
   FRONT_DIR: z.string().optional(),
   FRONT_DIR_BUILD: z.string().optional(),
 
-  GOOGLE_API_KEY: z.string().optional()
+  GOOGLE_API_KEY: z.string().optional(),
+
+  /**
+   * Brains for the Mafia bots. 'ollama' talks to a local model over HTTP
+   * (free, private, and a 4B model is plenty for table talk); 'anthropic'
+   * uses the API with ANTHROPIC_API_KEY; 'scripted' never calls a model.
+   * Whatever the setting, an unreachable brain degrades per-call to the
+   * scripted one, so a table never stalls on an LLM.
+   */
+  MAFIA_BOT_PROVIDER: z.enum(['ollama', 'anthropic', 'scripted']).default('ollama'),
+  /** Small and fast is the point: 23 bots that mostly stay silent. */
+  MAFIA_BOT_MODEL: z.string().default('qwen3.5:4b'),
+  OLLAMA_URL: z.string().default('http://127.0.0.1:11434'),
+  ANTHROPIC_API_KEY: z.string().optional()
 });
 
 const parsed = envSchema.safeParse(process.env);

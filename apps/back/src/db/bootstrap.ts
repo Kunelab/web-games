@@ -169,6 +169,34 @@ const statements = [
     "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP
   )`,
 
+  // Mafia tables in progress, restored on boot like the raids.
+  `CREATE TABLE IF NOT EXISTS "MafiaSessions" (
+    "code" TEXT PRIMARY KEY,
+    "host_user_id" INTEGER REFERENCES "Users" ("id"),
+    "phase" TEXT NOT NULL,
+    "state" TEXT NOT NULL,
+    "created_at" TEXT DEFAULT CURRENT_TIMESTAMP,
+    "last_activity_at" INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS "MafiaSessions_last_activity_idx" ON "MafiaSessions" ("last_activity_at")`,
+
+  // Mafia lifetime points per nickname: the store's wallet.
+  `CREATE TABLE IF NOT EXISTS "MafiaCareers" (
+    "name" TEXT PRIMARY KEY,
+    "stats" TEXT NOT NULL,
+    "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP
+  )`,
+
+  // Player-saved Mafia setups: ten named slot lists per account, max.
+  `CREATE TABLE IF NOT EXISTS "MafiaTemplates" (
+    "user_id" INTEGER NOT NULL REFERENCES "Users" ("id") ON DELETE CASCADE,
+    "name" TEXT NOT NULL,
+    "slots" TEXT NOT NULL,
+    "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY ("user_id", "name")
+  )`,
+
   `CREATE INDEX IF NOT EXISTS "Media_user_id_idx" ON "Media" ("user_id")`,
   `CREATE INDEX IF NOT EXISTS "Media_kind_idx" ON "Media" ("kind")`,
   `CREATE INDEX IF NOT EXISTS "Media_category_idx" ON "Media" ("category")`,

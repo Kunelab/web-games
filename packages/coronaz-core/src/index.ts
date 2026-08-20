@@ -87,6 +87,7 @@ export {
   shortestPath,
   distancesFrom,
   lineOfSight,
+  withinSteps,
   openSpace,
   roomAt,
   roomOfCell,
@@ -136,8 +137,10 @@ export {
   createGame,
   joinHero,
   joinBot,
+  rematch,
   bagCapacity,
   heroHas,
+  hasTorch,
   heroMaxHp,
   setLoadout,
   setMutations,
@@ -175,6 +178,7 @@ export {
   resolveHeroAttack,
   resolveZombieAttack,
   weaponFor,
+  BARE_HANDS,
   type Hand,
   type AttackOutcome,
   type ChosenWeapon
@@ -224,16 +228,35 @@ export { decideGmAction, gmMindsetNames, type GmMindset } from './sim/gm-policie
 export { MUTATIONS, mutationDef, mutationEffects, type MutationDef, type MutationEffects } from './mutations.js';
 
 export {
+  CZ_EVENTS,
+  EVENT_CHANCE,
+  EVENT_FROM_TURN,
+  eventDef,
+  type CzEventId,
+  type CzEventDef
+} from './events.js';
+
+export {
   CZ_TROPHIES,
   ALL_HERO_PERKS,
   ALL_GM_PERKS,
+  GM_REWARD_ID,
+  RATION_SHOWING_UP,
+  RATION_WIN,
   emptyCareerStats,
   trophiesFor,
   heroPerksFor,
   gmPerksFor,
+  trophyRatio,
+  nextTrophies,
+  raidRations,
+  gmRaidRations,
+  raidReward,
   type CzCareerStats,
   type CzTrophyDef,
-  type CzTrophyTier
+  type CzTrophyTier,
+  type CzTrophyProgressView,
+  type CzRaidReward
 } from './perks.js';
 
 export {

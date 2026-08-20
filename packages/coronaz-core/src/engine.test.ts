@@ -15,7 +15,7 @@ import {
 } from './content/registry.js';
 import { ARCHETYPES, expectedDamage, ITEM_ROLES, POWER_TOLERANCE } from './content/roles.js';
 import { isStructural, MAX_CLUSTER_ROOMS, roomBudget } from './mapgen/programs.js';
-import { HEROES, itemDef, rarityRange, weaponStats } from './data.js';
+import { HEROES, itemDef, rarityRange, weaponStats, zombieDef } from './data.js';
 import {
   activateNextZombie,
   applyGmAction,
@@ -503,14 +503,17 @@ describe('hero actions', () => {
 
   it('searching finds loot, and the two free crates are spent in the right order', () => {
     const state = newGame({ startingZombies: 0 });
-    const { hero } = joinHero(state, 'Chuck', undefined);
-    hero.heroId = 'chuck';
+    const { hero } = joinHero(state, 'Lampiste', undefined);
+    // Anyone but Chuck, whose ability is no longer about the *price* of a search.
+    hero.heroId = 'rosa';
     startGame(state, 0);
+    // A torch is what funds a renewable free search now, for everybody.
+    hero.gear[0] = makeItem(state, itemFor(state.config.biome, 'torch').id);
 
     const free = applyHeroAction(state, hero.playerId, { type: 'search' });
     assert.equal(free.ok, true);
     assert(free.loot);
-    assert.equal(hero.ap, 3, 'the scavenger’s first search is free');
+    assert.equal(hero.ap, 3, 'the torch pays for the first search');
     assert.equal(hero.freeRaidSearchUsed, false, 'the renewable freebie goes first');
 
     // The raid's own free crate, which everyone gets once, whatever they are.
@@ -697,7 +700,7 @@ describe('objectives and escalation', () => {
       state = newGame({ secondaryObjectives: 1, keys: 1, startingZombies: 0 }, seed);
     }
 
-    const boss = Object.values(state.zombies).find((zombie) => zombie.def === 'boss');
+    const boss = Object.values(state.zombies).find((zombie) => zombieDef(zombie.def).boss);
     assert(boss, 'the objective spawned its boss');
 
     const { hero } = joinHero(state, 'Chasseuse', undefined);
@@ -747,7 +750,7 @@ describe('objectives and escalation', () => {
     beginEnemyPhase(state, 0);
     activateNextZombie(state);
 
-    const walkers = Object.values(state.zombies).filter((zombie) => zombie.def === 'walker');
+    const walkers = Object.values(state.zombies).filter((zombie) => archetypeOf(zombie.def) === 'walker');
     assert.equal(walkers.length, 1, 'one walker bred by the scream');
     assert(state.zombies[screamer.id], 'the screamer itself survives');
   });
@@ -1024,7 +1027,10 @@ describe('biomes', () => {
 
 describe('game master economy', () => {
   function gmGame() {
-    const state = newGame({ mode: 'gm', reinforcement: 0, startingZombies: 0 });
+    // No weather: a lull zeroes the horde's income for a turn, which is correct
+    // behaviour and makes an assertion about income accruing depend on a die roll.
+    // The events have their own tests.
+    const state = newGame({ mode: 'gm', reinforcement: 0, startingZombies: 0, events: false });
     const { hero } = joinHero(state, 'Proie', undefined);
     startGame(state, 0);
     applyHeroAction(state, hero.playerId, { type: 'ready' });
@@ -1051,9 +1057,10 @@ describe('game master economy', () => {
     assert.equal(applyGmAction(state, { type: 'gmUpgrade', upgrade: 'claws' }).ok, true);
     const spawnRoom = state.board.rooms.find((room) => room.kind === 'spawn');
     assert(spawnRoom);
-    applyGmAction(state, { type: 'gmSpawn', roomId: spawnRoom.id, def: 'walker' });
+    const shambler = zombieFor(state.config.biome, 'walker').id;
+    applyGmAction(state, { type: 'gmSpawn', roomId: spawnRoom.id, def: shambler });
 
-    const clawed = Object.values(state.zombies).find((zombie) => zombie.def === 'walker');
+    const clawed = Object.values(state.zombies).find((zombie) => zombie.def === shambler);
     // One claw rank = one old damage point = 10 in scaled units.
     assert.equal(clawed?.bonusDmg, 10);
 

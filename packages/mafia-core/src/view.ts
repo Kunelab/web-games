@@ -1,0 +1,264 @@
+import type { ChatMessage } from 'chat-core';
+
+import { chatVisibleTo, legalNightAction, type LegalAction } from './engine.js';
+import { roleDef, type Faction, type RoleId } from './roles.js';
+import {
+  chatRules,
+  isLodgeMate,
+  jailChannel,
+  playerFamily,
+  pmParticipants,
+  type DayStage,
+  type IntelEntry,
+  type MafiaPhase,
+  type MafiaState
+} from './state.js';
+
+/**
+ * The only shape a client ever receives. Built per recipient, on the server,
+ * from the full state — this file is the entire anti-leak contract:
+ *
+ *  - a role appears in `players[].role` only once its owner is dead (or the
+ *    game over);
+ *  - `me` carries the recipient's own secrets and nobody else's;
+ *  - `teammates` exists for mafia members only;
+ *  - the chat is filtered through the channel rules before it leaves;
+ *  - every field exists for every recipient (null when not applicable), so
+ *    payload *structure* never betrays a role.
+ */
+
+export interface MafiaPublicPlayer {
+  slot: number;
+  name: string;
+  alive: boolean;
+  connected: boolean;
+  isBot: boolean;
+  onTrial: boolean;
+  /** Mayor with the sash out; public by definition. */
+  revealedMayor: boolean;
+  /** Public accusation this player is currently casting, as a slot. */
+  votedSlot: number | null;
+  /** Weighted votes currently against this player. */
+  votesAgainst: number;
+  /** Known to all only after death or at the end. */
+  role: RoleId | null;
+  roleName: string | null;
+  death: { day: number; phase: 'day' | 'night'; cause: string } | null;
+}
+
+export interface MafiaViewMe {
+  playerId: string;
+  slot: number;
+  name: string;
+  alive: boolean;
+  role: { id: RoleId; name: string; faction: Faction; description: string } | null;
+  charges: number | null;
+  /** Mafia only: the rest of the family. Null for everyone else. */
+  teammates: { slot: number; name: string; roleName: string }[] | null;
+  /** Executioner only: the slot to get lynched. */
+  obsessionSlot: number | null;
+  /** In a cell tonight. */
+  jailed: boolean;
+  /** Jailor only: slot currently marked for tonight's cell. */
+  jailTargetSlot: number | null;
+  /** Tonight's available power, with legal targets, or null. */
+  action: LegalAction | null;
+  /** What I currently submitted tonight, as a slot. */
+  actionTargetSlot: number | null;
+  voteTargetSlot: number | null;
+  ballot: 'guilty' | 'innocent' | null;
+  lastWill: string;
+  notifications: string[];
+  /** Own structured night results; same privacy as the notifications. */
+  intel: IntelEntry[];
+  /** Channels this member can currently read, with write permission. */
+  channels: { id: string; label: string; canWrite: boolean }[];
+  pointsSoFar: number;
+}
+
+export interface MafiaResultRow {
+  slot: number;
+  name: string;
+  roleName: string;
+  isBot: boolean;
+  winner: boolean;
+  winReason: string | null;
+  points: number;
+}
+
+export interface MafiaView {
+  code: string;
+  phase: MafiaPhase;
+  day: number;
+  stage: DayStage | null;
+  phaseEndsAt: number | null;
+  maxPlayers: number;
+  minPlayers: number;
+  players: MafiaPublicPlayer[];
+  trial: { slot: number; name: string } | null;
+  me: MafiaViewMe | null;
+  chat: ChatMessage[];
+  results: MafiaResultRow[] | null;
+}
+
+export type MafiaViewer = { kind: 'player'; playerId: string } | { kind: 'host' };
+
+const CHANNEL_LABELS: Record<string, string> = {
+  day: 'Place du village',
+  mafia: 'La Famille',
+  triad: 'La Triade',
+  cult: 'La Secte',
+  mason: 'La Loge',
+  dead: 'Cimetière'
+};
+
+export function toMafiaView(state: MafiaState, viewer: MafiaViewer): MafiaView {
+  const ended = state.phase === 'ended';
+  const players = Object.values(state.players).sort((a, b) => a.slot - b.slot);
+
+  const votesAgainst = new Map<string, number>();
+  for (const [voterId, targetId] of Object.entries(state.votes)) {
+    const voter = state.players[voterId];
+    if (!voter?.alive) continue;
+    const weight = voter.role === 'mayor' && voter.revealed ? 3 : 1;
+    votesAgainst.set(targetId, (votesAgainst.get(targetId) ?? 0) + weight);
+  }
+
+  const publicPlayers: MafiaPublicPlayer[] = players.map((player) => {
+    // A cleaned corpse keeps its secret until the end (or a coroner's table).
+    const cleaned = !ended && state.deaths.some((death) => death.playerId === player.playerId && death.hidden);
+    const roleKnown = ended || (!player.alive && !cleaned);
+    const votedId = state.votes[player.playerId];
+    return {
+      slot: player.slot,
+      name: player.name,
+      alive: player.alive,
+      connected: player.connected,
+      isBot: player.isBot,
+      onTrial: state.trial?.accusedId === player.playerId,
+      revealedMayor: player.revealed,
+      votedSlot: votedId ? (state.players[votedId]?.slot ?? null) : null,
+      votesAgainst: votesAgainst.get(player.playerId) ?? 0,
+      role: roleKnown ? player.role : null,
+      roleName: roleKnown && player.role ? roleDef(player.role).name : null,
+      death: player.death
+    };
+  });
+
+  const accused = state.trial ? state.players[state.trial.accusedId] : null;
+
+  let me: MafiaViewMe | null = null;
+  if (viewer.kind === 'player') {
+    const self = state.players[viewer.playerId];
+    if (self) {
+      const def = self.role ? roleDef(self.role) : null;
+      const rules = chatRules();
+      // Whisper threads this player is part of surface as their own tabs.
+      const pmIds = [
+        ...new Set(
+          state.chat.messages
+            .map((message) => message.channel)
+            .filter((channel) => pmParticipants(channel)?.includes(self.playerId))
+        )
+      ];
+      const channelIds = ['day', 'dead', 'mafia', 'triad', 'cult', 'mason', jailChannel(state.day), ...pmIds];
+      const channels = channelIds
+        .filter((id) => rules.canRead(id, self.playerId, state))
+        .map((id) => {
+          const pm = pmParticipants(id);
+          const other = pm ? state.players[pm[0] === self.playerId ? pm[1] : pm[0]] : null;
+          return {
+            id,
+            label: other ? `🤫 ${other.name}` : (CHANNEL_LABELS[id] ?? 'Cellule'),
+            canWrite: rules.canWrite(id, self.playerId, state)
+          };
+        });
+
+      const submitted = state.nightActions[self.playerId];
+      const submittedSlot = submitted?.targetId ? (state.players[submitted.targetId]?.slot ?? null) : null;
+      const voteId = state.votes[self.playerId];
+      const obsession = self.obsessionId ? state.players[self.obsessionId] : null;
+
+      me = {
+        playerId: self.playerId,
+        slot: self.slot,
+        name: self.name,
+        alive: self.alive,
+        role: def && self.role ? { id: self.role, name: def.name, faction: def.faction, description: def.description } : null,
+        charges: def?.charges !== undefined ? self.charges : null,
+        teammates: (() => {
+          // Family members know each other; so do the masons of the lodge.
+          const mates = players.filter((other) => other.playerId !== self.playerId && isLodgeMate(self, other));
+          if (mates.length === 0 && playerFamily(self) === null && self.role !== 'mason' && self.role !== 'mason-leader') {
+            return null;
+          }
+          return mates.map((other) => ({ slot: other.slot, name: other.name, roleName: roleDef(other.role!).name }));
+        })(),
+        obsessionSlot: obsession?.slot ?? null,
+        jailed: state.jailedId === self.playerId && state.phase === 'night',
+        jailTargetSlot:
+          self.role === 'jailor' && state.jailedId ? (state.players[state.jailedId]?.slot ?? null) : null,
+        action: legalNightAction(state, self.playerId),
+        actionTargetSlot: submittedSlot,
+        voteTargetSlot: voteId ? (state.players[voteId]?.slot ?? null) : null,
+        ballot: state.trial?.ballots[self.playerId] ?? null,
+        lastWill: self.lastWill,
+        notifications: self.notifications,
+        intel: self.intel,
+        channels,
+        pointsSoFar: state.points
+          .filter((entry) => entry.playerId === self.playerId)
+          .reduce((sum, entry) => sum + entry.amount, 0)
+      };
+    }
+  }
+
+  let chat =
+    viewer.kind === 'player'
+      ? chatVisibleTo(state, viewer.playerId)
+      : state.chat.messages.filter((message) => message.channel === 'day' || ended);
+
+  // The spy hears the families' words but never sees their faces.
+  if (viewer.kind === 'player' && !ended) {
+    const self = state.players[viewer.playerId];
+    if (self?.role === 'spy') {
+      chat = chat.map((message) =>
+        (message.channel === 'mafia' || message.channel === 'triad') && message.authorId
+          ? { ...message, authorId: null, authorName: 'Voix étouffée' }
+          : message
+      );
+    }
+  }
+
+  const results: MafiaResultRow[] | null = ended
+    ? players.map((player) => {
+        const win = state.winners.find((entry) => entry.playerId === player.playerId);
+        return {
+          slot: player.slot,
+          name: player.name,
+          roleName: player.role ? roleDef(player.role).name : '?',
+          isBot: player.isBot,
+          winner: !!win,
+          winReason: win?.reason ?? null,
+          points: state.points
+            .filter((entry) => entry.playerId === player.playerId)
+            .reduce((sum, entry) => sum + entry.amount, 0)
+        };
+      })
+    : null;
+
+  return {
+    code: state.code,
+    phase: state.phase,
+    day: state.day,
+    stage: state.stage,
+    phaseEndsAt: state.phaseEndsAt,
+    maxPlayers: state.config.maxPlayers,
+    minPlayers: state.config.minPlayers,
+    players: publicPlayers,
+    trial: accused ? { slot: accused.slot, name: accused.name } : null,
+    me,
+    chat,
+    results
+  };
+}

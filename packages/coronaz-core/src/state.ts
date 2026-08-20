@@ -14,7 +14,8 @@ import {
   zombieDef,
   type Rarity
 } from './data.js';
-import { getRoom, lineOfSight, neighbors, openSpace, type Board } from './map.js';
+import type { CzEventId } from './events.js';
+import { lineOfSight, openSpace, withinSteps, type Board } from './map.js';
 import { mutationDef, mutationEffects, MUTATIONS } from './mutations.js';
 import { generateBoard } from './mapgen/index.js';
 import { pick, rand, randInt, seedRng, shuffled, type RngState } from './rng.js';
@@ -111,8 +112,23 @@ export interface HeroState {
   secondWindUsed: boolean;
   /** The "discret" perk's silenced shot: reset each hero phase. */
   noiseSkipUsed?: boolean;
-  /** Nadia's free step: reset each hero phase. */
+  /** Nadia's free step: reset each hero phase. Unused since she learned to run. */
   freeMoveUsed?: boolean;
+  /** The `pilleur` perk's free crate in a rich room: reset each hero phase. */
+  freeShinyUsed?: boolean;
+  /** The `elan` perk's free step into the dark: reset each hero phase. */
+  freeExploreUsed?: boolean;
+  /**
+   * Charles is holding a shot.
+   *
+   * Set when he ends his turn with a point still in hand, spent by the first
+   * creature that walks into his line of fire during the horde's phase. It lives on
+   * the hero rather than in a separate table because it is exactly as durable as he
+   * is — he dies, the shot goes with him — and because the state is serialised whole
+   * on every phase change, so a held shot survives a server restart like everything
+   * else does.
+   */
+  overwatch?: boolean;
   /** Ethan's saved action point, paid out next phase. */
   bankedAp?: number;
   /** Once-per-raid ability spends (magpie's double loot, bulwark's vest). */
@@ -231,6 +247,16 @@ export interface CzState {
   /** Rooms the team has ever seen. Fog is shared: this is co-op. */
   explored: string[];
   /**
+   * What is happening to the district this turn, if anything.
+   *
+   * Rolled at the top of each enemy phase and cleared when the heroes get the board
+   * back, so it is exactly one turn long. Stored rather than derived because it must
+   * be *the same* event for everybody — the television announces it, the phones read
+   * it, and the horde's rules bend to it — and because a state that is serialised on
+   * every phase change should not re-roll its weather on a server restart.
+   */
+  event?: CzEventId | null;
+  /**
    * The game master's points. Income arrives each enemy phase and unspent
    * points carry over: saving up for an abomination is a strategy, not a bug.
    */
@@ -244,6 +270,13 @@ export interface CzState {
   gmLoadout: string[];
   /** The breeder perk's once-per-phase discount, spent or not. */
   gmDiscountUsed: boolean;
+  /**
+   * The General's once-a-turn reinforcement that acts immediately, spent or not.
+   *
+   * Optional so a raid saved before the class had this behaviour still parses: an
+   * undefined flag reads as unspent, which is the harmless direction to be wrong in.
+   */
+  gmSurgeUsed?: boolean;
   log: LogEntry[];
   resultsRecorded?: boolean;
   lastActivityAt: number;
@@ -307,6 +340,7 @@ export function createGame(options: {
     gmPerks: options.gmPerks ?? [],
     gmLoadout: options.gmLoadout ?? [],
     gmDiscountUsed: false,
+    gmSurgeUsed: false,
     log: [],
     lastActivityAt: options.now ?? Date.now()
   };
@@ -812,6 +846,67 @@ export function joinHero(
 }
 
 /**
+ * Another raid, same table: a fresh lobby carrying the seats forward.
+ *
+ * A rematch used to mean walking the host back through the setup screen, creating
+ * a new game, reading a new code out loud, everybody re-joining, re-picking a
+ * character and re-picking a loadout — after every raid, all of which take about
+ * as long as a turn does. That friction is a real reason an evening stops at three
+ * games instead of five, and it costs nothing to remove.
+ *
+ * A new world, deliberately: same config, **new seed**. Replaying a seed is
+ * already a feature of the setup screen for the table that wants the same map
+ * back; the default meaning of "again" is somewhere else.
+ *
+ * What carries over is exactly the seating — token, name, ledger, chosen
+ * character, chosen loadout, career perks, and a bot's personality. What does not
+ * is everything the raid did: inventories, wounds, scores, the board. Keeping the
+ * code and the tokens is what lets every phone in the room walk into the new lobby
+ * without anybody typing anything.
+ */
+export function rematch(state: CzState, seed: number): CzState {
+  const next = createGame({
+    code: state.code,
+    hostToken: state.hostToken,
+    gmToken: state.gmToken,
+    hostUserId: state.hostUserId,
+    // Copied, not shared: the old state is still alive while this is built, and
+    // two raids pointing at one config object is the kind of aliasing that shows
+    // up three features later as a mutation leaking backwards.
+    config: { ...state.config, mutations: [...state.config.mutations] },
+    seed,
+    gmPerks: [...state.gmPerks],
+    gmLoadout: [...state.gmLoadout]
+  });
+
+  // Seat order is preserved so the lobby looks like the room does.
+  for (const previous of Object.values(state.heroes)) {
+    const { hero } = joinHero(next, previous.name, undefined, previous.perks, previous.account);
+    hero.token = previous.token;
+    hero.isBot = previous.isBot;
+    hero.bot = previous.bot;
+    // The character has to be re-seated before the loadout: switching bodies
+    // voids the pick, which is right in a lobby and wrong here.
+    try {
+      switchHero(next, hero.playerId, previous.heroId);
+    } catch {
+      // Somebody else took it first, or it is no longer a legal pick. The
+      // auto-seated character stands, which is what a lobby would have given them.
+    }
+    try {
+      setLoadout(next, hero.playerId, previous.loadout);
+    } catch {
+      // Only reachable when the character above could not be re-seated, since the
+      // signature perks belong to a body. An empty pick is the lobby's own default.
+    }
+  }
+
+  // The table's handicap is a table decision, not a raid decision: it survives.
+  setMutations(next, state.config.mutations);
+  return next;
+}
+
+/**
  * Seats a bot survivor. Same seat as a human's, plus the flag and the brain
  * settings, both serialised with the state so a restart keeps its personality.
  */
@@ -835,6 +930,20 @@ export function bagCapacity(hero: HeroState): number {
 /** Whether the hero carries an effect, whatever earned it (career or loadout). */
 export function heroHas(hero: HeroState, key: string): boolean {
   return hero.perks.includes(key) || hero.loadout.includes(key);
+}
+
+/**
+ * Whether this survivor is carrying something that lights a room: the one source
+ * of a renewable free search.
+ *
+ * By the gear *flag*, never by an item id. The projection used to test
+ * `item.def === 'flashlight'` while the engine tested `gear?.flashlight`, so the two
+ * already disagreed for any biome that names its torch something else — the exact
+ * drift the roles layer was built to prevent, and the sort that shows up as "the
+ * button says free and the server charges me".
+ */
+export function hasTorch(hero: HeroState): boolean {
+  return hero.gear.some((item) => item !== null && itemDef(item.def).gear?.flashlight === true);
 }
 
 /** A believable pick for a bot: one signature perk, two globals, seeded. */
@@ -980,6 +1089,26 @@ const OPEN_SIGHT = 4;
  */
 export function visibleRooms(state: CzState): Set<string> {
   const visible = new Set<string>();
+
+  /**
+   * A flare lights the whole district for the turn, and a blackout puts everyone
+   * back in the room they are standing in.
+   *
+   * Handled here rather than in the projection because sight is not only what a
+   * screen draws: it is also what the fog *records*, so a flare has to actually
+   * explore the district and a blackout must not un-explore it. Fog only ever
+   * recedes, which `updateExplored` guarantees, so a blackout is temporary
+   * blindness rather than forgetting.
+   */
+  if (state.event === 'flare') {
+    for (const room of state.board.rooms) visible.add(room.id);
+    return visible;
+  }
+  if (state.event === 'blackout') {
+    for (const hero of activeHeroes(state)) visible.add(hero.roomId);
+    return visible;
+  }
+
   for (const hero of activeHeroes(state)) {
     for (const id of lineOfSight(state.board, hero.roomId).keys()) {
       visible.add(id);
@@ -987,9 +1116,26 @@ export function visibleRooms(state: CzState): Set<string> {
     for (const id of openSpace(state.board, hero.roomId, OPEN_SIGHT)) {
       visible.add(id);
     }
-    if (hero.gear.some((item) => item && torchReach(itemDef(item.def), item.rarity) > 0)) {
-      for (const room of neighbors(state.board, getRoom(state.board, hero.roomId))) {
-        visible.add(room.id);
+    /**
+     * A good torch, or `vigile`, sees around the corner.
+     *
+     * This used to add the room's immediate *neighbours*, and it was dead code — all
+     * of it. `lineOfSight` is unbounded along a straight open run, so every
+     * neighbour of every room is already visible to everybody, always; a measured
+     * probe found this branch revealing something new in 0 of 185 rooms. So the
+     * legendary torch's advertised reach ("lights the rooms next door, which on a
+     * dark map is worth more than any number") had never once done anything, and
+     * neither would the perk.
+     *
+     * Counted in *steps* now, which is the only way to buy sight the rays do not
+     * already give you: what the dark actually hides is what is around a corner.
+     */
+    const reach =
+      Math.max(0, ...hero.gear.map((item) => (item ? torchReach(itemDef(item.def), item.rarity) : 0))) +
+      (hero.loadout.includes('vigile') ? 1 : 0);
+    if (reach > 0) {
+      for (const id of withinSteps(state.board, hero.roomId, reach + 1)) {
+        visible.add(id);
       }
     }
   }

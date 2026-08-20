@@ -18,6 +18,8 @@ const CoronaZSetup = lazy(() => import('../pages/zombie/CoronaZSetup'));
 const CoronaZTv = lazy(() => import('../pages/zombie/CoronaZTv'));
 const CoronaZPlayer = lazy(() => import('../pages/zombie/CoronaZPlayer'));
 const CoronaZGm = lazy(() => import('../pages/zombie/CoronaZGm'));
+const MafiaSetup = lazy(() => import('../pages/mafia/MafiaSetup'));
+const MafiaPlayer = lazy(() => import('../pages/mafia/MafiaPlayer'));
 const Host = lazy(() => import('../pages/Host'));
 const Join = lazy(() => import('../pages/Join'));
 const Player = lazy(() => import('../pages/Player'));
@@ -125,6 +127,14 @@ const router = createBrowserRouter([
           </RequireAuth>
         )
       },
+      {
+        path: '/mafia',
+        element: (
+          <RequireAuth>
+            <MafiaSetup />
+          </RequireAuth>
+        )
+      },
       { path: '*', element: <NotFound /> }
     ]
   },
@@ -152,7 +162,9 @@ const router = createBrowserRouter([
       },
       // Phones need no account, the game master's link carries its own secret.
       { path: '/coronaz/rejoindre/:code', element: <CoronaZPlayer /> },
-      { path: '/coronaz/mj/:code', element: <CoronaZGm /> }
+      { path: '/coronaz/mj/:code', element: <CoronaZGm /> },
+      // Mafia seats need no account either; the host proves itself by token.
+      { path: '/mafia/rejoindre/:code', element: <MafiaPlayer /> }
     ]
   }
 ]);
