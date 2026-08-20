@@ -14,8 +14,10 @@ import { mediaMigration } from './db/index.js';
 import { SqliteSessionStore } from './db/session-store.js';
 import { allowedOrigins, env, isProduction, packageRoot } from './env.js';
 import { GameManager } from './game/manager.js';
+import { MafiaManager } from './mafia/manager.js';
 import authPlugin from './plugins/auth.js';
 import { registerRealtime } from './realtime/index.js';
+import mafiaRoutes from './routes/mafia.js';
 import mediaRoutes from './routes/media.js';
 import playRoutes from './routes/play.js';
 import playlistRoutes from './routes/playlists.js';
@@ -130,6 +132,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   const cz = new CzManager(app.log);
   app.decorate('cz', cz);
 
+  const mafia = new MafiaManager(app.log);
+  app.decorate('mafia', mafia);
+
   await app.register(
     async (api) => {
       await api.register(userRoutes);
@@ -137,6 +142,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(playlistRoutes);
       await api.register(playRoutes);
       await api.register(zombieRoutes);
+      await api.register(mafiaRoutes);
     },
     { prefix: '/api' }
   );
@@ -177,7 +183,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.code(statusCode).send({ message: error.message });
   });
 
-  app.decorate('io', registerRealtime(app, games, cz));
+  app.decorate('io', registerRealtime(app, games, cz, mafia));
 
   if (mediaMigration.ran && (mediaMigration.videos > 0 || mediaMigration.images > 0)) {
     app.log.info(
@@ -207,12 +213,19 @@ export async function buildApp(): Promise<FastifyInstance> {
       app.log.info({ restored: raids }, 'restored CoronaZ raids in progress');
     }
     cz.startSweeping();
+
+    const tables = await mafia.restore();
+    if (tables > 0) {
+      app.log.info({ restored: tables }, 'restored Mafia tables in progress');
+    }
+    mafia.startSweeping();
   });
 
   app.addHook('onClose', async () => {
     sessionStore.stopSweeping();
     games.stopSweeping();
     cz.stopSweeping();
+    mafia.stopSweeping();
     await app.io.close();
   });
 

@@ -1,0 +1,114 @@
+/*
+ * Generic chat surface. Every color and radius is a variable with a neutral
+ * default, so each game themes it by setting --chat-* on any ancestor.
+ */
+
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--chat-bg, #16181d);
+  color: var(--chat-fg, #e8e6e3);
+  border: 1px solid var(--chat-border, #2a2d34);
+  border-radius: var(--chat-radius, 12px);
+  overflow: hidden;
+}
+
+.chat-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 6px 0;
+  background: var(--chat-tabs-bg, #101216);
+}
+
+.chat-tab {
+  border: none;
+  background: transparent;
+  color: var(--chat-fg-dim, #9a97a0);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+}
+
+.chat-tab--active {
+  background: var(--chat-bg, #16181d);
+  color: var(--chat-accent, #ffb454);
+}
+
+.chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-line {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.chat-line--system {
+  color: var(--chat-system, #8f8aa0);
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
+.chat-author {
+  font-weight: 700;
+  margin-right: 6px;
+}
+
+.chat-author::after {
+  content: ' —';
+  color: var(--chat-fg-dim, #9a97a0);
+  font-weight: 400;
+}
+
+.chat-compose {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--chat-border, #2a2d34);
+  background: var(--chat-compose-bg, #101216);
+}
+
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--chat-input-bg, #1c1f26);
+  color: inherit;
+  border: 1px solid var(--chat-border, #2a2d34);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 0.92rem;
+}
+
+.chat-input:disabled {
+  opacity: 0.55;
+}
+
+.chat-send {
+  border: none;
+  background: var(--chat-accent, #ffb454);
+  color: var(--chat-accent-fg, #1a1205);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.chat-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

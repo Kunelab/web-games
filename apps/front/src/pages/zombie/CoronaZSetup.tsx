@@ -556,6 +556,29 @@ export default function CoronaZSetup() {
               </div>
             )}
 
+          {/* The district's weather. On by default, because it is the answer to
+              "turn six played exactly like turn five" — but a dial, for the same
+              reason the objective kinds are one. */}
+          <div className="editor-section">
+            <h2 className="editor-section-title">Des imprévus ?</h2>
+            <div className="cz-perk-grid">
+              <button
+                type="button"
+                className={`cz-perk ${config.events ? 'picked' : ''}`}
+                onClick={() => set('events', !config.events)}
+              >
+                🎲 Événements ·{' '}
+                {config.events
+                  ? 'un tour sur trois, quelque chose arrive au quartier'
+                  : 'aucun : le raid pur, rien que la horde et vous'}
+              </button>
+            </div>
+            <p className="field-hint">
+              Sirène, largage, nuée, accalmie, coupure de courant, fusée éclairante. Un seul tour
+              chacun, et ils s’annulent en moyenne : c’est de la variété, pas de la difficulté.
+            </p>
+          </div>
+
           {error && <p className="field-error">{error}</p>}
 
           <Button variant="primary" size="lg" busy={busy} onClick={() => void create()}>

@@ -86,6 +86,16 @@ export const gameConfigSchema = z.object({
    */
   mutations: z.array(z.string().max(24)).default([]),
   /**
+   * Whether the district has weather: one rolled event at the top of a third of the
+   * enemy phases, from turn three.
+   *
+   * On by default, because it is the answer to "turn six played exactly like turn
+   * five" and that was the complaint that mattered. A dial rather than a rule for
+   * the same reason the objective kinds have one: a table that wants the pure
+   * tactical game should be able to say so instead of tolerating it.
+   */
+  events: z.boolean().default(true),
+  /**
    * How much the dark hides. `none`: the whole board is lit (easy evenings).
    * `map`: the layout is known but creatures only appear in line of sight.
    * `full`: unexplored rooms are pitch black, the original dread.

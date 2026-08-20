@@ -1,12 +1,18 @@
 import {
   emptyCareerStats,
-  finalScores,
   gmClassDef,
   gmPerksFor,
+  gmRaidRations,
   heroDef,
   heroPerksFor,
+  raidRations,
+  raidReward,
   trophiesFor,
+  GM_CLASSES,
+  GM_REWARD_ID,
+  HEROES,
   type CzCareerStats,
+  type CzRaidReward,
   type CzState
 } from 'coronaz-core';
 import { eq } from 'drizzle-orm';
@@ -89,18 +95,17 @@ export const czCareerService = {
    * Called once per game, right where the results row is written; the state is
    * about to be deleted, so this is the only moment these numbers exist.
    */
-  async recordGame(state: CzState, gmLogin: string | null): Promise<void> {
+  async recordGame(state: CzState, gmLogin: string | null): Promise<CzRaidReward[]> {
     const won = state.phase === 'won';
-    // Rations track the scoreboard: playing earns, winning earns more. Bots eat
-    // nothing — their careers would otherwise hoard the pantry.
-    const scores = new Map(finalScores(state).map((score) => [score.playerId, score.score]));
+    const rewards: CzRaidReward[] = [];
 
     for (const hero of Object.values(state.heroes)) {
       if (hero.isBot) continue;
       // The account wins over the nickname when the phone is logged in: rations
       // belong to a person, not to whatever name he typed tonight.
       const ledger = careerKey(hero);
-      const stats = await readStats(ledger);
+      const before = await readStats(ledger);
+      const stats = { ...before, fastestWinTurns: { ...before.fastestWinTurns } };
       /**
        * A survivor who walked away banks what he earned and nothing more.
        *
@@ -110,7 +115,14 @@ export const czCareerService = {
        * follows him, or forfeiting would be the cheapest way to farm a victory.
        */
       const credited = won && !hero.forfeited;
-      stats.rations += Math.max(0, Math.round(scores.get(hero.playerId) ?? 0)) + (credited ? 10 : 0);
+      // Rations are their own currency now, not the scoreboard — see `raidRations`
+      // for why one raid used to buy any character in the game.
+      stats.rations += raidRations({
+        turns: state.turn,
+        won: credited,
+        kills: hero.kills,
+        searches: hero.searches
+      });
       stats.raids += 1;
       stats.wins += credited ? 1 : 0;
       stats.deaths += hero.alive ? 0 : 1;
@@ -124,18 +136,46 @@ export const czCareerService = {
         stats.fastestWinTurns[scenario] = best === undefined ? state.turn : Math.min(best, state.turn);
       }
       await writeStats(ledger, stats);
+
+      // What to show this player before they put the phone down.
+      rewards.push(
+        raidReward({
+          playerId: hero.playerId,
+          name: hero.name,
+          before,
+          after: stats,
+          roster: HEROES
+        })
+      );
     }
 
     if (state.config.mode === 'gm' && gmLogin) {
-      const stats = await readStats(accountKey(gmLogin));
+      const key = accountKey(gmLogin);
+      const before = await readStats(key);
+      const stats = { ...before, fastestWinTurns: { ...before.fastestWinTurns } };
+      const hordeWon = state.phase === 'lost';
       stats.gmRaids += 1;
-      stats.gmWins += state.phase === 'lost' ? 1 : 0;
+      stats.gmWins += hordeWon ? 1 : 0;
       // Everything that ever stood on the board, seeds and summons included.
-      stats.gmSpawns += state.nextZombieId - 1;
+      const spawns = state.nextZombieId - 1;
+      stats.gmSpawns += spawns;
       // The horde eats too: pressure applied is pressure paid.
-      stats.rations += state.turn * 3 + (state.phase === 'lost' ? 15 : 0);
-      await writeStats(accountKey(gmLogin), stats);
+      stats.rations += gmRaidRations({ turns: state.turn, won: hordeWon, spawns });
+      await writeStats(key, stats);
+
+      rewards.push(
+        raidReward({
+          playerId: GM_REWARD_ID,
+          name: gmLogin,
+          before,
+          after: stats,
+          roster: GM_CLASSES,
+          gm: true
+        })
+      );
     }
+
+    return rewards;
   },
 
   /** Spends rations on a survivor. Validates ownership and price server-side. */

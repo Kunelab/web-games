@@ -1,6 +1,9 @@
 import {
+  BARE_HANDS,
+  eventDef,
   gearStats,
   HEROES,
+  heroDef,
   MUTATIONS,
   PROGRAM_LABELS,
   SHINY_LOOT,
@@ -11,6 +14,7 @@ import {
   gearArmor,
   weaponStats,
   type CzActionAck,
+  type CzEventId,
   type CzJoinAck,
   type CzView,
   type HeroAction,
@@ -24,7 +28,7 @@ import { czPerkMeta } from '../../app/czMeta';
 import { useCountdown } from '../../hooks/useGameSocket';
 import { useCzSocket } from '../../hooks/useCzSocket';
 import { itemSprite } from './czAssets';
-import { neighbourRooms } from './czBoard';
+import { neighbourRooms, sightRooms } from './czBoard';
 import { czNextGoal } from './czGoals';
 import { CzHeroSelect } from './CzHeroSelect';
 import { rarityVars } from './czRarity';
@@ -46,7 +50,7 @@ import '../play.css';
 export default function CoronaZPlayer() {
   const { code = '' } = useParams<{ code: string }>();
   const navigate = useNavigate();
-  const { socket, connected, view, error, serverNow, applyView } = useCzSocket();
+  const { socket, connected, view, rewards, error, serverNow, applyView } = useCzSocket();
 
   const [name, setName] = useState('');
   const [joined, setJoined] = useState(false);
@@ -203,8 +207,11 @@ export default function CoronaZPlayer() {
       <div className="jeu-screen">
         <CzEndScreen
           view={view}
-          // Whoever created the game goes back to the setup for a rematch;
-          // a guest goes home.
+          rewards={rewards}
+          meId={myId}
+          // Solo or TV-less: this device created the raid, so it can start the next
+          // one without anybody walking back through setup.
+          onRematch={hostToken ? () => socket?.emit('cz:rematch', { hostToken }) : undefined}
           onExit={() => void navigate(hostToken ? '/coronaz' : '/')}
         />
       </div>
@@ -375,7 +382,6 @@ function PlayScreen({
   const [loot, setLoot] = useState<ItemInstance | null>(null);
   const [attackTarget, setAttackTarget] = useState<string | null>(null);
   const [bagOpen, setBagOpen] = useState(false);
-  const [quitAsked, setQuitAsked] = useState(false);
 
   const myTurn = view.phase === 'heroes' && me.alive && !me.escaped;
   const room = view.rooms.find((candidate) => candidate.id === me.roomId);
@@ -411,6 +417,45 @@ function PlayScreen({
   const adjacent = new Set<string>();
   if (myTurn && me.ap > 0 && room) {
     for (const next of neighbourRooms(view, room)) adjacent.add(next.id);
+  }
+
+  /**
+   * The creatures a tap would actually hit: the attack's missing affordance.
+   *
+   * Every zombie on the board used to be tappable, and the reach check lived on
+   * the server, so learning your weapon's range meant tapping something and
+   * reading `Pas de ligne de vue` a round trip later. This asks the same question
+   * the server will ask — melee wants the same room, a barrel wants a straight
+   * open line, Suzanne's eye adds one — and hands the answer to the board, which
+   * rings what is reachable and fades the rest.
+   *
+   * Both hands count, and the union is right: the tap picks the weapon afterwards,
+   * so anything either hand can hit is something this tap can do.
+   */
+  const inReach = new Set<string>();
+  if (myTurn && me.ap > 0 && room) {
+    const ability = heroDef(me.heroId).ability;
+    const rooms = new Set<string>();
+    const held = [inventory?.hands[0] ?? null, inventory?.hands[1] ?? null].filter(
+      (item): item is ItemInstance => item !== null && itemDef(item.def).weapon !== undefined
+    );
+    // Bernard fights with what he was born with, so he always has a melee option.
+    const weapons = held.map((item) => weaponStats(itemDef(item.def), item.rarity));
+    if (weapons.length === 0 && ability === 'brawler') weapons.push(BARE_HANDS.weapon);
+
+    for (const weapon of weapons) {
+      if (!weapon) continue;
+      if (weapon.melee) {
+        rooms.add(room.id);
+      } else {
+        for (const id of sightRooms(view, room.id, weapon.range + (ability === 'deadeye' ? 1 : 0)).keys()) {
+          rooms.add(id);
+        }
+      }
+    }
+    for (const zombie of view.zombies) {
+      if (rooms.has(zombie.roomId)) inReach.add(zombie.id);
+    }
   }
 
   /** Weapon options for the tapped zombie; one option attacks without asking. */
@@ -483,18 +528,20 @@ function PlayScreen({
         <MuteButton />
       </header>
 
-      {/* The one job still open, always in sight: the old game's missing goal. */}
       {/* The one job still open, always in sight — keys included, which is what a
           player on a phone actually needs to know. */}
-      {czNextGoal(view) && (
-        <p className="play-note">▹ {czNextGoal(view)?.label}</p>
-      )}
+      {czNextGoal(view) && <p className="play-note">▹ {czNextGoal(view)?.label}</p>}
+
+      {/* What is happening to the district, if anything. Loud, because it lasts one
+          turn and a rule nobody notices is a rule that reads as a bug. */}
+      {view.event && <CzEventBanner id={view.event} />}
 
       <CzMap
         view={view}
         compact
         myPlayerId={myId}
         targetRooms={adjacent}
+        inReach={myTurn ? inReach : undefined}
         onRoomTap={(roomId) => void act({ type: 'move', roomId })}
         onZombieTap={myTurn ? (zombieId) => void onZombieTap(zombieId) : undefined}
         camera="auto"
@@ -507,7 +554,15 @@ function PlayScreen({
         <p className="cz-room-line">
           {PROGRAM_LABELS[room.program]}
           {room.loot >= SHINY_LOOT && <span className="cz-room-rich"> ✨ bon butin</span>}
-          {room.loot <= -0.15 && <span className="cz-room-poor"> · rien à fouiller ici</span>}
+          {room.loot <= -0.15 && <span className="cz-room-poor"> · pauvre</span>}
+          {/* How much of it is left. A room runs dry now, and a rule the player
+              cannot see is a rule that reads as a bug: without this the third
+              "Fouiller" of the turn just fails and nothing explains why. */}
+          {room.finds > 0 ? (
+            <span className="cz-room-finds"> · {room.finds} à fouiller</span>
+          ) : (
+            <span className="cz-room-poor"> · salle vidée</span>
+          )}
         </p>
       )}
 
@@ -519,9 +574,11 @@ function PlayScreen({
       <div className="cz-bottom">
         {myTurn && (
           <div className="cz-actions">
+            {/* Disabled on an empty room as well as on an empty pocket: the button
+                should not offer what the server will refuse. */}
             <Button
               variant="secondary"
-              disabled={me.ap <= 0 && !inventory?.freeSearchAvailable}
+              disabled={(me.ap <= 0 && !inventory?.freeSearchAvailable) || (room?.finds ?? 0) <= 0}
               onClick={() => void act({ type: 'search' })}
             >
               Fouiller{inventory?.freeSearchAvailable ? ' 🆓' : ''}
@@ -546,18 +603,30 @@ function PlayScreen({
             >
               {me.ready ? 'Prêt ✓' : 'Prêt'}
             </Button>
-            {/* Two taps to leave: it cannot be undone, and it is next to the button
-                everyone presses every turn. */}
-            <Button
-              variant="ghost"
-              onClick={() => {
-                if (quitAsked) void act({ type: 'forfeit' });
-                else setQuitAsked(true);
-              }}
-            >
-              {quitAsked ? 'Abandonner pour de bon ?' : '🏳️ Abandonner'}
-            </Button>
+            {/* Forfeit lives in the bag now, not here. Two taps was the right guard
+                and the wrong place: it sat in the grid next to "Prêt", the one
+                button every player presses every single turn, on a three-column
+                layout where the two land side by side. A confirmation is not a
+                licence to put a raid-ending action under the thumb that is already
+                moving. */}
           </div>
+        )}
+
+        {/* What just happened, while the horde moves.
+            The log was only ever painted on the television, which is the one screen
+            nobody is looking at during their own turn — and during the enemy phase a
+            player has nothing to do but watch tokens slide with no idea who bit whom.
+            It shows here only while the horde plays: that is when the dock is empty
+            anyway, so the information costs no space it was using for anything else. */}
+        {view.phase === 'enemy' && view.log.length > 0 && (
+          <ul className="cz-log phone">
+            {[...view.log]
+              .slice(-4)
+              .reverse()
+              .map((entry, index) => (
+                <li key={`${entry.turn}-${index}`}>{entry.text}</li>
+              ))}
+          </ul>
         )}
 
         {loot && (
@@ -631,6 +700,7 @@ function InventorySheet({
   act: (action: HeroAction) => void;
 }) {
   const [selected, setSelected] = useState<ItemInstance | null>(null);
+  const [quitAsked, setQuitAsked] = useState(false);
 
   const teammates = view.heroes.filter(
     (hero) => hero.playerId !== me.playerId && hero.alive && !hero.escaped && !hero.forfeited && hero.roomId === me.roomId
@@ -754,7 +824,39 @@ function InventorySheet({
       )}
 
       <Badge tone="ok">Tout ici est gratuit : aucune action dépensée.</Badge>
+
+      {/* Leaving the raid: two taps, and behind the bag rather than in the row of
+          buttons pressed every turn. Still free, still instant, still not a death. */}
+      {me.alive && !me.escaped && !me.forfeited && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            if (quitAsked) act({ type: 'forfeit' });
+            else setQuitAsked(true);
+          }}
+        >
+          {quitAsked ? 'Abandonner pour de bon ?' : '🏳️ Abandonner le raid'}
+        </Button>
+      )}
     </div>
+  );
+}
+
+/**
+ * This turn's weather, named and explained.
+ *
+ * Shared by the phone, the television and the game master's screen: all three have
+ * to be told the same thing at the same moment, or a horde that walks away from
+ * somebody looks like the horde being broken rather than an alarm going off.
+ */
+export function CzEventBanner({ id }: { id: CzEventId }) {
+  const event = eventDef(id);
+  if (!event) return null;
+  return (
+    <p className={`cz-event ${event.favours}`}>
+      <span aria-hidden="true">{event.emoji}</span> <strong>{event.name}</strong> · {event.blurb}
+    </p>
   );
 }
 

@@ -10,7 +10,9 @@ import {
   buildingProgram,
   floorFor,
   isStructural,
+  findsFor,
   lootBonusFor,
+  START_FINDS,
   SHINY_LOOT,
   MAX_CLUSTER_ROOMS,
   maxClusters,
@@ -21,7 +23,7 @@ import {
 } from './programs.js';
 
 export { LAYOUTS, LAYOUT_IDS, layoutDef } from './layouts.js';
-export { BUILDING_PROGRAMS, PROGRAM_LABELS, SHINY_LOOT, buildingProgram, lootBonusFor } from './programs.js';
+export { BUILDING_PROGRAMS, PROGRAM_LABELS, SHINY_LOOT, buildingProgram, findsFor, lootBonusFor } from './programs.js';
 export type { Rect, Plot, Plan, LayoutDef } from './builder.js';
 
 /**
@@ -832,6 +834,9 @@ function trimClusters(board: Board, rng: RngState): void {
       target.program = 'corridor';
       target.floor = floorFor(rng, 'corridor');
       target.loot = lootBonusFor('corridor');
+      // And its stock, or a demoted armoury would keep an armoury's four finds
+      // while paying a hallway's rate — a jackpot with a hallway's face on it.
+      target.finds = findsFor('corridor', target.cells.length);
     };
 
     const key = `${room.zone}:${room.program}`;
@@ -864,6 +869,17 @@ function placeObjectives(rng: RngState, board: Board, config: GameConfig): void 
   const gates = outdoor.filter(onBorder);
   const start = gates.length > 0 ? pick(rng, gates) : pick(rng, board.rooms);
   start.kind = 'start';
+  /**
+   * The start room is stocked, whatever it happens to be.
+   *
+   * It is almost always a stretch of pavement, which holds one thing — and the raid
+   * opens by handing every survivor two free searches, right there. A table of four
+   * would find the very first room of the evening empty before anybody had spent an
+   * action point, which reads as the game being broken rather than as the room being
+   * poor. It already pays a loot bonus for exactly this reason; this is the same
+   * decision counted in stock rather than in rarity.
+   */
+  start.finds = Math.max(start.finds, START_FINDS);
 
   /* ---------------------------------- exit --------------------------------- */
 

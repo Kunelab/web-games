@@ -58,6 +58,16 @@ export interface GameOutcome {
   /** Sum of every hero's score. */
   totalScore: number;
   kills: number;
+  /**
+   * Crates opened, summed across the table.
+   *
+   * Reported because rooms hold a finite number of things now, so "is the board's
+   * stock ever the binding constraint" became a question the bench has to be able
+   * to answer. Without it the only way to check is to reason about it, and the
+   * whole reason this simulator exists is that reasoning about it is how the loot
+   * curve went wrong twice.
+   */
+  searches: number;
   heroesDead: number;
   heroesEscaped: number;
   /** The full combat log, when asked for: the seed replay's transcript. */
@@ -168,6 +178,7 @@ export function runGame(options: {
     turns: state.turn,
     totalScore: scores.reduce((sum, score) => sum + score.score, 0),
     kills: state.killsTotal,
+    searches: state.searchesTotal,
     heroesDead: Object.values(state.heroes).filter((hero) => !hero.alive).length,
     heroesEscaped: Object.values(state.heroes).filter((hero) => hero.escaped).length,
     log: options.captureLog ? state.log.map((entry) => `T${entry.turn} ${entry.text}`) : undefined

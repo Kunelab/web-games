@@ -110,6 +110,15 @@ function chosenParty(): PartyMember[] {
 
 const gmClass = arg('gmclass', 'horde');
 
+/**
+ * The district's weather, on or off.
+ *
+ * Exposed because "the events cancel out" is a claim about win rate, and a claim
+ * about win rate that cannot be measured is a hope. `--events false` against the
+ * same seed base is the only honest way to price them.
+ */
+const events = has('events') ? { events: arg('events', 'true') !== 'false' } : {};
+
 /** Overrides the preset's escalation, for pricing a difficulty without editing it. */
 const escalation = has('escalation') ? { escalation: Number(arg('escalation', '1')) } : {};
 
@@ -198,6 +207,7 @@ if (has('seed')) {
   has('noperks') ||
   has('team') ||
   has('gmclass') ||
+  has('events') ||
   process.argv.includes('--scenario')
 ) {
   /* ------------------------------- one cell ------------------------------- */
@@ -208,14 +218,14 @@ if (has('seed')) {
 
   const summary = runMany({
     games,
-    config: { ...DIFFICULTY_PRESETS[preset], ...escalation, scenario: scenario as never, gmClass },
+    config: { ...DIFFICULTY_PRESETS[preset], ...escalation, ...events, scenario: scenario as never, gmClass },
     party: chosenParty(),
     gmMindset: gm,
     heroPerks,
     gmPerks
   });
   row(
-    `${scenario}/${preset}/${arg('team', '') ? 'team' : `${arg('mindset', 'balanced')}/${arg('skill', 'expert')}`}${gm ? `/MJ:${gm}:${gmClass}` : ''}${heroPerks ? '+perks' : ''}${gmPerks ? '+gmperks' : ''}${has('luck') ? `/${arg('luck', 'lucky')}` : ''}${has('noperks') ? '/sans-atout' : ''}`,
+    `${scenario}/${preset}/${arg('team', '') ? 'team' : `${arg('mindset', 'balanced')}/${arg('skill', 'expert')}`}${gm ? `/MJ:${gm}:${gmClass}` : ''}${heroPerks ? '+perks' : ''}${gmPerks ? '+gmperks' : ''}${has('luck') ? `/${arg('luck', 'lucky')}` : ''}${has('noperks') ? '/sans-atout' : ''}${has('events') ? `/evts:${arg('events', 'true')}` : ''}`,
     summary
   );
 } else {

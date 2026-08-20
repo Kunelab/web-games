@@ -68,14 +68,26 @@ export function rollLoot(state: CzState, hero?: HeroState): LootRoll {
   // Margot's charm bends the fatigue curve, never the table itself.
   const fatigueStep = hero && heroDef(hero.heroId).ability === 'lucky' ? 8 : 4;
   const fatigue = hero ? Math.floor(hero.searches / fatigueStep) : 0;
-  // The Fouineur loadout perk lifts the raid's first crate by one rank.
-  const fouineur = hero?.loadout.includes('fouineur') && hero.searches === 1 ? 1 : 0;
-  let tier = Math.min(4, Math.max(0, rank + state.config.lootLuck - fatigue + fouineur)) + 1;
+  let tier = Math.min(4, Math.max(0, rank + state.config.lootLuck - fatigue)) + 1;
 
   // Lucky find: the raid's first crate is never junk. One guaranteed floor, once,
   // which is a good start and not a build.
   if (hero?.perks.includes('lucky-find') && hero.searches === 1) {
     tier = Math.max(tier, 3);
+  }
+
+  /**
+   * Chuck sorts. The bottom of the table is what he is for.
+   *
+   * His old ability was a free search a turn — the same crate, sooner. This is the
+   * *quality* half instead, and it lands where the doc has been complaining for two
+   * versions that the damage lives: bad luck costs a table forty-seven points of win
+   * rate and good luck buys nine, because six tier-1 weapons cannot clear a room
+   * whatever anybody does. A floor of two is a small number that only ever fires in
+   * the case that was breaking raids.
+   */
+  if (hero && heroDef(hero.heroId).ability === 'scavenger') {
+    tier = Math.max(tier, 2);
   }
 
   /**
@@ -162,7 +174,15 @@ export const START_LOOT_BONUS = 0.15;
  */
 export function dropFromKill(state: CzState, hero: HeroState, zombieDefId: string): ItemInstance | null {
   const def = zombieDef(zombieDefId);
-  const odds = 0.1 + def.rarity * 0.05;
+  /**
+   * `charognard` doubles it, which is the perk that makes killing a way of looting.
+   *
+   * It replaced "start with a machete". Clearing a room already paid in points and
+   * occasionally in loot; at double odds it becomes a *strategy* — a table can
+   * choose to farm the horde instead of the cupboards — and a strategy is worth more
+   * than an item, at about the same price.
+   */
+  const odds = (0.1 + def.rarity * 0.05) * (hero.loadout.includes('charognard') ? 2 : 1);
   if (!(def.boss || rand(state.rng) < odds)) return null;
   if (hero.bag.length >= bagCapacity(hero)) return null;
 

@@ -298,6 +298,50 @@ export const czCareers = sqliteTable('CzCareers', {
   updated_at: text('updated_at').default(now)
 });
 
+/**
+ * A Mafia table in progress. Same contract as `ZombieSessions`: one JSON
+ * snapshot rewritten on each transition, so a restart resumes the game.
+ */
+export const mafiaSessions = sqliteTable(
+  'MafiaSessions',
+  {
+    code: text('code').primaryKey(),
+    host_user_id: integer('host_user_id').references(() => users.id),
+    phase: text('phase').notNull(),
+    /** JSON MafiaState. */
+    state: text('state').notNull(),
+    created_at: text('created_at').default(now),
+    last_activity_at: integer('last_activity_at').notNull()
+  },
+  (table) => [index('MafiaSessions_last_activity_idx').on(table.last_activity_at)]
+);
+
+/**
+ * Mafia lifetime tallies per nickname (accounts under `@login`), the currency
+ * behind the cosmetic store. Same design as `CzCareers`.
+ */
+export const mafiaCareers = sqliteTable('MafiaCareers', {
+  name: text('name').primaryKey(),
+  /** JSON MafiaCareerStats. */
+  stats: text('stats').notNull(),
+  updated_at: text('updated_at').default(now)
+});
+
+/** Player-saved Mafia setups: up to ten named slot lists per account. */
+export const mafiaTemplates = sqliteTable(
+  'MafiaTemplates',
+  {
+    user_id: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    /** JSON SlotToken[]. */
+    slots: text('slots').notNull(),
+    updated_at: text('updated_at').default(now)
+  },
+  (table) => [primaryKey({ columns: [table.user_id, table.name] })]
+);
+
 export type MediaRow = typeof media.$inferSelect;
 export type GameResultRow = typeof gameResults.$inferSelect;
 export type NewMediaRow = typeof media.$inferInsert;

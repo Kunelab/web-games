@@ -92,3 +92,64 @@ export function neighbourRooms(view: CzView, room: CzRoomView): CzRoomView[] {
 
   return result;
 }
+
+/**
+ * Rooms this one can see into, and how far each is: the client's mirror of the
+ * engine's `lineOfSight`.
+ *
+ * It exists because tapping a zombie was the one action in the game with no
+ * affordance. Movement targets glow, so a player learns where they may walk by
+ * looking; attack targets did not, so a player learned their weapon's reach by
+ * tapping something and reading `Pas de ligne de vue` off the bottom of the
+ * screen a round trip later. Line of sight through doorways on an isometric map
+ * is not something an eye computes, so the whole combat system played as random.
+ *
+ * Same walk as the server's: straight rays from every cell of the room, in the
+ * four cardinal directions, stopping at anything not see-through and counting a
+ * room each time the ray crosses into a new one. A window is see-through and not
+ * passable, which is exactly the difference this has to respect — you can shoot
+ * through the shop window you cannot walk through.
+ *
+ * The fog is not a special case. A boundary the projection withheld reads `?`,
+ * which is not see-through, so a ray dies there — and that is the right answer,
+ * because a target nobody has seen is not a target the server would let you hit
+ * either.
+ */
+export function sightRooms(view: CzView, fromId: string, range: number): Map<string, number> {
+  const index = roomIndex(view);
+  const from = view.rooms.find((room) => room.id === fromId);
+  const visible = new Map<string, number>();
+  if (!from) return visible;
+  visible.set(from.id, 0);
+
+  for (const cell of from.cells) {
+    const origin = cellXY(view, cell);
+
+    for (const [side, dx, dy] of SIDES) {
+      let { x, y } = origin;
+      let distance = 0;
+      let currentId = from.id;
+
+      for (;;) {
+        const code = edgeAt(view, x, y, side);
+        if (code !== '.' && code !== 'D' && code !== 'A' && code !== 'W') break;
+        x += dx;
+        y += dy;
+        const target = cellOf(view, x, y);
+        if (target === -1) break;
+        const nextId = index.get(target)?.id;
+        if (nextId === undefined) break;
+
+        if (nextId !== currentId) {
+          distance += 1;
+          if (distance > range) break;
+          currentId = nextId;
+          const known = visible.get(nextId);
+          if (known === undefined || distance < known) visible.set(nextId, distance);
+        }
+      }
+    }
+  }
+
+  return visible;
+}

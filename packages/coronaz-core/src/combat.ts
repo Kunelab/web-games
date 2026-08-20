@@ -41,8 +41,31 @@ export interface AttackOutcome {
   loot?: ItemInstance;
 }
 
-/** Bernard's fallback: fists count as a weapon nobody can loot. */
-const BARE_HANDS: ItemDef = {
+/**
+ * What Yuri's interception is worth: the ten points his old ability took off a
+ * wound, spent on the wound he chose to take instead of the first one that landed.
+ */
+export const SHIELD_RELIEF = 10;
+
+/**
+ * What `endurci` is worth, in the same units as a vest: about a rare plate.
+ *
+ * Two rather than five, because the reduction lands on *every* wound and a walker
+ * hits for ten — five would halve the commonest attack in the game for the price of
+ * one of two global picks, which is a good deal past the point of being a choice.
+ */
+export const TOUGHENED_ARMOR = 2;
+
+/**
+ * Bernard's fallback: fists count as a weapon nobody can loot.
+ *
+ * Exported because the phone has to draw his reach too. It was private, which
+ * would have left the screen that highlights what a tap can hit restating these
+ * numbers — the one kind of duplication this codebase spends most of its effort
+ * avoiding, since a screen that disagrees with the server about reach is worse
+ * than a screen that says nothing at all.
+ */
+export const BARE_HANDS: ItemDef = {
   id: '__fists',
   name: 'Poings',
   kind: 'weapon',
@@ -117,9 +140,15 @@ export function resolveHeroAttack(state: CzState, hero: HeroState, target: Zombi
   }
 
   let dice = chosen.dice;
-  if (weapon.melee && ability === 'assassin') dice += 1;
-  // Charles: a die of practice at range. His old reroll had nothing left to reroll.
-  if (!weapon.melee && ability === 'marksman') dice += 1;
+  /**
+   * Charles's and Johanna's dice used to be added here, and they are gone.
+   *
+   * Their abilities were rewritten into a held shot and a refund on clearing a
+   * room, and leaving the old bonuses in place would have handed each of them
+   * *both* — a straight power increase smuggled in under a redesign, and precisely
+   * the kind of thing the difficulty ladder cannot absorb quietly. The whole point
+   * of the rewrite was that the budget does not move.
+   */
   // Diego fights best with his back to the wall.
   if (ability === 'daredevil' && hero.hp <= 20) dice += 1;
   // The boss-slayer perk: one flat die, only against the things it was earned on.
@@ -216,7 +245,10 @@ function creditKill(state: CzState, hero: HeroState, zombie: ZombieState): void 
   const ability = heroDef(hero.heroId).ability;
   hero.kills += 1;
   // Karim's bounty and the Chasseur perk: score only, never power.
-  hero.killPoints += def.points + (ability === 'trophy' ? 1 : 0) + (hero.loadout.includes('chasseur') ? 1 : 0);
+  // Karim's trophies. The `chasseur` perk that used to add a second point here is
+  // gone: it moved a number on a screen nobody reads until the raid is over, which
+  // is the one thing the perk pass was about removing.
+  hero.killPoints += def.points + (ability === 'trophy' ? 1 : 0);
   state.killsTotal += 1;
   if (def.boss) {
     state.bossKills += 1;
@@ -234,15 +266,72 @@ function creditKill(state: CzState, hero: HeroState, zombie: ZombieState): void 
 /**
  * One zombie attack on the heroes in its room.
  *
- * The victim is random among those present. A worn vest eats the whole attack and
- * is destroyed; Yuri shrugs one point off the first wound of each enemy phase.
+ * The victim is random among those present, with two thumbs on the scale: `fantome`
+ * pushes a survivor towards the back of the queue, and Yuri steps in front of
+ * whoever was picked. A worn plate eats the whole attack once, for Omar.
  */
 export function resolveZombieAttack(state: CzState, zombie: ZombieState): void {
-  const victims = Object.values(state.heroes).filter(
+  const present = Object.values(state.heroes).filter(
     (hero) => hero.alive && !hero.escaped && !hero.forfeited && hero.roomId === zombie.roomId
   );
-  const victim = victims.length > 0 ? pick(state.rng, victims) : undefined;
-  if (!victim) return;
+  if (present.length === 0) return;
+
+  /**
+   * `fantome`: the horde looks past you, while somebody steadier is standing there.
+   *
+   * It replaced `sang-froid`, which was `vigor` with a different emoji — the same
+   * "+10 PV max", printed twice in a pool of eighteen. Worth about the same hit
+   * points across a raid, and *positional*: it does nothing at all alone in a room,
+   * which is its price, and it makes standing together a tactic.
+   *
+   * The health condition is not decoration, and the bench is why. Skipping the
+   * holder unconditionally cost nine points of win rate against an aggressive game
+   * master — the same trap Yuri's shield fell into, from the other direction.
+   * Redirecting damage *concentrates* it, and concentration kills: a party of three
+   * where one seat is untouchable is a party of two absorbing everything, and a dead
+   * survivor contributes nothing while a wounded one still does. Sparing the holder
+   * only while somebody healthier is there to take it means the perk can never move
+   * a wound onto the person closer to dying of it.
+   */
+  const healthiest = Math.max(...present.map((hero) => hero.hp));
+  const exposed = present.filter((hero) => !hero.loadout.includes('fantome') || hero.hp >= healthiest);
+  const pool = exposed.length > 0 ? exposed : present;
+
+  let victim = pick(state.rng, pool);
+
+  /**
+   * Yuri steps in front. The one ability in the game that reads as an act.
+   *
+   * "The first wound of each enemy phase is reduced by 10" was a number, spent
+   * silently, that nobody at the table could ever see working. This is the same
+   * budget — once a phase, ten points off — spent on *whose* wound it is instead,
+   * which is the verb a co-operative game wants.
+   *
+   * Both bounds are load-bearing, and the bench is why. The first draft intercepted
+   * every hit he could survive, and it cost eight points of win rate against an
+   * aggressive game master: concentrating a phase's damage onto one survivor is
+   * strictly worse than spreading it, because a dead hero stops contributing while a
+   * wounded one does not. A shield that kills its holder protects nobody. So it
+   * fires once a phase (the same `toughUsed` flag as before), it takes ten points
+   * off what it intercepts, and it never triggers on a blow he could not walk away
+   * from.
+   */
+  let intercepted = false;
+  if (!victim.toughUsed || heroDef(victim.heroId).ability !== 'tough') {
+    const shield = present.find(
+      (hero) =>
+        hero.playerId !== victim.playerId && heroDef(hero.heroId).ability === 'tough' && !hero.toughUsed
+    );
+    if (shield) {
+      const incoming = Math.max(1, zombieDef(zombie.def).damage + zombie.bonusDmg - SHIELD_RELIEF);
+      if (shield.hp > incoming) {
+        log(state, `${shield.name} s’interpose devant ${victim.name}`);
+        shield.toughUsed = true;
+        victim = shield;
+        intercepted = true;
+      }
+    }
+  }
 
   const def = zombieDef(zombie.def);
   let damage = def.damage + zombie.bonusDmg;
@@ -258,8 +347,17 @@ export function resolveZombieAttack(state: CzState, zombie: ZombieState): void {
   /**
    * The plate. Best one worn, not the sum of both: two legendary vests would
    * otherwise shrug off half the bestiary outright.
+   *
+   * `endurci` joins the same `max()` rather than adding on top, for exactly that
+   * reason — it is a thin plate a survivor brought instead of one they found, and a
+   * perk that stacked with a legendary vest would be doing something no two vests
+   * are allowed to do between them.
    */
-  const armor = Math.max(0, ...victim.gear.map((item) => (item ? gearArmor(itemDef(item.def), item.rarity) : 0)));
+  const armor = Math.max(
+    0,
+    victim.loadout.includes('endurci') ? TOUGHENED_ARMOR : 0,
+    ...victim.gear.map((item) => (item ? gearArmor(itemDef(item.def), item.rarity) : 0))
+  );
   if (armor > 0) {
     // Omar's craft: once per raid, the plate holds the whole thing.
     if (heroDef(victim.heroId).ability === 'bulwark' && !flags.bulwark) {
@@ -270,24 +368,9 @@ export function resolveZombieAttack(state: CzState, zombie: ZombieState): void {
     damage = Math.max(1, damage - armor);
   }
 
-  if (heroDef(victim.heroId).ability === 'tough' && !victim.toughUsed) {
-    victim.toughUsed = true;
-    damage = Math.max(0, damage - 10);
-    if (damage === 0) {
-      log(state, `${victim.name} encaisse ${def.name} sans broncher`);
-      return;
-    }
-  }
-
-  // Coriace: the raid's first wound loses 10, once.
-  if (victim.loadout.includes('coriace') && !flags.coriace) {
-    flags.coriace = true;
-    damage = Math.max(0, damage - 10);
-    if (damage === 0) {
-      log(state, `${victim.name} serre les dents (${def.name})`);
-      return;
-    }
-  }
+  // Taking it on purpose hurts less than being caught by it: the ten points his
+  // old ability shaved off a wound, now spent on the wound he chose to take.
+  if (intercepted) damage = Math.max(1, damage - SHIELD_RELIEF);
 
   victim.hp -= damage;
   victim.damageTaken += damage;

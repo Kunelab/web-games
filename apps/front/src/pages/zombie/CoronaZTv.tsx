@@ -1,4 +1,4 @@
-import { heroDef, LAYOUTS, SCENARIO_LABELS, type CzJoinAck, type CzView } from 'coronaz-core';
+import { heroDef, LAYOUTS, SCENARIO_LABELS, type CzJoinAck, type CzRaidReward, type CzView } from 'coronaz-core';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
@@ -8,9 +8,10 @@ import { useCzSocket } from '../../hooks/useCzSocket';
 import { buzzerOrigin } from '../../tools/api-url';
 import { Button, Loading } from '../../ui';
 import { awardMeta } from '../../app/awards';
-import { MuteButton } from './CoronaZPlayer';
+import { CzEventBanner, MuteButton } from './CoronaZPlayer';
 import { czGoals } from './czGoals';
 import { CzMap } from './CzMap';
+import { CzRewards } from './CzRewards';
 import { sfxDefeat, sfxEscape, sfxHordePhase, sfxKill, sfxObjective } from './czSound';
 import './coronaz.css';
 import '../play.css';
@@ -50,7 +51,7 @@ function useTvSounds(view: ReturnType<typeof useCzSocket>['view']) {
 export default function CoronaZTv() {
   const { code = '' } = useParams<{ code: string }>();
   const navigate = useNavigate();
-  const { socket, connected, view, error, serverNow, applyView } = useCzSocket();
+  const { socket, connected, view, rewards, error, serverNow, applyView } = useCzSocket();
 
   const [hostToken] = useState(() => sessionStorage.getItem(`kune.cz.host.${code}`) ?? '');
   const [openError, setOpenError] = useState<string | null>(null);
@@ -134,6 +135,9 @@ export default function CoronaZTv() {
           Terminer
         </Button>
       </header>
+
+      {/* The district's weather, on the screen the whole room is looking at. */}
+      {view.event && <CzEventBanner id={view.event} />}
 
       {view.phase === 'lobby' && (
         <div className="host-lobby">
@@ -251,15 +255,41 @@ export default function CoronaZTv() {
         </div>
       )}
 
-      {ended && <CzEndScreen view={view} onExit={() => void navigate('/coronaz')} />}
+      {ended && (
+        <CzEndScreen
+          view={view}
+          rewards={rewards}
+          onExit={() => void navigate('/coronaz')}
+          // The television created the raid, so it holds the host token and is the
+          // natural place for the room to ask for another one.
+          onRematch={hostToken ? () => socket?.emit('cz:rematch', { hostToken }) : undefined}
+        />
+      )}
 
       {error && <p className="play-error">{error}</p>}
     </div>
   );
 }
 
-/** Shared by the TV and the phones: verdict, scores, distinctions. */
-export function CzEndScreen({ view, onExit }: { view: CzView; onExit?: () => void }) {
+/**
+ * Shared by the TV and the phones: verdict, scores, distinctions — and, since it
+ * is the only screen anyone reads at the end of a raid, the career the raid fed
+ * and the way back into another one.
+ */
+export function CzEndScreen({
+  view,
+  onExit,
+  rewards,
+  meId,
+  onRematch
+}: {
+  view: CzView;
+  onExit?: () => void;
+  rewards?: CzRaidReward[] | null;
+  meId?: string | null;
+  /** Present on the device that created the raid: one tap back into another. */
+  onRematch?: () => void;
+}) {
   return (
     <div className="cz-end">
       <p className={`cz-verdict ${view.phase === 'won' ? 'won' : 'lost'}`}>
@@ -312,11 +342,27 @@ export function CzEndScreen({ view, onExit }: { view: CzView; onExit?: () => voi
         </ul>
       )}
 
-      {onExit && (
-        <Button variant="secondary" onClick={onExit}>
-          Retour
-        </Button>
-      )}
+      {/* What the evening paid. Below the scoreboard, because the verdict is what
+          the room shouts about and this is what it takes home. */}
+      {rewards && rewards.length > 0 && <CzRewards rewards={rewards} meId={meId ?? null} />}
+
+      <div className="cz-actions">
+        {/* Another raid, same settings, same table, same code.
+            A rematch used to mean walking back through setup, re-creating a game,
+            re-reading the code out, everybody re-joining and re-picking a character
+            and a loadout — after every thirty-minute raid. That friction is the
+            reason an evening stops at three games rather than five. */}
+        {onRematch && (
+          <Button variant="primary" size="lg" onClick={onRematch}>
+            ↻ Rejouer
+          </Button>
+        )}
+        {onExit && (
+          <Button variant="secondary" onClick={onExit}>
+            Retour
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

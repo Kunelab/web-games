@@ -1,6 +1,7 @@
 import type { ItemDef, ZombieDef } from '../data.js';
 import { pick, type RngState } from '../rng.js';
 import { biomeItems, biomeZombies, type BiomeDef } from './biome.js';
+import { cyber } from './biomes/cyber.js';
 import { modern } from './biomes/modern.js';
 import type { ItemRole, ZombieArchetype } from './roles.js';
 
@@ -13,7 +14,7 @@ import type { ItemRole, ZombieArchetype } from './roles.js';
  * they did — a save file holds ids, and it must still mean something after a
  * biome is added.
  */
-export const BIOMES: readonly BiomeDef[] = [modern];
+export const BIOMES: readonly BiomeDef[] = [modern, cyber];
 
 export const BIOME_IDS = BIOMES.map((biome) => biome.id);
 

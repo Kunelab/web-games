@@ -392,11 +392,37 @@ function intendedAction(state: CzState, hero: HeroState, mindset: Mindset, skill
   // budget: the newbie opens one more crate long after the machete question is
   // settled.
   const searchesPending = state.objectives.some((o) => o.kind === 'searches' && !o.done);
+  /**
+   * A full bag stops a search — unless the dealer's perk turns it into a swap.
+   *
+   * Without this clause `brocanteur` is a dead perk on the bench: a bot would never
+   * search once its bag filled up, so the whole point of the perk (the back half of
+   * a raid stops being unable to look at anything) would never be exercised and the
+   * measured table would be strictly weaker than the one a human plays. Same class
+   * of correction as the room-stock check above.
+   */
+  const canCarry = hero.bag.length < bagCapacity(hero) || hero.loadout.includes('brocanteur');
   const wantsLoot =
-    hero.bag.length < bagCapacity(hero) &&
-    (searchesPending || (handScore < mindset.gearGoal && hero.searches < mindset.maxSearches + skill.greed));
+    canCarry && (searchesPending || (handScore < mindset.gearGoal && hero.searches < mindset.maxSearches + skill.greed));
+
   if (wantsLoot) {
-    return { type: 'search' };
+    /**
+     * Rooms run dry, so wanting to loot and being able to are two questions now.
+     *
+     * Both halves matter to the bench. Searching a spent room is an action the
+     * engine refuses, so without the first check a bot burns its turn on nothing
+     * and the simulator measures a table that never loots. And a bot that simply
+     * gives up when the room is empty would under-report the rule badly, because
+     * walking to a fresh room is exactly what a player does — the behaviour the
+     * whole change exists to produce. A bot that cannot do it is measuring the old
+     * game with the new rule's costs.
+     */
+    if (getRoom(state.board, hero.roomId).finds > 0) {
+      return { type: 'search' };
+    }
+
+    const step = stepTowardsLoot(state, hero, skill);
+    if (step) return { type: 'move', roomId: step };
   }
 
   // Advance the mission.
@@ -410,6 +436,55 @@ function intendedAction(state: CzState, hero: HeroState, mindset: Mindset, skill
   return null;
 }
 
+/**
+ * One step towards somewhere still worth searching.
+ *
+ * Scored rather than nearest-first: a pharmacy two rooms away beats a corridor next
+ * door, which is the judgement the loot bonus was added to create in the first
+ * place. Distance dominates all the same — the horde is closing, and a bot that
+ * crosses a district for one extra rarity rank is not playing well.
+ *
+ * Only rooms the team has seen. A bot allowed to path towards loot it has no way of
+ * knowing about would quietly measure a game with no fog in it.
+ */
+function stepTowardsLoot(state: CzState, hero: HeroState, skill: SkillProfile): string | null {
+  const explored = new Set(state.explored);
+  let best: { id: string; score: number } | null = null;
+
+  for (const room of state.board.rooms) {
+    if (room.finds <= 0) continue;
+    if (room.id === hero.roomId) continue;
+    if (!explored.has(room.id)) continue;
+
+    const distance = shortestPath(state.board, hero.roomId, room.id)?.length ?? 99;
+    if (distance > LOOT_DETOUR) continue;
+
+    // A rank of loot is worth about one step to a greedy bot and rather less to a
+    // careful one, which is the same trade `greed` already expresses elsewhere.
+    const score = -distance + room.loot * (1 + skill.greed * 0.5);
+    if (!best || score > best.score) best = { id: room.id, score };
+  }
+
+  if (!best) return null;
+  return shortestPath(state.board, hero.roomId, best.id)?.[0] ?? null;
+}
+
+/**
+ * How far a bot will walk purely to find somewhere with something left in it.
+ *
+ * Two, not six. Six was the first guess and the bench caught it: on a table forced
+ * to open badly it cost nineteen points of win rate, because a survivor whose hands
+ * never improve keeps wanting loot for its whole search budget and, with rooms
+ * running dry, spends that budget *walking*. Six rooms of detour is most of a turn
+ * for one crate.
+ *
+ * Two is "the next room, or the one after it", which is what a person does — you
+ * pick over what you pass through, you do not tour a district for a bat. The bad-luck
+ * case is the one the documentation already flags as where raids are actually lost,
+ * so it is the one a movement rule has to be careful around.
+ */
+const LOOT_DETOUR = 2;
+
 /** What a blunder looks like: aimless, wasteful, or frozen. */
 function fumble(state: CzState, hero: HeroState): HeroAction | null {
   const options: (HeroAction | null)[] = [];
@@ -419,7 +494,9 @@ function fumble(state: CzState, hero: HeroState): HeroAction | null {
   const randomDoor = doors[randInt(state.rng, Math.max(1, doors.length))];
   if (randomDoor) options.push({ type: 'move', roomId: randomDoor.id });
 
-  if (hero.bag.length < bagCapacity(hero)) options.push({ type: 'search' });
+  // A fumble may waste a point; it should not pick an action the engine refuses
+  // outright, which would silently turn a blunder into a freeze.
+  if (hero.bag.length < bagCapacity(hero) && here.finds > 0) options.push({ type: 'search' });
 
   // Freezing: the AP is simply not spent this decision.
   options.push(null);

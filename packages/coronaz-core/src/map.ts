@@ -254,6 +254,23 @@ export interface Room {
    * decoration costs the protocol four bytes instead of a prop list.
    */
   decor: number;
+  /**
+   * How many more things can be found here. Decremented by every search.
+   *
+   * Rooms had no search budget at all, and nothing in the engine marked one as
+   * searched — so the optimal play in a room the loot table pays double for was to
+   * stand still and search it over and over, bounded only by action points, bag
+   * space, and a loot fatigue counted per *hero* rather than per room. Standing
+   * still is the least interesting thing this game can ask of anyone, and it
+   * quietly undid the work that made rooms differ: you never had to cross the
+   * street to the pharmacy, only to arrive once and camp.
+   *
+   * The supply is deliberately far larger than a table can spend — roughly two
+   * hundred finds on a district against the thirty a raid uses — so this is not a
+   * scarcity dial. It binds *locally*, which is the whole intent: a good room is a
+   * destination that runs dry, so exploring is the way to keep finding things.
+   */
+  finds: number;
 }
 
 export interface Board {
@@ -504,6 +521,38 @@ export function openSpace(board: Board, fromId: string, depth = Number.POSITIVE_
  * hero every activation; doing that with `shortestPath` per candidate was the kind
  * of quadratic that only shows up once the boards get big.
  */
+/**
+ * Rooms within `steps` doorways, whether or not you can see into them.
+ *
+ * The counterpart to `lineOfSight`, and the difference is the whole reason this
+ * exists: line of sight is *unbounded* along a straight open run, so it already
+ * reveals every immediate neighbour of every room and a corridor all the way to its
+ * end. What it never reveals is anything **around a corner**.
+ *
+ * That made "lights the rooms next door" a promise nothing could keep — see the note
+ * on `torchReach`. A perk or a lamp that wants to push the dark back has to be
+ * measured in steps, not in rays.
+ */
+export function withinSteps(board: Board, fromId: string, steps: number): Set<string> {
+  const reached = new Set<string>([fromId]);
+  if (steps <= 0) return reached;
+
+  let frontier = [getRoom(board, fromId)];
+  for (let depth = 0; depth < steps; depth++) {
+    const next: Room[] = [];
+    for (const room of frontier) {
+      for (const other of neighbors(board, room)) {
+        if (reached.has(other.id)) continue;
+        reached.add(other.id);
+        next.push(other);
+      }
+    }
+    if (next.length === 0) break;
+    frontier = next;
+  }
+  return reached;
+}
+
 export function distancesFrom(board: Board, fromId: string): Map<string, number> {
   const distances = new Map<string, number>([[fromId, 0]]);
   const queue: Room[] = [getRoom(board, fromId)];

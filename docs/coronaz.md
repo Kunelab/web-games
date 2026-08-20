@@ -928,11 +928,307 @@ ce genre (100 % des lotissements, par construction), ce qui ne doit surtout pas
 produire un raid impossible : le repli sur les salles ordinaires est la voie normale,
 pas un cas d'erreur.
 
+## v9 : le butin s'épuise, les atouts deviennent des verbes, et le quartier a une météo
+
+Cette passe répond à un essai à deux : « ça s'est bien passé, mais au bout de trois
+parties c'est devenu un peu ennuyeux », plus deux écrans jamais audités — le téléphone
+du survivant et celui du maître du jeu.
+
+### Ce qui rendait la troisième soirée identique à la deuxième
+
+Quatre causes, et aucune n'était l'équilibrage :
+
+1. **Un seul biome.** Le système en avait un, donc douze armes et neuf créatures
+   identiques à chaque raid. Le « reste à faire » l'annonçait depuis la v4.
+2. **Fouiller n'avait pas de limite.** Rien dans le moteur ne marquait une salle comme
+   fouillée : le meilleur jeu dans une pharmacie était donc de **ne pas bouger** et de
+   fouiller encore, borné seulement par les PA, le sac, et une fatigue comptée par
+   *héros* et non par salle. Rester immobile est la chose la moins intéressante que ce
+   jeu puisse demander, et ça annulait discrètement le travail de la v7 : on n'avait
+   jamais besoin de traverser la rue jusqu'à l'armurerie, seulement d'y arriver une
+   fois et d'y camper.
+3. **La progression était finie avant la troisième soirée.** Les rations valaient le
+   *score* du raid, soit 150 à 220, contre un roster affiché de 150 à 400. Une soirée
+   achetait donc un personnage, n'importe lequel, et tout le roster déblocable partait
+   en dix ou douze soirées. Pire : l'écran de fin ne le disait nulle part. Les rations
+   étaient créditées et jamais montrées, donc le plus fort levier de rétention du
+   genre était calculé, écrit en base, et caché jusqu'au prochain salon d'attente.
+4. **Le tour six se jouait exactement comme le tour cinq.** La courbe d'escalade
+   rendait un raid plus *dur* avec le temps et jamais *différent*.
+
+### Le butin s'épuise : `finds`
+
+Chaque salle porte un stock, à l'échelle de ce que la table de butin lui paie : une
+chaussée en tient 1, un séjour 3, une salle brillante 4, une armurerie 5, plus une pour
+les grandes. La salle de départ a un plancher à 6 — deux fouilles gratuites par
+survivant, jusqu'à cinq survivants, tous debout sur le même trottoir au tour un.
+
+**Ce n'est pas un cadran de rareté**, et c'est mesuré : un plateau tient 200 à 290
+trouvailles quand cinq bots `looter` — les cerveaux les plus gloutons du banc — en
+ouvrent quatorze sur un raid entier. Un ordre de grandeur de marge, donc la courbe de
+butin de la v6 n'est pas touchée. La contrainte est *locale*, et c'est là que
+l'immobilité était le problème.
+
+Le téléphone affiche le reste (« 3 à fouiller », « salle vidée ») et grise le bouton,
+parce qu'une règle qu'on ne voit pas se lit comme un bug.
+
+### Les atouts deviennent des verbes
+
+Le diagnostic tenait en un tableau. Les dix-huit atouts sortaient de trois moules —
+`+N plat`, `commence avec X` (cinq sur dix-huit), `la première X est gratuite` — et
+**trois paires étaient le même atout écrit deux fois** : `vigor`/`sang-froid` (« +10 PV
+max »), `soigneur`/`trousse` (un kit), `arme`/`couteau` (la seconde main). Une réserve
+dont deux entrées sont indiscernables est une réserve de seize entrées et un bug.
+
+Côté héros, seize aptitudes sur vingt étaient un nombre. Les quatre qui n'en étaient
+pas — `silent` (le bruit), `scout` (l'information), `deadeye` (la portée), `tactician`
+(mettre un PA de côté) — sont exactement celles dont on se souvient.
+
+La règle de la réécriture est la partie importante : **le budget de puissance ne bouge
+pas.** Un dé devient un verbe de valeur comparable. C'est ce qui garde cinq versions
+d'équilibrage valides, et le banc est ce qui le vérifie.
+
+| Personnage | Avant | Après |
+| ---------- | ----- | ----- |
+| Charles | +1 dé à distance | **Embuscade** : un PA gardé devient un tir pendant la phase ennemie |
+| Johanna | +1 dé en mêlée | **Exécution** : vider une salle en mêlée rend le PA |
+| Chuck | première fouille du tour gratuite | **Trieur** : jamais de camelote, et une trouvaille de plus par salle |
+| Yuri | première blessure du tour -10 | **Bouclier humain** : encaisse un coup destiné à un allié |
+| Nadia | premier déplacement gratuit | **Course** : deux salles pour un PA, mais on arrive en faisant du bruit |
+
+`mule` et `brawler` sont laissées telles quelles : barricade et empoignade devraient
+muter le plateau en cours de raid, et le plateau porte une garantie de connexité que
+les fenêtres de la v8 ont été soigneusement conçues pour ne pas casser. Ça vaut d'être
+fait proprement plutôt qu'à moitié.
+
+Neuf atouts neufs : `pilleur` (une fouille gratuite par tour dans une salle
+brillante), `serrurier` (les clés sont gratuites et la sortie est révélée), `vigile`
+(voir au-delà du coin), `courrier` (donner à une salle de distance), `elan` (le premier
+pas vers l'inexploré est gratuit), `charognard` (les cadavres lâchent deux fois plus),
+`fantome` (la horde vise l'allié plus valide), `brocanteur` (sac plein : la fouille
+remplace le pire objet), `eclaireur` (sentir les clés voisines), `endurci` (-2 sur
+chaque blessure).
+
+### Ce que le banc a attrapé, et qui n'aurait pas été trouvé autrement
+
+C'est la partie la plus utile de cette passe. Quatre erreurs réelles, dont trois
+invisibles à la lecture :
+
+- **Charles et Johanna avaient les deux.** La réécriture ajoutait l'embuscade et le
+  remboursement, et laissait `+1 dé` en place dans le chemin de combat. Une hausse de
+  puissance passée en contrebande sous une refonte.
+- **Le bouclier de Yuri coûtait huit points de victoire** contre un MJ agressif, dans
+  sa première version qui interceptait tout ce qu'il pouvait survivre. Concentrer les
+  dégâts d'une phase sur un survivant est *strictement pire* que de les étaler : un
+  héros mort ne contribue plus, un héros blessé si. Borné à une fois par phase, -10 sur
+  le coup encaissé, et jamais sur un coup qui le tuerait — exactement les chiffres de
+  l'ancienne aptitude.
+- **`fantome` tombait dans le même piège**, par l'autre bout : sauter le porteur sans
+  condition transforme une équipe de trois en une équipe de deux qui encaisse tout. Il
+  n'épargne donc le porteur que si quelqu'un de plus valide est là pour prendre le coup.
+- **Supprimer le doublon a vidé une catégorie.** `sang-froid` était la seule option de
+  survie de la réserve *globale*, et la copie qui reste (`vigor`) est réservée aux
+  signatures — donc la réserve globale s'est retrouvée sans rien de défensif. Le banc
+  l'a trouvé là où ça se voit toujours : -14 points sur une table forcée à mal ouvrir.
+  D'où `endurci`, qui n'est pas un second « +10 PV max » : l'armure et les PV répondent
+  à des menaces différentes (un gros coup contre une foule de petits), ce qui est
+  précisément l'axe autour duquel la v6 a construit l'armure.
+
+Et deux bugs latents que l'ajout d'un biome a révélés, tous les deux de la même
+famille — un identifiant d'objet codé en dur là où le rôle existait :
+
+- La projection testait `item.def === 'flashlight'` quand le moteur testait
+  `gear?.flashlight`. Un biome qui n'appelle pas sa lampe « flashlight » affichait
+  « fouille gratuite » et se faisait facturer par le serveur.
+- **La portée de la lampe légendaire n'a jamais rien fait.** `lineOfSight` n'est pas
+  bornée le long d'une ligne ouverte, donc *toutes* les salles voisines de *toutes* les
+  salles sont déjà visibles par tout le monde : mesuré, la branche « éclaire les salles
+  voisines » révélait quelque chose de neuf dans **0 salle sur 185**. Ce que le noir
+  cache, c'est ce qui est *après le coin*, donc la portée se compte maintenant en pas
+  (`withinSteps`) et plus en rayons.
+
+### La météo du quartier
+
+Un événement tiré au sommet d'un tiers des phases ennemies, à partir du tour trois.
+Six, **construits par paires opposées** : sirène contre largage, nuée contre accalmie,
+coupure contre fusée éclairante. C'est toute l'argumentation pour ne pas retoucher
+l'échelle de difficulté, donc c'est asserté et pas décrit — un test échoue si quelqu'un
+ajoute un septième du côté de la horde.
+
+Trois règles de plus : un tour chacun, rien ne s'accumule ; tout est annoncé sur les
+trois écrans ; et **aucun ne touche aux cloisons**, parce qu'un événement qui
+scellerait une porte pourrait dresser un raid sur une sortie inatteignable. Un test
+compare la connexité du plateau après cent tours de météo.
+
+Contre un MJ humain, `spawnReinforcements` ne tourne pas — les salles d'apparition ne
+tirent pas, la horde est achetée à la main — donc la nuée et l'accalmie s'annonçaient
+et ne faisaient **rien du tout**. Un événement qui dit « les salles d'apparition
+crachent deux fois ce tour » et ne change rien est pire que pas d'événement : c'est le
+jeu qui ment à la table. Elles déplacent maintenant le budget : zéro pour l'accalmie,
+double pour la nuée.
+
+### L'économie des rations, refaite
+
+Les rations sont leur propre monnaie, décrochée du score : `8 + tours + 12 si victoire
++ victimes/4 + fouilles/3`. Un raid gagné paie environ 45, un perdu environ 25 —
+perdre paie encore, à 60 %, parce qu'une monnaie qu'on ne gagne qu'en gagnant punit
+exactement les soirées qui allaient déjà mal. Le personnage le moins cher est donc
+trois ou quatre soirées, le plus cher neuf ou dix, et le roster complet une saison au
+lieu d'une quinzaine.
+
+Et **l'écran de fin le dit** : rations gagnées, trophées tombés ce soir, atouts
+allumés, personnages désormais à portée, et les trois trophées les plus proches avec
+leur barre. C'est la dernière qui compte — « 72 sur 100 fouilles » est un argument pour
+un quatrième raid d'une façon qu'un nombre de rations n'est pas. Les lignes de tout le
+monde sont montrées à tout le monde : lire à voix haute qui a débloqué quoi est
+l'essentiel de ce qu'un écran de récompense sert à faire à une table.
+
+Chaque trophée porte donc un `progress` en plus de son `earned`. Deux descriptions du
+même seuil peuvent se contredire, alors un test parcourt une carrière de zéro à
+cent-vingt et vérifie qu'elles n'en sont jamais d'accord à moitié.
+
+Un bouton **Rejouer** garde le code, les sièges, les personnages et les atouts, et tire
+un monde neuf. Refaire une partie voulait dire repasser par la mise en place, relire un
+code à voix haute, tout le monde rejoint, tout le monde repioche — après chaque raid de
+trente minutes. Cette friction est une vraie raison pour laquelle une soirée s'arrête à
+trois parties.
+
+### Les deux téléphones
+
+**Le survivant.** Attaquer était la seule action du jeu sans affordance : les salles
+d'arrivée brillaient, les cibles non, et la portée était vérifiée côté serveur — donc
+apprendre la portée de son arme voulait dire toucher quelque chose et lire « Pas de
+ligne de vue » un aller-retour plus tard. La ligne de vue à travers les portes sur une
+carte isométrique n'est pas quelque chose qu'un œil calcule, donc **tout le combat se
+jouait comme du hasard**. Le plateau répond maintenant avant le tap : `sightRooms`
+reproduit le calcul du serveur — un test l'assert salle par salle, portée par portée,
+sur les cinq layouts, parce qu'un écran qui n'est pas d'accord avec le serveur sur la
+portée est pire qu'un écran qui ne dit rien.
+
+Deux autres : les jetons ont une cible de 44 px qui **annule le zoom de la caméra** (30
+px de monde à l'échelle qui fait tenir un quartier sur un téléphone font dix pixels de
+verre), et « Abandonner » quitte la rangée de boutons pressée à chaque tour pour aller
+derrière le sac — une confirmation n'est pas un permis de mettre une action
+irréversible sous le pouce qui est déjà en mouvement.
+
+**Le maître du jeu**, jamais testé, et trois choses cassées, toutes une question de
+*quantité* : au tour huit la horde fait trente créatures et le chrono quarante-cinq
+secondes.
+
+1. **Rien ne disait qui avait déjà bougé.** Les PA n'étaient visibles que sur la
+   créature sélectionnée, donc trouver celles qui devaient encore jouer voulait dire
+   toucher les trente. Elles portent maintenant leurs PA sur le plateau, les dépensées
+   sont grisées, et ⏭ parcourt la file — avec la caméra qui suit, sans quoi
+   sélectionner ne sert à rien.
+2. **Les panneaux dépassaient du bas de l'écran.** L'écran est en `100dvh` avec
+   `overflow: hidden` et les feuilles s'empilaient sans borne : sur un téléphone de
+   360 px, « Finir la phase » — le bouton le plus important de cet écran — était sous
+   le pli, sans aucun moyen d'y aller. Le dock défile, les feuilles s'excluent, et les
+   contrôles de phase sont épinglés en dehors du défilement.
+3. **Aucune sortie sauf le chrono ou l'abandon.** ⏩ confie le reste de la horde au
+   cerveau du serveur, au rythme exact du mode IA. Un MJ à court de temps perdait sinon
+   le tour entier de la horde en silence.
+
+Plus : le journal, qui n'existait que sur la télé — l'écran que le MJ ne tient pas —
+donc la phase des héros se passait à regarder des jetons glisser sans savoir qui avait
+fouillé quoi. Il est sur les deux téléphones maintenant, et sur celui du survivant
+seulement pendant la phase ennemie, quand le dock est vide de toute façon.
+
+### Les classes de MJ qui n'étaient que des tarifs
+
+`traqueur` (« les coureurs coûtent 1 »), `general` (« Ruée coûte 3 ») et `ossature`
+(« les évolutions coûtent 3 de moins ») étaient des lignes de prix, pas des identités :
+choisir entre elles changeait l'arithmétique et pas la façon de jouer la horde. Chacune
+plie maintenant une *règle* — les créatures du traqueur gagnent 1 PA là où on a tiré, le
+premier renfort du général agit immédiatement, et le colosse d'os peut faire surface
+dans **n'importe quelle salle inexplorée**, ce qui est la seule chose du jeu qui laisse
+la horde tendre une embuscade et qui rétrécit exactement au rythme où la table éclaire
+la carte.
+
+Mesuré à 400 parties contre des joueurs experts : traqueur 31,0 %, général 30,3 %,
+ossature 31,3 %, contre 30,5 % pour la horde de référence. Les trois sont donc à
+égalité avec elle, et aucune n'est plus forte que le tarif qu'elle remplace.
+
+### Le second biome
+
+`cyber` : la ville quand le réseau est revenu. Seize objets, neuf créatures.
+
+Ce que l'identité peut être : les noms, les visages, et **le partage dés-contre-dégâts**
+dans le budget du rôle — une matraque à choc qui frappe deux fois pour sept n'est pas
+une batte qui frappe une fois pour quatorze, et aucune des deux n'est plus forte. Ce
+qu'elle ne peut pas être : la portée, `pierce`, `akimbo` et `noisy` sont **identiques**
+au biome de référence, rôle par rôle, parce que ce sont les quatre propriétés
+qu'`expectedDamage` ne voit pas — un arsenal plus silencieux contre une horde qui se
+guide au bruit est simplement un meilleur arsenal, et le test de puissance laisserait
+passer.
+
+### Ce que le banc dit de cette passe
+
+400 parties par case, trois héros experts, mindset `balanced`, évasion.
+
+| Case | v8 | v9 | Cible |
+| ---- | -- | -- | ----- |
+| facile | 98,0 % | 98,8 % | ≥ 99 % |
+| normal | 90,0 % | 92,0 % | 94-95 % |
+| difficile | 55,3 % | 54,8 % | ~70 % |
+| cauchemar | 26,3 % | 25,8 % | ~41 % |
+| apocalypse | 8,7 % | 10,0 % | ~20 % |
+| normal, sans atout | 85,0 % | 87,3 % | — |
+| contre MJ agressif | 31,0 % | 26,0 % | 40-50 % |
+| contre MJ expert | 31,3 % | 31,5 % | 40-50 % |
+| **normal, malchance forcée** | **63,7 %** | **48,3 %** | — |
+
+Deux choses à dire honnêtement.
+
+D'abord, **les cibles annoncées dans les versions précédentes ne sont pas atteintes, et
+ne l'étaient déjà pas avant cette passe.** `difficile` est mesuré à 55 % pour une cible
+de 70, `cauchemar` à 26 pour 41, « contre MJ agressif » à 31 pour 40-50. Ces écarts
+sont antérieurs ; la v9 ne les a ni créés ni corrigés. Il faudrait reprendre les
+préréglages, ce qui est un travail à part et qui mérite d'être fait avec les chiffres
+sous les yeux plutôt qu'au passage.
+
+Ensuite, **la vraie régression de cette passe est la case de malchance forcée** :
+-15 points. `--luck unlucky` épingle les six premiers tirages au palier 1, donc c'est un
+pire cas synthétique et pas une cible — mais la v5 avait identifié l'asymétrie de la
+chance comme *le* problème et la v6 l'avait réduite avec le plancher de pitié et la
+caisse offerte. Cette passe en a repris une partie. Trois causes identifiées, deux
+corrigées (le trou de survie dans la réserve globale, comblé par `endurci` ; la borne du
+bouclier de Yuri) ; il reste une douzaine de points inexpliqués.
+
+L'hypothèse la plus probable pour le reste est un artefact du banc plutôt qu'un
+changement de jeu : la nouvelle réserve contient deux atouts qu'un bot ne peut pas
+jouer — `courrier`, parce qu'aucun bot n'échange d'objet, et `pilleur`, qui demande de
+router vers les salles brillantes — alors que l'ancienne était entièrement passive. Un
+bot tire deux atouts globaux sur huit, donc la table mesurée est plus faible que celle
+qu'une personne joue. **Ce qu'il faudrait pour le savoir : apprendre aux bots à
+échanger des objets et à router vers le butin.** C'est du travail sur le banc, pas sur
+le jeu, et c'est la prochaine chose à faire ici.
+
+Autre chose que le banc dit et qui n'était pas cherché : `purge` et `survie` sont à
+99,5 % en `normal`. Ces deux scénarios ne sont pas des difficultés, ce sont des
+promenades — et personne ne s'en était aperçu parce que la matrice de calibration ne
+mesurait que l'évasion.
+
 ## Reste à faire
 
-- **Les autres biomes.** Le système existe et n'a qu'une entrée. Cyberpunk et
-  steampunk étaient demandés : seize objets et neuf créatures chacun, plus une
-  palette et une table d'accessoires. Le test d'enveloppe dira si l'arsenal dérive.
+- **Les bots du banc, d'abord.** C'est devenu la priorité : deux des nouveaux atouts
+  sont injouables par un bot (`courrier`, aucun bot n'échange d'objet ; `pilleur`, qui
+  demande de router vers les salles brillantes), donc le banc mesure une table plus
+  faible que celle qu'une personne joue et on ne sait pas dire quelle part de la
+  régression de malchance est réelle. Apprendre aux bots à échanger et à router.
+- **Reprendre les préréglages.** `difficile`, `cauchemar` et « contre MJ agressif »
+  sont mesurés dix à quinze points sous les cibles annoncées, et l'étaient déjà avant
+  la v9. À faire avec les chiffres sous les yeux, pas au passage.
+- **`purge` et `survie` sont des promenades** : 99,5 % en `normal`. La matrice de
+  calibration ne mesurait que l'évasion, donc personne ne l'avait vu.
+- **Le troisième biome.** Il y en a deux (`modern`, `cyber`) et steampunk était
+  demandé : seize objets et neuf créatures, plus une palette et une table
+  d'accessoires. Les créatures des biomes sans dessins retombent sur leur emoji, ce
+  qui marche et se voit.
+- **Barricade et empoignade** (Marco, Bernard), les deux aptitudes laissées de côté en
+  v9 : les deux veulent muter le plateau en cours de raid, donc les deux demandent de
+  prouver que la connexité tient — un contrôle de flot avant de sceller, et la
+  restauration en fin de tour.
 - **Les images**. Le plateau et les vingt portraits se dessinent tout seuls ; le
   cahier des charges pour les remplacer est dans [coronaz-art.md](coronaz-art.md).
   Vérifier la licence de la police « 28 Days Later » avant de l'embarquer.

@@ -1,4 +1,4 @@
-import type { FloorKind, RoomProgram } from '../map.js';
+import { ROADWAY_PROGRAMS, type FloorKind, type RoomProgram } from '../map.js';
 import { pick, randInt, type RngState } from '../rng.js';
 
 /**
@@ -452,6 +452,68 @@ export function lootBonusFor(program: RoomProgram): number {
  * town where a third of the rooms sparkle is a town where none of them do.
  */
 export const SHINY_LOOT = 0.4;
+
+/**
+ * How many things a room holds before it is picked clean.
+ *
+ * There was no such number, and nothing in the engine marked a room as searched, so
+ * the best play in a room the loot table pays double for was to stand there and
+ * search it again — bounded only by action points, bag space, and a fatigue counted
+ * per hero rather than per room. That is the least interesting thing the game can
+ * ask anybody to do, and it wasted the work that made rooms differ at all: you
+ * never needed to cross the street to the pharmacy, only to arrive once and camp.
+ *
+ * The scale follows the loot bonus, because the same sentence should be true of
+ * both: an armoury is worth going to *and* worth going to for a while. A roadway
+ * holds almost nothing, which is also what a road is.
+ *
+ * Deliberately generous in total, and measured: a board holds 200–290 finds, while
+ * five `looter` bots — the greediest brains on the bench — open about fourteen
+ * crates in a whole raid, because a survivor stops when their hands are good rather
+ * than when the world runs out. An order of magnitude of headroom, so this is not a
+ * scarcity dial and the loot curve five versions went into balancing is untouched.
+ * It binds locally, and locally is where standing still was the problem.
+ */
+/**
+ * The floor under the start room's stock.
+ *
+ * Two free searches a survivor, times up to five survivors, all of them standing in
+ * the same room on turn one — and that room is usually a pavement, which holds one
+ * thing. Ten would make the doorstep the best room on the board; ten is also what
+ * the table could theoretically spend there. Six is the compromise: nobody finds the
+ * opening room empty, and nobody stays in it either.
+ */
+export const START_FINDS = 6;
+
+export function findsFor(program: RoomProgram, cells: number): number {
+  const bonus = LOOT_BONUS[program];
+
+  // A road is a road. One thing in the boot of one car, and that is the street.
+  if (ROADWAY_PROGRAMS.includes(program)) return 1;
+
+  /**
+   * The ordinary room holds three, not two, and the poor one two, not one.
+   *
+   * The first draft was one lower across the board and the bench found the cost in
+   * the one place that mattered: a table forced to open badly fell from 64 % to 46 %,
+   * because a survivor whose hands never improve keeps wanting to search, and if
+   * every room runs dry in two he spends his whole search budget *walking* between
+   * them. That is a tax paid entirely by the unluckiest tables — which the
+   * documentation has flagged for two versions as where raids are actually lost — and
+   * it is not what this rule was for. The rule exists to stop *camping*, and three
+   * finds stops camping just as well as two.
+   */
+  const base = bonus >= 0.6 ? 5 : bonus >= SHINY_LOOT ? 4 : bonus >= 0 ? 3 : 2;
+  /**
+   * Big rooms hold a little more, capped at one extra.
+   *
+   * Not proportional: a nine-cell plaza is nine cells because walking across open
+   * ground should be cheap, not because a plaza is a treasury. Without the cap the
+   * outdoor rooms — the largest on the board and the poorest by design — would hold
+   * the most.
+   */
+  return base + (cells >= 4 ? 1 : 0);
+}
 
 /**
  * How many separate clusters of a room a building may hold, and how big one gets.

@@ -1,0 +1,558 @@
+/*
+ * Mafia screens. The map carries the day/night mood; everything else is a
+ * quiet dark UI so the town square stays the star. The chat inherits its
+ * theme from the --chat-* variables set on .mz-screen.
+ */
+
+.mz-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 12px;
+  min-height: 100dvh;
+
+  --chat-accent: #e8b04b;
+  --chat-bg: #14161c;
+}
+
+.mz-screen--night {
+  --chat-accent: #8fa7ff;
+}
+
+/* ------------------------------- header -------------------------------- */
+
+.mz-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mz-phase {
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.mz-trial-name {
+  opacity: 0.85;
+}
+
+.mz-timer {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  font-size: 1.3rem;
+  color: var(--chat-accent, #e8b04b);
+}
+
+.mz-error {
+  color: #ff7a6b;
+  margin: 0;
+}
+
+.mz-hint {
+  margin: 0;
+  opacity: 0.9;
+}
+
+/* -------------------------------- lobby -------------------------------- */
+
+.mz-lobby,
+.mz-host-controls,
+.mz-judgement {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+/* --------------------------------- map --------------------------------- */
+
+.mz-map {
+  width: 100%;
+  height: auto;
+  border-radius: 14px;
+  background: linear-gradient(#87b5e0, #b7d3a8 70%);
+  transition: background 1.2s ease;
+  user-select: none;
+}
+
+.mz-map--night {
+  background: linear-gradient(#0b1030, #23304a 75%);
+}
+
+.mz-ground {
+  fill: #9aba86;
+  transition: fill 1.2s ease;
+}
+
+.mz-map--night .mz-ground {
+  fill: #2c3a52;
+}
+
+.mz-plaza {
+  fill: #c9c2a6;
+  opacity: 0.9;
+}
+
+.mz-map--night .mz-plaza {
+  fill: #4a5470;
+}
+
+.mz-fountain {
+  fill: #7fb2d8;
+}
+
+.mz-fountain-top {
+  fill: #a8d2ef;
+}
+
+.mz-gallows rect {
+  fill: #5b4632;
+}
+
+.mz-rope {
+  stroke: #d9c9a3;
+  stroke-width: 2;
+}
+
+.mz-noose {
+  fill: none;
+  stroke: #d9c9a3;
+  stroke-width: 2;
+}
+
+/* -------------------------------- plots -------------------------------- */
+
+.mz-plot-ground {
+  fill: rgba(255, 255, 255, 0.14);
+  stroke: rgba(0, 0, 0, 0.15);
+  stroke-width: 1;
+}
+
+.mz-map--night .mz-plot-ground {
+  fill: rgba(255, 255, 255, 0.05);
+}
+
+.mz-plot-empty {
+  fill: rgba(0, 0, 0, 0.08);
+}
+
+.mz-plot--target {
+  cursor: pointer;
+}
+
+.mz-plot--target .mz-plot-ground {
+  stroke: #ffd76a;
+  stroke-width: 2.5;
+  fill: rgba(255, 215, 106, 0.22);
+}
+
+.mz-plot--selected .mz-plot-ground {
+  stroke: #ff5b45;
+  stroke-width: 3;
+  fill: rgba(255, 91, 69, 0.28);
+}
+
+.mz-plot--trial .mz-plot-ground {
+  stroke: #b18cff;
+  stroke-width: 3;
+}
+
+.mz-plot--dead .mz-name {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+/* -------------------------------- house -------------------------------- */
+
+.mz-wall-l {
+  fill: #b9a68c;
+}
+
+.mz-wall-r {
+  fill: #9c8a71;
+}
+
+.mz-roof {
+  fill: #7e5644;
+}
+
+.mz-map--night .mz-wall-l {
+  fill: #5c5670;
+}
+
+.mz-map--night .mz-wall-r {
+  fill: #46425a;
+}
+
+.mz-map--night .mz-roof {
+  fill: #3b3450;
+}
+
+.mz-door {
+  fill: #4c3626;
+}
+
+.mz-window {
+  fill: #6d7d8a;
+}
+
+.mz-window--lit {
+  fill: #ffd76a;
+  filter: drop-shadow(0 0 4px #ffd76a);
+}
+
+.mz-shadow {
+  fill: rgba(0, 0, 0, 0.25);
+}
+
+.mz-peg--away {
+  opacity: 0.45;
+}
+
+.mz-tomb-stone {
+  fill: #8f8f96;
+  stroke: #6c6c72;
+}
+
+.mz-tomb-ground {
+  fill: rgba(0, 0, 0, 0.2);
+}
+
+.mz-tomb-rip {
+  font-size: 9px;
+  fill: #55555c;
+}
+
+.mz-name {
+  font-size: 11px;
+  font-weight: 600;
+  fill: #26221c;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 2.5;
+}
+
+.mz-map--night .mz-name {
+  fill: #e8e6f2;
+  stroke: rgba(0, 0, 0, 0.55);
+}
+
+.mz-you {
+  font-size: 10px;
+  font-weight: 800;
+  fill: #ff5b45;
+}
+
+.mz-votes circle {
+  fill: #ff5b45;
+}
+
+.mz-votes text {
+  font-size: 11px;
+  font-weight: 800;
+  fill: #fff;
+}
+
+/* ------------------------------ role card ------------------------------- */
+
+.mz-role {
+  border-radius: 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  border-left-width: 5px;
+}
+
+.mz-role--town {
+  border-left-color: #61c569;
+}
+
+.mz-role--mafia {
+  border-left-color: #ff5b45;
+}
+
+.mz-role--neutral {
+  border-left-color: #b18cff;
+}
+
+.mz-role-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.mz-role-faction,
+.mz-charges {
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
+.mz-dead-tag {
+  color: #ff7a6b;
+  font-weight: 800;
+  font-size: 0.8rem;
+}
+
+.mz-role-desc,
+.mz-teammates {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+/* ------------------------------- actions -------------------------------- */
+
+.mz-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mz-guilty {
+  background: #a33327;
+  color: #fff;
+}
+
+.mz-innocent {
+  background: #2e7d43;
+  color: #fff;
+}
+
+.mz-cast {
+  outline: 3px solid #ffd76a;
+}
+
+.mz-will {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.mz-will textarea {
+  flex: 1;
+  min-height: 64px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+/* ------------------------------- journal -------------------------------- */
+
+.mz-journal {
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: rgba(177, 140, 255, 0.08);
+  border: 1px solid rgba(177, 140, 255, 0.25);
+  font-size: 0.88rem;
+}
+
+.mz-journal p {
+  margin: 2px 0;
+}
+
+/* ------------------------------- results -------------------------------- */
+
+.mz-results table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.mz-results td {
+  padding: 4px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mz-winner {
+  background: rgba(232, 176, 75, 0.12);
+}
+
+/* ------------------------------- whispers -------------------------------- */
+
+.mz-whisper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.mz-whisper-target,
+.mz-whisper-input {
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.mz-whisper-input {
+  flex: 1;
+  min-width: 160px;
+}
+
+/* ------------------------------- templates ------------------------------- */
+
+.mz-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.mz-tab {
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  font: inherit;
+  padding: 8px 14px;
+  cursor: pointer;
+  border-radius: 8px 8px 0 0;
+}
+
+.mz-tab--active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+  font-weight: 700;
+}
+
+.mz-templates {
+  max-width: 560px;
+}
+
+.mz-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.mz-template {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.mz-template span {
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+
+.mz-template--active {
+  border-color: #e8b04b;
+  outline: 1px solid #e8b04b;
+}
+
+.mz-template--saved {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mz-template-load {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  flex: 1;
+}
+
+.mz-template-editor {
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mz-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mz-chip {
+  border: none;
+  background: rgba(232, 176, 75, 0.18);
+  color: inherit;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 4px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.mz-template-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+/* -------------------------------- setup --------------------------------- */
+
+.mz-setup-form,
+.mz-created,
+.mz-mine {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.mz-qr {
+  background: #fff;
+  padding: 12px;
+  border-radius: 12px;
+  width: fit-content;
+}
+
+.mz-join-url {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+
+.mz-join {
+  max-width: 420px;
+  margin: 10vh auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+.mz-join-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* The chat gets the remaining height on the seat screen. */
+.mz-screen .chat-panel {
+  min-height: 260px;
+  max-height: 40vh;
+}

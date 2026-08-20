@@ -1,15 +1,18 @@
-import { resolveHeroAttack, resolveZombieAttack, type Hand } from './combat.js';
+import { resolveHeroAttack, resolveZombieAttack, weaponFor, type Hand } from './combat.js';
 import { archetypeOf, itemFor, zombieFor } from './content/registry.js';
 import { gearStats, heroDef, itemDef, RARITY_META, zombieDef } from './data.js';
 import { rollLoot } from './loot.js';
 import { mutationEffects } from './mutations.js';
+import { CZ_EVENTS, EVENT_CHANCE, EVENT_FROM_TURN } from './events.js';
 import { getRoom, neighbors, shortestPath } from './map.js';
+import { SHINY_LOOT } from './mapgen/programs.js';
 import { chance, randInt } from './rng.js';
 import {
   activeHeroes,
   bagCapacity,
   HERO_AP,
   partyPressure,
+  hasTorch,
   heroesInRoom,
   log,
   makeItem,
@@ -20,9 +23,11 @@ import {
   threat,
   updateExplored,
   updateObjectives,
+  zombiesInRoom,
   type CzState,
   type HeroState,
-  type ItemInstance
+  type ItemInstance,
+  type ZombieState
 } from './state.js';
 
 /**
@@ -94,6 +99,19 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
       if (heroDef(hero.heroId).ability === 'tactician' && hero.ap > 0) {
         hero.bankedAp = 1;
       }
+      /**
+       * Charles keeps his last point on the trigger.
+       *
+       * Held here rather than as its own action deliberately: "the point you did not
+       * spend becomes a shot" needs no button, and it turns the decision every
+       * player already makes — press Prêt now, or squeeze one more thing in — into
+       * his character. It is also why he is the only survivor with a reason to *want*
+       * the enemy phase.
+       */
+      if (heroDef(hero.heroId).ability === 'marksman' && hero.ap > 0) {
+        hero.overwatch = true;
+        log(state, `${hero.name} tient la ligne de mire`);
+      }
       hero.ready = true;
       hero.ap = 0;
       return { ok: true };
@@ -108,23 +126,49 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
   }
 
   // Everything below costs AP — except the ability- or torch-funded free search,
-  // Nadia's first step, and the adrenaline shot, playable at zero AP by design.
-  const freeSearch =
+  // and the adrenaline shot, playable at zero AP by design.
+  const freeSearch = action.type === 'search' && !hero.freeSearchUsed && hasTorch(hero);
+
+  /**
+   * `pilleur`: one free crate a turn, but only somewhere worth robbing.
+   *
+   * The perk it replaced lifted the raid's *first* crate by a rank and then did
+   * nothing for the remaining twenty turns. This one pays every turn and only if
+   * you went somewhere for it, which is the whole difference between a bonus and a
+   * reason to cross the street.
+   */
+  const freeShiny =
     action.type === 'search' &&
-    !hero.freeSearchUsed &&
-    (heroDef(hero.heroId).ability === 'scavenger' ||
-      hero.gear.some((item) => item && itemDef(item.def).gear?.flashlight));
+    !freeSearch &&
+    !hero.freeShinyUsed &&
+    hero.loadout.includes('pilleur') &&
+    getRoom(state.board, hero.roomId).loot >= SHINY_LOOT;
 
   /**
    * The raid's one free crate, spent only when nothing else would have paid for it.
    *
-   * Checked after the renewable free search on purpose: a survivor with a torch
-   * should burn the torch's search first and keep the once-per-raid one in his
-   * pocket, which is what a player would do if the game asked him.
+   * Checked after the renewable free searches on purpose: a survivor with a torch
+   * should burn the torch's search first and keep the once-per-raid one in their
+   * pocket, which is what a player would do if the game asked them.
    */
-  const freeRaidSearch = action.type === 'search' && !freeSearch && !hero.freeRaidSearchUsed;
+  const freeRaidSearch = action.type === 'search' && !freeSearch && !freeShiny && !hero.freeRaidSearchUsed;
 
-  const freeMove = action.type === 'move' && !hero.freeMoveUsed && heroDef(hero.heroId).ability === 'fleet';
+  /**
+   * `elan`: the first step into somewhere nobody has been is free, every turn.
+   *
+   * The same free point `nerveux` handed out on turn one, except it only exists if
+   * it is spent walking into the dark — so the perk argues for exploring instead of
+   * paying you for having shown up.
+   */
+  const freeExplore =
+    action.type === 'move' &&
+    !hero.freeExploreUsed &&
+    hero.loadout.includes('elan') &&
+    !state.explored.includes(action.roomId);
+
+  // `serrurier`: keys cost nothing. Fetching one was a chore billed in action
+  // points — enter, pick up, leave — and the scenario's whole spine.
+  const freeKey = action.type === 'pickupKey' && hero.loadout.includes('serrurier');
 
   const freeUse =
     action.type === 'use' &&
@@ -136,17 +180,22 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
           (itemDef(item.def).gear?.heal !== undefined && heroDef(hero.heroId).ability === 'medic'))
     );
 
-  if (hero.ap <= 0 && !freeSearch && !freeRaidSearch && !freeUse && !freeMove) {
+  const anyFree = freeSearch || freeShiny || freeRaidSearch || freeUse || freeExplore || freeKey;
+  if (hero.ap <= 0 && !anyFree) {
     return { ok: false, error: 'Plus de PA ce tour' };
   }
 
   const spend = () => {
     if (freeSearch) {
       hero.freeSearchUsed = true;
+    } else if (freeShiny) {
+      hero.freeShinyUsed = true;
     } else if (freeRaidSearch) {
       hero.freeRaidSearchUsed = true;
-    } else if (freeMove) {
-      hero.freeMoveUsed = true;
+    } else if (freeExplore) {
+      hero.freeExploreUsed = true;
+    } else if (freeKey) {
+      // Nothing to mark: it is free every time, which is the perk.
     } else {
       hero.ap -= 1;
     }
@@ -156,9 +205,27 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
     case 'move': {
       const from = getRoom(state.board, hero.roomId);
       const open = neighbors(state.board, from).some((room) => room.id === action.roomId);
-      if (!open) return { ok: false, error: 'Pas de porte par là' };
+
+      /**
+       * Nadia runs. One point carries her two rooms, and she arrives loudly.
+       *
+       * Her old ability made her first step each turn free, which is the same
+       * distance and none of the tension. A trade beats a discount: the horde homes
+       * in on noise, so her speed is also how she gets found — and the second room
+       * has to be reachable *through* the first, or she would be walking through
+       * walls rather than sprinting down a corridor.
+       */
+      const sprinting =
+        !open && heroDef(hero.heroId).ability === 'fleet' && (shortestPath(state.board, from.id, action.roomId)?.length ?? 99) === 2;
+
+      if (!open && !sprinting) return { ok: false, error: 'Pas de porte par là' };
       spend();
       hero.roomId = action.roomId;
+      if (sprinting) {
+        // Noise is laid where she ends up: that is where the horde will come.
+        state.noise[action.roomId] = (state.noise[action.roomId] ?? 0) + 1;
+        log(state, `${hero.name} traverse au pas de course`);
+      }
 
       // The Parasite's garden: crossing an infested room costs skin. Rosa has
       // seen worse.
@@ -185,6 +252,22 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
         state.explored = [...explored];
       }
 
+      /**
+       * `eclaireur` smells the keys next door.
+       *
+       * It replaced `boussole`, which revealed the start room's neighbours once at
+       * turn one and then never again. This one keeps paying and it points at the
+       * thing the scenario is actually about — a room with a key in it stops being
+       * one of a hundred identical boxes.
+       */
+      if (hero.loadout.includes('eclaireur')) {
+        const explored = new Set(state.explored);
+        for (const room of neighbors(state.board, into)) {
+          if (room.hasKey) explored.add(room.id);
+        }
+        state.explored = [...explored];
+      }
+
       updateExplored(state);
       checkEnd(state);
       return { ok: true };
@@ -193,16 +276,84 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
     case 'attack': {
       const target = state.zombies[action.zombieId];
       if (!target) return { ok: false, error: 'Cible déjà tombée' };
+      const room = target.roomId;
+      const melee = target.roomId === hero.roomId;
       const outcome = resolveHeroAttack(state, hero, target, action.hand);
       if (!outcome.ok) return outcome;
       spend();
+
+      /**
+       * Johanna's execution: clearing a room in melee gives the point back.
+       *
+       * Her old ability was one more melee die. This is about the same amount of
+       * killing and a far better shape: two creatures and two points is a bet that
+       * both of them die, and winning it buys the room *and* the step out of it.
+       * Melee only, and only if the room is genuinely empty — the refund is for
+       * finishing the job, not for swinging.
+       */
+      if (
+        melee &&
+        heroDef(hero.heroId).ability === 'assassin' &&
+        (outcome.killed?.length ?? 0) > 0 &&
+        zombiesInRoom(state, room).length === 0
+      ) {
+        hero.ap += 1;
+        log(state, `${hero.name} nettoie la salle et reprend son souffle`);
+      }
+
       checkEnd(state);
       return outcome;
     }
 
     case 'search': {
-      if (hero.bag.length >= bagCapacity(hero)) return { ok: false, error: 'Sac plein' };
+      /**
+       * A full bag is a swap for a dealer, and a refusal for everybody else.
+       *
+       * `brocanteur` exists because the back half of a raid used to be spent unable
+       * to look at anything at all: five slots fill up, and from then on every crate
+       * is a "Sac plein". Trading up is the interesting version of that problem —
+       * what do you leave on the floor — and it needs no new action to express.
+       */
+      const swapping = hero.bag.length >= bagCapacity(hero) && hero.loadout.includes('brocanteur');
+      if (hero.bag.length >= bagCapacity(hero) && !swapping) return { ok: false, error: 'Sac plein' };
+      /**
+       * A room runs dry. Nothing used to stop a survivor searching the same room
+       * for the whole raid, which made standing still the strongest play in any
+       * room the loot table paid well for — and standing still is the one thing
+       * this game should never reward. Now a good room is a destination rather
+       * than a campsite.
+       */
+      const here = getRoom(state.board, hero.roomId);
+      /**
+       * Chuck's eye finds the one more thing everybody else walked past, which is
+       * why a team keeps him in the armoury rather than sending him on ahead.
+       *
+       * Counted by letting the room's stock go to -1 rather than by remembering
+       * which rooms he has already picked over. Clamping at zero instead looked
+       * right and gave him *unlimited* searches in a spent room — his allowance
+       * would have recomputed to one every time — and a per-hero set of room ids
+       * would be more state to serialise for the same answer. At -1 the room refuses
+       * him too, and it was already refusing everybody else at zero.
+       */
+      const allowance = here.finds + (heroDef(hero.heroId).ability === 'scavenger' ? 1 : 0);
+      if (allowance <= 0) return { ok: false, error: 'Cette salle est vidée' };
       spend();
+      here.finds -= 1;
+      if (swapping) {
+        // The worst thing in the bag goes on the floor. Rarity first, then tier:
+        // a legendary machete outranks a common rifle, which is the whole reason
+        // rarity exists per instance.
+        let worst = 0;
+        for (let index = 1; index < hero.bag.length; index++) {
+          const candidate = hero.bag[index];
+          const standing = hero.bag[worst];
+          if (!candidate || !standing) continue;
+          const score = (item: ItemInstance) => item.rarity * 10 + itemDef(item.def).tier;
+          if (score(candidate) < score(standing)) worst = index;
+        }
+        const dropped = hero.bag.splice(worst, 1)[0];
+        if (dropped) log(state, `${hero.name} laisse ${describe(dropped)}`);
+      }
       hero.searches += 1;
       state.searchesTotal += 1;
       const roll = rollLoot(state, hero);
@@ -385,8 +536,22 @@ function drop(hero: HeroState, uid: number): ActionResult {
 
 function give(state: CzState, hero: HeroState, uid: number, toPlayerId: string): ActionResult {
   const receiver = state.heroes[toPlayerId];
-  if (!receiver || !receiver.alive || receiver.escaped || receiver.roomId !== hero.roomId) {
+  if (!receiver || !receiver.alive || receiver.escaped) {
     return { ok: false, error: 'Personne pour le prendre ici' };
+  }
+
+  /**
+   * `courrier` throws it through the doorway.
+   *
+   * Handing things over was already free and already the best thing a team could
+   * do — but it required both survivors to be standing in the same room, so the
+   * free action routinely cost two moves to set up. One room of reach is the
+   * cheapest way to make the game's most co-operative verb actually usable.
+   */
+  const reach = hero.loadout.includes('courrier') ? 1 : 0;
+  if (receiver.roomId !== hero.roomId) {
+    const distance = reach === 0 ? 99 : (shortestPath(state.board, hero.roomId, receiver.roomId)?.length ?? 99);
+    if (distance > reach) return { ok: false, error: 'Personne pour le prendre ici' };
   }
   if (receiver.bag.length >= bagCapacity(receiver)) return { ok: false, error: 'Son sac est plein' };
 
@@ -411,8 +576,18 @@ export function gmSpawnCost(state: CzState, def: string): number {
 
   if (gmClass === 'necromancienne') cost -= 1;
   if (gmClass === 'boucher' && definition.boss) cost -= 2;
-  if (gmClass === 'traqueur' && archetype === 'runner') cost = 1;
   if (gmClass === 'hurleur' && archetype === 'screamer') cost -= 2;
+  /**
+   * The Tracker's runner discount is gone, and so are the General's and the Bone
+   * Colossus's.
+   *
+   * All three classes were nothing but a price list — "runners cost 1", "Rush costs
+   * 3", "upgrades cost 3 less" — which is a spreadsheet edit rather than an
+   * identity, and picking between them changed the arithmetic without changing how
+   * the horde played. Each now bends a *rule* instead: the Tracker's creatures
+   * quicken where guns were fired, the General's first reinforcement acts at once,
+   * and the Bone Colossus can surface anywhere nobody has looked.
+   */
   if (state.gmLoadout.includes('porte-voix') && archetype === 'screamer') cost -= 1;
 
   return Math.max(1, cost);
@@ -440,23 +615,21 @@ export function startGame(state: CzState, now = Date.now()): void {
   const kit = (role: Parameters<typeof itemFor>[1]) => makeItem(state, itemFor(state.config.biome, role).id);
 
   for (const hero of Object.values(state.heroes)) {
-    if (hero.loadout.includes('soigneur') || hero.loadout.includes('trousse')) {
+    if (hero.loadout.includes('soigneur')) {
       hero.bag.push(kit('medkit'));
     }
     if (hero.loadout.includes('injection')) {
       hero.bag.push(kit('stim'));
     }
-    if (hero.loadout.includes('arme') && hero.hands[1] === null) {
-      hero.hands[1] = kit('sidearm');
-    }
-    if (hero.loadout.includes('couteau') && hero.hands[1] === null) {
-      hero.hands[1] = kit('blade');
-    }
-    if (hero.loadout.includes('boussole')) {
-      const start = getRoom(state.board, hero.roomId);
-      const explored = new Set(state.explored);
-      for (const room of neighbors(state.board, start)) explored.add(room.id);
-      state.explored = [...explored];
+    // `serrurier` shows the door from the first breath: knowing where you are
+    // leaving from is what makes the route a decision rather than a discovery.
+    if (hero.loadout.includes('serrurier')) {
+      const exit = state.board.rooms.find((room) => room.kind === 'exit');
+      if (exit) {
+        const explored = new Set(state.explored);
+        explored.add(exit.id);
+        state.explored = [...explored];
+      }
     }
   }
 
@@ -512,7 +685,6 @@ export function startHeroPhase(state: CzState, now = Date.now()): void {
     hero.ap =
       HERO_AP +
       (state.turn === 1 && hero.perks.includes('sprinter') ? 1 : 0) +
-      (state.turn === 1 && hero.loadout.includes('nerveux') ? 1 : 0) +
       // Ethan's banked point comes home.
       (hero.bankedAp ?? 0);
     hero.bankedAp = 0;
@@ -520,6 +692,11 @@ export function startHeroPhase(state: CzState, now = Date.now()): void {
     hero.freeSearchUsed = false;
     hero.freeMoveUsed = false;
     hero.noiseSkipUsed = false;
+    hero.freeShinyUsed = false;
+    hero.freeExploreUsed = false;
+    // A held shot is spent, or it expired unfired; either way the new turn starts
+    // with the barrel down.
+    hero.overwatch = false;
   }
   state.phaseEndsAt = state.config.heroPhaseSeconds > 0 ? now + state.config.heroPhaseSeconds * 1000 : null;
   state.lastActivityAt = now;
@@ -552,19 +729,125 @@ export function beginEnemyPhase(state: CzState, now = Date.now()): void {
   const mutated = mutationEffects(state.config.mutations);
   for (const zombie of Object.values(state.zombies)) {
     zombie.ap = zombieDef(zombie.def).ap + mutated.ap;
+    /**
+     * The Tracker's creatures quicken where guns were fired.
+     *
+     * His old class was "runners cost 1", a price list entry. This makes him the one
+     * horde that *punishes noise*, which turns a rule the survivors already know
+     * about into a decision they have to keep making — and it means playing quietly
+     * against him is a real strategy rather than a mild preference. Read here, before
+     * `endEnemyPhase` wipes the noise, because the shots that matter are the ones
+     * fired during the turn just finished.
+     */
+    if (state.config.mode === 'gm' && state.config.gmClass === 'traqueur' && (state.noise[zombie.roomId] ?? 0) > 0) {
+      zombie.ap += 1;
+    }
   }
+  state.gmSurgeUsed = false;
   for (const hero of Object.values(state.heroes)) {
     hero.toughUsed = false;
+    /**
+     * The clock is a valid way to hold a shot too.
+     *
+     * `ready` arms it and then zeroes the points, so a Charles who pressed the
+     * button is already covered. This is the other path in: a phase that simply ran
+     * out with points still in his hand should mean the same thing, or the ability
+     * would quietly punish the player who was still deciding when the timer went.
+     */
+    if (hero.alive && !hero.escaped && !hero.forfeited && hero.ap > 0 && heroDef(hero.heroId).ability === 'marksman') {
+      hero.overwatch = true;
+    }
   }
 
+  rollEvent(state);
+
   if (state.config.mode === 'gm') {
-    state.gmBudget += gmIncome(state);
+    /**
+     * A swarm and a lull, in the currency a *human* horde actually spends.
+     *
+     * `spawnReinforcements` never runs in game-master mode — the dens do not fire,
+     * the game master buys everything by hand — so those two events announced
+     * themselves on every screen and then did precisely nothing. An event that says
+     * "les salles d'apparition crachent deux fois ce tour" and changes no part of the
+     * board is worse than no event: it is the game lying to the table, which is the
+     * exact failure the whole feature is built to avoid.
+     *
+     * So against a human they move the budget instead. Same two turns, same two
+     * directions, in the resource that is the horde's reinforcements here.
+     */
+    const income = gmIncome(state);
+    state.gmBudget += state.event === 'calm' ? 0 : state.event === 'swarm' ? income * 2 : income;
+    if (state.event === 'calm') log(state, '🌙 La horde ne reçoit rien ce tour.');
+    if (state.event === 'swarm') log(state, '🐝 Le budget de la horde double ce tour.');
     state.gmDiscountUsed = false;
   }
+
   state.phaseEndsAt =
     state.config.mode === 'gm' && state.config.gmPhaseSeconds > 0 ? now + state.config.gmPhaseSeconds * 1000 : null;
   state.lastActivityAt = now;
 }
+
+/**
+ * The district's weather for this turn, and whatever it does to the board.
+ *
+ * Rolled here, at the top of the enemy phase, so the survivors learn what is
+ * happening at the same moment the horde starts moving — and cleared in
+ * `endHeroPhase`'s counterpart, so it never lasts into a second turn.
+ *
+ * The reason any of this exists is that turn six played exactly like turn five: the
+ * escalation curve made a raid steadily harder and never made it different, so a
+ * table had seen the whole shape of the game by its third evening. See `events.ts`
+ * for why the set is built in opposing pairs and why that is what keeps the
+ * difficulty ladder valid.
+ */
+function rollEvent(state: CzState): void {
+  state.event = null;
+  if (!state.config.events) return;
+  if (state.turn < EVENT_FROM_TURN) return;
+  if (!chance(state.rng, EVENT_CHANCE)) return;
+
+  const rolled = CZ_EVENTS[randInt(state.rng, CZ_EVENTS.length)];
+  if (!rolled) return;
+  state.event = rolled.id;
+  log(state, `${rolled.emoji} ${rolled.name} — ${rolled.blurb}`);
+
+  /**
+   * The two that change the board rather than a rule.
+   *
+   * `siren` and `drop` both name a room, and both draw from rooms the team has
+   * actually seen: an alarm in a district nobody has visited pulls the horde
+   * somewhere invisible, which reads as the horde behaving strangely for no reason,
+   * and a crate nobody can find is not a reward.
+   */
+  const known = state.board.rooms.filter((room) => state.explored.includes(room.id));
+  const stage = known.length > 0 ? known : state.board.rooms;
+  const where = stage[randInt(state.rng, stage.length)];
+  if (!where) return;
+
+  if (rolled.id === 'siren') {
+    // Noise is what the horde homes in on, so this is written in the same currency
+    // a gunshot is. Loud enough to outbid an ordinary firefight, and it can just as
+    // easily pull them off somebody as onto them — which is the point of it being
+    // an event rather than an attack.
+    state.noise[where.id] = (state.noise[where.id] ?? 0) + SIREN_NOISE;
+    log(state, `L’alarme vient de ${where.id}`);
+  }
+
+  if (rolled.id === 'drop') {
+    // Stock and quality, both: a crate is a *destination*, which is the one thing a
+    // supply drop has to be. Spent by searching like anything else, so it competes
+    // for action points instead of being handed over.
+    where.finds += DROP_FINDS;
+    where.loot += DROP_LOOT;
+    log(state, `La caisse est tombée en ${where.id}`);
+  }
+}
+
+/** How loud an alarm is, in gunshots. Enough to outbid a firefight. */
+const SIREN_NOISE = 5;
+/** What a crate holds, and how well the table pays for it. */
+const DROP_FINDS = 3;
+const DROP_LOOT = 0.6;
 
 /**
  * AI: activates ONE zombie completely and returns whether any remain.
@@ -606,10 +889,51 @@ export function activateNextZombie(state: CzState): boolean {
 
     zombie.ap -= 1;
     zombie.roomId = step;
+    // It walked into somebody's sights.
+    if (!fireOverwatch(state, zombie)) break;
   }
 
   zombie.ap = 0;
   return Object.values(state.zombies).some((candidate) => candidate.ap > 0);
+}
+
+/**
+ * Charles's held shot, resolved: the creature just moved, so somebody may be
+ * waiting for it.
+ *
+ * Called from both places a creature can change rooms — the AI's activation loop
+ * and the game master's move — because the ability is about the board, not about
+ * who is pushing the pieces. A held shot must mean the same thing against a human
+ * as against the server, or the two modes are different games.
+ *
+ * Returns false when the creature died, which is the caller's cue to stop walking
+ * it: everything below the call site assumes it still exists.
+ */
+function fireOverwatch(state: CzState, zombie: ZombieState): boolean {
+  for (const hero of activeHeroes(state)) {
+    if (!hero.overwatch) continue;
+
+    // The shot is only ever taken with what is actually in hand. Both hands are
+    // offered and the first that can reach wins, which is the same order the
+    // phone's attack menu uses.
+    for (const hand of [0, 1] as const) {
+      if (!state.zombies[zombie.id]) return false;
+      const chosen = weaponFor(hero, hand);
+      if ('error' in chosen) continue;
+      // Melee is not overwatch: standing in a doorway with a bat is not holding a
+      // line of fire, and letting it count would make the ability free for anyone.
+      if (chosen.weapon.melee) continue;
+
+      const outcome = resolveHeroAttack(state, hero, zombie, hand);
+      if (!outcome.ok) continue;
+
+      hero.overwatch = false;
+      log(state, `${hero.name} tire de son poste !`);
+      checkEnd(state);
+      return state.zombies[zombie.id] !== undefined;
+    }
+  }
+  return true;
 }
 
 /**
@@ -652,7 +976,23 @@ export function spawnReinforcements(state: CzState): void {
    * its action points, so what arrives has to scale with heads or a preset means
    * two different games depending on how many people turned up.
    */
-  const odds = Math.min(1, (base + level / 60) * partyPressure(state) * mutationEffects(state.config.mutations).reinforcement);
+  /**
+   * The weather's half of the reinforcements.
+   *
+   * A lull stops them dead and a swarm doubles the odds. These are the pair that
+   * carries most of the events' variance, and they are deliberately the two that
+   * cancel most exactly: same frequency, opposite sign, one turn each.
+   */
+  if (state.event === 'calm') {
+    log(state, '🌙 Rien ne vient.');
+    return;
+  }
+  const weather = state.event === 'swarm' ? 2 : 1;
+
+  const odds = Math.min(
+    1,
+    (base + level / 60) * partyPressure(state) * mutationEffects(state.config.mutations).reinforcement * weather
+  );
 
   for (const room of state.board.rooms) {
     if (room.kind !== 'spawn') continue;
@@ -688,6 +1028,14 @@ export function endEnemyPhase(state: CzState, now = Date.now()): void {
   // Last turn's gunfire has been answered; the map goes quiet again.
   state.noise = {};
   state.gmRush = false;
+  /**
+   * And the weather clears.
+   *
+   * One turn is the whole contract: nothing here compounds, so a blackout cannot
+   * become the raid and a lull cannot become the difficulty setting. The crate a
+   * supply drop left behind stays, because that one is a place rather than a rule.
+   */
+  state.event = null;
 
   if (
     state.config.scenario === 'survival' &&
@@ -757,12 +1105,32 @@ export function applyGmAction(state: CzState, action: GmAction): ActionResult {
       const zombie = state.zombies[action.zombieId];
       if (!zombie) return { ok: false, error: 'Zombie inconnu' };
       if (zombie.ap <= 0) return { ok: false, error: 'Plus de PA' };
-      const from = getRoom(state.board, zombie.roomId);
-      if (!neighbors(state.board, from).some((room) => room.id === action.roomId)) {
-        return { ok: false, error: 'Pas de porte par là' };
+
+      /**
+       * One tap can spend the creature's whole allowance.
+       *
+       * A tap used to be worth exactly one room, so a runner with two points cost the
+       * game master four taps to walk — select, tap, select, tap — and by turn eight
+       * there are thirty creatures and forty-five seconds. That is the single biggest
+       * reason that screen could not be played rather than merely operated.
+       *
+       * Still one point per room, still along a real path, and the held-shot check
+       * runs after *every* step: a survivor watching a corridor gets his shot at the
+       * moment the creature crosses his line, not at the end of its walk. Anything
+       * further than the points on hand is refused rather than truncated — a horde
+       * that half-obeys is worse than one that says no.
+       */
+      const path = shortestPath(state.board, zombie.roomId, action.roomId);
+      if (!path || path.length === 0) return { ok: false, error: 'Pas de porte par là' };
+      if (path.length > zombie.ap) return { ok: false, error: `Il faut ${path.length} PA` };
+
+      for (const step of path) {
+        zombie.ap -= 1;
+        zombie.roomId = step;
+        // A held shot answers a human's hand exactly as it answers the server's, and
+        // it can kill: stop walking a creature that no longer exists.
+        if (!fireOverwatch(state, zombie)) break;
       }
-      zombie.ap -= 1;
-      zombie.roomId = action.roomId;
       return { ok: true };
     }
 
@@ -781,7 +1149,19 @@ export function applyGmAction(state: CzState, action: GmAction): ActionResult {
 
     case 'gmSpawn': {
       const room = getRoom(state.board, action.roomId);
-      if (room.kind !== 'spawn') return { ok: false, error: 'Pas une salle d’apparition' };
+      /**
+       * The Bone Colossus surfaces anywhere nobody has looked.
+       *
+       * His old class was "upgrades cost 3 less", which is a price and not a
+       * character. This is the same budget spent on *where* instead of on how much,
+       * and it is the only thing in the game that lets the horde ambush: the
+       * survivors' own unexplored map becomes the threat, so scouting stops being
+       * bookkeeping. Bounded by the fog itself — every room they light is a room he
+       * loses — so the ability shrinks exactly as the raid goes on.
+       */
+      const canSurface =
+        state.config.gmClass === 'ossature' && !state.explored.includes(room.id) && !heroesInRoom(state, room.id).length;
+      if (room.kind !== 'spawn' && !canSurface) return { ok: false, error: 'Pas une salle d’apparition' };
       const def = zombieDef(action.def);
       // Class pricing first, then the once-per-phase point off (breeder trophy
       // or Économat loadout perk — they share the once, never stack).
@@ -792,7 +1172,21 @@ export function applyGmAction(state: CzState, action: GmAction): ActionResult {
       state.gmBudget -= discounted;
       if (discounted < classCost) state.gmDiscountUsed = true;
       // Fresh reinforcements act next phase, not the one they arrive in.
-      spawnZombie(state, room.id, action.def);
+      const summoned = spawnZombie(state, room.id, action.def);
+      /**
+       * The General's first reinforcement each turn arrives already awake.
+       *
+       * His old class was "Rush costs 3", which is a discount on an order he was
+       * going to buy anyway. Breaking the "reinforcements wait a phase" rule is a
+       * genuinely different way to play the horde — a bought creature can bite *now*,
+       * so his budget is a threat in the moment rather than an investment — and one a
+       * turn keeps it from becoming the only thing he ever does.
+       */
+      if (state.config.gmClass === 'general' && !state.gmSurgeUsed && summoned) {
+        state.gmSurgeUsed = true;
+        summoned.ap = zombieDef(action.def).ap + mutationEffects(state.config.mutations).ap;
+        log(state, `${def.name} arrive au pas de charge`);
+      }
       log(state, `Le maître du jeu invoque ${def.name}`);
       return { ok: true };
     }
@@ -805,7 +1199,6 @@ export function applyGmAction(state: CzState, action: GmAction): ActionResult {
       // The bone colossus haggles everything down by 3, floored at 2.
       const discounted = action.upgrade === 'hide' && level === 0 && state.gmPerks.includes('iron-horde');
       let cost = discounted ? Math.ceil(upgrade.cost(level) / 2) : upgrade.cost(level);
-      if (state.config.gmClass === 'ossature') cost = Math.max(2, cost - 3);
       if (state.gmLoadout.includes('forgeron')) cost = Math.max(2, cost - 2);
       if (cost > state.gmBudget) return { ok: false, error: `Il faut ${cost} points` };
       state.gmBudget -= cost;
@@ -818,7 +1211,7 @@ export function applyGmAction(state: CzState, action: GmAction): ActionResult {
       if (state.gmRush) return { ok: false, error: 'Déjà ordonné ce tour' };
       const order = GM_ORDERS[action.order];
       // The general barks cheaper; the Clairon perk shaves two more.
-      const base = state.config.gmClass === 'general' ? 3 : order.cost;
+      const base = order.cost;
       const cost = Math.max(1, base - (state.gmLoadout.includes('clairon') ? 2 : 0));
       if (cost > state.gmBudget) return { ok: false, error: `Il faut ${cost} points` };
       state.gmBudget -= cost;

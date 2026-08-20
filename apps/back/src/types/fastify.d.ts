@@ -2,6 +2,7 @@ import type { Server as SocketServer } from 'socket.io';
 
 import type { GameManager } from '../game/manager.js';
 import type { SqliteSessionStore } from '../db/session-store.js';
+import type { MafiaManager } from '../mafia/manager.js';
 import type { CzManager } from '../zombie/manager.js';
 
 /** Everything the API stores in the session cookie. */
@@ -28,6 +29,9 @@ declare module 'fastify' {
 
     /** Owns every live CoronaZ raid. */
     cz: CzManager;
+
+    /** Owns every live Mafia table. */
+    mafia: MafiaManager;
     /**
      * Throws 401 unless the request carries a logged-in session. Use as a
      * route-level `preHandler`.

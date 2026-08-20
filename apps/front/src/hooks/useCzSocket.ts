@@ -1,4 +1,4 @@
-import type { CzClientToServer, CzServerToClient, CzView } from 'coronaz-core';
+import type { CzClientToServer, CzRaidReward, CzServerToClient, CzView } from 'coronaz-core';
 import {
   CLOCK_RESYNC_INTERVAL_MS,
   CLOCK_SAMPLE_COUNT,
@@ -37,6 +37,11 @@ export interface CzConnection {
   socket: CzSocket | null;
   connected: boolean;
   view: CzView | null;
+  /**
+   * What the raid paid, once it has ended. Null until the server says so, which is
+   * a moment after the final view arrives: the careers have to be written first.
+   */
+  rewards: CzRaidReward[] | null;
   error: string | null;
   serverNow: () => number;
   /** Feeds a view carried by an ack, so a screen never waits for a broadcast. */
@@ -47,6 +52,7 @@ export function useCzSocket(): CzConnection {
   const [socket, setSocket] = useState<CzSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState<CzView | null>(null);
+  const [rewards, setRewards] = useState<CzRaidReward[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clock, setClock] = useState<ClockEstimate>(NO_CLOCK);
 
@@ -70,6 +76,7 @@ export function useCzSocket(): CzConnection {
     current.on('disconnect', () => setConnected(false));
     current.on('connect_error', () => setError('Connexion au serveur impossible.'));
     current.on('cz:state', (next) => setView(next));
+    current.on('cz:rewards', (next) => setRewards(next));
     current.on('cz:error', (payload) => setError(payload.message));
 
     async function synchronise(target: CzSocket) {
@@ -121,5 +128,5 @@ export function useCzSocket(): CzConnection {
   const serverNow = useCallback(() => toServerTime(clockRef.current), []);
   const applyView = useCallback((next: CzView) => setView(next), []);
 
-  return { socket, connected, view, error, serverNow, applyView };
+  return { socket, connected, view, rewards, error, serverNow, applyView };
 }

@@ -46,6 +46,9 @@ export function CzMap({
   onZombieTap,
   targetRooms,
   selectedZombieId,
+  inReach,
+  spentZombies,
+  focusRoomId,
   myPlayerId,
   compact = false,
   camera: cameraMode = 'manual'
@@ -55,6 +58,23 @@ export function CzMap({
   onZombieTap?: (zombieId: string) => void;
   targetRooms?: ReadonlySet<string>;
   selectedZombieId?: string | null;
+  /**
+   * The creatures the tap would actually reach. Given, everything else on the
+   * board dims: the phone stops offering taps it knows the server will refuse,
+   * which is the whole reason combat used to read as random.
+   */
+  inReach?: ReadonlySet<string>;
+  /** Creatures with no action points left, for the game master's queue. */
+  spentZombies?: ReadonlySet<string>;
+  /**
+   * A room to put the camera on when this value changes.
+   *
+   * The game master's queue button needs it: selecting the next creature that owes
+   * a turn is worthless if that creature is off-screen, which on a district-sized
+   * board it usually is. Only *changes* move the camera, so a hand that has since
+   * dragged elsewhere is not yanked back on every state broadcast.
+   */
+  focusRoomId?: string | null;
   myPlayerId?: string | null;
   compact?: boolean;
   /**
@@ -103,6 +123,20 @@ export function CzMap({
     // render is what React recommends over an effect for derived state.
     setViewportSize(viewport);
   }
+
+  /**
+   * Put the camera on a named room when the caller changes its mind about which
+   * room matters. The dependency list is deliberately only the id: re-centring on
+   * every broadcast would fight the hand that is dragging.
+   */
+  useEffect(() => {
+    if (!focusRoomId) return;
+    const room = view.rooms.find((candidate) => candidate.id === focusRoomId);
+    const cell = room?.cells[0];
+    if (cell === undefined) return;
+    jumpTo(project(cell % view.width, Math.floor(cell / view.width)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the id is the trigger
+  }, [focusRoomId]);
 
   /* --------------------------------- the art -------------------------------- */
 
@@ -341,7 +375,16 @@ export function CzMap({
    */
   const cameraTransform = {
     transform: `translate(${(viewport.x / 2 - camera.x * camera.zoom).toFixed(2)}px, ${(viewport.y / 2 - camera.y * camera.zoom).toFixed(2)}px) scale(${camera.zoom.toFixed(4)})`,
-    transformOrigin: '0 0'
+    transformOrigin: '0 0',
+    /**
+     * The zoom, published so a tap target can undo it.
+     *
+     * Everything in this layer is sized in world pixels and scaled by the camera,
+     * so a 30px creature is 10 screen pixels at the zoom that fits a district on a
+     * phone — well under the 44px a thumb needs. The hit area divides by this to
+     * come back out at a constant size on the glass, whatever the camera is doing.
+     */
+    ['--cz-zoom' as string]: camera.zoom.toFixed(4)
   } as React.CSSProperties;
 
   return (
@@ -412,13 +455,19 @@ export function CzMap({
             const def = zombieDef(zombie.def);
             const art = zombieSprite(zombie.def);
             const big = def.boss ? 1.35 : 1;
+            // Ringed when the tap would land, faded when it would not. Absent the
+            // set, nothing is faded: the television and the idle phone show a
+            // board, not a targeting solution.
+            const aimable = inReach ? inReach.has(zombie.id) : null;
             return (
               <button
                 key={zombie.id}
                 type="button"
                 className={`cz-token cz-token-zombie ${def.boss ? 'boss' : ''} ${
                   selectedZombieId === zombie.id ? 'selected' : ''
-                } ${onZombieTap ? 'tappable' : ''}`}
+                } ${onZombieTap ? 'tappable' : ''} ${
+                  aimable === null ? '' : aimable ? 'in-reach' : 'out-of-reach'
+                } ${spentZombies?.has(zombie.id) ? 'spent' : ''}`}
                 style={{
                   left: `${at.x.toFixed(1)}px`,
                   top: `${at.y.toFixed(1)}px`,
@@ -431,6 +480,8 @@ export function CzMap({
                 }}
                 title={`${def.name} (${RARITY_META[def.rarity].label}) · ${zombie.hp}/${zombie.maxHp} PV${
                   zombie.bonusDmg > 0 ? ' · élite' : ''
+                }${aimable === false ? ' · hors de portée' : ''}${
+                  spentZombies?.has(zombie.id) ? ' · a fini son tour' : ''
                 }`}
                 disabled={!onZombieTap}
                 onClick={onZombieTap ? () => onZombieTap(zombie.id) : undefined}
@@ -441,6 +492,13 @@ export function CzMap({
                   style={{ width: `${Math.max(6, (zombie.hp / zombie.maxHp) * 100)}%` }}
                 />
                 <span className="cz-token-foot" />
+                {/* The horde's action points, on the piece. The game master used to
+                    have to select a creature to learn whether it had already moved,
+                    which by turn eight is thirty taps to find the ones that have
+                    not. */}
+                {spentZombies && !spentZombies.has(zombie.id) && zombie.ap > 0 && (
+                  <span className="cz-token-ap tabular">{zombie.ap}</span>
+                )}
               </button>
             );
           })}

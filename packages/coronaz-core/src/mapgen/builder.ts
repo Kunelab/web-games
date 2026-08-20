@@ -11,7 +11,7 @@ import {
   type RoomProgram
 } from '../map.js';
 import { pick, randInt, shuffled, type RngState } from '../rng.js';
-import { lootBonusFor } from './programs.js';
+import { findsFor, lootBonusFor } from './programs.js';
 
 /**
  * The scratch board a generator writes on, and the vocabulary every layout shares.
@@ -150,6 +150,7 @@ export class BoardBuilder {
       // Derived from the programme rather than passed in: a pharmacy is worth
       // searching because it is a pharmacy, and no caller gets to disagree.
       loot: lootBonusFor(attributes.program),
+      finds: findsFor(attributes.program, sorted.length),
       ...attributes
     };
 
