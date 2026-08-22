@@ -1,558 +1,1118 @@
-/*
- * Mafia screens. The map carries the day/night mood; everything else is a
- * quiet dark UI so the town square stays the star. The chat inherits its
- * theme from the --chat-* variables set on .mz-screen.
+/**
+ * Mafia's seat screen.
+ *
+ * The layout is a list, not a board: a strip of scenery on top, then the roster
+ * where every action lives, then the chat — which on a phone means one column in
+ * that order, and on a desktop means the roster on the left and the chat as a
+ * full-height column on the right, because the chat is the game and deserves the
+ * height.
+ *
+ * Two token groups worth knowing about:
+ *   --town-*  the scenery's skin. A new theme (see [data-town-theme]) is a block
+ *             of these and nothing else — no component changes.
+ *   --chat-*  the generic ChatPanel's theme contract, set here on .mz-screen.
+ *
+ * Day and night are a class on the root, not two stylesheets: everything that
+ * changes reads a token that .mz-screen--night redefines.
  */
 
 .mz-screen {
+  --ink: #f1ecdf;
+  --ink-dim: #b5ab97;
+  --ink-faint: #8d8474;
+  --ground: #1d1a17;
+  --panel: #262119;
+  --panel-hi: #322a20;
+  --edge: #423727;
+  --accent: #d9a13b;
+  --accent-ink: #1a1205;
+  --danger: #c4503c;
+  --safe: #5f9a6a;
+  --radius: 10px;
+
+  /* The scenery, day version. */
+  --town-sky-top: #8fc2e8;
+  --town-sky-bottom: #cfe4c0;
+  --town-grass: #8fb173;
+  --town-grass-plot: #9dbd80;
+  --town-plaza: #b3a58c;
+  --town-wall-l: #cdbfa6;
+  --town-wall-r: #a4967e;
+  --town-roof: #a8483c;
+  --town-door: #6b4a30;
+  --town-window: #7d8a93;
+  --town-window-lit: #ffd479;
+  --town-stone: #8f8a80;
+  --town-wood: #6b4a30;
+
+  /* The generic chat panel, dressed in lamplight. */
+  --chat-bg: #221d16;
+  --chat-fg: #efe8da;
+  --chat-fg-dim: #a49883;
+  --chat-border: #3d3324;
+  --chat-tabs-bg: #191510;
+  --chat-compose-bg: #191510;
+  --chat-input-bg: #2c2519;
+  --chat-accent: #d9a13b;
+  --chat-accent-fg: #1a1205;
+  --chat-system: #a58f6a;
+  --chat-radius: var(--radius);
+
+  min-height: 100dvh;
+  background: var(--ground);
+  color: var(--ink);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 12px;
-  min-height: 100dvh;
-
-  --chat-accent: #e8b04b;
-  --chat-bg: #14161c;
+  transition: background 900ms ease;
 }
 
 .mz-screen--night {
-  --chat-accent: #8fa7ff;
+  --ground: #0c0f18;
+  --panel: #151b28;
+  --panel-hi: #1d2536;
+  --edge: #2a3547;
+  --accent: #8fb6d8;
+  --accent-ink: #0a0f18;
+  --ink: #e6ebf4;
+  --ink-dim: #9aa7bb;
+  --ink-faint: #74809a;
+
+  --town-sky-top: #0b1030;
+  --town-sky-bottom: #23304a;
+  --town-grass: #2f3d4f;
+  --town-grass-plot: #37475c;
+  --town-plaza: #3b4256;
+  --town-wall-l: #4a5266;
+  --town-wall-r: #343b4c;
+  --town-roof: #5c3540;
+  --town-door: #2a2230;
+  --town-window: #2b3346;
+  --town-stone: #4a5164;
+  --town-wood: #2f2a33;
+
+  --chat-bg: #121824;
+  --chat-fg: #e6ebf4;
+  --chat-fg-dim: #8e9bb0;
+  --chat-border: #26313f;
+  --chat-tabs-bg: #0d121b;
+  --chat-compose-bg: #0d121b;
+  --chat-input-bg: #1a2231;
+  --chat-accent: #8fb6d8;
+  --chat-accent-fg: #0a0f18;
+  --chat-system: #7d8ca8;
 }
 
-/* ------------------------------- header -------------------------------- */
+/* --------------------------------- header --------------------------------- */
 
 .mz-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.85rem;
+  background: color-mix(in srgb, var(--ground) 88%, black);
+  border-bottom: 1px solid var(--edge);
+  backdrop-filter: blur(6px);
 }
 
 .mz-phase {
-  font-size: 1.15rem;
-  font-weight: 800;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
-.mz-trial-name {
-  opacity: 0.85;
+.mz-stage {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+}
+
+.mz-alive {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--ink-dim);
 }
 
 .mz-timer {
   font-variant-numeric: tabular-nums;
-  font-weight: 800;
-  font-size: 1.3rem;
-  color: var(--chat-accent, #e8b04b);
+  font-weight: 700;
+  font-size: 1rem;
+  min-width: 2.9rem;
+  text-align: right;
+  color: var(--accent);
+}
+
+.mz-timer--urgent { color: var(--danger); }
+
+/* ---------------------------------- body ---------------------------------- */
+
+.mz-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.7rem;
+  min-height: 0;
+}
+
+.mz-left,
+.mz-right {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+@media (min-width: 60rem) {
+  .mz-body {
+    flex-direction: row;
+    align-items: stretch;
+    height: calc(100dvh - 3.1rem);
+    overflow: hidden;
+  }
+  .mz-left {
+    flex: 1 1 55%;
+    /* A roster is a list of names; past this the button drifts miles from one. */
+    max-width: 42rem;
+    overflow-y: auto;
+    padding-right: 0.2rem;
+  }
+  .mz-right {
+    flex: 1 1 45%;
+    max-width: 34rem;
+    min-height: 0;
+  }
+  .mz-right .chat-panel { height: 100%; }
+}
+
+/* --------------------------------- scenery -------------------------------- */
+
+/**
+ * The scenery gets a fixed slice of the viewport and no more.
+ *
+ * An `height: auto` SVG grows with its column, and on a desktop that meant five
+ * hundred pixels of grass above the fold, pushing the roster — the part you
+ * actually play — off the first screen. A bounded box with the SVG scaling to fit
+ * inside it (default `preserveAspectRatio`) letterboxes into the sky gradient
+ * instead, which costs nothing and always fits.
+ */
+.mz-town {
+  height: clamp(130px, 20vh, 230px);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: linear-gradient(var(--town-sky-top), var(--town-sky-bottom) 72%);
+  /* Scenery, emphatically: nothing here is a control. */
+  pointer-events: none;
+  user-select: none;
+  transition: background 900ms ease;
+  flex: none;
+}
+
+.mz-town-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.mz-ground { fill: var(--town-grass); transition: fill 900ms ease; }
+.mz-plot-ground { fill: var(--town-grass-plot); transition: fill 900ms ease; }
+.mz-plot-empty { fill: rgb(0 0 0 / 0.16); }
+.mz-plaza { fill: var(--town-plaza); transition: fill 900ms ease; }
+
+.mz-wall-l { fill: var(--town-wall-l); transition: fill 900ms ease; }
+.mz-wall-r { fill: var(--town-wall-r); transition: fill 900ms ease; }
+.mz-roof { fill: var(--town-roof); transition: fill 900ms ease; }
+.mz-door { fill: var(--town-door); }
+.mz-window { fill: var(--town-window); transition: fill 500ms ease; }
+.mz-window--lit { fill: var(--town-window-lit, #ffd479); }
+
+.mz-plot--dead .mz-plot-ground { fill: color-mix(in srgb, var(--town-grass-plot) 70%, black); }
+.mz-tomb-ground { fill: rgb(0 0 0 / 0.22); }
+.mz-tomb-stone { fill: var(--town-stone); }
+
+.mz-villager-shadow { fill: rgb(0 0 0 / 0.18); }
+
+.mz-fountain-basin { fill: var(--town-stone); }
+.mz-fountain-water { fill: color-mix(in srgb, var(--town-sky-top) 70%, white); }
+
+.mz-gallows-base { fill: color-mix(in srgb, var(--town-plaza) 70%, black); }
+.mz-gallows rect { fill: var(--town-wood); }
+.mz-rope { stroke: #d8c9a6; stroke-width: 1.6; }
+.mz-noose { fill: none; stroke: #d8c9a6; stroke-width: 1.6; }
+
+.mz-pennant line { stroke: var(--town-stone); stroke-width: 1.6; }
+.mz-pennant-flag { fill: var(--accent); }
+
+/**
+ * A theme is this and nothing more. `village` is the default above; anything
+ * else overrides the same tokens, and house/villager art can later swap behind
+ * the same class names without touching either component.
+ */
+.mz-town[data-town-theme='cite'] {
+  --town-sky-top: #6f7f92;
+  --town-sky-bottom: #9aa4a8;
+  --town-grass: #6c7175;
+  --town-grass-plot: #777d81;
+  --town-plaza: #5b5f63;
+  --town-wall-l: #a9adb0;
+  --town-wall-r: #85898d;
+  --town-roof: #4a5157;
+  --town-window-lit: #b9e2ff;
+  --town-stone: #6f7478;
+  --town-wood: #3f4348;
+}
+
+/* --------------------------------- panels --------------------------------- */
+
+.mz-panel {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  flex: none;
+}
+
+.mz-lobby-count { margin: 0; font-size: 0.95rem; }
+
+.mz-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.mz-prompt {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border-left: 3px solid var(--accent);
+  background: var(--panel);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: 0.93rem;
+  color: var(--ink);
+  flex: none;
 }
 
 .mz-error {
-  color: #ff7a6b;
   margin: 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--danger) 22%, var(--panel));
+  border: 1px solid var(--danger);
+  font-size: 0.88rem;
+  flex: none;
 }
 
-.mz-hint {
-  margin: 0;
-  opacity: 0.9;
-}
-
-/* -------------------------------- lobby -------------------------------- */
-
-.mz-lobby,
-.mz-host-controls,
-.mz-judgement {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-
-/* --------------------------------- map --------------------------------- */
-
-.mz-map {
-  width: 100%;
-  height: auto;
-  border-radius: 14px;
-  background: linear-gradient(#87b5e0, #b7d3a8 70%);
-  transition: background 1.2s ease;
-  user-select: none;
-}
-
-.mz-map--night {
-  background: linear-gradient(#0b1030, #23304a 75%);
-}
-
-.mz-ground {
-  fill: #9aba86;
-  transition: fill 1.2s ease;
-}
-
-.mz-map--night .mz-ground {
-  fill: #2c3a52;
-}
-
-.mz-plaza {
-  fill: #c9c2a6;
-  opacity: 0.9;
-}
-
-.mz-map--night .mz-plaza {
-  fill: #4a5470;
-}
-
-.mz-fountain {
-  fill: #7fb2d8;
-}
-
-.mz-fountain-top {
-  fill: #a8d2ef;
-}
-
-.mz-gallows rect {
-  fill: #5b4632;
-}
-
-.mz-rope {
-  stroke: #d9c9a3;
-  stroke-width: 2;
-}
-
-.mz-noose {
-  fill: none;
-  stroke: #d9c9a3;
-  stroke-width: 2;
-}
-
-/* -------------------------------- plots -------------------------------- */
-
-.mz-plot-ground {
-  fill: rgba(255, 255, 255, 0.14);
-  stroke: rgba(0, 0, 0, 0.15);
-  stroke-width: 1;
-}
-
-.mz-map--night .mz-plot-ground {
-  fill: rgba(255, 255, 255, 0.05);
-}
-
-.mz-plot-empty {
-  fill: rgba(0, 0, 0, 0.08);
-}
-
-.mz-plot--target {
-  cursor: pointer;
-}
-
-.mz-plot--target .mz-plot-ground {
-  stroke: #ffd76a;
-  stroke-width: 2.5;
-  fill: rgba(255, 215, 106, 0.22);
-}
-
-.mz-plot--selected .mz-plot-ground {
-  stroke: #ff5b45;
-  stroke-width: 3;
-  fill: rgba(255, 91, 69, 0.28);
-}
-
-.mz-plot--trial .mz-plot-ground {
-  stroke: #b18cff;
-  stroke-width: 3;
-}
-
-.mz-plot--dead .mz-name {
-  opacity: 0.55;
-  text-decoration: line-through;
-}
-
-/* -------------------------------- house -------------------------------- */
-
-.mz-wall-l {
-  fill: #b9a68c;
-}
-
-.mz-wall-r {
-  fill: #9c8a71;
-}
-
-.mz-roof {
-  fill: #7e5644;
-}
-
-.mz-map--night .mz-wall-l {
-  fill: #5c5670;
-}
-
-.mz-map--night .mz-wall-r {
-  fill: #46425a;
-}
-
-.mz-map--night .mz-roof {
-  fill: #3b3450;
-}
-
-.mz-door {
-  fill: #4c3626;
-}
-
-.mz-window {
-  fill: #6d7d8a;
-}
-
-.mz-window--lit {
-  fill: #ffd76a;
-  filter: drop-shadow(0 0 4px #ffd76a);
-}
-
-.mz-shadow {
-  fill: rgba(0, 0, 0, 0.25);
-}
-
-.mz-peg--away {
-  opacity: 0.45;
-}
-
-.mz-tomb-stone {
-  fill: #8f8f96;
-  stroke: #6c6c72;
-}
-
-.mz-tomb-ground {
-  fill: rgba(0, 0, 0, 0.2);
-}
-
-.mz-tomb-rip {
-  font-size: 9px;
-  fill: #55555c;
-}
-
-.mz-name {
-  font-size: 11px;
-  font-weight: 600;
-  fill: #26221c;
-  paint-order: stroke;
-  stroke: rgba(255, 255, 255, 0.55);
-  stroke-width: 2.5;
-}
-
-.mz-map--night .mz-name {
-  fill: #e8e6f2;
-  stroke: rgba(0, 0, 0, 0.55);
-}
-
-.mz-you {
-  font-size: 10px;
-  font-weight: 800;
-  fill: #ff5b45;
-}
-
-.mz-votes circle {
-  fill: #ff5b45;
-}
-
-.mz-votes text {
-  font-size: 11px;
-  font-weight: 800;
-  fill: #fff;
-}
-
-/* ------------------------------ role card ------------------------------- */
+/* -------------------------------- role card ------------------------------- */
 
 .mz-role {
-  border-radius: 12px;
-  padding: 10px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  border-left-width: 5px;
+  border: 1px solid var(--edge);
+  border-left: 4px solid var(--faction, var(--accent));
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 0.65rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: none;
 }
 
-.mz-role--town {
-  border-left-color: #61c569;
-}
-
-.mz-role--mafia {
-  border-left-color: #ff5b45;
-}
-
-.mz-role--neutral {
-  border-left-color: #b18cff;
-}
+.mz-role--town { --faction: #5b8fc9; }
+.mz-role--mafia { --faction: #c4503c; }
+.mz-role--triad { --faction: #d98b2b; }
+.mz-role--cult { --faction: #9a6bc4; }
+.mz-role--neutral { --faction: #8d8474; }
 
 .mz-role-head {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
-.mz-role-faction,
-.mz-charges {
-  font-size: 0.8rem;
-  opacity: 0.75;
+.mz-role-name { font-size: 1.05rem; }
+
+.mz-role-faction {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 0.14rem 0.42rem;
+  border-radius: 999px;
+  background: var(--faction);
+  color: #fff;
+}
+
+.mz-charges,
+.mz-dead-tag {
+  font-size: 0.72rem;
+  padding: 0.14rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  color: var(--ink-dim);
 }
 
 .mz-dead-tag {
-  color: #ff7a6b;
-  font-weight: 800;
-  font-size: 0.8rem;
+  border-color: var(--danger);
+  color: var(--danger);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .mz-role-desc,
-.mz-teammates {
-  margin: 4px 0 0;
-  font-size: 0.9rem;
-  opacity: 0.9;
+.mz-role-note {
+  margin: 0;
+  font-size: 0.87rem;
+  line-height: 1.45;
+  color: var(--ink-dim);
 }
 
-/* ------------------------------- actions -------------------------------- */
+/* ------------------------------ the players ------------------------------- */
 
-.mz-actions {
+.mz-players { padding: 0.3rem; }
+
+.mz-players ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
-.mz-guilty {
-  background: #a33327;
-  color: #fff;
-}
-
-.mz-innocent {
-  background: #2e7d43;
-  color: #fff;
-}
-
-.mz-cast {
-  outline: 3px solid #ffd76a;
-}
-
-.mz-will {
+.mz-seat {
   display: flex;
-  gap: 8px;
-  align-items: flex-start;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.45rem;
+  border-radius: 8px;
+  min-height: 46px;
+  border: 1px solid transparent;
 }
 
-.mz-will textarea {
+.mz-seat + .mz-seat { border-top: 1px solid var(--edge); border-radius: 0 0 8px 8px; }
+
+.mz-seat--me { background: var(--panel-hi); }
+.mz-seat--trial {
+  background: color-mix(in srgb, var(--danger) 16%, var(--panel));
+  border-color: var(--danger);
+}
+.mz-seat--dead { opacity: 0.55; }
+
+.mz-seat-no {
+  flex: none;
+  width: 1.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+
+.mz-seat-id {
   flex: 1;
-  min-height: 64px;
-  background: rgba(255, 255, 255, 0.06);
-  color: inherit;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.mz-seat-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mz-seat--dead .mz-seat-name { text-decoration: line-through; }
+
+.mz-seat-you {
+  margin-left: 0.35rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Markers, not decoration: a full table of bots should not read as confetti. */
+.mz-flag { font-size: 0.78rem; opacity: 0.5; }
+.mz-flag--away { opacity: 0.75; }
+
+.mz-seat-sub {
+  font-size: 0.74rem;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mz-votes {
+  flex: none;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 0.3rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.mz-seat-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Every target is a 44px-tall button with a word on it. That is the fix. */
+.mz-act {
+  min-height: 38px;
+  padding: 0 0.7rem;
   border-radius: 8px;
-  padding: 8px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mz-act:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+.mz-act--chosen {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.mz-icon-btn {
+  min-height: 38px;
+  min-width: 38px;
+  border-radius: 8px;
+  border: 1px solid var(--edge);
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.mz-icon-btn:hover { border-color: var(--accent); }
+
+/* -------------------------------- controls -------------------------------- */
+
+.mz-controls:empty { display: none; }
+
+.mz-verdict {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.45rem;
+}
+
+.mz-verdict button {
+  min-height: 46px;
+  border-radius: 8px;
+  border: 1px solid var(--edge);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mz-guilty { border-color: var(--danger) !important; color: var(--danger) !important; }
+.mz-innocent { border-color: var(--safe) !important; color: var(--safe) !important; }
+.mz-abstain { color: var(--ink-faint) !important; padding: 0 0.7rem; }
+
+.mz-guilty.mz-cast { background: var(--danger) !important; color: #fff !important; }
+.mz-innocent.mz-cast { background: var(--safe) !important; color: #fff !important; }
+
+.mz-will,
+.mz-whisper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.mz-will-label {
+  font-size: 0.76rem;
+  color: var(--ink-faint);
+}
+
+.mz-will textarea,
+.mz-whisper input {
+  width: 100%;
   font: inherit;
   font-size: 0.9rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--edge);
+  background: var(--chat-input-bg);
+  color: var(--ink);
+  resize: vertical;
 }
 
-/* ------------------------------- journal -------------------------------- */
+.mz-whisper-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.mz-whisper-row input { flex: 1; min-width: 0; }
+
+/* ------------------------------ private feed ------------------------------ */
 
 .mz-journal {
-  border-radius: 10px;
-  padding: 8px 12px;
-  background: rgba(177, 140, 255, 0.08);
-  border: 1px solid rgba(177, 140, 255, 0.25);
-  font-size: 0.88rem;
+  gap: 0.3rem;
+  border-left: 3px solid var(--accent);
 }
 
 .mz-journal p {
-  margin: 2px 0;
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--ink-dim);
 }
 
-/* ------------------------------- results -------------------------------- */
+.mz-journal p:first-child { color: var(--ink); }
+
+/* -------------------------------- results --------------------------------- */
+
+.mz-results h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.mz-results-scroll { overflow-x: auto; }
 
 .mz-results table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.92rem;
+  font-size: 0.85rem;
+}
+
+.mz-results th {
+  text-align: left;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--edge);
+  white-space: nowrap;
 }
 
 .mz-results td {
-  padding: 4px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid var(--edge);
 }
 
-.mz-winner {
-  background: rgba(232, 176, 75, 0.12);
-}
+.mz-results .mz-num { text-align: right; font-variant-numeric: tabular-nums; }
+.mz-results .mz-winner { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 
-/* ------------------------------- whispers -------------------------------- */
+/* -------------------------------- join gate ------------------------------- */
 
-.mz-whisper {
+.mz-join {
+  min-height: 100dvh;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  background: #0c0f18;
+  color: #e6ebf4;
 }
 
-.mz-whisper-target,
-.mz-whisper-input {
-  background: rgba(255, 255, 255, 0.06);
-  color: inherit;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
-  padding: 8px 10px;
-  font: inherit;
+.mz-join-title {
+  margin: 0;
+  font-size: 2.2rem;
+  letter-spacing: -0.01em;
+}
+
+.mz-join-code {
+  margin: 0 0 1rem;
+  color: #8e9bb0;
   font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.mz-whisper-input {
-  flex: 1;
-  min-width: 160px;
-}
-
-/* ------------------------------- templates ------------------------------- */
-
-.mz-tabs {
+.mz-join-form {
+  width: 100%;
+  max-width: 20rem;
   display: flex;
-  gap: 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  flex-direction: column;
+  gap: 0.7rem;
 }
+
+.mz-join .mz-error { background: #3a1c18; border-color: #c4503c; }
+
+/* ---------------------------- the setup screen ---------------------------- */
+
+.mz-mine,
+.mz-setup-form,
+.mz-templates,
+.mz-created {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.mz-tabs { display: flex; gap: 0.4rem; }
 
 .mz-tab {
-  border: none;
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--kune-edge, #3a3a42);
   background: transparent;
   color: inherit;
-  opacity: 0.7;
-  font: inherit;
-  padding: 8px 14px;
   cursor: pointer;
-  border-radius: 8px 8px 0 0;
 }
 
 .mz-tab--active {
-  opacity: 1;
-  background: rgba(255, 255, 255, 0.08);
-  font-weight: 700;
-}
-
-.mz-templates {
-  max-width: 560px;
+  background: var(--kune-accent, #d9a13b);
+  border-color: var(--kune-accent, #d9a13b);
+  color: #1a1205;
+  font-weight: 600;
 }
 
 .mz-template-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 10px;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
 }
 
 .mz-template {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0.2rem;
   text-align: left;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.04);
-  color: inherit;
   font: inherit;
+  padding: 0.65rem 0.75rem;
   border-radius: 10px;
-  padding: 10px 14px;
+  border: 1px solid var(--kune-edge, #3a3a42);
+  background: transparent;
+  color: inherit;
   cursor: pointer;
 }
 
-.mz-template span {
-  font-size: 0.85rem;
-  opacity: 0.75;
-}
-
-.mz-template--active {
-  border-color: #e8b04b;
-  outline: 1px solid #e8b04b;
-}
+.mz-template span { font-size: 0.82rem; opacity: 0.75; }
+.mz-template--active { border-color: var(--kune-accent, #d9a13b); }
 
 .mz-template--saved {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  cursor: default;
 }
 
 .mz-template-load {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0.2rem;
   text-align: left;
-  background: none;
-  border: none;
-  color: inherit;
   font: inherit;
+  background: transparent;
+  border: 0;
+  color: inherit;
   cursor: pointer;
-  flex: 1;
+  padding: 0;
 }
 
 .mz-template-editor {
-  border: 1px dashed rgba(255, 255, 255, 0.25);
-  border-radius: 10px;
-  padding: 12px;
+  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--kune-edge, #3a3a42);
+  border-radius: 10px;
 }
 
-.mz-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
+.mz-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 
 .mz-chip {
-  border: none;
-  background: rgba(232, 176, 75, 0.18);
-  color: inherit;
   font: inherit;
-  font-size: 0.82rem;
-  padding: 4px 8px;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.5rem;
   border-radius: 999px;
+  border: 1px solid var(--kune-edge, #3a3a42);
+  background: transparent;
+  color: inherit;
   cursor: pointer;
 }
 
 .mz-template-actions {
   display: flex;
   flex-wrap: wrap;
+  gap: 0.5rem;
   align-items: flex-end;
-  gap: 10px;
 }
 
-/* -------------------------------- setup --------------------------------- */
-
-.mz-setup-form,
-.mz-created,
-.mz-mine {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-width: 420px;
-}
+.mz-hint { font-size: 0.85rem; opacity: 0.8; margin: 0; }
 
 .mz-qr {
   background: #fff;
-  padding: 12px;
-  border-radius: 12px;
+  padding: 0.7rem;
+  border-radius: 10px;
   width: fit-content;
 }
 
-.mz-join-url {
-  font-size: 0.85rem;
-  opacity: 0.8;
-  overflow-wrap: anywhere;
+.mz-join-url { font-size: 0.8rem; opacity: 0.7; word-break: break-all; }
+
+/* ------------------------------ reduced motion ---------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .mz-screen,
+  .mz-town,
+  .mz-ground,
+  .mz-plot-ground,
+  .mz-plaza,
+  .mz-wall-l,
+  .mz-wall-r,
+  .mz-roof,
+  .mz-window {
+    transition: none;
+  }
 }
 
-.mz-join {
-  max-width: 420px;
-  margin: 10vh auto 0;
+/* ---------------------- faction colours on a dead name --------------------- */
+
+/**
+ * A corpse wears its camp. Same five colours as the role card's left edge, so
+ * "red means Mafia" is learned once and holds everywhere.
+ *
+ * `hidden` is not a faction: it is what the table's `revealOnDeath` policy left
+ * of one, and it has to read as *absence* rather than as a sixth camp.
+ */
+.mz-fac {
+  font-weight: 700;
+  color: var(--fac, var(--ink-dim));
+}
+
+.mz-fac--town { --fac: #6fa3d8; }
+.mz-fac--mafia { --fac: #e0705c; }
+.mz-fac--triad { --fac: #e8a13d; }
+.mz-fac--cult { --fac: #b487e0; }
+.mz-fac--neutral { --fac: #a89e8c; }
+.mz-fac--hidden { --fac: var(--ink-faint); font-weight: 500; font-style: italic; }
+
+/* ------------------------------ the television ---------------------------- */
+
+.mz-tv {
+  --ink: #f2ede1;
+  --ink-dim: #b9ae98;
+  --ink-faint: #8d8474;
+  --ground: #1b1814;
+  --panel: #262019;
+  --edge: #443826;
+  --accent: #e0a944;
+  --danger: #cf5946;
+
+  --town-sky-top: #8fc2e8;
+  --town-sky-bottom: #cfe4c0;
+  --town-grass: #8fb173;
+  --town-grass-plot: #9dbd80;
+  --town-plaza: #b3a58c;
+  --town-wall-l: #cdbfa6;
+  --town-wall-r: #a4967e;
+  --town-roof: #a8483c;
+  --town-door: #6b4a30;
+  --town-window: #7d8a93;
+  --town-window-lit: #ffd479;
+  --town-stone: #8f8a80;
+  --town-wood: #6b4a30;
+
+  height: 100dvh;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 16px;
+  background: var(--ground);
+  color: var(--ink);
+  overflow: hidden;
+  transition: background 900ms ease;
 }
 
-.mz-join-form {
+.mz-tv--night {
+  --ground: #080b14;
+  --panel: #121826;
+  --edge: #26303f;
+  --accent: #8fb6d8;
+  --ink: #e8edf6;
+  --ink-dim: #9dabc0;
+  --ink-faint: #74809a;
+
+  --town-sky-top: #0b1030;
+  --town-sky-bottom: #23304a;
+  --town-grass: #2f3d4f;
+  --town-grass-plot: #37475c;
+  --town-plaza: #3b4256;
+  --town-wall-l: #4a5266;
+  --town-wall-r: #343b4c;
+  --town-roof: #5c3540;
+  --town-door: #2a2230;
+  --town-window: #2b3346;
+  --town-stone: #4a5164;
+  --town-wood: #2f2a33;
+}
+
+/* Read from a sofa: everything scales off the viewport, not off 16px. */
+.mz-tv-bar {
+  display: flex;
+  align-items: center;
+  gap: clamp(0.6rem, 1.2vw, 1.4rem);
+  padding: clamp(0.5rem, 1.1vh, 1rem) clamp(0.8rem, 1.6vw, 1.8rem);
+  border-bottom: 1px solid var(--edge);
+  flex: none;
+}
+
+.mz-tv-phase {
+  font-size: clamp(1.2rem, 2.4vw, 2.4rem);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.mz-tv-stage,
+.mz-tv-trial {
+  font-size: clamp(0.8rem, 1.3vw, 1.4rem);
+  font-weight: 700;
+  padding: 0.15em 0.6em;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.mz-tv-stage { background: var(--danger); color: #fff; }
+.mz-tv-trial { border: 1px solid var(--danger); color: var(--danger); }
+
+.mz-tv-spacer { flex: 1; }
+
+.mz-tv-code,
+.mz-tv-alive {
+  font-size: clamp(0.85rem, 1.4vw, 1.5rem);
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.mz-tv-timer {
+  font-size: clamp(1.2rem, 2.4vw, 2.4rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  min-width: 3.2em;
+  text-align: right;
+}
+
+.mz-tv-timer--urgent { color: var(--danger); }
+
+.mz-tv-btn {
+  font: inherit;
+  font-size: clamp(0.75rem, 1.1vw, 1.05rem);
+  padding: 0.4em 0.8em;
+  border-radius: 8px;
+  border: 1px solid var(--edge);
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mz-tv-btn:hover { border-color: var(--accent); color: var(--ink); }
+
+.mz-tv-body {
+  flex: 1;
+  display: flex;
+  gap: clamp(0.6rem, 1.2vw, 1.4rem);
+  padding: clamp(0.6rem, 1.2vw, 1.4rem);
+  min-height: 0;
+}
+
+.mz-tv-stagearea {
+  flex: 1 1 62%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0.7rem;
+  min-width: 0;
 }
 
-/* The chat gets the remaining height on the seat screen. */
-.mz-screen .chat-panel {
-  min-height: 260px;
-  max-height: 40vh;
+/* On the TV the town is the picture, so it takes the room it is given. */
+.mz-tv-stagearea .mz-town {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+.mz-tv-invite,
+.mz-tv-note {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(0.8rem, 1.3vw, 1.35rem);
+  color: var(--ink-dim);
+  flex: none;
+}
+
+.mz-tv-invite strong { color: var(--accent); }
+
+.mz-tv-side {
+  flex: 1 1 38%;
+  max-width: 34rem;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.5rem, 1vw, 1rem);
+  min-height: 0;
+  min-width: 0;
+}
+
+.mz-tv-roster {
+  list-style: none;
+  margin: 0;
+  padding: 0.4rem;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  overflow-y: auto;
+  flex: 1 1 55%;
+  min-height: 0;
+}
+
+.mz-tv-seat {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.28em 0.5em;
+  font-size: clamp(0.8rem, 1.25vw, 1.3rem);
+  border-radius: 6px;
+}
+
+.mz-tv-seat--dead { opacity: 0.62; }
+.mz-tv-seat--dead .mz-tv-name { text-decoration: line-through; }
+.mz-tv-seat--trial { background: color-mix(in srgb, var(--danger) 22%, transparent); }
+
+.mz-tv-no {
+  flex: none;
+  width: 1.8em;
+  text-align: right;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85em;
+}
+
+.mz-tv-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mz-tv-epitaph {
+  margin-left: auto;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.mz-tv-votes {
+  margin-left: auto;
+  min-width: 1.7em;
+  padding: 0 0.35em;
+  text-align: center;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85em;
+}
+
+.mz-tv-seat--dead .mz-tv-epitaph { margin-left: auto; }
+
+.mz-tv-chat {
+  flex: 1 1 45%;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+}
+
+.mz-tv-line {
+  margin: 0;
+  font-size: clamp(0.78rem, 1.15vw, 1.2rem);
+  line-height: 1.45;
+}
+
+.mz-tv-line strong { color: var(--accent); }
+.mz-tv-line--sys { color: var(--ink-dim); font-style: italic; }
+
+.mz-tv-error {
+  margin: 0 clamp(0.6rem, 1.2vw, 1.4rem);
+  padding: 0.5rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+  flex: none;
+}
+
+.mz-tv-empty {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: #0c0f18;
+  color: #e6ebf4;
+}
+
+/* Portrait or a narrow window: stack instead of squeezing the roster. */
+@media (max-aspect-ratio: 1/1) {
+  .mz-tv-body { flex-direction: column; }
+  .mz-tv-stagearea { flex: 0 0 auto; }
+  .mz-tv-stagearea .mz-town { height: 34vh; flex: none; }
+  .mz-tv-side { flex: 1; max-width: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mz-tv { transition: none; }
+}
+
+/* The television offer on the setup screen: present, clearly optional. */
+.mz-tv-offer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-top: 0.6rem;
+  padding-top: 0.9rem;
+  border-top: 1px dashed var(--kune-edge, #3a3a42);
+}
+
+/* A line the shared screen is deliberately not showing. */
+.mz-tv-line--veiled {
+  color: var(--ink-faint);
+  font-style: italic;
+  letter-spacing: 0.04em;
+  text-align: center;
+  opacity: 0.7;
 }

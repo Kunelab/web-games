@@ -55,10 +55,11 @@ interface SocketData {
   /** CoronaZ attachment: one socket is in at most one raid, in one role. */
   czCode?: string;
   czRole?: CzRole;
-  /** Mafia attachment: a seat, or the host screen. */
+  /** Mafia attachment: a seat, the host screen, or a television watching. */
   mafiaCode?: string;
   mafiaPlayerId?: string;
   mafiaHost?: boolean;
+  mafiaSpectator?: boolean;
 }
 
 type AllClientToServer = ClientToServerEvents & CzClientToServer & MafiaClientToServer;
@@ -134,6 +135,8 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
         socket.emit('mafia:state', toMafiaView(state, { kind: 'player', playerId: data.mafiaPlayerId }));
       } else if (data.mafiaHost) {
         socket.emit('mafia:state', toMafiaView(state, { kind: 'host' }));
+      } else if (data.mafiaSpectator) {
+        socket.emit('mafia:state', toMafiaView(state, { kind: 'spectator' }));
       }
     }
   }
@@ -147,7 +150,8 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
       if (data.mafiaCode !== state.code) continue;
       if (data.mafiaPlayerId) {
         if (rules.canRead(message.channel, data.mafiaPlayerId, state)) socket.emit('mafia:message', message);
-      } else if (data.mafiaHost && message.channel === 'day') {
+      } else if ((data.mafiaHost || data.mafiaSpectator) && message.channel === 'day') {
+        // A screen in the room hears the square and nothing else, ever.
         socket.emit('mafia:message', message);
       }
     }
@@ -826,6 +830,33 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
       respond({ ok: true, view: toMafiaView(state, { kind: 'host' }) });
       // Same lesson as every host screen in this file: push, never wait.
       socket.emit('mafia:state', toMafiaView(state, { kind: 'host' }));
+    });
+
+    /**
+     * A television, claiming the table by its code alone.
+     *
+     * No token on purpose: this projection is the host console's, which carries no
+     * `me`, no living player's role and only the square's chat. A second screen
+     * teaches a player nothing, so the price of a secret here would be paid in
+     * setup friction and bought nothing back. It also cannot act — there is no
+     * seat attached, so every mutation guard below refuses it.
+     */
+    socket.on('mafia:spectate', (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const code = typeof payload?.code === 'string' ? payload.code.trim().toUpperCase() : '';
+      const state = mafia.get(code);
+      if (!state) {
+        respond({ ok: false, error: 'Aucune partie avec ce code' });
+        return;
+      }
+      socket.data.mafiaCode = code;
+      socket.data.mafiaPlayerId = undefined;
+      socket.data.mafiaHost = false;
+      socket.data.mafiaSpectator = true;
+      void socket.join(`mafia:${code}`);
+      respond({ ok: true, view: toMafiaView(state, { kind: 'spectator' }) });
+      // Same lesson as every screen in this file: push, never wait.
+      socket.emit('mafia:state', toMafiaView(state, { kind: 'spectator' }));
     });
 
     socket.on('mafia:start', (payload) => {

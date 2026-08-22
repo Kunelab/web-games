@@ -2,6 +2,7 @@ import { post, systemPost, visibleTo, type ChatMessage } from 'chat-core';
 
 import {
   BYSTANDER_ROLES,
+  FACTION_LABELS,
   FAMILIES,
   familyOf,
   isSoloKiller,
@@ -61,6 +62,23 @@ function notify(player: MafiaPlayer, text: string): void {
 
 function announce(state: MafiaState, text: string, now: number): void {
   systemPost(state.chat, 'day', text, now);
+}
+
+/**
+ * An announcement that names somebody's identity — or their killer's.
+ *
+ * Marked at the source so a shared screen can withhold it. Every phone at the
+ * table still receives it in full; the flag is not privacy, it is a label saying
+ * "this line is a reveal", for surfaces that more than one person is looking at.
+ */
+function announceReveal(state: MafiaState, text: string, now: number): void {
+  systemPost(state.chat, 'day', text, now, { reveals: true });
+}
+
+/** A line of the dawn report, and whether it gives an identity away. */
+interface Announcement {
+  text: string;
+  reveals?: boolean;
 }
 
 /* ------------------------------- lobby ---------------------------------- */
@@ -181,7 +199,7 @@ export function startMafia(state: MafiaState, now: number, rng: () => number): v
     }
   }
 
-  beginDay(state, now, ['La partie commence. Bienvenue en ville — apprenez à vous connaître, la nuit tombe vite.']);
+  beginDay(state, now, [{ text: 'La partie commence. Bienvenue en ville — apprenez à vous connaître, la nuit tombe vite.' }]);
 }
 
 /* -------------------------------- chat ---------------------------------- */
@@ -353,8 +371,17 @@ export function castVote(state: MafiaState, voterId: string, targetSlot: number 
     .filter((p) => state.votes[p.playerId] === target.playerId)
     .reduce((sum, p) => sum + voteWeight(p), 0);
 
-  announce(state, `${voter.name} accuse ${target.name} (${against}/${needed}).`, now);
-
+  /**
+   * An accusation is no longer announced.
+   *
+   * It used to post a system line on every single vote, including every change of
+   * mind — twenty-four players revising twice is seventy-odd lines a day, and the
+   * chat log is a fixed ring, so the day phase was steadily deleting its own
+   * record of who died and what they turned out to be. The live count belongs on
+   * the player list, where it now sits beside each name and updates without
+   * costing anything; only the moment that actually changes the game — the
+   * threshold falling — is worth a line in the square.
+   */
   if (against >= needed) {
     state.trial = { accusedId: target.playerId, ballots: {} };
     state.votes = {};
@@ -497,7 +524,7 @@ export function setNightAction(
 
 /* ------------------------------ transitions ----------------------------- */
 
-function beginDay(state: MafiaState, now: number, announcements: string[]): void {
+function beginDay(state: MafiaState, now: number, announcements: Announcement[]): void {
   state.day += 1;
   state.phase = 'day';
   state.stage = 'discussion';
@@ -508,7 +535,10 @@ function beginDay(state: MafiaState, now: number, announcements: string[]): void
   state.phaseEndsAt = now + (state.day === 1 ? Math.round(state.config.dayMs * 0.6) : state.config.dayMs);
 
   announce(state, `— Jour ${state.day} —`, now);
-  for (const line of announcements) announce(state, line, now);
+  for (const line of announcements) {
+    if (line.reveals) announceReveal(state, line.text, now);
+    else announce(state, line.text, now);
+  }
 }
 
 function beginNight(state: MafiaState, now: number): void {
@@ -591,6 +621,7 @@ function concludeTrial(state: MafiaState, now: number): void {
   const innocentIds = Object.entries(trial.ballots)
     .filter(([voterId, verdict]) => verdict === 'innocent' && state.players[voterId]?.alive)
     .map(([voterId]) => voterId);
+  // Recorded either way: the end-of-game replay shows every hand that was raised.
   (state.trialLog ??= []).push({
     day: state.day,
     accusedId: accused.playerId,
@@ -598,8 +629,27 @@ function concludeTrial(state: MafiaState, now: number): void {
     guiltyIds,
     innocentIds
   });
-  const names = (ids: string[]) => ids.map((id) => state.players[id]?.name).filter(Boolean).join(', ') || 'personne';
-  announce(state, `Ont voté coupable : ${names(guiltyIds)}. Ont voté innocent : ${names(innocentIds)}.`, now);
+
+  /**
+   * In the judge's court the ballots stay sealed, and that is not flavour.
+   *
+   * The tally is *weighted* and the name lists are *headcounts*, so publishing both
+   * hands out the difference — and in a court the only hidden weight on the
+   * board is the judge's own triple gavel. Four guilty votes beside two names,
+   * with no mayor revealed, names the judge as surely as a confession; with one
+   * voter it reads "3 coupable" beside one name. The role's entire promise is
+   * that nobody knows who called the court, so the court votes in secret and the
+   * arithmetic has nothing to subtract from.
+   *
+   * An ordinary trial publishes both safely: the revealed mayor is the only
+   * weight above one, and everyone can already see his sash.
+   */
+  if (trial.court) {
+    announce(state, 'Le tribunal d’exception a voté à bulletin secret : aucun nom ne sortira de cette salle.', now);
+  } else {
+    const names = (ids: string[]) => ids.map((id) => state.players[id]?.name).filter(Boolean).join(', ') || 'personne';
+    announce(state, `Ont voté coupable : ${names(guiltyIds)}. Ont voté innocent : ${names(innocentIds)}.`, now);
+  }
 
   if (guilty > innocent) {
     lynch(state, accused, trial, now);
@@ -622,11 +672,36 @@ function evilRole(role: RoleId): boolean {
   return familyOf(role) !== null || isSoloKiller(role);
 }
 
+/**
+ * What the town is told a body was, under the table's `revealOnDeath` policy.
+ *
+ * The announcements and the projected view have to agree exactly — a corpse whose
+ * role is withheld from the roster but named in the square is withheld from
+ * nobody. Reads the true `role` on purpose: a borrowed face is an examiner's
+ * problem, and a role that was genuinely changed reveals what it became.
+ */
+function bodyReads(state: MafiaState, player: MafiaPlayer): string {
+  const role = player.role;
+  if (!role) return 'On ne saura jamais qui il était.';
+  switch (state.config.revealOnDeath ?? 'role') {
+    case 'none':
+      return 'Son secret est mort avec lui.';
+    case 'faction': {
+      const faction = roleDef(role).faction;
+      return faction === 'neutral'
+        ? 'Il ne servait que lui-même.'
+        : `Il était de la ${FACTION_LABELS[faction]}.`;
+    }
+    default:
+      return `C'était ${roleDef(role).name}.`;
+  }
+}
+
 function lynch(state: MafiaState, accused: MafiaPlayer, trial: { ballots: Record<string, 'guilty' | 'innocent'> }, now: number): void {
   const role = accused.role!;
   kill(state, accused, 'day', 'pendu par la ville');
-  announce(state, `${accused.name} se balance au bout de la corde. C'était ${roleDef(role).name}.`, now);
-  if (accused.lastWill) announce(state, `Dernières volontés de ${accused.name} : « ${accused.lastWill} »`, now);
+  announceReveal(state, `${accused.name} se balance au bout de la corde. ${bodyReads(state, accused)}`, now);
+  if (accused.lastWill) announceReveal(state, `Dernières volontés de ${accused.name} : « ${accused.lastWill} »`, now);
 
   if (evilRole(role)) {
     for (const [voterId, verdict] of Object.entries(trial.ballots)) {
@@ -652,7 +727,7 @@ function lynch(state: MafiaState, accused: MafiaPlayer, trial: { ballots: Record
 
   // A broken heart follows its owner into the grave, even from the gallows.
   for (const line of cascadeBonds(state)) {
-    announce(state, line, now);
+    announceReveal(state, line, now);
   }
 }
 
@@ -683,7 +758,7 @@ function cascadeBonds(state: MafiaState): string[] {
       const partner = state.players[player.bondPartnerId];
       if (partner && !partner.alive) {
         kill(state, player, state.phase === 'day' ? 'day' : 'night', 'mort de chagrin');
-        lines.push(`${player.name} s'est éteint de chagrin. C'était ${roleDef(player.role!).name}.`);
+        lines.push(`${player.name} s'est éteint de chagrin. ${bodyReads(state, player)}`);
         changed = true;
       }
     }
@@ -700,10 +775,19 @@ interface Attack {
   label: string;
 }
 
-function resolveNight(state: MafiaState, rng: () => number): string[] {
+/**
+ * The powers that read the town rather than change it.
+ *
+ * Named once because two passes need to agree on the list: the movement pass
+ * that puts these visitors on the street, and the results pass that tells them
+ * what they saw. They disagreed before, and that was the bug.
+ */
+const INVESTIGATIVE: NightActionType[] = ['investigate', 'examine', 'watch', 'track', 'shadow', 'autopsy'];
+
+function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   const acts = state.nightActions;
   const jailedId = state.jailedId;
-  const announcements: string[] = [];
+  const announcements: Announcement[] = [];
 
   const actionOf = (player: MafiaPlayer): NightAction | undefined => acts[player.playerId];
   const players = Object.values(state.players);
@@ -925,6 +1009,31 @@ function resolveNight(state: MafiaState, rng: () => number): string[] {
     }
   }
 
+  /**
+   * The investigators step out with everybody else.
+   *
+   * Their *journeys* are declared here, in the movement pass, and their
+   * *findings* are computed much further down once the shooting is over. Those
+   * are two different things and they were previously one: recording the visits
+   * next to the results meant they landed after the veteran's porch and after
+   * the mass murderer's house, so a sheriff could sound out an alerted veteran
+   * for free and a lookout could watch a massacre from the doorway. Both were
+   * the most common visitors on the board, which made both mechanics ornamental.
+   *
+   * Nothing reads `visits` before this point; everything that punishes a visitor
+   * reads it after. That ordering is the whole contract, and there is a test per
+   * mechanic holding it down.
+   */
+  for (const player of players) {
+    if (!player.alive || blocked.has(player.playerId)) continue;
+    const action = actionOf(player);
+    if (!action?.targetId || !INVESTIGATIVE.includes(action.type)) continue;
+    // An autopsy is performed on a slab, not on a doorstep: nobody goes out.
+    if (action.type === 'autopsy') continue;
+    if (!state.players[action.targetId]) continue;
+    visit(player.playerId, action.targetId);
+  }
+
   // Attacks.
   const attacks: Attack[] = [];
 
@@ -991,6 +1100,7 @@ function resolveNight(state: MafiaState, rng: () => number): string[] {
   }
 
   // Lone guns, lone blades, and one massacre.
+  const rampages: { attackerId: string; houseId: string }[] = [];
   for (const player of players) {
     if (!player.alive || blocked.has(player.playerId)) continue;
     const action = actionOf(player);
@@ -1013,15 +1123,29 @@ function resolveNight(state: MafiaState, rng: () => number): string[] {
       }
     }
 
-    // The massacre: the house, and everyone unlucky enough to be in it.
+    // The massacre: the house, and everyone unlucky enough to be in it. Who was
+    // in it is settled below, once every journey has been declared.
     if (action.type === 'rampage' && player.role === 'mass-murderer') {
       attacks.push({ attackerId: player.playerId, targetId: target.playerId, power: 1, label: 'le Tueur de masse' });
       visit(player.playerId, target.playerId);
-      for (const entry of visits) {
-        if (entry.targetId === target.playerId && entry.visitorId !== player.playerId) {
-          attacks.push({ attackerId: player.playerId, targetId: entry.visitorId, power: 1, label: 'le Tueur de masse' });
-        }
-      }
+      rampages.push({ attackerId: player.playerId, houseId: target.playerId });
+    }
+  }
+
+  /**
+   * And now the collateral, after the last visitor is on the street.
+   *
+   * Expanded in its own pass rather than inline, because inline it could only
+   * see the journeys declared by players the loop had already reached — so
+   * whether a killer or a family carrier died in someone else's massacre came
+   * down to seat order, and no investigator was ever caught at all.
+   */
+  for (const { attackerId, houseId } of rampages) {
+    const caught = new Set(
+      visits.filter((entry) => entry.targetId === houseId && entry.visitorId !== attackerId).map((entry) => entry.visitorId)
+    );
+    for (const visitorId of caught) {
+      attacks.push({ attackerId, targetId: visitorId, power: 1, label: 'le Tueur de masse' });
     }
   }
 
@@ -1142,7 +1266,7 @@ function resolveNight(state: MafiaState, rng: () => number): string[] {
 
   // Bound hearts stop together.
   for (const line of cascadeBonds(state)) {
-    announcements.push(line);
+    announcements.push({ text: line, reveals: true });
   }
 
   // The cleaners pass before dawn: a nameless body, one more family secret.
@@ -1162,15 +1286,19 @@ function resolveNight(state: MafiaState, rng: () => number): string[] {
   for (const player of players) {
     if (diedTonight.has(player.playerId)) {
       const record = state.deaths.find((death) => death.playerId === player.playerId);
-      const roleLine = record?.hidden ? 'Le corps est méconnaissable.' : `C'était ${roleDef(player.role!).name}.`;
-      announcements.push(`${player.name} a été retrouvé mort — ${record?.cause ?? 'sans explication'}. ${roleLine}`);
+      const roleLine = record?.hidden ? 'Le corps est méconnaissable.' : bodyReads(state, player);
+      announcements.push({
+        text: `${player.name} a été retrouvé mort — ${record?.cause ?? 'sans explication'}. ${roleLine}`,
+        reveals: true
+      });
       if (player.lastWill && !record?.hidden) {
-        announcements.push(`Dernières volontés de ${player.name} : « ${player.lastWill} »`);
+        // A will is a claim about roles; on a shared screen it is a reveal too.
+        announcements.push({ text: `Dernières volontés de ${player.name} : « ${player.lastWill} »`, reveals: true });
       }
     }
   }
   if (announcements.length === 0) {
-    announcements.push('Personne n’est mort cette nuit. La ville respire — pour l’instant.');
+    announcements.push({ text: 'Personne n’est mort cette nuit. La ville respire — pour l’instant.' });
   }
 
   // A widowed executioner grieves into motley.
@@ -1193,18 +1321,22 @@ function resolveNight(state: MafiaState, rng: () => number): string[] {
     }
   }
 
-  // Investigations read the town as it stood tonight, deaths included. Visits
-  // are recorded for every investigator before any result is computed.
+  /**
+   * Now the findings — the town as it stood tonight, deaths included.
+   *
+   * The journeys themselves were declared far above, in the movement pass, so by
+   * the time anything here reads `visits` it is complete: a lookout sees the
+   * other investigators who called at the house, which is the point. What this
+   * pass adds is the `diedTonight` filter — an investigator shot on somebody's
+   * porch went out, and everyone watching saw him go, but he does not live to
+   * report what he found.
+   */
   const investigators = players.filter((player) => {
     if (!player.alive || blocked.has(player.playerId) || diedTonight.has(player.playerId)) return false;
     const action = actionOf(player);
     if (!action?.targetId || !state.players[action.targetId]) return false;
-    return ['investigate', 'examine', 'watch', 'track', 'shadow', 'autopsy'].includes(action.type);
+    return INVESTIGATIVE.includes(action.type);
   });
-  for (const player of investigators) {
-    const action = actionOf(player)!;
-    if (action.type !== 'autopsy') visit(player.playerId, action.targetId!);
-  }
   for (const player of investigators) {
     const action = actionOf(player)!;
     const target = state.players[action.targetId!];
@@ -1311,7 +1443,7 @@ function resolveNight(state: MafiaState, rng: () => number): string[] {
         player.cooldownUntilDay = state.day + 2;
         notify(target, 'Des voix dans la nuit… et soudain tout est clair. Vous appartenez à la Secte.');
         notify(player, `${target.name} a rejoint la Secte.`);
-        announcements.push('Des cantiques étranges ont résonné cette nuit. La Secte grandit…');
+        announcements.push({ text: 'Des cantiques étranges ont résonné cette nuit. La Secte grandit…', reveals: true });
       } else {
         notify(player, `${target.name} a résisté à l’appel.`);
       }
@@ -1322,7 +1454,10 @@ function resolveNight(state: MafiaState, rng: () => number): string[] {
       player.role = remembered;
       player.charges = roleDef(remembered).charges ?? 0;
       notify(player, `Tout vous revient : vous êtes ${roleDef(remembered).name}.`);
-      announcements.push(`L'Amnésique s'est souvenu : il était ${roleDef(remembered).name}, comme ${target.name}.`);
+      announcements.push({
+        text: `L'Amnésique s'est souvenu : il était ${roleDef(remembered).name}, comme ${target.name}.`,
+        reveals: true
+      });
     }
 
     if (action.type === 'audit' && player.role === 'auditor' && target.alive && player.charges > 0) {
@@ -1418,7 +1553,7 @@ function endGame(state: MafiaState, now: number, headline: string): void {
     .sort((a, b) => a.slot - b.slot)
     .map((player) => `${player.slot}. ${player.name} — ${roleDef(player.role!).name}`)
     .join(' · ');
-  announce(state, `Les masques tombent : ${roster}`, now);
+  announceReveal(state, `Les masques tombent : ${roster}`, now);
 }
 
 /** True when the game just ended; the caller stops scheduling. */

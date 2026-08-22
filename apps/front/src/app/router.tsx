@@ -20,6 +20,7 @@ const CoronaZPlayer = lazy(() => import('../pages/zombie/CoronaZPlayer'));
 const CoronaZGm = lazy(() => import('../pages/zombie/CoronaZGm'));
 const MafiaSetup = lazy(() => import('../pages/mafia/MafiaSetup'));
 const MafiaPlayer = lazy(() => import('../pages/mafia/MafiaPlayer'));
+const MafiaTv = lazy(() => import('../pages/mafia/MafiaTv'));
 const Host = lazy(() => import('../pages/Host'));
 const Join = lazy(() => import('../pages/Join'));
 const Player = lazy(() => import('../pages/Player'));
@@ -164,7 +165,13 @@ const router = createBrowserRouter([
       { path: '/coronaz/rejoindre/:code', element: <CoronaZPlayer /> },
       { path: '/coronaz/mj/:code', element: <CoronaZGm /> },
       // Mafia seats need no account either; the host proves itself by token.
-      { path: '/mafia/rejoindre/:code', element: <MafiaPlayer /> }
+      { path: '/mafia/rejoindre/:code', element: <MafiaPlayer /> },
+      /**
+       * The optional television. No account and no token: it holds no seat and
+       * receives only what the town square already knows, so the code is enough.
+       * Most tables are played apart and never open this at all.
+       */
+      { path: '/mafia/tv/:code', element: <MafiaTv /> }
     ]
   }
 ]);

@@ -31,6 +31,25 @@ export interface MafiaConfig {
   /** Days before a draw is called. */
   maxDays: number;
   /**
+   * What a corpse gives away.
+   *
+   * `role` is the classic reading: the body is identified and the town learns
+   * exactly what it just hanged. `faction` names the camp and nothing more, which
+   * keeps the shape of the game while making a Coroner's autopsy worth having.
+   * `none` reveals nothing until the end, which turns every death into an
+   * argument rather than a fact.
+   *
+   * Three things are deliberately *outside* this setting, because they are
+   * mechanics rather than presentation. A cleaned corpse (Janitor, Incense
+   * Master) stays nameless whatever the policy — that is what the power buys. A
+   * borrowed face (Disguiser, Actress, Diva) never reaches the slab: the reveal
+   * always reads the true `role`, because `disguiseRole` exists to fool
+   * *examiners* and nothing else. And a role that has been *changed* — audited,
+   * converted, remembered, initiated, or a widowed Executioner gone mad — reveals
+   * what its owner had become, which is the whole point of those powers.
+   */
+  revealOnDeath: 'role' | 'faction' | 'none';
+  /**
    * How the roles are dealt: the balanced automatic roster, a proposed
    * template, a player-saved slot list, or pure chaos.
    */
@@ -54,6 +73,7 @@ export const DEFAULT_CONFIG: MafiaConfig = {
   aftermathMs: 45_000,
   trialsPerDay: 3,
   maxDays: 20,
+  revealOnDeath: 'role',
   setup: { mode: 'auto' }
 };
 
@@ -193,6 +213,22 @@ export interface CreateMafiaInput {
   now: number;
 }
 
+/**
+ * What this game keeps, channel by channel.
+ *
+ * The square is the record — every death, every verdict, every role that came to
+ * light — and a table of twenty-four argues in it for twenty days, so it gets an
+ * allowance an order of magnitude past a whisper thread. Announcements are
+ * counted separately from talk inside every channel (see `Retention`), so 250
+ * here means the last 250 things *said* in the square and the last 250 things the
+ * game *announced* there, and no amount of shouting can push out a dawn report.
+ *
+ * `total` is the ceiling that keeps the state serialisable: 276 possible whisper
+ * threads at a table of 24 is more channels than any per-channel budget should be
+ * trusted to bound on its own.
+ */
+export const MAFIA_RETENTION = { perChannel: 50, channels: { day: 250 }, total: 900 };
+
 export function createMafiaGame(input: CreateMafiaInput): MafiaState {
   return {
     code: input.code,
@@ -209,7 +245,7 @@ export function createMafiaGame(input: CreateMafiaInput): MafiaState {
     trialsToday: 0,
     nightActions: {},
     jailedId: null,
-    chat: createChat(),
+    chat: createChat(MAFIA_RETENTION),
     trialLog: [],
     deaths: [],
     winners: [],

@@ -359,6 +359,8 @@ export const api = {
     maxPlayers?: number;
     dayMs?: number;
     nightMs?: number;
+    /** What a corpse gives away; see MafiaConfig.revealOnDeath. */
+    revealOnDeath?: 'role' | 'faction' | 'none';
     setup?: { mode: 'auto' } | { mode: 'chaos' } | { mode: 'preset'; presetId: string } | { mode: 'custom'; slots: string[] };
   }) => request<{ code: string; hostToken: string }>('/mafia/sessions', { method: 'POST', body: { config } }),
   mafiaSetups: () => request<{ id: string; name: string; description: string; slots: string[] }[]>('/mafia/setups'),

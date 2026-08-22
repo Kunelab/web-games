@@ -40,9 +40,15 @@ export interface MafiaPublicPlayer {
   votedSlot: number | null;
   /** Weighted votes currently against this player. */
   votesAgainst: number;
-  /** Known to all only after death or at the end. */
+  /**
+   * Known to all only after death or at the end, and only as far as the table's
+   * `revealOnDeath` policy allows. Under `faction` the camp is named and these
+   * two stay null until the game ends; under `none` all three do.
+   */
   role: RoleId | null;
   roleName: string | null;
+  /** The camp a dead player belonged to, for the colour beside their name. */
+  faction: Faction | null;
   death: { day: number; phase: 'day' | 'night'; cause: string } | null;
 }
 
@@ -101,7 +107,17 @@ export interface MafiaView {
   results: MafiaResultRow[] | null;
 }
 
-export type MafiaViewer = { kind: 'player'; playerId: string } | { kind: 'host' };
+/**
+ * Who is being projected for.
+ *
+ * `host` and `spectator` receive the identical, strictly-public projection: no
+ * `me`, the day channel only, and nothing about a living player that the square
+ * does not already know. They are two names for the same thing because they are
+ * two ways of arriving — the creator's own console, and a television in the room
+ * that claimed the table by its join code. Keeping them distinct in the type
+ * costs nothing and makes the intent legible at the call site.
+ */
+export type MafiaViewer = { kind: 'player'; playerId: string } | { kind: 'host' } | { kind: 'spectator' };
 
 const CHANNEL_LABELS: Record<string, string> = {
   day: 'Place du village',
@@ -124,10 +140,24 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer): MafiaView {
     votesAgainst.set(targetId, (votesAgainst.get(targetId) ?? 0) + weight);
   }
 
+  /**
+   * What the body says, per the table's policy.
+   *
+   * The end of the game overrides everything — that is the moment the masks come
+   * off. Before it, a cleaned corpse says nothing whatever the policy (the power
+   * was paid for), and what an identified corpse says is the setting's business:
+   * the whole role, the camp alone, or nothing at all.
+   *
+   * Always read from `player.role`, never `disguiseRole`: a borrowed face fools
+   * examiners, not the undertaker. A role that was genuinely *changed* — audited,
+   * converted, remembered, initiated — reveals what it became, which is the point.
+   */
+  const reveal = state.config.revealOnDeath ?? 'role';
   const publicPlayers: MafiaPublicPlayer[] = players.map((player) => {
-    // A cleaned corpse keeps its secret until the end (or a coroner's table).
     const cleaned = !ended && state.deaths.some((death) => death.playerId === player.playerId && death.hidden);
-    const roleKnown = ended || (!player.alive && !cleaned);
+    const identified = ended || (!player.alive && !cleaned);
+    const showRole = identified && (ended || reveal === 'role');
+    const showFaction = identified && (ended || reveal === 'role' || reveal === 'faction');
     const votedId = state.votes[player.playerId];
     return {
       slot: player.slot,
@@ -139,8 +169,9 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer): MafiaView {
       revealedMayor: player.revealed,
       votedSlot: votedId ? (state.players[votedId]?.slot ?? null) : null,
       votesAgainst: votesAgainst.get(player.playerId) ?? 0,
-      role: roleKnown ? player.role : null,
-      roleName: roleKnown && player.role ? roleDef(player.role).name : null,
+      role: showRole ? player.role : null,
+      roleName: showRole && player.role ? roleDef(player.role).name : null,
+      faction: showFaction && player.role ? roleDef(player.role).faction : null,
       death: player.death
     };
   });

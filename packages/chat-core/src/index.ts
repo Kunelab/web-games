@@ -4,11 +4,13 @@ export {
   systemPost,
   visibleTo,
   DEFAULT_LIMITS,
+  DEFAULT_RETENTION,
   type ChannelRules,
   type ChatKind,
   type ChatMessage,
   type ChatState,
   type PostInput,
   type PostLimits,
-  type PostResult
+  type PostResult,
+  type Retention
 } from './chat.js';
