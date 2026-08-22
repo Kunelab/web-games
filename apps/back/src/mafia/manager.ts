@@ -41,6 +41,19 @@ import { MafiaBotDriver } from './bots.js';
 const IDLE_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 
+/**
+ * How long a chat line may sit unsaved.
+ *
+ * Every phase change is still written through synchronously — losing a night
+ * resolution to a crash is unacceptable, and that is the guarantee the whole
+ * persistence model exists for. A chat line is not that: the table is a full
+ * table with its whole log inside it, so saving on every message meant twenty-four
+ * phones at the rate limit rewriting the same row twelve times a second. Two
+ * seconds of talk is a cheap thing to lose to a hard kill, and it is the only
+ * thing this defers.
+ */
+const CHAT_PERSIST_MS = 2000;
+
 export type MafiaTransitionListener = (state: MafiaState) => void;
 export type MafiaMessageListener = (state: MafiaState, message: ChatMessage) => void;
 export type MafiaRewardListener = (state: MafiaState, rewards: MafiaGameReward[]) => void;
@@ -48,6 +61,8 @@ export type MafiaRewardListener = (state: MafiaState, rewards: MafiaGameReward[]
 export class MafiaManager {
   private readonly sessions = new Map<string, MafiaState>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  /** Pending chat-only saves, one per table at most. See CHAT_PERSIST_MS. */
+  private readonly chatFlush = new Map<string, NodeJS.Timeout>();
   /** Tables whose careers are already banked; a table banks exactly once. */
   private readonly banked = new Set<string>();
   private listener: MafiaTransitionListener | null = null;
@@ -144,7 +159,7 @@ export class MafiaManager {
 
     state.lastActivityAt = Date.now();
     this.messageListener?.(state, result.message);
-    void this.persist(state);
+    this.persistSoon(state);
     return { ok: true };
   }
 
@@ -173,7 +188,7 @@ export class MafiaManager {
     if (gossip && gossip.kind === 'system' && gossip.channel === 'day') {
       this.messageListener?.(state, gossip);
     }
-    void this.persist(state);
+    this.persistSoon(state);
     return { ok: true };
   }
 
@@ -207,6 +222,7 @@ export class MafiaManager {
   async destroy(code: string): Promise<void> {
     const state = this.sessions.get(code);
     this.clearTimer(code);
+    this.cancelChatFlush(code);
     this.bots.forget(code);
     this.sessions.delete(code);
     this.banked.delete(code);
@@ -237,6 +253,8 @@ export class MafiaManager {
   private afterChange(state: MafiaState): void {
     state.lastActivityAt = Date.now();
     this.listener?.(state);
+    // This write covers anything chat was waiting to save.
+    this.cancelChatFlush(state.code);
     void this.persist(state);
     this.armTimer(state);
     this.bots.onChange(state);
@@ -283,6 +301,24 @@ export class MafiaManager {
     const timer = this.timers.get(code);
     if (timer) clearTimeout(timer);
     this.timers.delete(code);
+  }
+
+  /** Coalesces a burst of chat into one save. First message arms it, the rest ride along. */
+  private persistSoon(state: MafiaState): void {
+    if (this.chatFlush.has(state.code)) return;
+    const timer = setTimeout(() => {
+      this.chatFlush.delete(state.code);
+      const current = this.sessions.get(state.code);
+      if (current) void this.persist(current);
+    }, CHAT_PERSIST_MS);
+    timer.unref();
+    this.chatFlush.set(state.code, timer);
+  }
+
+  private cancelChatFlush(code: string): void {
+    const timer = this.chatFlush.get(code);
+    if (timer) clearTimeout(timer);
+    this.chatFlush.delete(code);
   }
 
   async persist(state: MafiaState): Promise<void> {
@@ -340,6 +376,12 @@ export class MafiaManager {
   stopSweeping(): void {
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     for (const code of this.timers.keys()) this.clearTimer(code);
+    // Anything still waiting to be saved is saved now rather than dropped.
+    for (const code of [...this.chatFlush.keys()]) {
+      this.cancelChatFlush(code);
+      const state = this.sessions.get(code);
+      if (state) void this.persist(state);
+    }
     this.bots.stop();
   }
 

@@ -1,7 +1,10 @@
 export {
+  ACTION_LABELS,
   BYSTANDER_ROLES,
+  FACTION_LABELS,
   FAMILIES,
   ROLES,
+  SELF_FIRES,
   familyOf,
   isSoloKiller,
   roleDef,

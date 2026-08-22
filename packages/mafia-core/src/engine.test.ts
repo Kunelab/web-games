@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   addMafiaBot,
   advanceMafia,
+  callCourt,
   castBallot,
   castVote,
   jailTarget,
@@ -340,6 +341,251 @@ describe('mafia engine', () => {
     // must not appear anywhere in it while its owner breathes.
     const raw = JSON.stringify(sheriffView);
     assert.ok(!raw.includes('godfather'));
+  });
+
+  /* ---------------- visits are complete before anything punishes one --------------- */
+
+  /**
+   * The whole class of bug these three cover: `visits` is read by the veteran's
+   * porch, by the mass murderer's house and by the lookout's notebook, and it
+   * used to be *written* by the investigators after two of those three had
+   * already read it. So the town's most common visitors — its investigators —
+   * walked through both retaliations untouched.
+   */
+  it('an alerted veteran shoots the investigators who call on him', () => {
+    const state = table(['veteran', 'sheriff', 'lookout', 'citizen', 'mafioso']);
+    advanceMafia(state, 0, lcg(3)); // night
+    const veteran = bySlot(state, 1);
+
+    setNightAction(state, veteran.playerId, veteran.slot); // on alert
+    setNightAction(state, bySlot(state, 2).playerId, veteran.slot); // sheriff sounds him out
+    setNightAction(state, bySlot(state, 3).playerId, veteran.slot); // lookout watches him
+    advanceMafia(state, 1, lcg(3));
+
+    assert.equal(bySlot(state, 2).alive, false, 'the sheriff walked onto the porch');
+    assert.equal(bySlot(state, 3).alive, false, 'so did the lookout');
+    assert.equal(veteran.alive, true);
+  });
+
+  it('the mass murderer kills everyone who visits the house he rampages', () => {
+    const state = table(['mass-murderer', 'lookout', 'citizen', 'doctor', 'citizen']);
+    advanceMafia(state, 0, lcg(4)); // night
+    const victimSlot = 3;
+
+    setNightAction(state, bySlot(state, 1).playerId, victimSlot);
+    setNightAction(state, bySlot(state, 2).playerId, victimSlot); // watching the door
+    setNightAction(state, bySlot(state, 4).playerId, victimSlot); // and a doctor calling in
+    advanceMafia(state, 1, lcg(4));
+
+    assert.equal(bySlot(state, 2).alive, false, 'the lookout was in the massacre');
+    assert.equal(bySlot(state, 4).alive, false, 'the doctor could not heal through it');
+    assert.equal(bySlot(state, 1).alive, true);
+  });
+
+  it('a lookout still sees the other investigators who called', () => {
+    const state = table(['lookout', 'sheriff', 'citizen', 'citizen']);
+    advanceMafia(state, 0, lcg(5)); // night
+    const watched = bySlot(state, 3);
+
+    setNightAction(state, bySlot(state, 1).playerId, watched.slot);
+    setNightAction(state, bySlot(state, 2).playerId, watched.slot);
+    advanceMafia(state, 1, lcg(5));
+
+    const seen = bySlot(state, 1).intel.find((entry) => entry.kind === 'visitors');
+    assert.deepEqual(seen?.slots, [2], 'the sheriff was on the doorstep too');
+  });
+
+  /* ------------------------- the court votes in secret ------------------------- */
+
+  it('the judge is not identifiable from the public verdict', () => {
+    const state = table(['judge', 'citizen', 'citizen', 'citizen', 'mafioso']);
+    const judge = bySlot(state, 1);
+    judge.charges = 1;
+
+    // Two accusations put the mafioso on top, then the judge convenes the court.
+    castVote(state, bySlot(state, 2).playerId, 5, 0);
+    castVote(state, bySlot(state, 3).playerId, 5, 0);
+    assert.equal(callCourt(state, judge.playerId, 10).ok, true);
+
+    castBallot(state, judge.playerId, 'guilty');
+    castBallot(state, bySlot(state, 2).playerId, 'guilty');
+    advanceMafia(state, 20, lcg(6));
+
+    const said = state.chat.messages.map((message) => message.text).join('\n');
+    // The weighted tally is public; the names that would give the weight away are not.
+    assert.ok(said.includes('Verdict : 4 coupable'), 'the tally still lands');
+    assert.ok(!said.includes('Ont voté coupable'), 'no roll call to subtract from');
+    assert.ok(said.includes('bulletin secret'));
+    // But the record keeps every hand, for the end-of-game reveal.
+    const logged = state.trialLog?.at(-1);
+    assert.equal(logged?.guiltyIds.length, 2);
+  });
+
+  it('an ordinary trial still publishes who wanted the rope', () => {
+    const state = table(['citizen', 'citizen', 'citizen', 'mafioso']);
+    castVote(state, bySlot(state, 1).playerId, 4, 0);
+    castVote(state, bySlot(state, 2).playerId, 4, 0);
+    castVote(state, bySlot(state, 3).playerId, 4, 0);
+    assert.equal(state.stage, 'defense', 'the threshold fell');
+
+    advanceMafia(state, 10, lcg(7)); // to judgement
+    castBallot(state, bySlot(state, 1).playerId, 'guilty');
+    castBallot(state, bySlot(state, 2).playerId, 'innocent');
+    advanceMafia(state, 20, lcg(7));
+
+    const said = state.chat.messages.map((message) => message.text).join('\n');
+    assert.ok(said.includes('Ont voté coupable'), 'the roll call is safe without a hidden weight');
+  });
+
+  it('an accusation moves the count without posting a line', () => {
+    const state = table(['citizen', 'citizen', 'citizen', 'citizen', 'mafioso']);
+    const before = state.chat.messages.length;
+    castVote(state, bySlot(state, 1).playerId, 5, 0);
+    castVote(state, bySlot(state, 1).playerId, 4, 0); // changed their mind
+    assert.equal(state.chat.messages.length, before, 'the square stays quiet');
+
+    const view = toMafiaView(state, { kind: 'player', playerId: bySlot(state, 2).playerId });
+    const accused = view.players.find((player) => player.slot === 4);
+    assert.equal(accused?.votesAgainst, 1, 'the list carries the count instead');
+    assert.equal(view.players.find((player) => player.slot === 1)?.votedSlot, 4);
+  });
+
+  /* --------------------- what a corpse gives away --------------------- */
+
+  /**
+   * Hangs the Godfather in slot 5 under the given policy, leaving a Mafioso alive
+   * so the game does *not* end — otherwise the end-of-game reveal would lift the
+   * policy and the assertion would be measuring the wrong moment.
+   */
+  function lynchUnder(reveal: 'role' | 'faction' | 'none') {
+    const state = table(['citizen', 'citizen', 'citizen', 'citizen', 'godfather', 'mafioso']);
+    state.config.revealOnDeath = reveal;
+    for (const slot of [1, 2, 3, 4]) castVote(state, bySlot(state, slot).playerId, 5, 0);
+    advanceMafia(state, 10, lcg(9)); // defense → judgement
+    for (const slot of [1, 2, 3, 4]) castBallot(state, bySlot(state, slot).playerId, 'guilty');
+    advanceMafia(state, 20, lcg(9));
+    assert.equal(bySlot(state, 5).alive, false, 'the godfather hanged');
+    assert.notEqual(state.phase, 'ended', 'and the game goes on, so the policy still applies');
+    return {
+      state,
+      said: state.chat.messages.map((message) => message.text).join('\n'),
+      row: toMafiaView(state, { kind: 'player', playerId: bySlot(state, 1).playerId }).players.find(
+        (player) => player.slot === 5
+      )!
+    };
+  }
+
+  it('reveals the whole role when the table asks for it', () => {
+    const { said, row } = lynchUnder('role');
+    assert.equal(row.roleName, 'Parrain');
+    assert.equal(row.faction, 'mafia');
+    assert.ok(said.includes('Parrain'));
+  });
+
+  it('names only the camp under the faction policy', () => {
+    const { said, row } = lynchUnder('faction');
+    assert.equal(row.roleName, null, 'the role stays secret');
+    assert.equal(row.role, null);
+    assert.equal(row.faction, 'mafia', 'but the camp is public');
+    assert.ok(said.includes('de la Mafia'));
+    assert.ok(!said.includes('Parrain'), 'the exact role never reaches the square');
+  });
+
+  it('gives away nothing when the table reveals nothing', () => {
+    const { said, row } = lynchUnder('none');
+    assert.equal(row.role, null);
+    assert.equal(row.roleName, null);
+    assert.equal(row.faction, null);
+    assert.ok(!said.includes('Parrain'));
+    assert.ok(!said.includes('de la Mafia'));
+    assert.ok(said.includes('Son secret est mort avec lui'));
+  });
+
+  it('the end of the game lifts every policy', () => {
+    // One lone godfather, so hanging him purges the town and ends it there.
+    const state = table(['citizen', 'citizen', 'citizen', 'godfather']);
+    state.config.revealOnDeath = 'none';
+    for (const slot of [1, 2, 3]) castVote(state, bySlot(state, slot).playerId, 4, 0);
+    advanceMafia(state, 10, lcg(9));
+    for (const slot of [1, 2, 3]) castBallot(state, bySlot(state, slot).playerId, 'guilty');
+    advanceMafia(state, 20, lcg(9));
+
+    assert.equal(state.phase, 'ended');
+    const row = toMafiaView(state, { kind: 'host' }).players.find((player) => player.slot === 4)!;
+    assert.equal(row.roleName, 'Parrain', 'the masks come off regardless');
+    assert.equal(row.faction, 'mafia');
+  });
+
+  /**
+   * The three carve-outs that are mechanics rather than presentation: a cleaned
+   * body says nothing whatever the policy, a borrowed face never reaches the
+   * slab, and a role that was genuinely changed reveals what it became.
+   */
+  it('a borrowed face does not change what the body says', () => {
+    const state = table(['disguiser', 'sheriff', 'citizen', 'vigilante']);
+    state.config.revealOnDeath = 'role';
+    advanceMafia(state, 0, lcg(11)); // night
+    const disguiser = bySlot(state, 1);
+    // Wear the sheriff's face, and get shot for it the same night.
+    setNightAction(state, disguiser.playerId, 2);
+    setNightAction(state, bySlot(state, 4).playerId, 1);
+    advanceMafia(state, 1, lcg(11));
+
+    assert.equal(disguiser.alive, false);
+    const row = toMafiaView(state, { kind: 'host' }).players.find((player) => player.slot === 1)!;
+    assert.equal(row.roleName, 'Imposteur', 'the undertaker is not fooled');
+    assert.equal(row.faction, 'mafia');
+  });
+
+  it('a cleaned corpse stays anonymous even under the full-reveal policy', () => {
+    const state = table(['janitor', 'mafioso', 'citizen', 'citizen', 'citizen', 'doctor']);
+    state.config.revealOnDeath = 'role';
+    bySlot(state, 1).charges = 2;
+    advanceMafia(state, 0, lcg(13)); // night
+    setNightAction(state, bySlot(state, 2).playerId, 4); // the family kills slot 4
+    setNightAction(state, bySlot(state, 1).playerId, 4); // and the janitor tidies up
+    advanceMafia(state, 1, lcg(13));
+
+    assert.equal(bySlot(state, 4).alive, false);
+    const row = toMafiaView(state, { kind: 'host' }).players.find((player) => player.slot === 4)!;
+    assert.equal(row.roleName, null);
+    assert.equal(row.faction, null, 'not even the camp leaks');
+  });
+
+  /**
+   * The shared-screen contract: every line that names an identity is flagged at
+   * the source, so a television can hold it back without reading French. If this
+   * breaks, the TV's spoiler mode silently starts leaking.
+   */
+  it('flags every announcement that gives an identity away', () => {
+    const { state } = lynchUnder('role');
+    const day = state.chat.messages.filter((message) => message.channel === 'day' && message.kind === 'system');
+
+    const gallows = day.find((message) => message.text.includes('se balance au bout de la corde'))!;
+    assert.equal(gallows.reveals, true, 'the gallows names the body');
+
+    const verdict = day.find((message) => message.text.startsWith('Verdict :'))!;
+    assert.notEqual(verdict.reveals, true, 'a tally is not an identity');
+
+    const rollCall = day.find((message) => message.text.startsWith('Ont voté coupable'))!;
+    assert.notEqual(rollCall.reveals, true, 'who wanted the rope is a vote, not a role');
+
+    // And nothing carrying a role name is left unflagged.
+    const leaked = day.filter((message) => !message.reveals && message.text.includes('Parrain'));
+    assert.deepEqual(leaked, [], 'an unflagged line named a role');
+  });
+
+  it('flags the dawn report and the closing roster too', () => {
+    const state = table(['mafioso', 'citizen', 'citizen', 'doctor', 'sheriff']);
+    advanceMafia(state, 0, lcg(21)); // night
+    setNightAction(state, bySlot(state, 1).playerId, 2); // the family kills slot 2
+    advanceMafia(state, 1, lcg(21));
+
+    const dawn = state.chat.messages.find((message) => message.text.includes('a été retrouvé mort'))!;
+    assert.equal(dawn.reveals, true, 'the dawn report names the body and its killer');
+
+    const quiet = state.chat.messages.find((message) => message.text.includes('Fermez vos portes'));
+    assert.notEqual(quiet?.reveals, true, 'nightfall is not a reveal');
   });
 
   it('keeps mafia and jail chat away from the town', () => {

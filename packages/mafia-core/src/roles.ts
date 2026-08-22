@@ -10,6 +10,23 @@
 
 export type Faction = 'town' | 'mafia' | 'triad' | 'cult' | 'neutral';
 
+/**
+ * What a player is told their camp is called.
+ *
+ * A `Record` rather than a chain of ternaries on purpose: the screen that shows
+ * this used two branches for a five-member union, so every Triad member and
+ * every convert was told they were Neutral — on the one card that exists to say
+ * which side you are on. Keyed by the type, so adding a sixth faction is a
+ * compile error here instead of a lie on a phone.
+ */
+export const FACTION_LABELS: Record<Faction, string> = {
+  town: 'Ville',
+  mafia: 'Mafia',
+  triad: 'Triade',
+  cult: 'Secte',
+  neutral: 'Neutre'
+};
+
  
 export type RoleId =
   // Town (20)
@@ -114,6 +131,60 @@ export type NightActionType =
   | 'rampage' // mass murderer: kill a house and everyone in it
   | 'poison' // poisoner: death tomorrow unless a doctor intervenes
   | 'charge'; // electromaniac; self = discharge
+
+/**
+ * The verb on the button, per power.
+ *
+ * The seat screen puts each night action on the row of the player it targets, so
+ * every power needs a word short enough to sit beside a name. Content, not
+ * presentation, which is why it lives next to the role names rather than in the
+ * frontend: a bot's prompt and a future TV screen want the same word.
+ */
+export const ACTION_LABELS: Record<NightActionType, string> = {
+  kill: 'Tuer',
+  heal: 'Soigner',
+  guard: 'Protéger',
+  block: 'Occuper',
+  investigate: 'Sonder',
+  examine: 'Examiner',
+  watch: 'Surveiller',
+  track: 'Pister',
+  shadow: 'Suivre',
+  frame: 'Piéger',
+  'jail-execute': 'Exécuter',
+  alert: 'Se mettre en alerte',
+  vest: 'Enfiler le gilet',
+  douse: 'Arroser',
+  control: 'Envoûter',
+  silence: 'Faire taire',
+  clean: 'Nettoyer',
+  swap: 'Échanger',
+  kidnap: 'Enlever',
+  recruit: 'Initier',
+  convert: 'Convertir',
+  remember: 'Se souvenir',
+  audit: 'Contrôler',
+  imitate: 'Emprunter le visage',
+  hide: 'Se cacher chez',
+  charm: 'Séduire',
+  bond: 'Aimer',
+  autopsy: 'Autopsier',
+  rampage: 'Massacrer',
+  poison: 'Empoisonner',
+  charge: 'Câbler'
+};
+
+/**
+ * The powers whose own house is the target: the match, the lever, the ignition.
+ *
+ * `legalNightAction` offers the actor's own slot for these, and pointing one at
+ * yourself is what fires it — so the button on your own row has to read
+ * differently from the same button on somebody else's.
+ */
+export const SELF_FIRES: Partial<Record<NightActionType, string>> = {
+  douse: 'Tout brûler',
+  charge: 'Envoyer le courant'
+};
 
 export interface RoleDef {
   id: RoleId;

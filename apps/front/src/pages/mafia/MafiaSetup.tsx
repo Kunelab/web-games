@@ -27,6 +27,16 @@ const NIGHT_CHOICES = [
   { value: '60000', label: 'Nuit : 1 min' }
 ];
 
+/**
+ * What a corpse gives away. The middle setting is the interesting one: naming the
+ * camp keeps the game's shape while making a Coroner worth a seat.
+ */
+const REVEAL_CHOICES = [
+  { value: 'role', label: 'À la mort : rôle complet' },
+  { value: 'faction', label: 'À la mort : camp seulement' },
+  { value: 'none', label: 'À la mort : rien du tout' }
+];
+
 type SetupChoice =
   | { mode: 'auto' }
   | { mode: 'chaos' }
@@ -59,6 +69,7 @@ export default function MafiaSetup() {
   const navigate = useNavigate();
   const [dayMs, setDayMs] = useState('120000');
   const [nightMs, setNightMs] = useState('45000');
+  const [revealOnDeath, setRevealOnDeath] = useState('role');
   const [tab, setTab] = useState<'proposes' | 'miens'>('proposes');
   const [choice, setChoice] = useState<SetupChoice>({ mode: 'auto' });
   const [draftSlots, setDraftSlots] = useState<string[]>([]);
@@ -77,6 +88,7 @@ export default function MafiaSetup() {
       const session = await api.mafiaCreate({
         dayMs: Number(dayMs),
         nightMs: Number(nightMs),
+        revealOnDeath: revealOnDeath as 'role' | 'faction' | 'none',
         setup: choice
       });
       sessionStorage.setItem(`mafia:host:${session.code}`, session.hostToken);
@@ -105,6 +117,7 @@ export default function MafiaSetup() {
   }
 
   const joinUrl = created ? `${window.location.origin}/mafia/rejoindre/${created.code}` : '';
+  const tvUrl = created ? `${window.location.origin}/mafia/tv/${created.code}` : '';
 
   const choiceLabel =
     choice.mode === 'auto'
@@ -142,6 +155,15 @@ export default function MafiaSetup() {
             <Field label="Rythme des nuits">
               {({ id }) => <Select id={id} value={nightMs} onValueChange={setNightMs} options={NIGHT_CHOICES} />}
             </Field>
+            <Field label="Révélation des rôles">
+              {({ id }) => (
+                <Select id={id} value={revealOnDeath} onValueChange={setRevealOnDeath} options={REVEAL_CHOICES} />
+              )}
+            </Field>
+            <p className="mz-hint">
+              Un corps nettoyé par le Nettoyeur reste anonyme dans tous les cas, et un visage emprunté ne trompe que les
+              enquêteurs — la dépouille dit toujours ce que le joueur était vraiment.
+            </p>
           </section>
 
           {/* ------------------------------ setups ------------------------------ */}
@@ -300,6 +322,29 @@ export default function MafiaSetup() {
           </div>
           <p className="mz-join-url">{joinUrl}</p>
           <Button onClick={() => void navigate(`/mafia/rejoindre/${created.code}`)}>Prendre place à ma table</Button>
+
+          {/**
+           * The television, offered and never assumed.
+           *
+           * A table is normally played apart, so this is the "we are all in the
+           * same room" extra: its own link, opened on whatever screen the room
+           * has. It takes no seat and plays nothing, and it starts with every role
+           * hidden — a big shared screen is the one place a leak reaches everybody
+           * at once.
+           */}
+          <div className="mz-tv-offer">
+            <p className="mz-hint">
+              <strong>Dans la même pièce ?</strong> Ouvrez la ville en grand sur une télé ou un PC. Cet écran ne joue
+              pas, ne prend pas de siège, et démarre sans révéler aucun rôle.
+            </p>
+            <div className="mz-qr">
+              <QRCode value={tvUrl} size={110} />
+            </div>
+            <p className="mz-join-url">{tvUrl}</p>
+            <Button variant="ghost" onClick={() => window.open(tvUrl, '_blank', 'noopener')}>
+              📺 Ouvrir l’écran de la ville
+            </Button>
+          </div>
         </section>
       )}
     </div>

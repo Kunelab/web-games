@@ -18,7 +18,11 @@
 > le LLM choisit une direction, le moteur déterministe valide et exécute),
 > `anthropic` (Haiku), ou `scripted` (silencieux, aléatoire légal, aucun réseau).
 > Simulation headless : `pnpm --filter back mafia:sim`.
-> Rôles restants, boutique, sons/musique : à venir (voir ci-dessous).
+> **v3 (voir en bas)** : l'interface du siège est une *liste de joueurs* avec
+> l'action sur la ligne de sa cible, la ville n'est plus que du décor, la télé
+> (`/mafia/tv/:code`) est une option avec mode sans spoiler, `revealOnDeath`
+> règle ce qu'un cadavre livre, et quatre correctifs de règles.
+> Boutique, skins, sons/musique : à venir (voir ci-dessous).
 
 Jeu de déduction sociale inspiré de l'arcade SC2 *Mafia* (et de ce que *Town of
 Salem* était avant les achats intégrés). Entièrement gratuit : on gagne des
@@ -210,3 +214,119 @@ un contexte audible d'autrui (cf. anti-fuite).
   maison, skins de personnage, épitaphes/tombes, émotes sonores, dos de carte
   de rôle.
 - Aucun effet gameplay, aucun achat réel, pas de pub. Jamais.
+
+## v3 : l'interface est une liste, la télé est une option
+
+### Le siège : la liste des joueurs *est* le jeu
+
+Toute action de ce jeu vise une personne, donc chaque action vit sur la ligne de
+cette personne : « Accuser » à côté d'un nom le jour, « Soigner » à côté du même
+nom la nuit. Un seul endroit à regarder, un seul type de geste, un libellé
+lisible. Les verbes viennent de `ACTION_LABELS` dans `roles.ts` — c'est du
+contenu, pas de la présentation : un prompt de bot et un futur écran veulent le
+même mot.
+
+Ce que ça remplace : une carte isométrique non zoomable qui était à la fois le
+tableau de bord, le trombinoscope et le seul moyen de viser quoi que ce soit. Sur
+un téléphone de 360 px, le viewBox de 596 unités tombait à ~0,57 : les libellés
+en `font-size: 11px` s'affichaient à **six pixels**, et la cible tactile était un
+losange de 40×20 px dont la surface utile est bien plus petite. CoronaZ avait
+déjà résolu exactement ça (`useCzCamera`, cible de 44 px qui annule le zoom) ;
+Mafia n'en avait rien hérité.
+
+La ville reste, en décor. `MafiaTown` ne prend **aucun handler**, n'expose rien
+de focusable et est `aria-hidden` — ce qui règle au passage l'accessibilité
+clavier, puisque tout est devenu de vrais `<button>` dans une vraie liste. Elle
+porte ce qui se lit à travers une pièce : qui est debout, qui est en terre,
+jour ou nuit, et si le gibet est occupé. Les pouvoirs auto-ciblés (Vétéran,
+Survivant) tombent naturellement sur *votre* ligne au lieu d'un bouton niché
+dans un paragraphe d'aide.
+
+Les thèmes sont un bloc de tokens `--town-*` et rien d'autre (`[data-town-theme]`),
+donc une nouvelle ville est du CSS ; les skins de maison et de personnage se
+glisseront derrière les mêmes noms de classe sans toucher aux composants.
+
+### La télé est une option, pas la prémisse
+
+La plupart des parties se jouent **à distance** — téléphones et PC dans des
+maisons différentes — donc `/mafia/tv/:code` est un *ajout* pour le cas « on est
+tous dans la même pièce ». Elle ne joue pas, ne prend pas de siège, et se
+réclame avec le seul code de la table : la projection qu'elle reçoit est celle de
+la console hôte, strictement publique (pas de `me`, aucun rôle de vivant, le chat
+de la place uniquement). Un secret dans l'URL n'achèterait aucune confidentialité
+et coûterait la mise en place en un geste.
+
+**Le mode sans spoiler est actif par défaut**, parce qu'un grand écran partagé
+est le seul endroit où une fuite atteint tout le monde d'un coup. Il ne suffit
+pas de voiler le trombinoscope : la première version masquait le rôle dans la
+liste et l'annonçait en prose juste en dessous. Le moteur marque donc lui-même
+ses lignes porteuses d'identité (`ChatMessage.reveals`), et l'écran les retient —
+pas de reconnaissance de motif sur du français, le jeu sait et il le dit.
+
+### Ce qu'un cadavre livre : `revealOnDeath`
+
+`role` (classique), `faction` (le camp seulement — et le Coroner vaut soudain un
+siège), ou `none` (rien avant la fin : chaque mort devient un argument). Le nom
+du rôle s'affiche dans **la couleur de son camp** à côté du nom barré.
+
+Trois choses restent volontairement **hors** du réglage, parce que ce sont des
+mécaniques et pas de la présentation :
+
+- un corps **nettoyé** (Nettoyeur, Maître d'encens) reste anonyme quel que soit
+  le réglage — c'est ce que le pouvoir achète ;
+- un **visage emprunté** (Imposteur, Actrice, Diva) n'arrive jamais sur la
+  table d'autopsie : la révélation lit toujours le vrai `role`, parce que
+  `disguiseRole` existe pour tromper les *enquêteurs* et rien d'autre ;
+- un rôle **réellement changé** — contrôlé, converti, remémoré, initié, ou un
+  Bourreau veuf devenu fou — révèle ce qu'il est *devenu*, ce qui est tout
+  l'intérêt de ces pouvoirs.
+
+La fin de partie lève tous les réglages : c'est le moment où les masques tombent.
+
+### Quatre correctifs de règles
+
+1. **Le Vétéran et le Tueur de masse ne touchaient jamais un enquêteur.** Les
+   visites des rôles d'enquête étaient enregistrées *après* la riposte du perron
+   et *après* le massacre de la maison. La nuit se déroule maintenant en deux
+   temps explicites — tout le monde déclare son déplacement, *puis* les ripostes
+   se résolvent — et le carnage du Tueur de masse est étendu dans sa propre passe
+   au lieu d'en ligne, où il ne voyait que les trajets des joueurs déjà parcourus
+   par la boucle (l'ordre des sièges décidait donc qui mourait). Trois tests
+   tiennent l'invariant.
+2. **Le Juge se déduisait de l'arithmétique du verdict.** Le décompte est
+   *pondéré* et la liste des noms est un *effectif* : les publier tous les deux
+   donnait la différence, et dans un tribunal le seul poids caché du plateau est
+   son maillet triple. Le tribunal d'exception vote donc à bulletin secret ; un
+   procès ordinaire publie les deux sans risque, le Maire révélé étant le seul
+   poids supérieur à un et son écharpe étant déjà publique.
+3. **Une journée chargée effaçait toute la mémoire de la partie.** `chat-core`
+   gardait 500 messages *au total*, tous canaux confondus, et `castVote`
+   annonçait *chaque* vote y compris chaque changement d'avis. La rétention est
+   maintenant par canal, et *dans* un canal les annonces du jeu sont comptées
+   séparément du bavardage : la place garde ses 250 dernières paroles **et** ses
+   250 dernières annonces, et aucun cri ne peut chasser un rapport de l'aube. Les
+   accusations ne s'annoncent plus du tout — le décompte vit sur la liste des
+   joueurs, où il ne coûte rien.
+4. **Les joueurs de la Triade et de la Secte s'entendaient dire « Neutre ».** Le
+   libellé de camp était un ternaire à deux branches pour une union à cinq
+   membres. C'est un `Record<Faction, string>` (`FACTION_LABELS`), donc un
+   sixième camp serait une erreur de compilation et non un mensonge sur un
+   téléphone.
+
+Effet mesuré du correctif nº 1 sur le banc (1000 parties par taille) : la Ville
+perd de 0 à 1,8 point selon la case, dans le bruit — attendu, puisque ses
+enquêteurs meurent maintenant sur les perrons où ils allaient gratuitement.
+
+### Reste à faire, révisé
+
+- **Quatre rôles sans interface** : le tribunal du Juge, la révélation du Prévôt,
+  et la seconde cible de la Sorcière et du Chauffeur de bus (`secondTargetSlot`
+  existe côté moteur et n'est émis par rien). La liste rend les deux premiers
+  triviaux ; les deux autres veulent un second état de sélection.
+- **Skins et animations de mort**, pour les procès seulement : les seams sont en
+  place (tokens `--town-*`, classes `.mz-house` / `.mz-villager`), la boutique
+  et l'économie ne le sont pas.
+- **Le census** est absent du sélecteur de setup alors qu'il est la moitié du
+  banc.
+- **La composition n'est jamais affichée** au lobby : la déduction se raisonne
+  sur un pool de rôles connu.

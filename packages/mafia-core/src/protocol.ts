@@ -59,6 +59,7 @@ export const mafiaConfigSchema = z.object({
   maxPlayers: z.number().int().min(4).max(24).optional(),
   dayMs: z.number().int().min(30_000).max(600_000).optional(),
   nightMs: z.number().int().min(15_000).max(180_000).optional(),
+  revealOnDeath: z.enum(['role', 'faction', 'none']).optional(),
   setup: mafiaSetupSchema.optional()
 });
 
@@ -84,6 +85,17 @@ export interface MafiaReward {
 export interface MafiaClientToServer {
   'mafia:join': (payload: z.infer<typeof mafiaJoinSchema>, ack: Ack<MafiaJoinAck>) => void;
   'mafia:host': (payload: { code: string; hostToken: string }, ack: Ack<{ ok: boolean; error?: string; view?: MafiaView }>) => void;
+  /**
+   * A television claims the table with nothing but its join code.
+   *
+   * No token, deliberately. What it receives is the same projection the host
+   * console gets, which is strictly public — no `me`, the square's chat only, and
+   * only what the roster already shows about anyone still breathing. There is
+   * nothing here for a player to learn from a second screen, so guarding it with
+   * a secret would buy no privacy and cost the room the one-tap setup that makes
+   * "put it on the TV" worth doing at all.
+   */
+  'mafia:spectate': (payload: { code: string }, ack: Ack<{ ok: boolean; error?: string; view?: MafiaView }>) => void;
   'mafia:start': (payload: { hostToken: string }) => void;
   'mafia:addBots': (payload: { hostToken: string; count: number }) => void;
   'mafia:chat': (payload: z.infer<typeof mafiaChatSchema>, ack: Ack<MafiaAckResult>) => void;
