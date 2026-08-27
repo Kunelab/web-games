@@ -10,6 +10,7 @@ import {
   jailTarget,
   joinMafia,
   legalNightAction,
+  revealMayor,
   sayInChat,
   setNightAction,
   startMafia,
@@ -337,8 +338,66 @@ describe('mafia engine', () => {
     setNightAction(purge, bySlot(purge, 1).playerId, 2);
     advanceMafia(purge, 1, lcg(1));
     assert.equal(purge.phase, 'ended');
-    const townWinners = purge.winners.filter((w) => w.reason.includes('Ville'));
+    const townWinners = purge.winners.filter((w) => w.kind === 'town');
     assert.equal(townWinners.length, 3);
+  });
+
+  it('a parasite wins only when the town does not', () => {
+    // The Witch feeds on the town's failure, so the same seat has to lose one
+    // ending and win the other. The gate used to be a French string comparison
+    // against a second copy of itself; this holds it down whatever it is.
+    const purged = table(['vigilante', 'mafioso', 'citizen', 'witch']);
+    advanceMafia(purged, 0, lcg(1));
+    setNightAction(purged, bySlot(purged, 1).playerId, 2);
+    advanceMafia(purged, 1, lcg(1));
+    assert.equal(purged.phase, 'ended');
+    const survivingWitch = bySlot(purged, 4);
+    assert.equal(survivingWitch.alive, true);
+    assert.ok(!purged.winners.some((w) => w.playerId === survivingWitch.playerId));
+
+    const overrun = table(['godfather', 'citizen', 'witch']);
+    advanceMafia(overrun, 0, lcg(1));
+    setNightAction(overrun, bySlot(overrun, 1).playerId, 2);
+    advanceMafia(overrun, 1, lcg(1));
+    assert.equal(overrun.phase, 'ended');
+    const thrivingWitch = bySlot(overrun, 3);
+    assert.equal(thrivingWitch.alive, true);
+    assert.ok(overrun.winners.some((w) => w.playerId === thrivingWitch.playerId));
+  });
+
+  it("scores every solo win as a solo win, not only the hanged jester", () => {
+    const state = table(['godfather', 'citizen', 'witch']);
+    advanceMafia(state, 0, lcg(1));
+    setNightAction(state, bySlot(state, 1).playerId, 2);
+    advanceMafia(state, 1, lcg(1));
+
+    const witch = bySlot(state, 3);
+    const entry = state.points.find((point) => point.playerId === witch.playerId && point.reason === 'solo-win');
+    assert.ok(entry, 'a lone winner banks a solo-win entry');
+
+    /**
+     * And the prose does not carry the fact.
+     *
+     * The career ledger used to count solo wins by testing the winner's `reason`
+     * for 'gagne seul', a phrase only the hanged Jester's line contains — so
+     * every other seat that wins alone banked the points and never the tally.
+     * The structured entry above is the one source of that truth.
+     */
+    const reason = state.winners.find((w) => w.playerId === witch.playerId)?.reason ?? '';
+    assert.ok(!reason.includes('gagne seul'));
+  });
+
+  it('counts a revealed mayor the same way on the phone as in the threshold', () => {
+    const state = table(['mayor', 'citizen', 'doctor', 'sheriff', 'godfather', 'mafioso']);
+    const mayor = bySlot(state, 1);
+    assert.equal(revealMayor(state, mayor.playerId, 1000).ok, true);
+    assert.equal(castVote(state, mayor.playerId, 5, 2000).ok, true);
+
+    // Three weighted votes on one head, and 5 of 8 still needed: no trial yet,
+    // and the tally every screen renders says three rather than one.
+    assert.equal(state.stage, 'discussion');
+    const view = toMafiaView(state, { kind: 'host' });
+    assert.equal(view.players.find((player) => player.slot === 5)?.votesAgainst, 3);
   });
 
   it('never leaks a living role to another player', () => {

@@ -34,10 +34,17 @@ export const fr: Catalogue = {
   'mafia.trial.spared': '{name} est épargné.',
   'mafia.trial.nobody': 'personne',
 
+  'mafia.pause.begun': 'Le temps s’arrête : la table attend {names}.',
+  'mafia.pause.resumed': 'Tout le monde est revenu. La partie reprend.',
+  'mafia.kick.proposed': 'Un vote est ouvert pour continuer sans {name}.',
+  'mafia.kick.carried': 'La table vote pour continuer sans {name}.',
+  'mafia.kick.failed': 'La table laisse encore du temps à {name}.',
+
   /* -------------------------------- deaths -------------------------------- */
   'mafia.death.hanged': '{name} se balance au bout de la corde. {body}',
   'mafia.death.found': '{name} a été retrouvé mort — {cause}. {body}',
   'mafia.death.grief': '{name} s’est éteint de chagrin. {body}',
+  'mafia.seat.left': '{name} a quitté la table. Personne ne l’a tué. {body}',
   'mafia.death.will': 'Dernières volontés de {name} : « {will} »',
 
   'mafia.body.role': 'C’était {role}.',
@@ -60,6 +67,7 @@ export const fr: Catalogue = {
   'mafia.cause.guard': 'mort en protégeant {name}',
   'mafia.cause.bodyguard': 'abattu par un garde du corps',
   'mafia.cause.killedBy': 'tué par {source}',
+  'mafia.cause.left': 'a quitté la table',
   'mafia.cause.unknown': 'sans explication',
   'mafia.source.poison': 'le poison',
   'mafia.source.arsonist': 'l’Incendiaire',

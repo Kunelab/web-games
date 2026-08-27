@@ -51,6 +51,22 @@ export const M = {
   found: (name: string, cause: Msg, body: Msg): Msg => msg('mafia.death.found', { name, cause, body }),
   grief: (name: string, body: Msg): Msg => msg('mafia.death.grief', { name, body }),
   lastWill: (name: string, will: string): Msg => msg('mafia.death.will', { name, will }),
+  /**
+   * A seat that left the table, by its own hand or the room's vote.
+   *
+   * Its own line rather than one of the death notices, because it is not a
+   * death and reading it as one would poison every deduction that follows: the
+   * town needs to know that nobody killed this person.
+   */
+  seatLeft: (name: string, body: Msg): Msg => msg('mafia.seat.left', { name, body }),
+  /** The clock stopped: the room is waiting for somebody to come back. */
+  paused: (names: string): Msg => msg('mafia.pause.begun', { names }),
+  /** Everybody is back; play continues. */
+  resumed: (): Msg => msg('mafia.pause.resumed'),
+  /** The room is being asked whether to carry on without an absentee. */
+  kickProposed: (name: string): Msg => msg('mafia.kick.proposed', { name }),
+  kickCarried: (name: string): Msg => msg('mafia.kick.carried', { name }),
+  kickFailed: (name: string): Msg => msg('mafia.kick.failed', { name }),
 
   /* -------------------------------- the night ------------------------------ */
   jailLocked: (name: string): Msg => msg('mafia.jail.locked', { name }),
@@ -122,5 +138,7 @@ export const CAUSE = {
   guard: (name: string): Msg => msg('mafia.cause.guard', { name }),
   bodyguard: (): Msg => msg('mafia.cause.bodyguard'),
   killedBy: (source: DeathSource): Msg => msg('mafia.cause.killedBy', { source: SOURCE(source) }),
+  /** Left the table: not a death, and the record must not pretend otherwise. */
+  left: (): Msg => msg('mafia.cause.left'),
   unknown: (): Msg => msg('mafia.cause.unknown')
 };

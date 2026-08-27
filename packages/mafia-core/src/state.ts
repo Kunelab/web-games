@@ -1,5 +1,6 @@
 import { createChat, type ChannelRules, type ChatState } from 'chat-core';
 import type { Locale, Msg } from 'i18n';
+import { createPresence, type PresenceState, type Roster } from 'presence-core';
 
 import type { DeathSource } from './messages.js';
 
@@ -156,6 +157,50 @@ export interface MafiaPlayer {
   death: { day: number; phase: 'day' | 'night'; cause: Msg } | null;
 }
 
+/**
+ * A fresh seat, with every flag at rest.
+ *
+ * One factory for both entry points — a person joining and a bot being seated —
+ * because the two used to spell out the same twenty fields side by side, and a
+ * new field on `MafiaPlayer` had to be remembered twice or it silently arrived
+ * as `undefined` on half the table.
+ */
+export function seatPlayer(input: {
+  playerId: string;
+  token: string;
+  name: string;
+  slot: number;
+  isBot: boolean;
+  account?: string;
+}): MafiaPlayer {
+  return {
+    playerId: input.playerId,
+    token: input.token,
+    name: input.name,
+    slot: input.slot,
+    account: input.account,
+    isBot: input.isBot,
+    connected: true,
+    alive: true,
+    role: null,
+    charges: 0,
+    obsessionId: null,
+    revealed: false,
+    doused: false,
+    charged: false,
+    poisonedNight: null,
+    silencedDay: null,
+    disguiseRole: null,
+    bondPartnerId: null,
+    bondKind: null,
+    cooldownUntilDay: null,
+    lastWill: '',
+    notifications: [],
+    intel: [],
+    death: null
+  };
+}
+
 export interface TrialState {
   accusedId: string;
   /** Guilty/innocent ballots, by voter id. Abstention = absent key. */
@@ -183,6 +228,37 @@ export interface PointEntry {
     | 'execute-evil'
     | 'participation';
   amount: number;
+}
+
+/**
+ * Which way somebody won, as a value rather than a sentence.
+ *
+ * `WinEntry.reason` is prose for the podium and always will be. Everything that
+ * *counts* wins reads this instead: the balance bench's outcome column, its
+ * per-role win rates, and anything added later. Those all used to match French
+ * substrings — `reason.includes('survécu')` was true for the lovers' line as
+ * well as the survivor's, so a table with a Lover pair and no Survivor in it
+ * scored a survivor win, and the bench could print a rate above 100%.
+ */
+export type WinKind =
+  | 'town'
+  /** A killing family took the board: which one is the FamilyId. */
+  | FamilyId
+  /** Last blade, flame, vial or current standing. */
+  | 'solo-killer'
+  | 'jester'
+  | 'executioner'
+  | 'survivor'
+  /** Fed on the town's failure: witch, scumbag, judge, auditor. */
+  | 'parasite'
+  /** Both hearts still beating at the end, whoever else won. */
+  | 'lovers';
+
+export interface WinEntry {
+  playerId: string;
+  /** For the podium. Display prose — never branch on it; branch on `kind`. */
+  reason: string;
+  kind: WinKind;
 }
 
 export interface MafiaState {
@@ -236,8 +312,14 @@ export interface MafiaState {
     hidden?: boolean;
   }[];
   /** Personal and faction wins, filled as they happen and at the end. */
-  winners: { playerId: string; reason: string }[];
+  winners: WinEntry[];
   points: PointEntry[];
+  /**
+   * Who is still at the table: heartbeats, the pause, and any vote to remove
+   * somebody. Optional so a table persisted by an older build still parses —
+   * `tablePresence` fills it in on first touch.
+   */
+  presence?: PresenceState;
   createdAt: number;
   lastActivityAt: number;
 }
@@ -283,6 +365,7 @@ export function createMafiaGame(input: CreateMafiaInput): MafiaState {
     nightActions: {},
     jailedId: null,
     chat: createChat(MAFIA_RETENTION),
+    presence: createPresence(),
     trialLog: [],
     deaths: [],
     winners: [],
@@ -290,6 +373,32 @@ export function createMafiaGame(input: CreateMafiaInput): MafiaState {
     createdAt: input.now,
     lastActivityAt: input.now
   };
+}
+
+/**
+ * The presence block, created on demand.
+ *
+ * Tables snapshotted before this feature existed have no `presence`, and the
+ * honest way to read one is to give it a fresh empty one rather than to litter
+ * every call site with a null check.
+ */
+export function tablePresence(state: MafiaState): PresenceState {
+  state.presence ??= createPresence();
+  return state.presence;
+}
+
+/**
+ * The seats the table actually waits for.
+ *
+ * Living humans only, and that is the whole rule. A bot is always present, and a
+ * dead player has nothing left to do but watch the graveyard chat — so neither
+ * can stop the clock, and a wolf who has been hanged cannot hold the town
+ * hostage by closing their laptop.
+ */
+export function waitedOnSeats(state: MafiaState): Roster {
+  return Object.values(state.players)
+    .filter((player) => !player.isBot && player.alive)
+    .map((player) => player.playerId);
 }
 
 export function alivePlayers(state: MafiaState): MafiaPlayer[] {
@@ -310,13 +419,35 @@ export function isMafia(player: MafiaPlayer): boolean {
   return playerFamily(player) === 'mafia';
 }
 
+/** Either half of the lodge. Asked in three places, so it is named once. */
+export function isMason(player: MafiaPlayer): boolean {
+  return player.role === 'mason' || player.role === 'mason-leader';
+}
+
 /** Family members plus masons: the people who share a private channel. */
 export function isLodgeMate(a: MafiaPlayer, b: MafiaPlayer): boolean {
   const familyA = playerFamily(a);
   if (familyA !== null) return familyA === playerFamily(b);
-  const masonA = a.role === 'mason' || a.role === 'mason-leader';
-  const masonB = b.role === 'mason' || b.role === 'mason-leader';
-  return masonA && masonB;
+  return isMason(a) && isMason(b);
+}
+
+/**
+ * What one accusation or ballot is worth. A revealed mayor speaks for three.
+ *
+ * Exported because the engine's lynching threshold and the tally shown beside
+ * each name on every phone have to be the same arithmetic. They were two copies
+ * of this ternary, so raising the mayor's weight would have moved the threshold
+ * while the phones went on counting the old way.
+ */
+export function voteWeight(player: MafiaPlayer): number {
+  return player.role === 'mayor' && player.revealed ? 3 : 1;
+}
+
+/** Everything this player has banked: live during the game, and on the podium. */
+export function pointsFor(state: MafiaState, playerId: string): number {
+  return state.points
+    .filter((entry) => entry.playerId === playerId)
+    .reduce((sum, entry) => sum + entry.amount, 0);
 }
 
 /** The jail channel is per night, so yesterday's interrogation stays sealed. */
@@ -359,7 +490,7 @@ export function chatRules(): ChannelRules<MafiaState> {
         if (playerFamily(member) === channel) return true;
         return member.role === 'spy' && channel !== 'cult';
       }
-      if (channel === 'mason') return member.role === 'mason' || member.role === 'mason-leader';
+      if (channel === 'mason') return isMason(member);
       if (channel.startsWith('jail:')) {
         return member.role === 'jailor' || (channel === jailChannel(state.day) && state.jailedId === memberId);
       }
@@ -390,10 +521,8 @@ export function chatRules(): ChannelRules<MafiaState> {
       if (channel === 'mafia' || channel === 'triad' || channel === 'cult') {
         return state.phase === 'night' && playerFamily(member) === channel;
       }
-      if (channel === 'mason') {
-        return state.phase === 'night' && (member.role === 'mason' || member.role === 'mason-leader');
-      }
-      if (channel === 'jail:' + String(state.day)) {
+      if (channel === 'mason') return state.phase === 'night' && isMason(member);
+      if (channel === jailChannel(state.day)) {
         return (
           state.phase === 'night' &&
           (state.jailedId === memberId || (member.role === 'jailor' && state.jailedId !== null))
@@ -472,7 +601,7 @@ export function nextBotName(state: MafiaState): string {
   for (const name of BOT_NAMES) {
     if (!taken.has(name)) return name;
   }
-  return `Villageois ${Object.keys(state.players).length + 1}`;
+  return `Bot ${Object.keys(state.players).length + 1}`;
 }
 
 export function nextFreeSlot(state: MafiaState): number | null {
@@ -483,10 +612,6 @@ export function nextFreeSlot(state: MafiaState): number | null {
   return null;
 }
 
-/**
- * Deals the roles. `rng` is injectable so tests replay the same deal; the
- * server passes a crypto-backed one.
- */
 /** The role list this table's setup deals for `n` seats. */
 export function rosterForSetup(state: MafiaState, n: number, rng: () => number): RoleId[] {
   // Older persisted tables predate the field; they deal the automatic roster.
@@ -503,6 +628,10 @@ export function rosterForSetup(state: MafiaState, n: number, rng: () => number):
   return rosterFor(n);
 }
 
+/**
+ * Deals the roles. `rng` is injectable so tests replay the same deal; the
+ * server passes a crypto-backed one.
+ */
 export function assignRoles(state: MafiaState, rng: () => number): void {
   const players = Object.values(state.players);
   const roster = rosterForSetup(state, players.length, rng);
@@ -510,9 +639,7 @@ export function assignRoles(state: MafiaState, rng: () => number): void {
   // Fisher–Yates on the roster; seats keep their numbers.
   for (let i = roster.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
-    const tmp = roster[i];
-    roster[i] = roster[j]!;
-    roster[j] = tmp;
+    [roster[i], roster[j]] = [roster[j], roster[i]];
   }
 
   players.forEach((player, index) => {

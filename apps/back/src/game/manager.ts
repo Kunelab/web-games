@@ -28,6 +28,7 @@ import {
 
 /** A session with no activity for this long is dropped. */
 const IDLE_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 
 export type TransitionListener = (state: SessionState) => void;
 
@@ -64,11 +65,11 @@ export class GameManager {
         // the answers embedded in its own state, so this only matters for later ones.
         const items = await mediaService.getManyByIds(state.order);
         this.mediaBySession.set(state.code, new Map(items.map((item) => [item.id, item])));
-
-        // Timers do not survive a restart. Rather than resuming a countdown whose
-        // deadline may already be in the past, hand control back to the host: the
-        // phase stays where it is until they advance.
         restored += 1;
+
+        // No timer is armed. Rather than resuming a countdown whose deadline may
+        // already be in the past, control goes back to the host: the phase stays
+        // where it is until they advance.
       } catch (error) {
         this.log.warn({ err: error, code: row.code }, 'could not restore game session, dropping it');
         await db.delete(gameSessions).where(eq(gameSessions.code, row.code));
@@ -79,12 +80,7 @@ export class GameManager {
   }
 
   startSweeping(): void {
-    this.sweepTimer = setInterval(
-      () => {
-        void this.sweep();
-      },
-      15 * 60 * 1000
-    );
+    this.sweepTimer = setInterval(() => void this.sweep(), SWEEP_INTERVAL_MS);
     this.sweepTimer.unref();
   }
 

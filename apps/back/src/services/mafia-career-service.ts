@@ -1,4 +1,4 @@
-import type { MafiaState } from 'mafia-core';
+import { pointsFor, type MafiaState } from 'mafia-core';
 import { eq } from 'drizzle-orm';
 
 import { db } from '../db/index.js';
@@ -72,9 +72,8 @@ export const mafiaCareerService = {
     const rewards: MafiaGameReward[] = [];
 
     for (const player of Object.values(state.players)) {
-      const gained = state.points
-        .filter((entry) => entry.playerId === player.playerId)
-        .reduce((sum, entry) => sum + entry.amount, 0);
+      const gained = pointsFor(state, player.playerId);
+      const earned = state.points.filter((entry) => entry.playerId === player.playerId);
 
       if (player.isBot) {
         rewards.push({ playerId: player.playerId, name: player.name, gained, total: null });
@@ -87,11 +86,17 @@ export const mafiaCareerService = {
       stats.games += 1;
       if (state.winners.some((winner) => winner.playerId === player.playerId)) {
         stats.wins += 1;
-        if (state.winners.some((w) => w.playerId === player.playerId && w.reason.includes('gagne seul'))) {
-          stats.soloWins += 1;
-        }
+        /**
+         * A solo win is read off the scored entry, not off the winner's prose.
+         *
+         * It used to test `reason.includes('gagne seul')`, a sentence only the
+         * hanged Jester's line contains — so the Executioner, the last blade
+         * standing, the Arsonist, the Survivor, the lovers and every other seat
+         * that wins alone banked the points and never the tally.
+         */
+        if (earned.some((entry) => entry.reason === 'solo-win')) stats.soloWins += 1;
       }
-      stats.kills += state.points.filter((e) => e.playerId === player.playerId && e.reason === 'kill').length;
+      stats.kills += earned.filter((entry) => entry.reason === 'kill').length;
       if (player.alive) stats.survived += 1;
       await writeStats(ledger, stats);
 

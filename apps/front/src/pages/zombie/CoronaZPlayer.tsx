@@ -26,7 +26,9 @@ import { useNavigate, useParams } from 'react-router';
 
 import { czPerkMeta } from '../../app/czMeta';
 import { useCountdown } from '../../hooks/useGameSocket';
+import { PauseOverlay } from '../../components/presence/PauseOverlay';
 import { useCzSocket } from '../../hooks/useCzSocket';
+import { useHeartbeat } from '../../hooks/useHeartbeat';
 import { itemSprite } from './czAssets';
 import { neighbourRooms, sightRooms } from './czBoard';
 import { czNextGoal } from './czGoals';
@@ -60,6 +62,7 @@ export default function CoronaZPlayer() {
   const [career, setCareer] = useState<{ rations: number; unlockedHeroes: string[] } | null>(null);
   /** The Kune login this raid pays into, when the browser is logged in. */
   const [account, setAccount] = useState<string | null>(null);
+  const [kickError, setKickError] = useState<string | null>(null);
 
   const tokenKey = `kune.cz.player.${code}`;
 
@@ -125,6 +128,36 @@ export default function CoronaZPlayer() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void join('');
   }, [connected, joined, join]);
+
+  /**
+   * The heartbeat: how the raid learns this phone is still here.
+   *
+   * An open socket is not a present player — see `useHeartbeat`. The reclaim
+   * above already runs on every reconnect, so this only adds the beat and the
+   * resync that follows it.
+   */
+  const beat = useCallback(() => socket?.emit('cz:beat'), [socket]);
+  useHeartbeat({ connected, seated: joined, beat });
+
+  const proposeKick = useCallback(
+    (playerId: string | number) => {
+      setKickError(null);
+      socket?.emit('cz:kick', { type: 'propose', playerId: String(playerId) }, (ack) => {
+        if (!ack.ok) setKickError(ack.error ?? 'Impossible');
+      });
+    },
+    [socket]
+  );
+
+  const voteKick = useCallback(
+    (yes: boolean) => {
+      setKickError(null);
+      socket?.emit('cz:kick', { type: 'vote', yes }, (ack) => {
+        if (!ack.ok) setKickError(ack.error ?? 'Impossible');
+      });
+    },
+    [socket]
+  );
 
   const send = useCallback(
     async (action: HeroAction): Promise<CzActionAck> => {
@@ -226,7 +259,48 @@ export default function CoronaZPlayer() {
     );
   }
 
-  return <PlayScreen view={view} me={me} myId={myId ?? ''} serverNow={serverNow} send={send} error={error} />;
+  const pause = view.presence;
+
+  return (
+    <>
+      {/*
+        Over the board rather than inside it. Every action the server exposes
+        already refuses while the raid is stopped, so this is not the guard — it
+        is the explanation, which is the part a frozen clock cannot give.
+      */}
+      {pause.paused && (
+        <PauseOverlay
+          waitingFor={pause.waitingFor.map((seat) => ({
+            label: seat.name,
+            id: seat.playerId,
+            awayMs: seat.awayMs
+          }))}
+          expiresAt={pause.pauseExpiresAt}
+          resumesAt={pause.resumesAt}
+          kickable={pause.waitingFor
+            .filter((seat) => pause.kickablePlayerIds.includes(seat.playerId))
+            .map((seat) => ({ label: seat.name, id: seat.playerId, awayMs: seat.awayMs }))}
+          vote={
+            pause.vote
+              ? {
+                  label: pause.vote.name,
+                  closesAt: pause.vote.closesAt,
+                  yes: pause.vote.yes,
+                  no: pause.vote.no,
+                  needed: pause.vote.needed,
+                  mine: pause.vote.mine
+                }
+              : null
+          }
+          serverNow={serverNow}
+          onPropose={proposeKick}
+          onVote={voteKick}
+          error={kickError}
+        />
+      )}
+      <PlayScreen view={view} me={me} myId={myId ?? ''} serverNow={serverNow} send={send} error={error} />
+    </>
+  );
 }
 
 function LobbyScreen({

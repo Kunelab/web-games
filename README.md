@@ -16,6 +16,11 @@ apps/
   front/           React 19 + Vite. Library, playlists, host screen, player screen.
 packages/
   game-core/       Media kinds, answer matching, scoring, the realtime protocol.
+  chat-core/       Generic channel chat with server-side visibility rules.
+  presence-core/   Heartbeats, pause-on-disconnect, and the vote to carry on.
+  i18n/            The server sends keys; the client owns the words.
+  coronaz-core/    The zombie raid: board, horde, loot, careers.
+  mafia-core/      The Mafia table: roles, day and night, trials, victory.
 ```
 
 `game-core` is imported by both apps. That is deliberate: the rules of the game,
@@ -93,6 +98,39 @@ The one part to write carefully is `playerPresentation`. It decides exactly what
 a player's phone receives for a live round, so it is the security boundary of the
 whole game: anything not built there cannot leak, and an answer value or a raw
 filename built into it will.
+
+## When somebody drops
+
+Mafia and CoronaZ both run on server-side phase clocks, which makes a
+disconnection expensive in a way a quiz's is not: a night that ends while one
+player is reconnecting has taken their turn away from them. Both games therefore
+share [packages/presence-core/](packages/presence-core/), modelled on the way
+StarCraft II handles a drop.
+
+Every seated phone beats every two seconds. Missing five of them — or closing the
+socket, which is better evidence and counts at once — opens a **resync window**:
+nothing stops, the room sees a small "reconnexion…" mark against that one name,
+and the phone is off retrying and re-presenting its token. The overwhelming
+majority of drops end here, invisibly, which is the entire reason the window
+exists: pausing on the first late packet means a table of twenty-four freezing
+whenever somebody walks past a lift.
+
+Past the window the **clock stops**. The phase deadline is parked rather than left
+running, so every screen shows a pause instead of counting down a night that is
+not passing, and the phase resumes with exactly the time it had. Nothing may act:
+votes, ballots, night orders and hero actions are all refused by the engines
+themselves, the bots stop planning, and the horde stops activating. When everyone
+is back there is a short countdown so nobody is resumed mid-thought.
+
+Removing somebody is the room's decision, and **not for the first thirty
+seconds** — that delay is the point of the feature, because you cannot punish a
+player for a reconnect that was already going to finish. After it, any seat may
+propose carrying on without the absentee; a majority of everyone entitled to vote
+carries it, so silence protects the accused. A removed seat leaves as a departure
+rather than a death (its role goes public in Mafia, it forfeits in CoronaZ) and
+its token stops working, or the vote would be decoration. Failing all of that,
+the pause itself is bounded: after two and a half minutes play continues without
+them.
 
 ## How a game works
 

@@ -12,6 +12,7 @@ import {
   type TextareaHTMLAttributes
 } from 'react';
 
+import { cx } from './cx';
 import './ui.css';
 
 /**
@@ -39,15 +40,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   { variant = 'secondary', size = 'md', block, busy, icon, children, className, type = 'button', ...props },
   ref
 ) {
-  const classes = [
-    'btn',
-    `btn-${variant}`,
-    size !== 'md' ? `btn-${size}` : '',
-    block ? 'btn-block' : '',
-    className ?? ''
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const classes = cx('btn', `btn-${variant}`, size !== 'md' && `btn-${size}`, block && 'btn-block', className);
 
   return (
     // Defaulting to type="button": these live inside forms, and without it every

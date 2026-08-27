@@ -18,7 +18,16 @@ import {
   spawnReinforcements,
   startGame,
   createGame,
+  dropHeroSeat,
   gameConfigSchema,
+  noteHeroAlive,
+  noteHeroSilent,
+  proposeHeroKick,
+  raidAbandoned,
+  raidPaused,
+  raidPresence,
+  tickRaidPresence,
+  voteHeroKick,
   playerMindsetNames,
   rematch,
   randomHeroLoadout,
@@ -32,7 +41,8 @@ import {
   type HeroAction,
   type HeroState
 } from 'coronaz-core';
-import { generateJoinCode } from 'game-core';
+import { buildLeaderboard, generateJoinCode } from 'game-core';
+import { resetPresence, type KickRefusal } from 'presence-core';
 import { eq, lt } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 
@@ -52,6 +62,16 @@ import { userService } from '../services/user-service.js';
  */
 
 const IDLE_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+/**
+ * How often the pause model is re-evaluated.
+ *
+ * Presence changes on its own schedule rather than on a player's: nobody sends
+ * an event when a phone stops beating, so somebody has to notice. One second is
+ * well inside the resync window, so a genuine drop stops the clock promptly
+ * without the tick itself costing anything.
+ */
+const PRESENCE_TICK_MS = 1000;
 /** Milliseconds between AI activations. Slow enough to read, fast enough to fear. */
 const AI_STEP_MS = 700;
 
@@ -72,6 +92,15 @@ export class CzManager {
   private listener: CzTransitionListener | null = null;
   private rewardListener: CzRewardListener | null = null;
   private sweepTimer: NodeJS.Timeout | undefined;
+  private presenceTimer: NodeJS.Timeout | undefined;
+  /**
+   * Raids whose game master has handed the rest of the horde to the server.
+   *
+   * Remembered rather than inferred from a live timer, because a pause cancels
+   * that timer: without this, stopping the clock mid-handover would return the
+   * horde to a game master who had already stepped away from it.
+   */
+  private readonly handingOver = new Set<string>();
 
   constructor(private readonly log: FastifyBaseLogger) {}
 
@@ -89,6 +118,146 @@ export class CzManager {
 
   activeCodes(): ReadonlySet<string> {
     return new Set(this.sessions.keys());
+  }
+
+  /**
+   * A phone reporting in. The hot path, so it does as little as possible.
+   *
+   * Nothing is broadcast or saved on an ordinary beat: only a survivor coming
+   * back out of the dark is news, and only then does the room need telling.
+   */
+  beat(code: string, playerId: string): void {
+    const state = this.sessions.get(code);
+    if (!state?.heroes[playerId]) return;
+    if (noteHeroAlive(state, playerId)) {
+      this.runPresence(state);
+      this.listener?.(state);
+    }
+  }
+
+  /**
+   * A socket that dropped. Starts the resync window, and pauses nothing yet.
+   *
+   * A closed connection is better evidence than silence, so the window opens now
+   * rather than after two missed beats — but the tick is still what decides,
+   * several seconds later, whether the raid actually stops.
+   */
+  markGone(code: string, playerId: string): void {
+    const state = this.sessions.get(code);
+    if (!state?.heroes[playerId]) return;
+    noteHeroSilent(state, playerId, Date.now());
+    this.runPresence(state);
+    this.listener?.(state);
+    void this.persist(state);
+  }
+
+  proposeKick(code: string, playerId: string, targetId: string): { ok: boolean; reason?: KickRefusal } {
+    const state = this.sessions.get(code);
+    if (!state) return { ok: false, reason: 'not-seated' };
+    const opened = proposeHeroKick(state, playerId, targetId, Date.now());
+    if (opened.ok) {
+      this.listener?.(state);
+      void this.persist(state);
+    }
+    return opened.ok ? { ok: true } : { ok: false, reason: opened.reason };
+  }
+
+  voteKick(code: string, playerId: string, yes: boolean): { ok: boolean; reason?: KickRefusal } {
+    const state = this.sessions.get(code);
+    if (!state) return { ok: false, reason: 'not-seated' };
+    const cast = voteHeroKick(state, playerId, yes);
+    // A ballot may be the one that carries it, so the model is advanced here
+    // rather than leaving the room to wait up to a second for the ticker.
+    if (cast.ok) {
+      this.runPresence(state);
+      this.listener?.(state);
+      void this.persist(state);
+    }
+    return cast.ok ? { ok: true } : { ok: false, reason: cast.reason };
+  }
+
+  /**
+   * Runs the pause model for one raid and acts on what it decided.
+   *
+   * The engine has already stopped or restarted the phase clock by the time this
+   * reads the result — that is what tickRaidPresence does — so all that is left
+   * here is the machinery a clock change implies: the phase timer, the horde, the
+   * bot beats, and the seats a spent pause has given up on.
+   */
+  private runPresence(state: CzState): boolean {
+    if (state.phase !== 'heroes' && state.phase !== 'enemy') return false;
+    const tick = tickRaidPresence(state, Date.now());
+    if (!tick.changed) return false;
+
+    if (tick.kicked) dropHeroSeat(state, tick.kicked);
+    for (const playerId of tick.abandoned) dropHeroSeat(state, playerId);
+
+    if (tick.paused) {
+      // Everything that moves on its own stops with the clock: the phase
+      // deadline, the horde stepping through its activations, and the bots.
+      this.dropTimers(state.code);
+    }
+
+    if (tick.resumed) {
+      /**
+       * A raid whose last human has gone is over rather than continuing against
+       * an empty room: the horde would otherwise keep activating against four
+       * bots nobody is watching until the idle sweep noticed hours later.
+       */
+      if (raidAbandoned(state)) {
+        void this.destroy(state.code);
+        return true;
+      }
+
+      /**
+       * The seat that just left may have been the last one the phase was waiting
+       * on, in which case the horde should move now rather than when the clock
+       * happens to run out. `dropHeroSeat` marks the seat ready for exactly this
+       * reason: a survivor nobody is playing must not hold up the turn.
+       */
+      if (state.phase === 'heroes' && heroPhaseDone(state)) {
+        void this.toEnemyPhase(state).catch((error: unknown) =>
+          this.log.error({ err: error, code: state.code }, 'CoronaZ resume into enemy phase failed')
+        );
+        return true;
+      }
+
+      this.armTimer(state);
+      this.scheduleBots(state);
+      /**
+       * The horde was mid-turn when the clock stopped, so it picks up where it
+       * was. In AI mode that is simply how the phase runs; in game-master mode it
+       * means a handover he had already asked for, which the pause must not
+       * quietly cancel — `handingOver` is what remembers that he asked.
+       */
+      if (state.phase === 'enemy' && (state.config.mode === 'ai' || this.handingOver.has(state.code))) {
+        this.scheduleAiStep(state.code);
+      }
+    }
+    return true;
+  }
+
+  /** Every live raid, once a second. Cheap: most have nothing to decide. */
+  private tickAllPresence(): void {
+    for (const state of this.sessions.values()) {
+      const presence = raidPresence(state);
+      const quiet =
+        presence.pause === null && presence.vote === null && Object.keys(presence.awaySince).length === 0;
+      if (quiet) continue;
+      if (this.runPresence(state)) {
+        this.listener?.(state);
+        void this.persist(state);
+      }
+    }
+  }
+
+  /** Cancels every timer parked against a raid, without forgetting the raid. */
+  private dropTimers(code: string): void {
+    for (const key of [code, `ai:${code}`, `bot:${code}`]) {
+      const timer = this.timers.get(key);
+      if (timer) clearTimeout(timer);
+      this.timers.delete(key);
+    }
   }
 
   async restore(): Promise<number> {
@@ -114,6 +283,12 @@ export class CzManager {
           await db.delete(zombieSessions).where(eq(zombieSessions.code, row.code));
           continue;
         }
+        /**
+         * Every socket in the world is gone, so an absence measured before the
+         * restart says nothing about now — and a pause with nobody left to end it
+         * would freeze the raid forever. The kick list survives.
+         */
+        resetPresence(raidPresence(state));
         // Timers do not survive a restart; the phase waits for a human, same
         // policy as the quizzes. Bot heartbeats, though, restart themselves.
         state.phaseEndsAt = null;
@@ -130,18 +305,18 @@ export class CzManager {
   }
 
   startSweeping(): void {
-    this.sweepTimer = setInterval(
-      () => {
-        void this.sweep();
-      },
-      15 * 60 * 1000
-    );
+    this.sweepTimer = setInterval(() => void this.sweep(), SWEEP_INTERVAL_MS);
     this.sweepTimer.unref();
+
+    this.presenceTimer = setInterval(() => this.tickAllPresence(), PRESENCE_TICK_MS);
+    this.presenceTimer.unref();
   }
 
   stopSweeping(): void {
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     this.sweepTimer = undefined;
+    if (this.presenceTimer) clearInterval(this.presenceTimer);
+    this.presenceTimer = undefined;
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
   }
@@ -258,11 +433,8 @@ export class CzManager {
   }
 
   drop(code: string): void {
-    for (const key of [code, `ai:${code}`, `bot:${code}`]) {
-      const timer = this.timers.get(key);
-      if (timer) clearTimeout(timer);
-      this.timers.delete(key);
-    }
+    this.dropTimers(code);
+    this.handingOver.delete(code);
     this.sessions.delete(code);
   }
 
@@ -338,7 +510,7 @@ export class CzManager {
    * bots use the exact policies the balance bench was calibrated with.
    */
   private scheduleBots(state: CzState): void {
-    if (state.phase !== 'heroes') return;
+    if (state.phase !== 'heroes' || raidPaused(state)) return;
     const pending = Object.values(state.heroes).some(
       (hero) => hero.isBot && hero.alive && !hero.escaped && !hero.ready
     );
@@ -420,6 +592,11 @@ export class CzManager {
   async gmEnd(code: string): Promise<void> {
     const state = this.sessions.get(code);
     if (!state || state.phase !== 'enemy') return;
+    // Neither of the game master's out-of-turn powers goes through
+    // `applyGmAction`, so the engine's own guard does not cover them: ending
+    // the horde's turn while the raid is stopped would hand the board back to
+    // survivors who are not all there to take it.
+    if (raidPaused(state)) return;
     endEnemyPhase(state);
     await this.afterTransition(state);
   }
@@ -438,14 +615,17 @@ export class CzManager {
    */
   gmAuto(code: string): void {
     const state = this.sessions.get(code);
-    if (!state || state.phase !== 'enemy') return;
+    if (!state || state.phase !== 'enemy' || raidPaused(state)) return;
     // Already handing over: a second tap must not start a second beat loop, or
     // the horde would activate twice per tick.
     if (this.timers.has(`ai:${code}`)) return;
+    this.handingOver.add(code);
     this.scheduleAiStep(code);
   }
 
   private async toEnemyPhase(state: CzState): Promise<void> {
+    // A new horde turn is the game master's again until he says otherwise.
+    this.handingOver.delete(state.code);
     beginEnemyPhase(state);
     await this.afterTransition(state);
 
@@ -467,6 +647,9 @@ export class CzManager {
       void (async () => {
         const state = this.sessions.get(code);
         if (!state || state.phase !== 'enemy') return;
+        // The clock stopped between this beat being booked and it firing: the
+        // horde waits with everybody else, and resuming re-books it.
+        if (raidPaused(state)) return;
 
         const more = activateNextZombie(state);
 
@@ -514,6 +697,9 @@ export class CzManager {
 
     if (state.phaseEndsAt === null) return;
     if (state.phase !== 'heroes' && state.phase !== 'enemy') return;
+    // A stopped raid has no deadline to run to: the clock is parked, and the
+    // engine hands it back when everybody is here again.
+    if (raidPaused(state)) return;
 
     const phase = state.phase;
     const deadline = state.phaseEndsAt;
@@ -556,24 +742,24 @@ export class CzManager {
     // lobby — which is a progression nobody has any reason to believe in.
     if (rewards.length > 0) this.rewardListener?.(state, rewards);
 
-    // Shared ranks on ties, same convention as the quiz leaderboard.
-    let lastScore: number | null = null;
-    let lastRank = 0;
-    const players = scores.map((score, index) => {
-      const rank = score.score === lastScore ? lastRank : index + 1;
-      lastScore = score.score;
-      lastRank = rank;
-      return {
-        name: score.name,
-        score: score.score,
-        rank,
-        correct: 0,
-        wrong: 0,
-        fastestMs: null,
-        roundsWon: 0,
-        bestCombo: 0
-      };
-    });
+    // Ranked by the quiz's own scorer rather than by a second copy of its
+    // tie rule: "same convention as the leaderboard" is now true by construction.
+    const rankById = new Map(
+      buildLeaderboard(new Map(scores.map((score) => [score.playerId, score.score]))).map((row) => [
+        row.playerId,
+        row.rank
+      ])
+    );
+    const players = scores.map((score) => ({
+      name: score.name,
+      score: score.score,
+      rank: rankById.get(score.playerId) ?? 0,
+      correct: 0,
+      wrong: 0,
+      fastestMs: null,
+      roundsWon: 0,
+      bestCombo: 0
+    }));
 
     await db.insert(gameResults).values({
       code: state.code,

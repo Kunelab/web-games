@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router';
 
 import { api } from '../../api/client';
 import { useCountdown } from '../../hooks/useGameSocket';
+import { PauseOverlay } from '../../components/presence/PauseOverlay';
 import { useCzSocket } from '../../hooks/useCzSocket';
 import { buzzerOrigin } from '../../tools/api-url';
 import { Button, Loading } from '../../ui';
@@ -115,6 +116,37 @@ export default function CoronaZTv() {
 
   return (
     <div className="jeu-screen jeu-fixed">
+      {/*
+        Shown here and resolvable only on a phone: this screen holds no seat, so
+        the server refuses every mutation from it, a ballot included.
+      */}
+      {view.presence.paused && (
+        <PauseOverlay
+          waitingFor={view.presence.waitingFor.map((seat) => ({
+            label: seat.name,
+            id: seat.playerId,
+            awayMs: seat.awayMs
+          }))}
+          expiresAt={view.presence.pauseExpiresAt}
+          resumesAt={view.presence.resumesAt}
+          kickable={[]}
+          vote={
+            view.presence.vote
+              ? {
+                  label: view.presence.vote.name,
+                  closesAt: view.presence.vote.closesAt,
+                  yes: view.presence.vote.yes,
+                  no: view.presence.vote.no,
+                  needed: view.presence.vote.needed,
+                  mine: null
+                }
+              : null
+          }
+          serverNow={serverNow}
+          onPropose={null}
+          onVote={null}
+        />
+      )}
       <header className="host-top">
         <span className="host-code">{view.code}</span>
         <span className="host-progress tabular">

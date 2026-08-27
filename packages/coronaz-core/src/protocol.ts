@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Scenario } from './config.js';
 import type { Rarity } from './data.js';
 import { finalScores, gmIncome, type FinalScore } from './engine.js';
+import { czPresenceView, type CzPresenceView } from './presence.js';
 import { mutationEffects } from './mutations.js';
 import type { CzEventId } from './events.js';
 import type { CzRaidReward } from './perks.js';
@@ -122,6 +123,14 @@ export interface CzView {
   code: string;
   phase: CzPhase;
   turn: number;
+  /**
+   * Who the raid is waiting for, and any vote to carry on without them.
+   *
+   * Sent to every recipient, the television included: a pause is the one piece of
+   * raid state nobody may be kept in the dark about, because the room cannot
+   * resolve it without being told what it is.
+   */
+  presence: CzPresenceView;
   mode: 'ai' | 'gm';
   scenario: Scenario;
   /**
@@ -197,7 +206,7 @@ export interface CzView {
   awards?: CzAwardView[];
 }
 
-export function toView(state: CzState, role: CzRole): CzView {
+export function toView(state: CzState, role: CzRole, now = Date.now()): CzView {
   const ended = state.phase === 'won' || state.phase === 'lost';
   const omniscient = role.kind === 'gm' || ended;
   const visible = visibleRooms(state);
@@ -380,6 +389,7 @@ export function toView(state: CzState, role: CzRole): CzView {
     survivalTurns: state.config.survivalTurns,
     heroPhaseSeconds: state.config.heroPhaseSeconds,
     objectives: state.objectives.map((objective) => ({ ...objective })),
+    presence: czPresenceView(state, now, role.kind === 'player' ? role.playerId : null),
     log: state.log.slice(-12),
     me: me
       ? {
@@ -584,6 +594,21 @@ export interface CzClientToServer {
    * tap instead of a walk back through setup and a round of re-joining.
    */
   'cz:rematch': (payload: { hostToken: string }) => void;
+  /**
+   * This phone is still here.
+   *
+   * Sent every `HEARTBEAT_MS` and answered with nothing. It exists because a
+   * socket that is technically open tells you nothing about whether the person
+   * holding it can still play: a phone frozen behind a lock screen, a laptop lid
+   * on the way down and a tab throttled to death all keep the connection alive
+   * long after the player has stopped being present.
+   */
+  'cz:beat': () => void;
+  /** Carry on without an absentee: propose it, or vote on the open proposal. */
+  'cz:kick': (
+    payload: { type: 'propose'; playerId: string } | { type: 'vote'; yes: boolean },
+    ack: (response: { ok: boolean; error?: string }) => void
+  ) => void;
 }
 
 export interface CzServerToClient {

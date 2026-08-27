@@ -367,17 +367,27 @@ export function simulateGame(options: SimOptions): SimResult {
 
 function tally(state: MafiaState, options: SimOptions, claims: Claim[]): SimResult {
   const players = Object.values(state.players);
-  const reasons = state.winners.map((winner) => winner.reason);
 
-  const winner: SimResult['winner'] = reasons.some((reason) => reason === 'Victoire de la Ville')
+  /**
+   * Every outcome this bench reports, read off `WinKind`.
+   *
+   * It used to match the winners' French prose — including
+   * `reason.includes('survécu')`, which the *lovers'* line also contains, so a
+   * table with a Lover pair and no Survivor scored a survivor win and the
+   * printed survivor rate could pass 100%. Same principle the death record
+   * already follows two blocks down: read the record, not the sentence.
+   */
+  const won = new Set(state.winners.map((winner) => winner.kind));
+
+  const winner: SimResult['winner'] = won.has('town')
     ? 'town'
-    : reasons.some((reason) => reason === 'Victoire de la Mafia')
+    : won.has('mafia')
       ? 'mafia'
-      : reasons.some((reason) => reason === 'Victoire de la Triade')
+      : won.has('triad')
         ? 'triad'
-        : reasons.some((reason) => reason === 'Victoire de la Secte')
+        : won.has('cult')
           ? 'cult'
-          : reasons.some((reason) => reason.startsWith('Dernier') || reason.startsWith('Dernière'))
+          : won.has('solo-killer')
             ? 'solo'
             : 'draw';
 
@@ -392,11 +402,11 @@ function tally(state: MafiaState, options: SimOptions, claims: Claim[]): SimResu
     players: options.players,
     days: state.day,
     winner,
-    jesterWin: reasons.some((reason) => reason.includes('Bouffon')),
+    jesterWin: won.has('jester'),
     jesterPresent: rolePresent('jester'),
-    exeWin: reasons.some((reason) => reason.includes('Bourreau')),
+    exeWin: won.has('executioner'),
     exePresent: players.some((player) => player.obsessionSlotHint != null) || rolePresent('executioner'),
-    survivorWin: reasons.some((reason) => reason.includes('survécu')),
+    survivorWin: won.has('survivor'),
     survivorPresent: rolePresent('survivor'),
     lynches: lynched.length,
     evilLynches: lynched.filter((death) => isEvilRole(death.role)).length,

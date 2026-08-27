@@ -205,7 +205,7 @@ export class MafiaBotDriver {
 
   stop(): void {
     this.stopped = true;
-    for (const code of this.timers.keys()) this.forget(code);
+    for (const code of [...this.timers.keys()]) this.forget(code);
   }
 
   forget(code: string): void {
@@ -348,13 +348,10 @@ export class MafiaBotDriver {
               ? 'greet'
               : 'day';
 
-    // A defense is the accused's own moment; nobody else takes the floor.
-    const speakers =
-      task === 'defense'
-        ? botIds.filter((id) => id === state.trial?.accusedId)
-        : botIds.filter((id) => task !== 'night' || legalNightAction(state, id) !== null || id === state.trial?.accusedId);
-
-    const pool = task === 'night' ? botIds : speakers;
+    // A defense is the accused's own moment; nobody else takes the floor. Every
+    // other beat asks the whole table: at night a bot with no power still has its
+    // own channel to talk in, and the engine refuses the empty action harmlessly.
+    const pool = task === 'defense' ? botIds.filter((id) => id === state.trial?.accusedId) : botIds;
     /** One bot's turn takes about this long end to end; rounds do not overlap. */
     // Measured with thinking disabled; see `ollamaDecision`.
     const turnMs = this.provider === 'ollama' ? 1400 : 1200;
@@ -495,24 +492,23 @@ export class MafiaBotDriver {
   private scripted(state: MafiaState, botId: string, task: BotTask): Decision {
     const view = toMafiaView(state, { kind: 'player', playerId: botId });
     const me = view.me;
-    const none: Decision = { ...EMPTY };
-    if (!me) return none;
+    if (!me) return EMPTY;
 
     if (task === 'night') {
       const action = me.action;
-      if (!action) return none;
-      if (action.targets.length === 0) return { ...none, targetSlot: me.slot };
+      if (!action) return EMPTY;
+      if (action.targets.length === 0) return { ...EMPTY, targetSlot: me.slot };
       const pick = action.targets[Math.floor(Math.random() * action.targets.length)] ?? null;
       // Half-hearted killers make dull nights; killers always fire.
       const always = action.type === 'kill' || action.type === 'jail-execute';
-      return { ...none, targetSlot: always || Math.random() < 0.7 ? pick : null };
+      return { ...EMPTY, targetSlot: always || Math.random() < 0.7 ? pick : null };
     }
 
     if (task === 'judgement') {
       const accusedSlot = view.trial?.slot;
       const mate = me.teammates?.some((teammate) => teammate.slot === accusedSlot);
-      if (mate) return { ...none, verdict: 'innocent' };
-      return { ...none, verdict: Math.random() < 0.5 ? 'guilty' : 'innocent' };
+      if (mate) return { ...EMPTY, verdict: 'innocent' };
+      return { ...EMPTY, verdict: Math.random() < 0.5 ? 'guilty' : 'innocent' };
     }
 
     if (task === 'day' && Math.random() < 0.35) {
@@ -520,10 +516,10 @@ export class MafiaBotDriver {
         (player) => player.alive && player.slot !== me.slot && !me.teammates?.some((t) => t.slot === player.slot)
       );
       const pick = candidates[Math.floor(Math.random() * candidates.length)];
-      return { ...none, targetSlot: pick?.slot ?? null };
+      return { ...EMPTY, targetSlot: pick?.slot ?? null };
     }
 
-    return none;
+    return EMPTY;
   }
 
   /* ------------------------------ LLM brain ------------------------------ */
@@ -541,7 +537,12 @@ export class MafiaBotDriver {
     if (!me || !mind) return EMPTY;
 
     const persona = `Your character: ${me.name}, house ${me.slot}. Temperament: ${PERSONAS[hashCode(botId) % PERSONAS.length]}.`;
-    // English, unless a lone human wants otherwise — see `spokenLocale`.
+    /**
+     * The table's spoken language — English unless a lone human wants otherwise
+     * (see `spokenLocale`) — and it renders the briefing as well as instructing
+     * the model. The briefing used `config.locale` instead, so a solo French
+     * player got bots told to answer in French from a board reported in English.
+     */
     const tongue = spokenLocale(state);
     const board = this.minds.board(state);
     /**
@@ -555,8 +556,8 @@ export class MafiaBotDriver {
      */
     const prompt =
       this.tempo === 'deliberate'
-        ? dossier(view, board, mind, taskLine(view, task), round, rounds, state.config.locale)
-        : brief(view, board, mind, taskLine(view, task), state.config.locale);
+        ? dossier(view, board, mind, taskLine(view, task), round, rounds, tongue)
+        : brief(view, board, mind, taskLine(view, task), tongue);
 
     const raw =
       this.provider === 'ollama'

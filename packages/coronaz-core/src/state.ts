@@ -1,3 +1,5 @@
+import { createPresence, markPresent, type PresenceState, type Roster } from 'presence-core';
+
 import type { GameConfig } from './config.js';
 import { itemFor, rollBiome, zombieFor } from './content/registry.js';
 import type { ZombieArchetype } from './content/roles.js';
@@ -279,6 +281,12 @@ export interface CzState {
   gmSurgeUsed?: boolean;
   log: LogEntry[];
   resultsRecorded?: boolean;
+  /**
+   * Who is still on the raid: heartbeats, the pause, and any vote to carry on
+   * without somebody. Optional so a raid persisted by an older build still
+   * parses — `raidPresence` fills it in on first touch.
+   */
+  presence?: PresenceState;
   lastActivityAt: number;
 }
 
@@ -321,6 +329,7 @@ export function createGame(options: {
     board,
     phase: 'lobby',
     phaseEndsAt: null,
+    presence: createPresence(),
     turn: 0,
     heroes: {},
     zombies: {},
@@ -766,8 +775,19 @@ export function joinHero(
 ): { hero: HeroState; reconnected: boolean } {
   if (token) {
     const existing = Object.values(state.heroes).find((hero) => hero.token === token);
+    /**
+     * A seat the room voted out cannot be reclaimed by the token that held it.
+     *
+     * Without this the vote is decoration: the removed survivor reconnects two
+     * seconds later, the reclaim succeeds because the token is still valid, and
+     * the raid is back where it started with no way to say so.
+     */
+    if (existing && raidPresence(state).kicked.includes(existing.playerId)) {
+      throw new Error('Le raid a continué sans vous');
+    }
     if (existing) {
       existing.connected = true;
+      markPresent(raidPresence(state), existing.playerId);
       // Re-read on every reconnect: the player may have logged in since.
       if (account) existing.account = account;
       return { hero: existing, reconnected: true };
@@ -1060,6 +1080,32 @@ export function switchHero(state: CzState, playerId: string, heroId: string): vo
 
 export function activeHeroes(state: CzState): HeroState[] {
   return Object.values(state.heroes).filter((hero) => hero.alive && !hero.escaped && !hero.forfeited);
+}
+
+/**
+ * The presence block, created on demand.
+ *
+ * Raids snapshotted before this feature existed have no `presence`, and the
+ * honest way to read one is to give it a fresh empty one rather than to litter
+ * every call site with a null check.
+ */
+export function raidPresence(state: CzState): PresenceState {
+  state.presence ??= createPresence();
+  return state.presence;
+}
+
+/**
+ * The seats the raid actually waits for.
+ *
+ * Humans still in play. A bot is always present, and a survivor who is dead,
+ * escaped or has forfeited has no turn left to take — so none of them can stop
+ * the clock, and a raid does not freeze because the first casualty shut their
+ * laptop two turns ago.
+ */
+export function waitedOnHeroes(state: CzState): Roster {
+  return activeHeroes(state)
+    .filter((hero) => !hero.isBot)
+    .map((hero) => hero.playerId);
 }
 
 export function zombiesInRoom(state: CzState, roomId: string): ZombieState[] {

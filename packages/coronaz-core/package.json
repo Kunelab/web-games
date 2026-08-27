@@ -22,6 +22,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "presence-core": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {

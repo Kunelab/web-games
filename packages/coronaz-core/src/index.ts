@@ -153,6 +153,8 @@ export {
   rollArchetype,
   makeItem,
   activeHeroes,
+  raidPresence,
+  waitedOnHeroes,
   heroesInRoom,
   zombiesInRoom,
   visibleRooms,
@@ -278,3 +280,15 @@ export {
   type CzClientToServer,
   type CzServerToClient
 } from './protocol.js';
+export {
+  czPresenceView,
+  dropHeroSeat,
+  noteHeroAlive,
+  noteHeroSilent,
+  proposeHeroKick,
+  raidAbandoned,
+  raidPaused,
+  tickRaidPresence,
+  voteHeroKick,
+  type CzPresenceView
+} from './presence.js';

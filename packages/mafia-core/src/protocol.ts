@@ -48,6 +48,12 @@ export const mafiaWillSchema = z.object({
   text: z.string().max(400)
 });
 
+/** A kick proposed against a house, or a ballot on the one already open. */
+export const mafiaKickSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('propose'), targetSlot: z.number().int().min(1).max(24) }),
+  z.object({ type: z.literal('vote'), yes: z.boolean() })
+]);
+
 const slotTokenSchema = z.string().max(24).refine(isSlotToken, 'Slot inconnu');
 
 export const mafiaSetupSchema = z.discriminatedUnion('mode', [
@@ -108,6 +114,18 @@ export interface MafiaClientToServer {
   'mafia:action': (payload: z.infer<typeof mafiaActionSchema>, ack: Ack<MafiaAckResult>) => void;
   'mafia:dayAction': (payload: z.infer<typeof mafiaDayActionSchema>, ack: Ack<MafiaAckResult>) => void;
   'mafia:will': (payload: z.infer<typeof mafiaWillSchema>, ack: Ack<MafiaAckResult>) => void;
+  /**
+   * This phone is still here.
+   *
+   * Sent every `HEARTBEAT_MS` and answered with nothing. It exists because a
+   * socket that is technically open tells you nothing about whether the person
+   * holding it can still play: a phone frozen behind a lock screen, a laptop lid
+   * on the way down and a tab throttled to death all keep the connection alive
+   * long after the player has stopped being present.
+   */
+  'mafia:beat': () => void;
+  /** Carry on without an absentee: propose it, or vote on the open proposal. */
+  'mafia:kick': (payload: z.infer<typeof mafiaKickSchema>, ack: Ack<MafiaAckResult>) => void;
 }
 
 export interface MafiaServerToClient {

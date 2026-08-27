@@ -74,6 +74,9 @@ importers:
       mafia-core:
         specifier: workspace:*
         version: link:../../packages/mafia-core
+      presence-core:
+        specifier: workspace:*
+        version: link:../../packages/presence-core
       socket.io:
         specifier: ^4.8.3
         version: 4.8.3
@@ -156,6 +159,9 @@ importers:
       mafia-core:
         specifier: workspace:*
         version: link:../../packages/mafia-core
+      presence-core:
+        specifier: workspace:*
+        version: link:../../packages/presence-core
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -251,6 +257,9 @@ importers:
 
   packages/coronaz-core:
     dependencies:
+      presence-core:
+        specifier: workspace:*
+        version: link:../presence-core
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -337,9 +346,36 @@ importers:
       i18n:
         specifier: workspace:*
         version: link:../i18n
+      presence-core:
+        specifier: workspace:*
+        version: link:../presence-core
       zod:
         specifier: ^4.4.3
         version: 4.4.3
+    devDependencies:
+      '@eslint/js':
+        specifier: ^10.0.1
+        version: 10.0.1(eslint@10.8.1)
+      '@types/node':
+        specifier: ^26.2.0
+        version: 26.2.0
+      eslint:
+        specifier: ^10.8.1
+        version: 10.8.1
+      eslint-config-prettier:
+        specifier: ^10.1.8
+        version: 10.1.8(eslint@10.8.1)
+      tsx:
+        specifier: ^4.23.12
+        version: 4.23.12
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      typescript-eslint:
+        specifier: ^8.67.0
+        version: 8.67.0(eslint@10.8.1)(typescript@6.0.3)
+
+  packages/presence-core:
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1

@@ -13,6 +13,7 @@ import {
 import { useState } from 'react';
 
 import { heroHue, heroPortrait, itemSprite } from './czAssets';
+import { cx } from '../../ui/cx';
 import { Button } from '../../ui';
 
 /**
@@ -73,14 +74,12 @@ export function CzHeroSelect({
             <button
               key={candidate.id}
               type="button"
-              className={[
+              className={cx(
                 'cz-face',
-                isMine ? 'mine' : '',
-                shown === candidate.id ? 'shown' : '',
-                unavailable ? 'unavailable' : ''
-              ]
-                .filter(Boolean)
-                .join(' ')}
+                isMine && 'mine',
+                shown === candidate.id && 'shown',
+                unavailable && 'unavailable'
+              )}
               style={{ '--face-hue': heroHue(candidate.id) } as React.CSSProperties}
               onMouseEnter={() => setPreview(candidate.id)}
               onFocus={() => setPreview(candidate.id)}
