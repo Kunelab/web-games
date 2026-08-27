@@ -26,6 +26,7 @@
     "game-core": "workspace:*",
     "i18n": "workspace:*",
     "mafia-core": "workspace:*",
+    "presence-core": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-qr-code": "^2.2.0",

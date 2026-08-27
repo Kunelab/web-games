@@ -1,0 +1,164 @@
+/*
+ * The pause. One stylesheet for both games, like the component.
+ *
+ * Sits above everything and dims what is behind it, because the state it
+ * describes is one where nothing on the board may be touched — a pause the eye
+ * can mistake for a normal screen is a pause somebody will try to play through.
+ */
+
+.pz-shade {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgb(8 10 16 / 78%);
+  backdrop-filter: blur(3px);
+}
+
+.pz-card {
+  width: min(30rem, 100%);
+  padding: 1.75rem;
+  border: 1px solid var(--border, #2b3040);
+  border-radius: 14px;
+  background: var(--surface, #14171f);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 45%);
+  text-align: center;
+}
+
+/* Everybody is back: the same card, but plainly on its way out. */
+.pz-card--resuming {
+  border-color: #3f7d4f;
+}
+
+.pz-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.35rem;
+}
+
+.pz-lead {
+  margin: 0 0 1rem;
+  color: var(--text-muted, #9aa3b8);
+}
+
+.pz-big {
+  font-size: 2.4rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text, #e8ecf5);
+}
+
+.pz-waiting {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.pz-waiting li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.pz-away {
+  color: var(--text-muted, #9aa3b8);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pz-note {
+  margin: 0;
+  color: var(--text-muted, #9aa3b8);
+  font-size: 0.85rem;
+}
+
+.pz-vote {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border, #2b3040);
+}
+
+.pz-vote-q {
+  margin: 0 0 0.35rem;
+}
+
+.pz-vote-tally {
+  margin: 0 0 0.75rem;
+  color: var(--text-muted, #9aa3b8);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pz-vote-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.pz-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border, #2b3040);
+  border-radius: 8px;
+  background: var(--surface-2, #1c2029);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pz-btn:hover {
+  border-color: var(--accent, #6b8cff);
+}
+
+.pz-btn--on {
+  border-color: var(--accent, #6b8cff);
+  background: color-mix(in srgb, var(--accent, #6b8cff) 22%, transparent);
+}
+
+.pz-error {
+  margin: 0.75rem 0 0;
+  color: #ff8f8f;
+  font-size: 0.85rem;
+}
+
+/* The quiet tier: a mark beside one name, no overlay. */
+.pz-recovering {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--text-muted, #9aa3b8);
+  font-size: 0.75rem;
+}
+
+.pz-spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 2px solid color-mix(in srgb, currentcolor 30%, transparent);
+  border-top-color: currentcolor;
+  border-radius: 50%;
+  animation: pz-spin 0.9s linear infinite;
+}
+
+.pz-spinner--small {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-width: 1.5px;
+}
+
+@keyframes pz-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* A spinner is decoration; anybody who asked for less motion gets a dot. */
+@media (prefers-reduced-motion: reduce) {
+  .pz-spinner {
+    animation: none;
+    border-top-color: color-mix(in srgb, currentcolor 30%, transparent);
+    background: currentcolor;
+  }
+}

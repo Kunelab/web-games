@@ -49,7 +49,7 @@ export function msg(k: string, p?: Record<string, MsgValue>): Msg {
 }
 
 function isMsg(value: MsgValue): value is Msg {
-  return typeof value === 'object' && value !== null && typeof (value).k === 'string';
+  return typeof value === 'object' && value !== null && typeof value.k === 'string';
 }
 
 export type Catalogue = Record<string, string>;

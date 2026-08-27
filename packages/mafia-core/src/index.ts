@@ -24,13 +24,19 @@ export {
   createMafiaGame,
   isLodgeMate,
   isMafia,
+  isMason,
   jailChannel,
   playerBySlot,
   playerFamily,
   pmChannel,
   pmParticipants,
+  pointsFor,
   rosterForSetup,
+  seatPlayer,
   spokenLocale,
+  tablePresence,
+  voteWeight,
+  waitedOnSeats,
   type DayStage,
   type IntelEntry,
   type MafiaConfig,
@@ -40,7 +46,9 @@ export {
   type MafiaState,
   type NightAction,
   type PointEntry,
-  type TrialState
+  type TrialState,
+  type WinEntry,
+  type WinKind
 } from './state.js';
 export {
   SETUPS,
@@ -62,18 +70,27 @@ export {
   castVote,
   chatVisibleTo,
   checkVictory,
+  dropMafiaSeat,
   jailTarget,
   joinMafia,
   legalNightAction,
+  mafiaPaused,
+  mafiaPresenceView,
+  noteSeatAlive,
+  noteSeatSilent,
+  proposeMafiaKick,
   removeMafiaBot,
   revealMayor,
   sayInChat,
   setLastWill,
   setNightAction,
   startMafia,
+  tickMafiaPresence,
+  voteMafiaKick,
   whisperTo,
   type ActionOutcome,
-  type LegalAction
+  type LegalAction,
+  type MafiaPresenceView
 } from './engine.js';
 export { toMafiaView, type MafiaPublicPlayer, type MafiaResultRow, type MafiaView, type MafiaViewer, type MafiaViewMe } from './view.js';
 export { toPublicInfo } from './observe.js';
@@ -120,6 +137,7 @@ export {
   mafiaConfigSchema,
   mafiaDayActionSchema,
   mafiaJoinSchema,
+  mafiaKickSchema,
   mafiaSetupSchema,
   mafiaVoteSchema,
   mafiaWhisperSchema,

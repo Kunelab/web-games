@@ -5,11 +5,15 @@ import {
   type MafiaPublicPlayer,
   type MafiaViewMe
 } from 'mafia-core';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router';
 
 import { ChatPanel } from '../../components/chat/ChatPanel';
+import { PauseOverlay, RecoveringMark } from '../../components/presence/PauseOverlay';
+import { useHeartbeat } from '../../hooks/useHeartbeat';
 import { useMafiaSocket } from '../../hooks/useMafiaSocket';
+import { useCountdown } from '../../hooks/useServerClock';
+import { cx } from '../../ui/cx';
 import { Button, Field, Input, Loading } from '../../ui';
 import { msg } from 'i18n';
 
@@ -66,19 +70,67 @@ export default function MafiaPlayer() {
   const [will, setWill] = useState('');
   const [whisperTo, setWhisperTo] = useState<number | null>(null);
   const [whisperText, setWhisperText] = useState('');
-  const [remaining, setRemaining] = useState<number | null>(null);
+
+  /** The countdown every phone derives from the same server deadline. */
+  const remaining = useCountdown(view?.phaseEndsAt ?? null, serverNow);
 
   const hostToken = sessionStorage.getItem(`mafia:host:${code}`);
 
-  /** Auto-rejoin: a stored token proves the seat across refreshes. */
-  useEffect(() => {
+  /**
+   * Reclaims the seat with the stored token, on a refresh and on every reconnect.
+   *
+   * The connection is not the seat. A socket that drops and comes back past
+   * socket.io's recovery window is a new connection as far as the server is
+   * concerned, so it no longer knows which table this phone belongs to: the token
+   * has to be re-presented, or the seat is silently detached — receiving no state
+   * and able to do nothing. This used to be gated on `!view`, so it ran on a
+   * refresh and never on a reconnect, which is the one case it exists for.
+   */
+  const reclaim = useCallback(() => {
     const token = localStorage.getItem(`mafia:token:${code}`);
     const storedName = localStorage.getItem(`mafia:name:${code}`);
-    if (!socket || !connected || view || !token || !storedName) return;
+    if (!socket || !token || !storedName) return;
     socket.emit('mafia:join', { code, name: storedName, playerToken: token, locale }, (ack) => {
       if (ack.ok && ack.view) applyView(ack.view);
+      // The room voted to carry on without this phone: the token is spent, and
+      // saying so beats a screen that silently never updates again.
+      else if (ack.error) setJoinError(ack.error);
     });
-  }, [socket, connected, view, code, applyView, locale]);
+  }, [socket, code, locale, applyView]);
+
+  useEffect(() => {
+    if (!socket || !connected) return;
+    reclaim();
+  }, [socket, connected, reclaim]);
+
+  /**
+   * The heartbeat, and the resync that rides with it.
+   *
+   * Seated phones only: a screen with no seat has no presence to report. See
+   * `useHeartbeat` for why an open socket is not the same as a present player.
+   */
+  const beat = useCallback(() => socket?.emit('mafia:beat'), [socket]);
+  useHeartbeat({ connected, seated: view?.me != null, beat, onReconnect: reclaim });
+
+  const proposeKick = useCallback(
+    (slot: string | number) => {
+      setActionError(null);
+      socket?.emit('mafia:kick', { type: 'propose', targetSlot: Number(slot) }, (ack) => {
+        if (!ack.ok) setActionError(ack.error ?? 'Impossible');
+      });
+    },
+    [socket]
+  );
+
+  const voteKick = useCallback(
+    (yes: boolean) => {
+      setActionError(null);
+      socket?.emit('mafia:kick', { type: 'vote', yes }, (ack) => {
+        if (!ack.ok) setActionError(ack.error ?? 'Impossible');
+      });
+    },
+    [socket]
+  );
 
   /**
    * The wallet's local mirror, so an anonymous phone can show its balance.
@@ -89,20 +141,6 @@ export default function MafiaPlayer() {
     const mine = rewards.find((reward) => reward.playerId === view.me?.playerId);
     if (mine?.total != null) localStorage.setItem('mafia:points', String(mine.total));
   }, [rewards, view?.me]);
-
-  /** The countdown every phone derives from the same server deadline. */
-  useEffect(() => {
-    const tick = () => {
-      if (!view?.phaseEndsAt) {
-        setRemaining(null);
-        return;
-      }
-      setRemaining(Math.max(0, Math.ceil((view.phaseEndsAt - serverNow()) / 1000)));
-    };
-    tick();
-    const interval = setInterval(tick, 500);
-    return () => clearInterval(interval);
-  }, [view?.phaseEndsAt, serverNow]);
 
   /**
    * The sealed will, mirrored locally so the editor opens showing what is
@@ -262,8 +300,46 @@ export default function MafiaPlayer() {
   // The sash is public, so my own row is the honest source for "already out".
   const iAmRevealed = view.players.some((player) => player.slot === me.slot && player.revealedMayor);
 
+  const pause = view.presence;
+
   return (
     <div className={isNight ? 'mz-screen mz-screen--night' : 'mz-screen'}>
+      {/*
+        The pause sits over everything. Every action the server exposes already
+        refuses while the table is stopped, so this is not the guard — it is the
+        explanation, which is the part a frozen clock cannot give by itself.
+      */}
+      {pause.paused && (
+        <PauseOverlay
+          waitingFor={pause.waitingFor.map((seat) => ({
+            label: `${seat.name} (maison ${seat.slot})`,
+            id: seat.slot,
+            awayMs: seat.awayMs
+          }))}
+          expiresAt={pause.pauseExpiresAt}
+          resumesAt={pause.resumesAt}
+          kickable={pause.waitingFor
+            .filter((seat) => pause.kickableSlots.includes(seat.slot))
+            .map((seat) => ({ label: `${seat.name} (maison ${seat.slot})`, id: seat.slot, awayMs: seat.awayMs }))}
+          vote={
+            pause.vote
+              ? {
+                  label: `${pause.vote.name} (maison ${pause.vote.slot})`,
+                  closesAt: pause.vote.closesAt,
+                  yes: pause.vote.yes,
+                  no: pause.vote.no,
+                  needed: pause.vote.needed,
+                  mine: pause.vote.mine
+                }
+              : null
+          }
+          serverNow={serverNow}
+          onPropose={proposeKick}
+          onVote={voteKick}
+          error={actionError}
+        />
+      )}
+
       {/* ------------------------------- header ------------------------------- */}
       <header className="mz-header">
         <span className="mz-phase">
@@ -275,7 +351,7 @@ export default function MafiaPlayer() {
         {inDefense && <span className="mz-stage">⚖️ Défense</span>}
         {inJudgement && <span className="mz-stage">⚖️ Jugement</span>}
         <span className="mz-alive">{alive} en vie</span>
-        {remaining !== null && (
+        {view.phaseEndsAt !== null && (
           <span className={remaining <= 10 ? 'mz-timer mz-timer--urgent' : 'mz-timer'}>{remaining}s</span>
         )}
       </header>
@@ -350,14 +426,12 @@ export default function MafiaPlayer() {
                 return (
                   <li
                     key={player.slot}
-                    className={[
+                    className={cx(
                       'mz-seat',
-                      player.alive ? '' : 'mz-seat--dead',
-                      isMe ? 'mz-seat--me' : '',
-                      onTrial ? 'mz-seat--trial' : ''
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
+                      !player.alive && 'mz-seat--dead',
+                      isMe && 'mz-seat--me',
+                      onTrial && 'mz-seat--trial'
+                    )}
                   >
                     <span className="mz-seat-no">{player.slot}</span>
 
@@ -370,6 +444,11 @@ export default function MafiaPlayer() {
                           <span className="mz-flag mz-flag--away" title="Déconnecté"> ⚪</span>
                         )}
                         {isMe && <span className="mz-seat-you">vous</span>}
+                        {/* Wobbling, not waited on: a mark, never an overlay. */}
+                        {view.presence.waitingFor.every((seat) => seat.slot !== player.slot) &&
+                          view.presence.recovering.some((seat) => seat.slot === player.slot) && (
+                            <RecoveringMark label={player.name} />
+                          )}
                       </span>
                       <span className="mz-seat-sub">
                         {!player.alive && (

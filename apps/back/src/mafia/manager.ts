@@ -7,21 +7,31 @@ import {
   callCourt,
   castBallot,
   castVote,
+  checkVictory,
   createMafiaGame,
+  dropMafiaSeat,
   jailTarget,
   joinMafia,
+  mafiaPaused,
+  noteSeatAlive,
+  noteSeatSilent,
+  proposeMafiaKick,
   removeMafiaBot,
   revealMayor,
   sayInChat,
   setLastWill,
   setNightAction,
   startMafia,
+  tablePresence,
+  tickMafiaPresence,
+  voteMafiaKick,
   whisperTo,
   type ActionOutcome,
   type MafiaConfig,
   type MafiaPlayer,
   type MafiaState
 } from 'mafia-core';
+import { resetPresence, type KickRefusal } from 'presence-core';
 import type { ChatMessage } from 'chat-core';
 import type { Locale } from 'i18n';
 import { eq, lt } from 'drizzle-orm';
@@ -55,6 +65,19 @@ const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
  */
 const CHAT_PERSIST_MS = 2000;
 
+/**
+ * How often the pause model is re-evaluated.
+ *
+ * Presence changes on its own schedule rather than on a player's: nobody sends
+ * an event when a phone *stops* beating, so somebody has to notice. One second
+ * is well inside the resync window, so a genuine drop stops the clock promptly
+ * without the tick itself being the thing that costs anything.
+ */
+const PRESENCE_TICK_MS = 1000;
+
+/** Every lookup miss says the same thing; it is spelled once. */
+const NO_SUCH_TABLE = 'Partie introuvable';
+
 export type MafiaTransitionListener = (state: MafiaState) => void;
 export type MafiaMessageListener = (state: MafiaState, message: ChatMessage) => void;
 export type MafiaRewardListener = (state: MafiaState, rewards: MafiaGameReward[]) => void;
@@ -70,6 +93,7 @@ export class MafiaManager {
   private messageListener: MafiaMessageListener | null = null;
   private rewardListener: MafiaRewardListener | null = null;
   private sweepTimer: NodeJS.Timeout | undefined;
+  private presenceTimer: NodeJS.Timeout | undefined;
   private readonly bots: MafiaBotDriver;
 
   constructor(private readonly log: FastifyBaseLogger) {
@@ -167,7 +191,7 @@ export class MafiaManager {
 
   playerChat(code: string, playerId: string, channel: string, text: string): ActionOutcome {
     const state = this.sessions.get(code);
-    if (!state) return { ok: false, error: 'Partie introuvable' };
+    if (!state) return { ok: false, error: NO_SUCH_TABLE };
     const result = sayInChat(state, playerId, channel, text, Date.now());
     if (!result.ok) return result;
 
@@ -191,17 +215,14 @@ export class MafiaManager {
 
   whisper(code: string, playerId: string, targetSlot: number, text: string): ActionOutcome {
     const state = this.sessions.get(code);
-    if (!state) return { ok: false, error: 'Partie introuvable' };
+    if (!state) return { ok: false, error: NO_SUCH_TABLE };
     const result = whisperTo(state, playerId, targetSlot, text, Date.now());
     if (!result.ok) return result;
 
     state.lastActivityAt = Date.now();
+    // Two deliveries: the words to the pair, the gesture to the whole square.
     this.messageListener?.(state, result.message);
-    // The town square notice ("X murmure à l'oreille de Y…") rides along.
-    const gossip = state.chat.messages.at(-1);
-    if (gossip && gossip.kind === 'system' && gossip.channel === 'day') {
-      this.messageListener?.(state, gossip);
-    }
+    this.messageListener?.(state, result.gossip);
     this.persistSoon(state);
     return { ok: true };
   }
@@ -229,8 +250,58 @@ export class MafiaManager {
     const player = state?.players[playerId];
     if (!state || !player) return;
     player.connected = connected;
+
+    /**
+     * A dropped socket is an absence immediately, without waiting for missed
+     * heartbeats: a connection closing is better evidence than silence is, and
+     * starting the resync window now rather than two beats later is what makes
+     * the window mean what it says.
+     *
+     * It still only starts the window. Nothing is paused here — the tick decides
+     * that several seconds later, and only if the phone has not come back.
+     */
+    if (connected) noteSeatAlive(state, playerId);
+    else noteSeatSilent(state, playerId, Date.now());
+
+    this.runPresence(state);
     this.listener?.(state);
     void this.persist(state);
+  }
+
+  /**
+   * A phone reporting in. The hot path, so it does as little as possible.
+   *
+   * Nothing is broadcast or saved on an ordinary beat: only a seat coming back
+   * out of the dark is news, and only then does the room need telling.
+   */
+  beat(code: string, playerId: string): void {
+    const state = this.sessions.get(code);
+    if (!state?.players[playerId]) return;
+    if (noteSeatAlive(state, playerId)) {
+      this.runPresence(state);
+      this.listener?.(state);
+    }
+  }
+
+  proposeKick(code: string, playerId: string, targetSlot: number): { ok: boolean; reason?: KickRefusal } {
+    const state = this.sessions.get(code);
+    if (!state) return { ok: false, reason: 'not-seated' };
+    const opened = proposeMafiaKick(state, playerId, targetSlot, Date.now());
+    if (opened.ok) this.afterChange(state);
+    return opened.ok ? { ok: true } : { ok: false, reason: opened.reason };
+  }
+
+  voteKick(code: string, playerId: string, yes: boolean): { ok: boolean; reason?: KickRefusal } {
+    const state = this.sessions.get(code);
+    if (!state) return { ok: false, reason: 'not-seated' };
+    const cast = voteMafiaKick(state, playerId, yes);
+    // A ballot may be the one that carries it, so the model is advanced here
+    // rather than leaving the room to wait up to a second for the ticker.
+    if (cast.ok) {
+      this.runPresence(state);
+      this.afterChange(state);
+    }
+    return cast.ok ? { ok: true } : { ok: false, reason: cast.reason };
   }
 
   async destroy(code: string): Promise<void> {
@@ -247,13 +318,13 @@ export class MafiaManager {
 
   private mustGet(code: string): MafiaState {
     const state = this.sessions.get(code);
-    if (!state) throw new Error('Partie introuvable');
+    if (!state) throw new Error(NO_SUCH_TABLE);
     return state;
   }
 
   private mutate(code: string, change: (state: MafiaState) => ActionOutcome): ActionOutcome {
     const state = this.sessions.get(code);
-    if (!state) return { ok: false, error: 'Partie introuvable' };
+    if (!state) return { ok: false, error: NO_SUCH_TABLE };
     const result = change(state);
     if (result.ok) this.afterChange(state);
     return result;
@@ -271,7 +342,9 @@ export class MafiaManager {
     this.cancelChatFlush(state.code);
     void this.persist(state);
     this.armTimer(state);
-    this.bots.onChange(state);
+    // A paused table plans nothing: the bots would otherwise argue and vote
+    // through a wait that exists precisely so nobody acts without the absentee.
+    if (!mafiaPaused(state)) this.bots.onChange(state);
 
     if (state.phase === 'ended' && !this.banked.has(state.code)) {
       this.banked.add(state.code);
@@ -283,8 +356,54 @@ export class MafiaManager {
     }
   }
 
+  /**
+   * Runs the pause model for one table and acts on what it decided.
+   *
+   * The engine has already stopped or restarted the phase clock by the time this
+   * reads the result — that is what tickMafiaPresence does — so all that is left
+   * here is the machinery a clock change implies: the timer, the bots, and the
+   * seats a spent pause has given up on.
+   */
+  private runPresence(state: MafiaState): boolean {
+    if (state.phase === 'lobby' || state.phase === 'ended') return false;
+    const tick = tickMafiaPresence(state, Date.now());
+    if (!tick.changed) return false;
+
+    if (tick.kicked) dropMafiaSeat(state, tick.kicked, Date.now());
+    for (const playerId of tick.abandoned) dropMafiaSeat(state, playerId, Date.now());
+
+    if (tick.kicked !== null || tick.abandoned.length > 0) {
+      // Removing a seat can end the game outright — a town of two that loses one
+      // of them has reached parity — so the victory check runs before the clock.
+      checkVictory(state, Date.now());
+    }
+
+    // A pause parks the clock and a resume hands it back, so either way the
+    // timer has to be re-read from the state rather than left as it was.
+    this.armTimer(state);
+    if (tick.resumed) this.bots.onChange(state);
+    return true;
+  }
+
+  /** Every live table, once a second. Cheap: most tables have nothing to decide. */
+  private tickAllPresence(): void {
+    for (const state of this.sessions.values()) {
+      const presence = tablePresence(state);
+      const quiet =
+        presence.pause === null && presence.vote === null && Object.keys(presence.awaySince).length === 0;
+      if (quiet) continue;
+      if (this.runPresence(state)) {
+        this.listener?.(state);
+        void this.persist(state);
+      }
+    }
+  }
+
   private armTimer(state: MafiaState): void {
     this.clearTimer(state.code);
+    // A stopped table has no deadline to run to: the clock is parked, and the
+    // engine hands it back when everybody is here again.
+    if (mafiaPaused(state)) return;
     if (state.phaseEndsAt === null || state.phase === 'ended' || state.phase === 'lobby') return;
 
     const delay = Math.max(50, state.phaseEndsAt - Date.now());
@@ -365,6 +484,12 @@ export class MafiaManager {
       }
       try {
         const state = JSON.parse(row.state) as MafiaState;
+        /**
+         * Every socket in the world is gone, so an absence measured before the
+         * restart says nothing about now — and a pause with nobody left to end it
+         * would freeze the table forever. The kick list survives.
+         */
+        resetPresence(tablePresence(state));
         // A phase mid-flight when the server died resumes with a fresh clock.
         if (state.phaseEndsAt !== null) {
           state.phaseEndsAt = Date.now() + 30_000;
@@ -385,11 +510,17 @@ export class MafiaManager {
       void this.sweep();
     }, SWEEP_INTERVAL_MS);
     this.sweepTimer.unref();
+
+    this.presenceTimer = setInterval(() => this.tickAllPresence(), PRESENCE_TICK_MS);
+    this.presenceTimer.unref();
   }
 
   stopSweeping(): void {
     if (this.sweepTimer) clearInterval(this.sweepTimer);
-    for (const code of this.timers.keys()) this.clearTimer(code);
+    this.sweepTimer = undefined;
+    if (this.presenceTimer) clearInterval(this.presenceTimer);
+    this.presenceTimer = undefined;
+    for (const code of [...this.timers.keys()]) this.clearTimer(code);
     // Anything still waiting to be saved is saved now rather than dropped.
     for (const code of [...this.chatFlush.keys()]) {
       this.cancelChatFlush(code);

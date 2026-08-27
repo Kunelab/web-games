@@ -35,11 +35,18 @@ export const en: Catalogue = {
   'mafia.trial.spared': '{name} is spared.',
   'mafia.trial.nobody': 'nobody',
 
+  'mafia.pause.begun': 'The clock stops: the table is waiting for {names}.',
+  'mafia.pause.resumed': 'Everybody is back. Play continues.',
+  'mafia.kick.proposed': 'A vote has opened on carrying on without {name}.',
+  'mafia.kick.carried': 'The table votes to carry on without {name}.',
+  'mafia.kick.failed': 'The table gives {name} more time.',
+
   /* -------------------------------- deaths -------------------------------- */
   'mafia.death.hanged': '{name} swings from the rope. {body}',
   'mafia.death.found': '{name} was found dead — {cause}. {body}',
   'mafia.death.grief': '{name} died of a broken heart. {body}',
   'mafia.death.will': 'Last will of {name}: “{will}”',
+  'mafia.seat.left': '{name} has left the table. Nobody killed them. {body}',
 
   /** What a corpse says, per the table's reveal policy. */
   'mafia.body.role': 'They were the {role}.',
@@ -62,6 +69,7 @@ export const en: Catalogue = {
   'mafia.cause.guard': 'died protecting {name}',
   'mafia.cause.bodyguard': 'cut down by a bodyguard',
   'mafia.cause.killedBy': 'killed by {source}',
+  'mafia.cause.left': 'left the table',
   'mafia.cause.unknown': 'no explanation',
   'mafia.source.poison': 'the poison',
   'mafia.source.arsonist': 'the Arsonist',

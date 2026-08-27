@@ -2,7 +2,10 @@ import { FACTION_LABELS, type MafiaPublicPlayer } from 'mafia-core';
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 
+import { PauseOverlay } from '../../components/presence/PauseOverlay';
 import { useMafiaSocket } from '../../hooks/useMafiaSocket';
+import { useCountdown } from '../../hooks/useServerClock';
+import { cx } from '../../ui/cx';
 import { Loading } from '../../ui';
 import { useT } from '../../i18n/locale-context';
 import { MafiaTown } from './MafiaTown';
@@ -47,10 +50,10 @@ export default function MafiaTv() {
   const t = useT();
 
   const [claimError, setClaimError] = useState<string | null>(null);
-  const [remaining, setRemaining] = useState<number | null>(null);
   /** Off means "reveal nothing". Remembered per table so a reload keeps the choice. */
   const [spoilers, setSpoilers] = useState(() => localStorage.getItem(`mafia:tv:spoilers:${code}`) === 'on');
   const shellRef = useRef<HTMLDivElement>(null);
+  const remaining = useCountdown(view?.phaseEndsAt ?? null, serverNow);
 
   useEffect(() => {
     if (!socket || !connected) return;
@@ -62,19 +65,6 @@ export default function MafiaTv() {
   useEffect(() => {
     localStorage.setItem(`mafia:tv:spoilers:${code}`, spoilers ? 'on' : 'off');
   }, [spoilers, code]);
-
-  useEffect(() => {
-    const tick = () => {
-      if (!view?.phaseEndsAt) {
-        setRemaining(null);
-        return;
-      }
-      setRemaining(Math.max(0, Math.ceil((view.phaseEndsAt - serverNow()) / 1000)));
-    };
-    tick();
-    const interval = setInterval(tick, 500);
-    return () => clearInterval(interval);
-  }, [view?.phaseEndsAt, serverNow]);
 
   function toggleFullscreen() {
     const node = shellRef.current;
@@ -135,8 +125,42 @@ export default function MafiaTv() {
             : message
         );
 
+  const pause = view.presence;
+
   return (
     <div ref={shellRef} className={isNight ? 'mz-tv mz-tv--night' : 'mz-tv'}>
+      {/*
+        The television shows the pause and cannot resolve it: it holds no seat, so
+        the server refuses every mutation from it — including a ballot. The room
+        votes on its phones, and this screen is how the room notices it should.
+      */}
+      {pause.paused && (
+        <PauseOverlay
+          waitingFor={pause.waitingFor.map((seat) => ({
+            label: `${seat.name} (maison ${seat.slot})`,
+            id: seat.slot,
+            awayMs: seat.awayMs
+          }))}
+          expiresAt={pause.pauseExpiresAt}
+          resumesAt={pause.resumesAt}
+          kickable={[]}
+          vote={
+            pause.vote
+              ? {
+                  label: `${pause.vote.name} (maison ${pause.vote.slot})`,
+                  closesAt: pause.vote.closesAt,
+                  yes: pause.vote.yes,
+                  no: pause.vote.no,
+                  needed: pause.vote.needed,
+                  mine: null
+                }
+              : null
+          }
+          serverNow={serverNow}
+          onPropose={null}
+          onVote={null}
+        />
+      )}
       <header className="mz-tv-bar">
         <span className="mz-tv-phase">
           {view.phase === 'lobby' && 'Salle d’attente'}
@@ -152,7 +176,7 @@ export default function MafiaTv() {
 
         {view.phase === 'lobby' && <span className="mz-tv-code">Code&nbsp;{code}</span>}
         <span className="mz-tv-alive">{view.players.filter((player) => player.alive).length} en vie</span>
-        {remaining !== null && (
+        {view.phaseEndsAt !== null && (
           <span className={remaining <= 10 ? 'mz-tv-timer mz-tv-timer--urgent' : 'mz-tv-timer'}>{remaining}s</span>
         )}
 
@@ -188,13 +212,7 @@ export default function MafiaTv() {
               return (
                 <li
                   key={player.slot}
-                  className={[
-                    'mz-tv-seat',
-                    player.alive ? '' : 'mz-tv-seat--dead',
-                    player.onTrial ? 'mz-tv-seat--trial' : ''
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
+                  className={cx('mz-tv-seat', !player.alive && 'mz-tv-seat--dead', player.onTrial && 'mz-tv-seat--trial')}
                 >
                   <span className="mz-tv-no">{player.slot}</span>
                   <span className="mz-tv-name">
@@ -209,21 +227,18 @@ export default function MafiaTv() {
           </ul>
 
           <div className="mz-tv-chat">
-            {shown.slice(-40).map((message) => (
-              <p
-                key={message.id}
-                className={[
-                  'mz-tv-line',
-                  message.kind === 'system' ? 'mz-tv-line--sys' : '',
-                  'veiled' in message && message.veiled ? 'mz-tv-line--veiled' : ''
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-              >
-                {message.authorId && <strong>{message.authorName} </strong>}
-                {message.msg ? t(message.msg) : message.text}
-              </p>
-            ))}
+            {shown.slice(-40).map((message) => {
+              const veiled = 'veiled' in message && message.veiled === true;
+              return (
+                <p
+                  key={message.id}
+                  className={cx('mz-tv-line', message.kind === 'system' && 'mz-tv-line--sys', veiled && 'mz-tv-line--veiled')}
+                >
+                  {message.authorId && <strong>{message.authorName} </strong>}
+                  {message.msg ? t(message.msg) : message.text}
+                </p>
+              );
+            })}
             <ChatFloor deps={shown.length} />
           </div>
         </aside>

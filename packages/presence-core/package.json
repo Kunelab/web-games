@@ -1,9 +1,9 @@
 {
-  "name": "mafia-core",
+  "name": "presence-core",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Mafia rules: roles, day/night cycle, votes and trials, night resolution, victory conditions, points and the realtime protocol. Pure, imported by both apps.",
+  "description": "Who is still at the table: heartbeats, pause-on-disconnect, the resume countdown and the vote to kick. Pure and transport-agnostic, imported by any game whose clock must stop when a player drops.",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -18,14 +18,7 @@
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
-    "sim": "tsx src/sim/cli.ts",
     "lint": "eslint ."
-  },
-  "dependencies": {
-    "chat-core": "workspace:*",
-    "i18n": "workspace:*",
-    "presence-core": "workspace:*",
-    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

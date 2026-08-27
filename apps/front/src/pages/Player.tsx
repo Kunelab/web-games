@@ -6,6 +6,7 @@ import { awardMeta } from '../app/awards';
 import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
 import { assetUrl } from '../tools/api-url';
 import { RevealImage } from '../ui/RevealImage';
+import { cx } from '../ui/cx';
 import { Badge, Button, Input, Loading } from '../ui';
 import './play.css';
 
@@ -615,10 +616,7 @@ function GuessList({
   return (
     <ul className="guess-list">
       {guesses.map((guess, index) => (
-        <li
-          key={guess.playerId}
-          className={[index === 0 ? 'closest' : '', guess.playerId === myId ? 'me' : ''].filter(Boolean).join(' ')}
-        >
+        <li key={guess.playerId} className={cx(index === 0 && 'closest', guess.playerId === myId && 'me')}>
           <span className="score-name">{guess.name}</span>
           <span className="tabular">{format(guess.value)}</span>
           <span className="guess-delta">

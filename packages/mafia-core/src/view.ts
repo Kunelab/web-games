@@ -1,14 +1,23 @@
 import type { ChatMessage } from 'chat-core';
 import type { Msg } from 'i18n';
 
-import { chatVisibleTo, legalNightAction, type LegalAction } from './engine.js';
+import {
+  chatVisibleTo,
+  legalNightAction,
+  mafiaPresenceView,
+  type LegalAction,
+  type MafiaPresenceView
+} from './engine.js';
 import { roleDef, type Faction, type RoleId } from './roles.js';
 import {
   chatRules,
   isLodgeMate,
+  isMason,
   jailChannel,
   playerFamily,
   pmParticipants,
+  pointsFor,
+  voteWeight,
   type DayStage,
   type IntelEntry,
   type MafiaPhase,
@@ -98,7 +107,22 @@ export interface MafiaView {
   phase: MafiaPhase;
   day: number;
   stage: DayStage | null;
+  /**
+   * The running phase's deadline, or null when no clock is running.
+   *
+   * Null during a pause, which is what stops every phone counting down a night
+   * that is not passing. What is left of the phase is held server-side and comes
+   * back untouched when play resumes — see `presence`.
+   */
   phaseEndsAt: number | null;
+  /**
+   * Who the table is waiting for, and any vote to carry on without them.
+   *
+   * Sent to every recipient including the television, because a pause is the one
+   * piece of game state that is not secret from anybody: the room cannot resolve
+   * it without being told what it is.
+   */
+  presence: MafiaPresenceView;
   maxPlayers: number;
   minPlayers: number;
   players: MafiaPublicPlayer[];
@@ -129,7 +153,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   dead: 'Cimetière'
 };
 
-export function toMafiaView(state: MafiaState, viewer: MafiaViewer): MafiaView {
+export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.now()): MafiaView {
   const ended = state.phase === 'ended';
   const players = Object.values(state.players).sort((a, b) => a.slot - b.slot);
 
@@ -137,8 +161,7 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer): MafiaView {
   for (const [voterId, targetId] of Object.entries(state.votes)) {
     const voter = state.players[voterId];
     if (!voter?.alive) continue;
-    const weight = voter.role === 'mayor' && voter.revealed ? 3 : 1;
-    votesAgainst.set(targetId, (votesAgainst.get(targetId) ?? 0) + weight);
+    votesAgainst.set(targetId, (votesAgainst.get(targetId) ?? 0) + voteWeight(voter));
   }
 
   /**
@@ -221,9 +244,7 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer): MafiaView {
         teammates: (() => {
           // Family members know each other; so do the masons of the lodge.
           const mates = players.filter((other) => other.playerId !== self.playerId && isLodgeMate(self, other));
-          if (mates.length === 0 && playerFamily(self) === null && self.role !== 'mason' && self.role !== 'mason-leader') {
-            return null;
-          }
+          if (mates.length === 0 && playerFamily(self) === null && !isMason(self)) return null;
           return mates.map((other) => ({ slot: other.slot, name: other.name, roleName: roleDef(other.role!).name }));
         })(),
         obsessionSlot: obsession?.slot ?? null,
@@ -238,9 +259,7 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer): MafiaView {
         notifications: self.notifications,
         intel: self.intel,
         channels,
-        pointsSoFar: state.points
-          .filter((entry) => entry.playerId === self.playerId)
-          .reduce((sum, entry) => sum + entry.amount, 0)
+        pointsSoFar: pointsFor(state, self.playerId)
       };
     }
   }
@@ -272,9 +291,7 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer): MafiaView {
           isBot: player.isBot,
           winner: !!win,
           winReason: win?.reason ?? null,
-          points: state.points
-            .filter((entry) => entry.playerId === player.playerId)
-            .reduce((sum, entry) => sum + entry.amount, 0)
+          points: pointsFor(state, player.playerId)
         };
       })
     : null;
@@ -285,6 +302,7 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer): MafiaView {
     day: state.day,
     stage: state.stage,
     phaseEndsAt: state.phaseEndsAt,
+    presence: mafiaPresenceView(state, now, viewer.kind === 'player' ? viewer.playerId : null),
     maxPlayers: state.config.maxPlayers,
     minPlayers: state.config.minPlayers,
     players: publicPlayers,

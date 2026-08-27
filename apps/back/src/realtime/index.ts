@@ -15,11 +15,13 @@ import {
 import type { FastifyInstance } from 'fastify';
 import {
   chatRules,
+  type MafiaViewer,
   mafiaActionSchema,
   mafiaBallotSchema,
   mafiaChatSchema,
   mafiaDayActionSchema,
   mafiaJoinSchema,
+  mafiaKickSchema,
   mafiaVoteSchema,
   mafiaWhisperSchema,
   mafiaWillSchema,
@@ -28,6 +30,8 @@ import {
   type MafiaServerToClient,
   type MafiaState
 } from 'mafia-core';
+
+import type { KickRefusal } from 'presence-core';
 
 import { accountOf } from './account.js';
 import {
@@ -66,6 +70,62 @@ type AllClientToServer = ClientToServerEvents & CzClientToServer & MafiaClientTo
 type AllServerToClient = ServerToClientEvents & CzServerToClient & MafiaServerToClient;
 
 type GameSocket = Socket<AllClientToServer, AllServerToClient, Record<string, never>, SocketData>;
+
+/** An ack a handler can always call. socket.io does not promise the client sent one. */
+type Respond<T> = (result: T) => void;
+
+function responder<T>(ack: unknown): Respond<T> {
+  return typeof ack === 'function' ? (ack as Respond<T>) : () => undefined;
+}
+
+/** A join code off the wire. Typed by hand, so it arrives cased and spaced freely. */
+function readCode(payload: { code?: unknown } | undefined): string {
+  return typeof payload?.code === 'string' ? payload.code.trim().toUpperCase() : '';
+}
+
+/** A schema the seat guard can drive, without naming zod in this file. */
+interface Parser<T> {
+  safeParse(value: unknown): { success: true; data: T } | { success: false };
+}
+
+/**
+ * Why a proposed kick was refused, in French, for the phone that proposed it.
+ *
+ * presence-core answers with a key rather than a sentence, which is the right
+ * shape for a rule — and this is the one place that turns those keys into words.
+ * Every branch is a rule the player is entitled to be told about, `too-soon`
+ * most of all: it is the whole reason the delay exists.
+ */
+function kickRefusal(reason: KickRefusal | undefined): string {
+  switch (reason) {
+    case 'too-soon':
+      return 'Trop tôt : laissez-lui le temps de revenir.';
+    case 'target-present':
+      return 'Ce joueur est là.';
+    case 'already-open':
+      return 'Un vote est déjà en cours.';
+    case 'already-kicked':
+      return 'Ce joueur a déjà quitté la table.';
+    case 'self':
+      return 'On ne s’exclut pas soi-même.';
+    case 'no-vote':
+      return 'Aucun vote en cours.';
+    default:
+      return 'Impossible.';
+  }
+}
+
+/**
+ * Which projection this socket gets, from the capacity it attached in.
+ *
+ * Named because the broadcast and the chat filter both need the same mapping,
+ * and a third reader should not have to re-derive that a seat wins over a host
+ * flag.
+ */
+function mafiaViewerFor(data: SocketData): MafiaViewer {
+  if (data.mafiaPlayerId) return { kind: 'player', playerId: data.mafiaPlayerId };
+  return data.mafiaHost ? { kind: 'host' } : { kind: 'spectator' };
+}
 
 export function registerRealtime(app: FastifyInstance, games: GameManager, cz: CzManager, mafia: MafiaManager): SocketServer {
   const io: SocketServer<AllClientToServer, AllServerToClient, Record<string, never>, SocketData> = new SocketServer(
@@ -131,12 +191,8 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     for (const socket of io.sockets.sockets.values()) {
       const data = socket.data;
       if (data.mafiaCode !== state.code) continue;
-      if (data.mafiaPlayerId) {
-        socket.emit('mafia:state', toMafiaView(state, { kind: 'player', playerId: data.mafiaPlayerId }));
-      } else if (data.mafiaHost) {
-        socket.emit('mafia:state', toMafiaView(state, { kind: 'host' }));
-      } else if (data.mafiaSpectator) {
-        socket.emit('mafia:state', toMafiaView(state, { kind: 'spectator' }));
+      if (data.mafiaPlayerId || data.mafiaHost || data.mafiaSpectator) {
+        socket.emit('mafia:state', toMafiaView(state, mafiaViewerFor(data)));
       }
     }
   }
@@ -230,7 +286,7 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('session:join', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const respond = responder(ack);
 
       const parsed = joinPayloadSchema.safeParse(payload);
       if (!parsed.success) {
@@ -287,8 +343,8 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('host:open', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
-      const code = typeof payload?.code === 'string' ? payload.code.trim().toUpperCase() : '';
+      const respond = responder(ack);
+      const code = readCode(payload);
 
       const state = games.get(code);
       if (!state) {
@@ -390,7 +446,7 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     socket.on('answer:submit', (payload, ack) => {
       // Captured before any validation work, so a slow parse cannot cost the player.
       const receivedAt = Date.now();
-      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const respond = responder(ack);
 
       const { code, playerId } = socket.data;
       if (!code || !playerId) {
@@ -436,7 +492,7 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('answer:revealChoices', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const respond = responder(ack);
       const { code, playerId } = socket.data;
 
       if (!code || !playerId) {
@@ -467,6 +523,50 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
 
     /* ------------------------------- CoronaZ ------------------------------- */
 
+    /**
+     * The raid this socket is attached to, but only if the payload carries the
+     * credential the action needs. Returns undefined otherwise, so every caller
+     * refuses the same way and no handler can forget the check.
+     */
+    function czRaidFor(
+      token: 'hostToken' | 'gmToken',
+      payload: { hostToken?: unknown; gmToken?: unknown } | undefined
+    ) {
+      const { czCode } = socket.data;
+      const state = czCode ? cz.get(czCode) : undefined;
+      if (!state) return undefined;
+      const expected = token === 'hostToken' ? state.hostToken : state.gmToken;
+      return payload?.[token] === expected ? state : undefined;
+    }
+
+    /**
+     * Attaches this socket to a Mafia table in exactly one capacity.
+     *
+     * All three flags are assigned together because the three handlers each used
+     * to set only their own: a screen that spectated and then took a seat stayed
+     * flagged as a spectator for the rest of its life. Nothing leaked, because
+     * every projection tests for a seat first — but a socket claiming to be two
+     * things at once left that ordering as the only thing standing between the
+     * town and the wolves, which is not where a secret should rest.
+     */
+    function mafiaAttach(
+      code: string,
+      as: { kind: 'player'; playerId: string } | { kind: 'host' } | { kind: 'spectator' }
+    ): void {
+      socket.data.mafiaCode = code;
+      socket.data.mafiaPlayerId = as.kind === 'player' ? as.playerId : undefined;
+      socket.data.mafiaHost = as.kind === 'host';
+      socket.data.mafiaSpectator = as.kind === 'spectator';
+      void socket.join(`mafia:${code}`);
+    }
+
+    /** The Mafia twin: this socket's table, if the payload holds the host token. */
+    function mafiaTableForHost(payload: { hostToken?: unknown } | undefined) {
+      const { mafiaCode } = socket.data;
+      const state = mafiaCode ? mafia.get(mafiaCode) : undefined;
+      return state && payload?.hostToken === state.hostToken ? state : undefined;
+    }
+
     /** Attach this socket to a raid in a role, after checking its credential. */
     function czAttach(code: string, role: CzRole): void {
       socket.data.czCode = code;
@@ -475,8 +575,8 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     }
 
     socket.on('cz:open', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
-      const code = typeof payload?.code === 'string' ? payload.code.trim().toUpperCase() : '';
+      const respond = responder(ack);
+      const code = readCode(payload);
       const state = cz.get(code);
 
       if (!state || payload?.hostToken !== state.hostToken) {
@@ -499,8 +599,8 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('cz:gmOpen', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
-      const code = typeof payload?.code === 'string' ? payload.code.trim().toUpperCase() : '';
+      const respond = responder(ack);
+      const code = readCode(payload);
       const state = cz.get(code);
 
       if (!state || payload?.gmToken !== state.gmToken) {
@@ -515,7 +615,7 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('cz:mutations', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const respond = responder(ack);
       // The socket's own attachment is the credential: only a seated player may
       // change the table's handicap, and it is stored on the socket at join.
       const code = typeof socket.data.czCode === 'string' ? socket.data.czCode : '';
@@ -535,7 +635,7 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('cz:join', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const respond = responder(ack);
       const parsed = czJoinSchema.safeParse(payload);
       if (!parsed.success) {
         respond({ ok: false, error: parsed.error.issues[0]?.message ?? 'Requête invalide' });
@@ -587,7 +687,7 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('cz:selectHero', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const respond = responder(ack);
       const { czCode, czRole } = socket.data;
       const state = czCode ? cz.get(czCode) : undefined;
 
@@ -617,7 +717,7 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('cz:loadout', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const respond = responder(ack);
       const { czCode, czRole } = socket.data;
       const state = czCode ? cz.get(czCode) : undefined;
       if (!state || czRole?.kind !== 'player') {
@@ -639,7 +739,7 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('cz:unlockHero', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const respond = responder(ack);
       const { czCode, czRole } = socket.data;
       const state = czCode ? cz.get(czCode) : undefined;
       const me = state && czRole?.kind === 'player' ? state.heroes[czRole.playerId] : undefined;
@@ -669,10 +769,9 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('cz:addBot', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
-      const { czCode } = socket.data;
-      const state = czCode ? cz.get(czCode) : undefined;
-      if (!state || payload?.hostToken !== state.hostToken) {
+      const respond = responder(ack);
+      const state = czRaidFor('hostToken', payload);
+      if (!state) {
         respond({ ok: false, error: 'Action réservée à l’écran hôte' });
         return;
       }
@@ -680,16 +779,14 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('cz:removeBot', (payload) => {
-      const { czCode } = socket.data;
-      const state = czCode ? cz.get(czCode) : undefined;
-      if (!state || payload?.hostToken !== state.hostToken) return;
+      const state = czRaidFor('hostToken', payload);
+      if (!state) return;
       cz.removeBot(state.code, typeof payload.playerId === 'string' ? payload.playerId : '');
     });
 
     socket.on('cz:start', (payload) => {
-      const { czCode } = socket.data;
-      const state = czCode ? cz.get(czCode) : undefined;
-      if (!state || payload?.hostToken !== state.hostToken) {
+      const state = czRaidFor('hostToken', payload);
+      if (!state) {
         socket.emit('cz:error', { message: 'Action réservée à l’écran hôte' });
         return;
       }
@@ -701,7 +798,7 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('cz:action', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const respond = responder(ack);
       const { czCode, czRole } = socket.data;
       if (!czCode || czRole?.kind !== 'player') {
         respond({ ok: false, error: 'Vous n’êtes pas dans une partie' });
@@ -725,7 +822,7 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('cz:gmAction', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const respond = responder(ack);
       const { czCode, czRole } = socket.data;
       if (!czCode || czRole?.kind !== 'gm') {
         respond({ ok: false, error: 'Réservé au maître du jeu' });
@@ -747,9 +844,8 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('cz:gmEnd', (payload) => {
-      const { czCode } = socket.data;
-      const state = czCode ? cz.get(czCode) : undefined;
-      if (!state || payload?.gmToken !== state.gmToken) return;
+      const state = czRaidFor('gmToken', payload);
+      if (!state) return;
 
       void cz.gmEnd(state.code).catch((error: unknown) => {
         app.log.error({ err: error, code: state.code }, 'CoronaZ gmEnd failed');
@@ -759,9 +855,8 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     /* The horde finishes itself, at the AI's pace. Same token check as gmEnd:
        only the phone holding the game master's token may drive the horde. */
     socket.on('cz:gmAuto', (payload) => {
-      const { czCode } = socket.data;
-      const state = czCode ? cz.get(czCode) : undefined;
-      if (!state || payload?.gmToken !== state.gmToken) return;
+      const state = czRaidFor('gmToken', payload);
+      if (!state) return;
 
       cz.gmAuto(state.code);
     });
@@ -769,19 +864,38 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     /* Again, same table. Host token only: a guest must not be able to wipe the
        scoreboard everyone is still reading. */
     socket.on('cz:rematch', (payload) => {
-      const { czCode } = socket.data;
-      const state = czCode ? cz.get(czCode) : undefined;
-      if (!state || payload?.hostToken !== state.hostToken) return;
+      const state = czRaidFor('hostToken', payload);
+      if (!state) return;
 
       void cz.rematch(state.code).catch((error: unknown) => {
         app.log.error({ err: error, code: state.code }, 'CoronaZ rematch failed');
       });
     });
 
+    /** Same beat as Mafia, same reason: an open socket is not a present player. */
+    socket.on('cz:beat', () => {
+      const { czCode, czRole } = socket.data;
+      if (czCode && czRole?.kind === 'player') cz.beat(czCode, czRole.playerId);
+    });
+
+    socket.on('cz:kick', (payload, ack) => {
+      const respond = responder<{ ok: boolean; error?: string }>(ack);
+      const { czCode, czRole } = socket.data;
+      if (!czCode || czRole?.kind !== 'player') {
+        respond({ ok: false, error: 'Vous n’êtes pas dans une partie' });
+        return;
+      }
+      const result =
+        payload?.type === 'propose'
+          ? cz.proposeKick(czCode, czRole.playerId, payload.playerId)
+          : cz.voteKick(czCode, czRole.playerId, payload?.yes === true);
+      respond(result.ok ? { ok: true } : { ok: false, error: kickRefusal(result.reason) });
+    });
+
     /* -------------------------------- Mafia -------------------------------- */
 
     socket.on('mafia:join', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
+      const respond = responder(ack);
       const parsed = mafiaJoinSchema.safeParse(payload);
       if (!parsed.success) {
         respond({ ok: false, error: parsed.error.issues[0]?.message ?? 'Requête invalide' });
@@ -804,10 +918,7 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
             account ?? undefined,
             parsed.data.locale
           );
-          socket.data.mafiaCode = state.code;
-          socket.data.mafiaPlayerId = player.playerId;
-          socket.data.mafiaHost = false;
-          void socket.join(`mafia:${state.code}`);
+          mafiaAttach(state.code, { kind: 'player', playerId: player.playerId });
           mafia.markConnected(state.code, player.playerId, true);
           respond({
             ok: true,
@@ -822,17 +933,14 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('mafia:host', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
-      const code = typeof payload?.code === 'string' ? payload.code.trim().toUpperCase() : '';
+      const respond = responder(ack);
+      const code = readCode(payload);
       const state = mafia.get(code);
       if (!state || payload?.hostToken !== state.hostToken) {
         respond({ ok: false, error: 'Aucune partie avec ce code' });
         return;
       }
-      socket.data.mafiaCode = code;
-      socket.data.mafiaPlayerId = undefined;
-      socket.data.mafiaHost = true;
-      void socket.join(`mafia:${code}`);
+      mafiaAttach(code, { kind: 'host' });
       respond({ ok: true, view: toMafiaView(state, { kind: 'host' }) });
       // Same lesson as every host screen in this file: push, never wait.
       socket.emit('mafia:state', toMafiaView(state, { kind: 'host' }));
@@ -848,27 +956,22 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
      * seat attached, so every mutation guard below refuses it.
      */
     socket.on('mafia:spectate', (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => undefined;
-      const code = typeof payload?.code === 'string' ? payload.code.trim().toUpperCase() : '';
+      const respond = responder(ack);
+      const code = readCode(payload);
       const state = mafia.get(code);
       if (!state) {
         respond({ ok: false, error: 'Aucune partie avec ce code' });
         return;
       }
-      socket.data.mafiaCode = code;
-      socket.data.mafiaPlayerId = undefined;
-      socket.data.mafiaHost = false;
-      socket.data.mafiaSpectator = true;
-      void socket.join(`mafia:${code}`);
+      mafiaAttach(code, { kind: 'spectator' });
       respond({ ok: true, view: toMafiaView(state, { kind: 'spectator' }) });
       // Same lesson as every screen in this file: push, never wait.
       socket.emit('mafia:state', toMafiaView(state, { kind: 'spectator' }));
     });
 
     socket.on('mafia:start', (payload) => {
-      const { mafiaCode } = socket.data;
-      const state = mafiaCode ? mafia.get(mafiaCode) : undefined;
-      if (!state || payload?.hostToken !== state.hostToken) {
+      const state = mafiaTableForHost(payload);
+      if (!state) {
         socket.emit('mafia:error', { message: "Action réservée à l'hôte" });
         return;
       }
@@ -880,9 +983,8 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     });
 
     socket.on('mafia:addBots', (payload) => {
-      const { mafiaCode } = socket.data;
-      const state = mafiaCode ? mafia.get(mafiaCode) : undefined;
-      if (!state || payload?.hostToken !== state.hostToken) return;
+      const state = mafiaTableForHost(payload);
+      if (!state) return;
       const count = typeof payload.count === 'number' ? Math.max(0, Math.min(23, Math.floor(payload.count))) : 0;
       try {
         mafia.addBots(state.code, count);
@@ -891,81 +993,96 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
       }
     });
 
-    /** Seat-authenticated mutations share one guard, like the host actions above. */
+    /**
+     * Seat-authenticated mutations share one guard, like the host actions above.
+     *
+     * The schema is passed in rather than applied by the caller: every call site
+     * used to `safeParse` to test and then `parse` again to get the value, which
+     * validated each payload twice and named the schema four times over.
+     */
     function withMafiaSeat<T>(
       ack: unknown,
-      parse: () => T | null,
-      run: (code: string, playerId: string, payload: T) => { ok: boolean; error?: string }
+      schema: Parser<T>,
+      payload: unknown,
+      run: (code: string, playerId: string, data: T) => { ok: boolean; error?: string }
     ): void {
-      const respond = typeof ack === 'function' ? (ack as (r: { ok: boolean; error?: string }) => void) : () => undefined;
+      const respond = responder<{ ok: boolean; error?: string }>(ack);
       const { mafiaCode, mafiaPlayerId } = socket.data;
       if (!mafiaCode || !mafiaPlayerId) {
         respond({ ok: false, error: "Vous n'êtes pas à une table" });
         return;
       }
-      const payload = parse();
-      if (payload === null) {
+      const parsed = schema.safeParse(payload);
+      if (!parsed.success) {
         respond({ ok: false, error: 'Requête invalide' });
         return;
       }
-      respond(run(mafiaCode, mafiaPlayerId, payload));
+      respond(run(mafiaCode, mafiaPlayerId, parsed.data));
     }
 
     socket.on('mafia:chat', (payload, ack) => {
-      withMafiaSeat(
-        ack,
-        () => (mafiaChatSchema.safeParse(payload).success ? mafiaChatSchema.parse(payload) : null),
-        (code, playerId, data) => mafia.playerChat(code, playerId, data.channel, data.text)
+      withMafiaSeat(ack, mafiaChatSchema, payload, (code, playerId, data) =>
+        mafia.playerChat(code, playerId, data.channel, data.text)
       );
     });
 
     socket.on('mafia:vote', (payload, ack) => {
-      withMafiaSeat(
-        ack,
-        () => (mafiaVoteSchema.safeParse(payload).success ? mafiaVoteSchema.parse(payload) : null),
-        (code, playerId, data) => mafia.vote(code, playerId, data.targetSlot)
+      withMafiaSeat(ack, mafiaVoteSchema, payload, (code, playerId, data) =>
+        mafia.vote(code, playerId, data.targetSlot)
       );
     });
 
     socket.on('mafia:ballot', (payload, ack) => {
-      withMafiaSeat(
-        ack,
-        () => (mafiaBallotSchema.safeParse(payload).success ? mafiaBallotSchema.parse(payload) : null),
-        (code, playerId, data) => mafia.ballot(code, playerId, data.verdict)
+      withMafiaSeat(ack, mafiaBallotSchema, payload, (code, playerId, data) =>
+        mafia.ballot(code, playerId, data.verdict)
       );
     });
 
     socket.on('mafia:action', (payload, ack) => {
-      withMafiaSeat(
-        ack,
-        () => (mafiaActionSchema.safeParse(payload).success ? mafiaActionSchema.parse(payload) : null),
-        (code, playerId, data) => mafia.nightAction(code, playerId, data.targetSlot, data.secondTargetSlot)
+      withMafiaSeat(ack, mafiaActionSchema, payload, (code, playerId, data) =>
+        mafia.nightAction(code, playerId, data.targetSlot, data.secondTargetSlot)
       );
     });
 
     socket.on('mafia:whisper', (payload, ack) => {
-      withMafiaSeat(
-        ack,
-        () => (mafiaWhisperSchema.safeParse(payload).success ? mafiaWhisperSchema.parse(payload) : null),
-        (code, playerId, data) => mafia.whisper(code, playerId, data.targetSlot, data.text)
+      withMafiaSeat(ack, mafiaWhisperSchema, payload, (code, playerId, data) =>
+        mafia.whisper(code, playerId, data.targetSlot, data.text)
       );
     });
 
     socket.on('mafia:dayAction', (payload, ack) => {
-      withMafiaSeat(
-        ack,
-        () => (mafiaDayActionSchema.safeParse(payload).success ? mafiaDayActionSchema.parse(payload) : null),
-        (code, playerId, data) => mafia.dayAction(code, playerId, data)
+      withMafiaSeat(ack, mafiaDayActionSchema, payload, (code, playerId, data) =>
+        mafia.dayAction(code, playerId, data)
       );
     });
 
     socket.on('mafia:will', (payload, ack) => {
-      withMafiaSeat(
-        ack,
-        () => (mafiaWillSchema.safeParse(payload).success ? mafiaWillSchema.parse(payload) : null),
-        (code, playerId, data) => mafia.will(code, playerId, data.text)
-      );
+      withMafiaSeat(ack, mafiaWillSchema, payload, (code, playerId, data) => mafia.will(code, playerId, data.text));
     });
+
+    /**
+     * The heartbeat. No ack, no validation, no reply.
+     *
+     * Two seconds apart from every seated phone, so it is the highest-frequency
+     * event on the socket by an order of magnitude and is written to be boring:
+     * the manager only does real work when a seat comes back from the dark.
+     */
+    socket.on('mafia:beat', () => {
+      const { mafiaCode, mafiaPlayerId } = socket.data;
+      if (mafiaCode && mafiaPlayerId) mafia.beat(mafiaCode, mafiaPlayerId);
+    });
+
+    socket.on('mafia:kick', (payload, ack) => {
+      withMafiaSeat(ack, mafiaKickSchema, payload, (code, playerId, data) => {
+        const result =
+          data.type === 'propose'
+            ? mafia.proposeKick(code, playerId, data.targetSlot)
+            : mafia.voteKick(code, playerId, data.yes);
+        return result.ok ? { ok: true } : { ok: false, error: kickRefusal(result.reason) };
+      });
+    });
+
+
 
     socket.on('disconnect', () => {
       handleDisconnect(socket);
@@ -973,7 +1090,12 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
       mafiaHandleDisconnect(socket);
     });
 
-    /** Same policy as everywhere: the seat survives, only its light goes out. */
+    /**
+     * Same policy as everywhere: the seat survives, only its light goes out.
+     *
+     * `markConnected` also opens the seat's resync window, which is what
+     * eventually stops the clock if the phone does not come back.
+     */
     function mafiaHandleDisconnect(current: GameSocket): void {
       const { mafiaCode, mafiaPlayerId } = current.data;
       if (!mafiaCode || !mafiaPlayerId) return;
@@ -990,6 +1112,9 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
       if (!state || !hero) return;
 
       hero.connected = false;
+      // Opens the seat's resync window, which is what eventually stops the clock
+      // if the phone does not come back. It pauses nothing by itself.
+      cz.markGone(czCode, czRole.playerId);
       czBroadcast(state);
       void cz.persist(state);
     }

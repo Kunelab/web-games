@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { useCountdown } from '../../hooks/useGameSocket';
+import { PauseOverlay } from '../../components/presence/PauseOverlay';
 import { useCzSocket } from '../../hooks/useCzSocket';
 import { zombieSprite } from './czAssets';
 import { neighbourRooms } from './czBoard';
@@ -214,6 +215,37 @@ export default function CoronaZGm() {
 
   return (
     <div className="jeu-screen jeu-fixed cz-player cz-gm">
+      {/*
+        Shown here and resolvable only on a phone: this screen holds no seat, so
+        the server refuses every mutation from it, a ballot included.
+      */}
+      {view.presence.paused && (
+        <PauseOverlay
+          waitingFor={view.presence.waitingFor.map((seat) => ({
+            label: seat.name,
+            id: seat.playerId,
+            awayMs: seat.awayMs
+          }))}
+          expiresAt={view.presence.pauseExpiresAt}
+          resumesAt={view.presence.resumesAt}
+          kickable={[]}
+          vote={
+            view.presence.vote
+              ? {
+                  label: view.presence.vote.name,
+                  closesAt: view.presence.vote.closesAt,
+                  yes: view.presence.vote.yes,
+                  no: view.presence.vote.no,
+                  needed: view.presence.vote.needed,
+                  mine: null
+                }
+              : null
+          }
+          serverNow={serverNow}
+          onPropose={null}
+          onVote={null}
+        />
+      )}
       <header className="cz-gm-bar">
         <span className="play-label">MJ · {view.code}</span>
         {view.phaseEndsAt !== null && <span className="player-timer tabular">{remaining}</span>}

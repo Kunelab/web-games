@@ -1,5 +1,20 @@
 import { post, systemPost, visibleTo, type ChatMessage } from 'chat-core';
 import type { Msg } from 'i18n';
+import {
+  castKickBallot,
+  isPaused,
+  markAway,
+  markPresent,
+  missing,
+  openKickVote,
+  parkDeadline,
+  resetPresence,
+  presenceView,
+  restoreDeadline,
+  tickPresence,
+  type KickRefusal,
+  type PresenceTick
+} from 'presence-core';
 
 import { BODY, CAUSE, M, type DeathSource } from './messages.js';
 
@@ -20,9 +35,13 @@ import {
   jailChannel,
   nextBotName,
   nextFreeSlot,
+  playerBySlot,
   playerFamily,
   pmChannel,
-  playerBySlot,
+  seatPlayer,
+  tablePresence,
+  voteWeight,
+  waitedOnSeats,
   type MafiaPlayer,
   type MafiaState,
   type NightAction,
@@ -41,6 +60,18 @@ export interface ActionOutcome {
   error?: string;
 }
 
+/**
+ * What every game action answers while the table is stopped.
+ *
+ * Chat is deliberately *not* on this list. A pause is a social moment — "anyone
+ * know where house 4 went?" — and the day clock is frozen for everybody, so
+ * nobody is losing time they would otherwise have had. What is forbidden is
+ * anything that changes the board: a vote, a ballot, a night order, a jailing.
+ * Those would let the room act on an absence the pause exists to protect.
+ */
+const PAUSED_REFUSAL: ActionOutcome = { ok: false, error: 'La partie est en pause' };
+
+
 const POINTS: Record<PointEntry['reason'], number> = {
   win: 5,
   'solo-win': 5,
@@ -56,14 +87,23 @@ function addPoints(state: MafiaState, playerId: string, reason: PointEntry['reas
   state.points.push({ playerId, reason, amount: POINTS[reason] });
 }
 
+/** Files one protector against the house they are standing in front of tonight. */
+function addProtector(byHouse: Map<string, string[]>, houseId: string, protectorId: string): void {
+  byHouse.set(houseId, [...(byHouse.get(houseId) ?? []), protectorId]);
+}
+
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function notify(player: MafiaPlayer, text: string): void {
   player.notifications.push(text);
   // The feed is private and unbounded otherwise; a phone needs the recent past only.
   if (player.notifications.length > 60) player.notifications.splice(0, player.notifications.length - 60);
 }
 
-function announce(state: MafiaState, line: Msg, now: number): void {
-  systemPost(state.chat, 'day', line, now);
+function announce(state: MafiaState, line: Msg, now: number): ChatMessage {
+  return systemPost(state.chat, 'day', line, now);
 }
 
 /**
@@ -97,7 +137,18 @@ export function joinMafia(
   if (presetToken) {
     const seated = Object.values(state.players).find((player) => player.token === presetToken);
     if (seated) {
+      /**
+       * A seat the room voted out cannot be reclaimed by the token that held it.
+       *
+       * Without this the vote is decoration: the removed player reconnects two
+       * seconds later, the reclaim succeeds because the token is still valid, and
+       * the table is back where it started with no way to say so.
+       */
+      if (tablePresence(state).kicked.includes(seated.playerId)) {
+        throw new Error('La table a continué sans vous');
+      }
       seated.connected = true;
+      noteSeatAlive(state, seated.playerId);
       return { player: seated, rejoined: true };
     }
   }
@@ -113,32 +164,7 @@ export function joinMafia(
   const slot = nextFreeSlot(state);
   if (slot === null) throw new Error('La table est pleine');
 
-  const player: MafiaPlayer = {
-    playerId,
-    token,
-    name: trimmed,
-    slot,
-    account,
-    isBot: false,
-    connected: true,
-    alive: true,
-    role: null,
-    charges: 0,
-    obsessionId: null,
-    revealed: false,
-    doused: false,
-    charged: false,
-    poisonedNight: null,
-    disguiseRole: null,
-    bondPartnerId: null,
-    bondKind: null,
-    cooldownUntilDay: null,
-    silencedDay: null,
-    lastWill: '',
-    notifications: [],
-    intel: [],
-    death: null
-  };
+  const player = seatPlayer({ playerId, token, name: trimmed, slot, isBot: false, account });
   state.players[playerId] = player;
   return { player, rejoined: false };
 }
@@ -148,31 +174,7 @@ export function addMafiaBot(state: MafiaState, token: string, playerId: string):
   const slot = nextFreeSlot(state);
   if (slot === null) throw new Error('La table est pleine');
 
-  const player: MafiaPlayer = {
-    playerId,
-    token,
-    name: nextBotName(state),
-    slot,
-    isBot: true,
-    connected: true,
-    alive: true,
-    role: null,
-    charges: 0,
-    obsessionId: null,
-    revealed: false,
-    doused: false,
-    charged: false,
-    poisonedNight: null,
-    disguiseRole: null,
-    bondPartnerId: null,
-    bondKind: null,
-    cooldownUntilDay: null,
-    silencedDay: null,
-    lastWill: '',
-    notifications: [],
-    intel: [],
-    death: null
-  };
+  const player = seatPlayer({ playerId, token, name: nextBotName(state), slot, isBot: true });
   state.players[playerId] = player;
   return player;
 }
@@ -201,7 +203,29 @@ export function startMafia(state: MafiaState, now: number, rng: () => number): v
     }
   }
 
+  startPresenceFresh(state, now);
   beginDay(state, now, [{ line: M.gameStart() }]);
+}
+
+/**
+ * Starts the clock on everybody's presence at the moment the game begins.
+ *
+ * A lobby can sit open for twenty minutes, and somebody who wandered off during
+ * it would otherwise start the game already past the kick delay — removable by
+ * the room before they have had a single turn. So the windows are re-measured
+ * from now.
+ *
+ * The other half matters more: a seat that is *already* disconnected has to be
+ * marked away again, not merely forgotten. Clearing the record alone would leave
+ * it counting as present, no heartbeat would ever arrive to contradict that, and
+ * the table would play a whole game around an empty chair without pausing once.
+ */
+function startPresenceFresh(state: MafiaState, now: number): void {
+  const presence = tablePresence(state);
+  resetPresence(presence);
+  for (const player of Object.values(state.players)) {
+    if (!player.isBot && !player.connected) markAway(presence, player.playerId, now);
+  }
 }
 
 /* -------------------------------- chat ---------------------------------- */
@@ -239,7 +263,7 @@ export function whisperTo(
   targetSlot: number,
   text: string,
   now: number
-): { ok: true; message: ChatMessage } | { ok: false; error: string } {
+): { ok: true; message: ChatMessage; gossip: ChatMessage } | { ok: false; error: string } {
   const from = state.players[fromId];
   const target = playerBySlot(state, targetSlot);
   if (!from || !target) return { ok: false, error: 'Destinataire introuvable' };
@@ -252,10 +276,12 @@ export function whisperTo(
   }
 
   const result = post(state.chat, { channel, authorId: fromId, authorName: from.name, text, at: now });
-  if (result.ok) {
-    announce(state, M.whisperSeen(from.name, target.name), now);
-  }
-  return result;
+  if (!result.ok) return result;
+
+  // Both messages are handed back rather than left for the caller to fish out of
+  // the tail of the log: the square's notice is a second delivery to a second
+  // audience, and which position it lands in is the chat's business, not ours.
+  return { ok: true, message: result.message, gossip: announce(state, M.whisperSeen(from.name, target.name), now) };
 }
 
 export function setLastWill(state: MafiaState, playerId: string, text: string): ActionOutcome {
@@ -268,6 +294,7 @@ export function setLastWill(state: MafiaState, playerId: string, text: string): 
 /* ----------------------------- day actions ------------------------------ */
 
 export function revealMayor(state: MafiaState, playerId: string, now: number): ActionOutcome {
+  if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const player = state.players[playerId];
   if (!player?.alive || (player.role !== 'mayor' && player.role !== 'marshall')) {
     return { ok: false, error: 'Impossible' };
@@ -291,6 +318,7 @@ function marshallActive(state: MafiaState): boolean {
  * ballot counts triple. Once per game, and nobody knows who called it.
  */
 export function callCourt(state: MafiaState, playerId: string, now: number): ActionOutcome {
+  if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const judge = state.players[playerId];
   if (!judge?.alive || judge.role !== 'judge') return { ok: false, error: 'Impossible' };
   if (judge.charges <= 0) return { ok: false, error: 'Le tribunal a déjà siégé' };
@@ -326,6 +354,7 @@ export function callCourt(state: MafiaState, playerId: string, now: number): Act
 
 /** The jailor picks his prisoner in daylight; the cell locks at dusk. */
 export function jailTarget(state: MafiaState, playerId: string, targetSlot: number | null): ActionOutcome {
+  if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const player = state.players[playerId];
   if (!player?.alive || player.role !== 'jailor') return { ok: false, error: 'Impossible' };
   if (state.phase !== 'day') return { ok: false, error: 'Choisissez pendant le jour' };
@@ -340,11 +369,8 @@ export function jailTarget(state: MafiaState, playerId: string, targetSlot: numb
   return { ok: true };
 }
 
-function voteWeight(player: MafiaPlayer): number {
-  return player.role === 'mayor' && player.revealed ? 3 : 1;
-}
-
 export function castVote(state: MafiaState, voterId: string, targetSlot: number | null, now: number): ActionOutcome {
+  if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const voter = state.players[voterId];
   if (!voter?.alive) return { ok: false, error: 'Les morts ne votent pas' };
   if (state.phase !== 'day' || state.stage !== 'discussion') return { ok: false, error: 'Pas maintenant' };
@@ -401,6 +427,7 @@ export function castBallot(
   voterId: string,
   verdict: 'guilty' | 'innocent' | 'abstain'
 ): ActionOutcome {
+  if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const voter = state.players[voterId];
   if (!voter?.alive) return { ok: false, error: 'Les morts ne votent pas' };
   if (state.phase !== 'day' || state.stage !== 'judgement' || !state.trial) {
@@ -491,6 +518,7 @@ export function setNightAction(
   targetSlot: number | null,
   secondTargetSlot?: number | null
 ): ActionOutcome {
+  if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const legal = legalNightAction(state, playerId);
   if (!legal) return { ok: false, error: 'Aucune action possible' };
 
@@ -516,6 +544,173 @@ export function setNightAction(
 
   state.nightActions[playerId] = { type: legal.type, targetId, secondTargetId };
   return { ok: true };
+}
+
+/* -------------------------------- presence ------------------------------- */
+
+/**
+ * A phone saying it is still there. Cheap, and the common case changes nothing.
+ *
+ * Returns true only when this beat was news — a seat coming back from the dead —
+ * so the caller broadcasts once per return rather than once per heartbeat.
+ */
+export function noteSeatAlive(state: MafiaState, playerId: string): boolean {
+  return markPresent(tablePresence(state), playerId);
+}
+
+/** A socket that dropped, or a phone that has stopped beating. */
+export function noteSeatSilent(state: MafiaState, playerId: string, now: number): boolean {
+  return markAway(tablePresence(state), playerId, now);
+}
+
+/**
+ * Advances the pause model, and stops or starts the phase clock with it.
+ *
+ * The clock is parked rather than left running: a paused table sends
+ * `phaseEndsAt: null`, so no phone counts down a night that is not passing, and
+ * what was left of the phase comes back untouched on resume. That is the whole
+ * reason a pause is safe to use in a game whose every phase is on a timer.
+ *
+ * Called from the server ticker, from every heartbeat and from every phase
+ * change; it is idempotent, so calling it more often only makes it more prompt.
+ */
+export function tickMafiaPresence(state: MafiaState, now: number): PresenceTick {
+  const presence = tablePresence(state);
+  const waiting = waitedOnSeats(state);
+  const tick = tickPresence(presence, waiting, now);
+
+  if (tick.paused) {
+    presence.parkedMs = parkDeadline(state.phaseEndsAt, now);
+    state.phaseEndsAt = null;
+    // The square is told, because the square has to be able to resolve it: a
+    // frozen clock with no explanation reads as the server having died.
+    announce(state, M.paused(namesOf(state, missing(presence, waiting, now))), now);
+  }
+  if (tick.resumed) {
+    state.phaseEndsAt = restoreDeadline(presence.parkedMs, now);
+    presence.parkedMs = null;
+    if (tick.abandoned.length === 0) announce(state, M.resumed(), now);
+  }
+  if (tick.voteClosed && tick.voteTargetId !== null) {
+    const name = state.players[tick.voteTargetId]?.name ?? '?';
+    announce(state, tick.kicked === null ? M.kickFailed(name) : M.kickCarried(name), now);
+  }
+  return tick;
+}
+
+/** A readable list of seats, for an announcement that names several people. */
+function namesOf(state: MafiaState, playerIds: string[]): string {
+  return playerIds.map((playerId) => state.players[playerId]?.name ?? '?').join(', ');
+}
+
+/** True while the table is stopped: no clock, no bots, no game actions. */
+export function mafiaPaused(state: MafiaState): boolean {
+  return isPaused(tablePresence(state));
+}
+
+/**
+ * The room proposes removing a seat it has been waiting on.
+ *
+ * Addressed by slot, like every other target in this game, so the wire never
+ * carries another player's id and the phone speaks the same vocabulary
+ * throughout: you vote against house 7, not against a uuid.
+ */
+export function proposeMafiaKick(
+  state: MafiaState,
+  playerId: string,
+  targetSlot: number,
+  now: number
+): { ok: true } | { ok: false; reason: KickRefusal } {
+  const target = playerBySlot(state, targetSlot);
+  if (!target) return { ok: false, reason: 'target-not-seated' };
+  const opened = openKickVote(tablePresence(state), playerId, target.playerId, waitedOnSeats(state), now);
+  // Announced without naming the proposer: who wanted somebody gone is exactly
+  // the sort of thing a deduction game would turn into evidence about the
+  // network rather than about the wolves.
+  if (opened.ok) announce(state, M.kickProposed(target.name), now);
+  return opened;
+}
+
+export function voteMafiaKick(
+  state: MafiaState,
+  playerId: string,
+  yes: boolean
+): { ok: true } | { ok: false; reason: KickRefusal } {
+  return castKickBallot(tablePresence(state), playerId, yes, waitedOnSeats(state));
+}
+
+/**
+ * A seat the room removed, or one the pause ran out on, leaves the game.
+ *
+ * Not a death: it is recorded as a departure, the seat stops being counted for
+ * victory, and — the part that matters for a deduction game — its role goes
+ * public, because a table that has to keep guessing about somebody who is not
+ * there any more is not playing the game it sat down to play.
+ */
+export function dropMafiaSeat(state: MafiaState, playerId: string, now: number): void {
+  const player = state.players[playerId];
+  if (!player?.alive) return;
+  kill(state, player, state.phase === 'night' ? 'night' : 'day', CAUSE.left());
+  announceReveal(state, M.seatLeft(player.name, bodyReads(state, player)), now);
+  for (const line of cascadeBonds(state)) announceReveal(state, line, now);
+}
+
+/** The pause, the wait and any vote, in this table's own vocabulary of slots. */
+export function mafiaPresenceView(state: MafiaState, now: number, viewerId: string | null): MafiaPresenceView {
+  const presence = tablePresence(state);
+  const view = presenceView(presence, waitedOnSeats(state), now, viewerId);
+  const slotOf = (id: string): number => state.players[id]?.slot ?? 0;
+  const nameOf = (id: string): string => state.players[id]?.name ?? '?';
+
+  return {
+    paused: view.paused,
+    waitingFor: view.waitingFor.map((seat) => ({
+      slot: slotOf(seat.seatId),
+      name: nameOf(seat.seatId),
+      awayMs: seat.awayMs
+    })),
+    recovering: view.recovering.map((seat) => ({ slot: slotOf(seat.seatId), name: nameOf(seat.seatId) })),
+    pauseExpiresAt: view.pauseExpiresAt,
+    resumesAt: view.resumesAt,
+    kickableSlots: view.kickableSeatIds.map(slotOf),
+    vote: view.vote
+      ? {
+          slot: slotOf(view.vote.targetId),
+          name: nameOf(view.vote.targetId),
+          closesAt: view.vote.closesAt,
+          yes: view.vote.yes,
+          no: view.vote.no,
+          needed: view.vote.needed,
+          mine: view.vote.mine
+        }
+      : null
+  };
+}
+
+/** What a phone is told about the pause. Slots, never ids — see `mafiaPresenceView`. */
+export interface MafiaPresenceView {
+  paused: boolean;
+  waitingFor: { slot: number; name: string; awayMs: number }[];
+  /**
+   * Quiet, but still inside the resync window, so nothing has stopped.
+   *
+   * Rendered as a mark against one name rather than a screen over the game: most
+   * silences end here without ever becoming a pause, and interrupting the whole
+   * table for each of them would make the pause itself unreadable.
+   */
+  recovering: { slot: number; name: string }[];
+  pauseExpiresAt: number | null;
+  resumesAt: number | null;
+  kickableSlots: number[];
+  vote: {
+    slot: number;
+    name: string;
+    closesAt: number;
+    yes: number;
+    no: number;
+    needed: number;
+    mine: boolean | null;
+  } | null;
 }
 
 /* ------------------------------ transitions ----------------------------- */
@@ -557,8 +752,15 @@ function beginNight(state: MafiaState, now: number): void {
   }
 }
 
-/** Advances whatever phase just hit its deadline. Idempotent per deadline. */
+/**
+ * Advances whatever phase just hit its deadline. Idempotent per deadline.
+ *
+ * Refuses outright while the table is stopped. The manager already declines to
+ * arm a timer during a pause, so this is the second lock on the same door: a
+ * stale timer that fires as the pause begins must not push the town into night.
+ */
 export function advanceMafia(state: MafiaState, now: number, rng: () => number): void {
+  if (mafiaPaused(state)) return;
   if (state.phase === 'day' && state.stage === 'discussion') {
     beginNight(state, now);
     return;
@@ -578,7 +780,7 @@ export function advanceMafia(state: MafiaState, now: number, rng: () => number):
     const announcements = resolveNight(state, rng);
     if (checkVictory(state, now)) return;
     if (state.day >= state.config.maxDays) {
-      endGame(state, now, M.winDraw());
+      endGame(state, now, M.winDraw(), 'draw');
       return;
     }
     beginDay(state, now, announcements);
@@ -611,12 +813,12 @@ function concludeTrial(state: MafiaState, now: number): void {
 
   // The ballots go public with the verdict: the town sees who wanted the rope
   // and who wanted mercy. Saving a mafioso in public is how trust dies.
-  const guiltyIds = Object.entries(trial.ballots)
-    .filter(([voterId, verdict]) => verdict === 'guilty' && state.players[voterId]?.alive)
-    .map(([voterId]) => voterId);
-  const innocentIds = Object.entries(trial.ballots)
-    .filter(([voterId, verdict]) => verdict === 'innocent' && state.players[voterId]?.alive)
-    .map(([voterId]) => voterId);
+  const votersWho = (verdict: 'guilty' | 'innocent'): string[] =>
+    Object.entries(trial.ballots)
+      .filter(([voterId, cast]) => cast === verdict && state.players[voterId]?.alive)
+      .map(([voterId]) => voterId);
+  const guiltyIds = votersWho('guilty');
+  const innocentIds = votersWho('innocent');
   // Recorded either way: the end-of-game replay shows every hand that was raised.
   (state.trialLog ??= []).push({
     day: state.day,
@@ -707,7 +909,7 @@ function lynch(state: MafiaState, accused: MafiaPlayer, trial: { ballots: Record
   }
 
   if (role === 'jester') {
-    state.winners.push({ playerId: accused.playerId, reason: 'Bouffon pendu : il gagne seul' });
+    state.winners.push({ playerId: accused.playerId, reason: 'Bouffon pendu : il gagne seul', kind: 'jester' });
     addPoints(state, accused.playerId, 'solo-win');
     notify(accused, 'Ils vous ont pendu. Vous avez gagné.');
     announce(state, M.winJester(), now);
@@ -715,7 +917,7 @@ function lynch(state: MafiaState, accused: MafiaPlayer, trial: { ballots: Record
 
   for (const player of Object.values(state.players)) {
     if (player.role === 'executioner' && player.alive && player.obsessionId === accused.playerId) {
-      state.winners.push({ playerId: player.playerId, reason: 'Obsession pendue : le Bourreau gagne' });
+      state.winners.push({ playerId: player.playerId, reason: 'Obsession pendue : le Bourreau gagne', kind: 'executioner' });
       addPoints(state, player.playerId, 'solo-win');
       notify(player, 'Votre obsession se balance. Vous avez gagné.');
     }
@@ -946,11 +1148,11 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         visit(player.playerId, target.playerId);
         break;
       case 'heal':
-        healers.set(target.playerId, [...(healers.get(target.playerId) ?? []), player.playerId]);
+        addProtector(healers, target.playerId, player.playerId);
         visit(player.playerId, target.playerId);
         break;
       case 'guard':
-        guards.set(target.playerId, [...(guards.get(target.playerId) ?? []), player.playerId]);
+        addProtector(guards, target.playerId, player.playerId);
         visit(player.playerId, target.playerId);
         break;
       case 'silence':
@@ -1088,7 +1290,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   }
 
   // The family kills: each family's leader orders, an executor carries.
-  const familyKillTargets = new Map<FamilyId, string>();
+  const familyKillTargets = new Map<keyof typeof FAMILIES, string>();
   for (const familyId of Object.keys(FAMILIES) as (keyof typeof FAMILIES)[]) {
     const members = players.filter((entry) => entry.alive && playerFamily(entry) === familyId);
     if (members.length === 0) continue;
@@ -1326,7 +1528,9 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     for (const [familyId, targetId] of familyKillTargets) {
       const target = state.players[targetId];
       if (!target) continue;
-      notify(player, `${familyId === 'mafia' ? 'La Mafia' : 'La Triade'} a visé la maison ${target.slot} cette nuit.`);
+      // The family's own name, from the one place it is spelled: a two-way
+      // ternary here would report the Cult as the Triad the day it can kill.
+      notify(player, `${capitalise(FAMILIES[familyId].label)} a visé la maison ${target.slot} cette nuit.`);
       player.intel.push({ night: state.day, kind: 'spied', targetSlot: target.slot, value: familyId });
     }
   }
@@ -1517,18 +1721,33 @@ const SOLO_WIN: Partial<Record<RoleId, { reason: string; headline: Msg }>> = {
   electromaniac: { reason: 'Dernier courant debout', headline: M.winSolo('electromaniac') }
 };
 
-function endGame(state: MafiaState, now: number, headline: Msg): void {
+/**
+ * How the evening ended.
+ *
+ * The parasites win exactly when the town does not, and that condition used to
+ * be `reason === 'Victoire de la Ville'` — a magic string matched against a
+ * second copy of itself two hundred lines away, in a file whose own comments
+ * warn twice about rules keyed on sentences.
+ *
+ * It is a parameter rather than a `winners.some(kind === 'town')` lookup, even
+ * though `WinKind` would now answer it, because the lookup would only be true
+ * once the town's entries had been pushed: a caller that crowned after ending
+ * would silently pay out the parasites. Stated by the caller, it cannot.
+ */
+type Ending = 'town' | 'family' | 'solo-killer' | 'draw';
+
+function endGame(state: MafiaState, now: number, headline: Msg, ending: Ending): void {
   state.phase = 'ended';
   state.stage = null;
   state.trial = null;
   state.phaseEndsAt = null;
 
-  const townWon = state.winners.some((winner) => winner.reason === 'Victoire de la Ville');
+  const townWon = ending === 'town';
   const lovers = new Set<string>();
   for (const player of Object.values(state.players)) {
     if (player.alive) addPoints(state, player.playerId, 'survive');
     if (player.alive && player.role === 'survivor') {
-      state.winners.push({ playerId: player.playerId, reason: 'A survécu jusqu’au bout' });
+      state.winners.push({ playerId: player.playerId, reason: 'A survécu jusqu’au bout', kind: 'survivor' });
       addPoints(state, player.playerId, 'solo-win');
     }
     // Misfortune's parasites: alive while the town failed is a win.
@@ -1537,7 +1756,7 @@ function endGame(state: MafiaState, now: number, headline: Msg): void {
       (player.role === 'witch' || player.role === 'scumbag' || player.role === 'judge' || player.role === 'auditor') &&
       !townWon
     ) {
-      state.winners.push({ playerId: player.playerId, reason: 'A prospéré dans le malheur' });
+      state.winners.push({ playerId: player.playerId, reason: 'A prospéré dans le malheur', kind: 'parasite' });
       addPoints(state, player.playerId, 'solo-win');
     }
     // Lovers win together, whoever else won.
@@ -1550,8 +1769,8 @@ function endGame(state: MafiaState, now: number, headline: Msg): void {
     ) {
       lovers.add(player.playerId);
       lovers.add(player.bondPartnerId);
-      state.winners.push({ playerId: player.playerId, reason: 'L’amour a survécu à la ville' });
-      state.winners.push({ playerId: player.bondPartnerId, reason: 'L’amour a survécu à la ville' });
+      state.winners.push({ playerId: player.playerId, reason: 'L’amour a survécu à la ville', kind: 'lovers' });
+      state.winners.push({ playerId: player.bondPartnerId, reason: 'L’amour a survécu à la ville', kind: 'lovers' });
       addPoints(state, player.playerId, 'solo-win');
       addPoints(state, player.bondPartnerId, 'solo-win');
     }
@@ -1580,11 +1799,11 @@ export function checkVictory(state: MafiaState, now: number): boolean {
     const win = FAMILY_WIN[familyId];
     for (const player of Object.values(state.players)) {
       if (player.role && familyOf(player.role) === familyId) {
-        state.winners.push({ playerId: player.playerId, reason: win.reason });
+        state.winners.push({ playerId: player.playerId, reason: win.reason, kind: familyId });
         addPoints(state, player.playerId, 'win');
       }
     }
-    endGame(state, now, win.headline);
+    endGame(state, now, win.headline, 'family');
   };
 
   const familiesAlive = families.filter((familyId) => (byFamily.get(familyId)?.length ?? 0) > 0);
@@ -1593,11 +1812,11 @@ export function checkVictory(state: MafiaState, now: number): boolean {
   if (familiesAlive.length === 0 && soloKillers.length === 0) {
     for (const player of Object.values(state.players)) {
       if (player.role && roleDef(player.role).faction === 'town') {
-        state.winners.push({ playerId: player.playerId, reason: 'Victoire de la Ville' });
+        state.winners.push({ playerId: player.playerId, reason: 'Victoire de la Ville', kind: 'town' });
         addPoints(state, player.playerId, 'win');
       }
     }
-    endGame(state, now, M.winTown());
+    endGame(state, now, M.winTown(), 'town');
     return true;
   }
 
@@ -1608,10 +1827,10 @@ export function checkVictory(state: MafiaState, now: number): boolean {
     if (kinds.size === 1 && threats.length === 0) {
       const win = SOLO_WIN[soloKillers[0].role!] ?? SOLO_WIN['serial-killer']!;
       for (const player of soloKillers) {
-        state.winners.push({ playerId: player.playerId, reason: win.reason });
+        state.winners.push({ playerId: player.playerId, reason: win.reason, kind: 'solo-killer' });
         addPoints(state, player.playerId, 'solo-win');
       }
-      endGame(state, now, win.headline);
+      endGame(state, now, win.headline, 'solo-killer');
       return true;
     }
     return false;

@@ -7,6 +7,7 @@ import { CZ_EVENTS, EVENT_CHANCE, EVENT_FROM_TURN } from './events.js';
 import { getRoom, neighbors, shortestPath } from './map.js';
 import { SHINY_LOOT } from './mapgen/programs.js';
 import { chance, randInt } from './rng.js';
+import { raidPaused, startRaidPresence } from './presence.js';
 import {
   activeHeroes,
   bagCapacity,
@@ -68,7 +69,18 @@ export interface ActionResult {
   killed?: string[];
 }
 
+/**
+ * What every action answers while the raid is stopped.
+ *
+ * A pause exists so nobody loses a turn to somebody else's router, which only
+ * works if nothing moves during it: the phase clock is parked, the horde does not
+ * activate, and a survivor cannot spend the AP of a turn the absent player is
+ * still owed.
+ */
+const PAUSED_REFUSAL: ActionResult = { ok: false, error: 'Le raid est en pause' };
+
 export function applyHeroAction(state: CzState, playerId: string, action: HeroAction): ActionResult {
+  if (raidPaused(state)) return PAUSED_REFUSAL;
   const hero = state.heroes[playerId];
   if (!hero) return { ok: false, error: 'Joueur inconnu' };
   if (state.phase !== 'heroes') return { ok: false, error: 'Ce n’est pas la phase des héros' };
@@ -673,6 +685,7 @@ export function startGame(state: CzState, now = Date.now()): void {
     state.gmBudget += 4;
   }
   updateExplored(state);
+  startRaidPresence(state, now);
   startHeroPhase(state, now);
   log(state, 'La partie commence.');
 }
@@ -1084,6 +1097,7 @@ export const GM_ORDERS: Record<'rush', { label: string; cost: number }> = {
 };
 
 export function applyGmAction(state: CzState, action: GmAction): ActionResult {
+  if (raidPaused(state)) return PAUSED_REFUSAL;
   if (state.config.mode !== 'gm') return { ok: false, error: 'L’IA joue cette partie' };
   /**
    * Conceding is the one thing the horde may do out of turn.

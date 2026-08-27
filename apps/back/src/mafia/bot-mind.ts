@@ -109,8 +109,7 @@ export class BotMinds {
     }
     // A converted, audited or remembered seat wants a different agenda than the
     // one it sat down with.
-    const current = agendaOf(player.role);
-    if (current !== mind.agenda) mind.agenda = current;
+    mind.agenda = agendaOf(player.role);
     return mind;
   }
 
