@@ -44,6 +44,7 @@
     "game-core": "workspace:*",
     "coronaz-core": "workspace:*",
     "chat-core": "workspace:*",
+    "i18n": "workspace:*",
     "mafia-core": "workspace:*",
     "@anthropic-ai/sdk": "^0.110.0"
   },

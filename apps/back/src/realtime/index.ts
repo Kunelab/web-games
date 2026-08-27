@@ -797,7 +797,13 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
       void (async () => {
         try {
           const account = await accountOf(app, socket).catch(() => null);
-          const { player } = mafia.join(state.code, parsed.data.name, parsed.data.playerToken, account ?? undefined);
+          const { player } = mafia.join(
+            state.code,
+            parsed.data.name,
+            parsed.data.playerToken,
+            account ?? undefined,
+            parsed.data.locale
+          );
           socket.data.mafiaCode = state.code;
           socket.data.mafiaPlayerId = player.playerId;
           socket.data.mafiaHost = false;

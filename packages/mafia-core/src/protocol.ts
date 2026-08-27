@@ -9,7 +9,9 @@ import type { MafiaView } from './view.js';
 export const mafiaJoinSchema = z.object({
   code: z.string().min(1).max(16),
   name: z.string().min(1).max(20),
-  playerToken: z.string().max(64).optional()
+  playerToken: z.string().max(64).optional(),
+  /** The browser's language, so a solo player gets bots that speak to them. */
+  locale: z.enum(['en', 'fr']).optional()
 });
 
 export const mafiaChatSchema = z.object({
@@ -60,6 +62,7 @@ export const mafiaConfigSchema = z.object({
   dayMs: z.number().int().min(30_000).max(600_000).optional(),
   nightMs: z.number().int().min(15_000).max(180_000).optional(),
   revealOnDeath: z.enum(['role', 'faction', 'none']).optional(),
+  locale: z.enum(['en', 'fr']).optional(),
   setup: mafiaSetupSchema.optional()
 });
 

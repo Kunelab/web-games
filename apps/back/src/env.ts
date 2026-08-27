@@ -74,8 +74,30 @@ const envSchema = z.object({
    * scripted one, so a table never stalls on an LLM.
    */
   MAFIA_BOT_PROVIDER: z.enum(['ollama', 'anthropic', 'scripted']).default('ollama'),
-  /** Small and fast is the point: 23 bots that mostly stay silent. */
+  /**
+   * How much thinking a table can afford.
+   *
+   * `live` is a real game: the phase clock rules, bots get one shot inside a
+   * fraction of it, the briefing is a pre-chewed summary and most of them stay
+   * quiet. `deliberate` is the laboratory: each bot gets several rounds of
+   * think-then-act per phase with the whole board in front of it and no clock
+   * worth speaking of — slow, expensive, and the only way to see what these
+   * personalities actually do when they are not rushed.
+   */
+  MAFIA_BOT_TEMPO: z.enum(['live', 'deliberate']).default('live'),
+  /** Think-then-act rounds per phase in the deliberate tempo. */
+  MAFIA_BOT_ROUNDS: z.coerce.number().int().min(1).max(6).default(3),
+  /**
+   * One model name per provider, because they do not share a namespace.
+   *
+   * They used to: a single `MAFIA_BOT_MODEL` defaulting to a local Ollama tag
+   * meant that switching `MAFIA_BOT_PROVIDER=anthropic` and nothing else sent
+   * `qwen3.5:4b` to the API, every call failed on an unknown model, the per-call
+   * fallback quietly caught it, and the table filled with mute scripted bots that
+   * looked exactly like working ones.
+   */
   MAFIA_BOT_MODEL: z.string().default('qwen3.5:4b'),
+  MAFIA_BOT_MODEL_ANTHROPIC: z.string().default('claude-haiku-4-5-20251001'),
   OLLAMA_URL: z.string().default('http://127.0.0.1:11434'),
   ANTHROPIC_API_KEY: z.string().optional()
 });

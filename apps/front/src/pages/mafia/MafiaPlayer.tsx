@@ -11,6 +11,9 @@ import { useParams } from 'react-router';
 import { ChatPanel } from '../../components/chat/ChatPanel';
 import { useMafiaSocket } from '../../hooks/useMafiaSocket';
 import { Button, Field, Input, Loading } from '../../ui';
+import { msg } from 'i18n';
+
+import { useLocale } from '../../i18n/locale-context';
 import { MafiaTown } from './MafiaTown';
 import './mafia.css';
 
@@ -52,6 +55,7 @@ export default function MafiaPlayer() {
   const { code: rawCode } = useParams();
   const code = (rawCode ?? '').toUpperCase();
   const { socket, connected, view, messages, rewards, error, serverNow, applyView } = useMafiaSocket();
+  const { t, locale } = useLocale();
 
   const [name, setName] = useState(() => localStorage.getItem(`mafia:name:${code}`) ?? '');
   const [joining, setJoining] = useState(false);
@@ -71,10 +75,10 @@ export default function MafiaPlayer() {
     const token = localStorage.getItem(`mafia:token:${code}`);
     const storedName = localStorage.getItem(`mafia:name:${code}`);
     if (!socket || !connected || view || !token || !storedName) return;
-    socket.emit('mafia:join', { code, name: storedName, playerToken: token }, (ack) => {
+    socket.emit('mafia:join', { code, name: storedName, playerToken: token, locale }, (ack) => {
       if (ack.ok && ack.view) applyView(ack.view);
     });
-  }, [socket, connected, view, code, applyView]);
+  }, [socket, connected, view, code, applyView, locale]);
 
   /**
    * The wallet's local mirror, so an anonymous phone can show its balance.
@@ -128,7 +132,7 @@ export default function MafiaPlayer() {
     if (!socket || !name.trim()) return;
     setJoining(true);
     setJoinError(null);
-    socket.emit('mafia:join', { code, name: name.trim() }, (ack) => {
+    socket.emit('mafia:join', { code, name: name.trim(), locale }, (ack) => {
       setJoining(false);
       if (!ack.ok || !ack.view) {
         setJoinError(ack.error ?? 'Impossible de rejoindre');
@@ -376,7 +380,7 @@ export default function MafiaPlayer() {
                               {player.roleName ??
                                 (player.faction ? FACTION_LABELS[player.faction] : 'Identité inconnue')}
                             </span>
-                            {player.death && ` · ${player.death.cause}, jour ${player.death.day}`}
+                            {player.death && ` · ${t(msg('mafia.roster.diedOn', { cause: player.death.cause, day: player.death.day }))}`}
                           </>
                         )}
                         {player.alive && onTrial && 'À la barre'}

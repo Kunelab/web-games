@@ -4,6 +4,7 @@ import { useParams } from 'react-router';
 
 import { useMafiaSocket } from '../../hooks/useMafiaSocket';
 import { Loading } from '../../ui';
+import { useT } from '../../i18n/locale-context';
 import { MafiaTown } from './MafiaTown';
 import './mafia.css';
 
@@ -43,6 +44,7 @@ export default function MafiaTv() {
   const { code: rawCode } = useParams();
   const code = (rawCode ?? '').toUpperCase();
   const { socket, connected, view, messages, error, serverNow } = useMafiaSocket();
+  const t = useT();
 
   const [claimError, setClaimError] = useState<string | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
@@ -126,7 +128,11 @@ export default function MafiaTv() {
     : messages
         .filter((message) => message.channel === 'day')
         .map((message) =>
-          message.reveals ? { ...message, text: '⸻ un secret a été dit ici ⸻', veiled: true } : message
+          // `msg` is dropped along with the text: a veiled line must not still be
+          // carrying the key that would render the thing being veiled.
+          message.reveals
+            ? { ...message, msg: undefined, text: '⸻ un secret a été dit ici ⸻', veiled: true }
+            : message
         );
 
   return (
@@ -215,7 +221,7 @@ export default function MafiaTv() {
                   .join(' ')}
               >
                 {message.authorId && <strong>{message.authorName} </strong>}
-                {message.text}
+                {message.msg ? t(message.msg) : message.text}
               </p>
             ))}
             <ChatFloor deps={shown.length} />

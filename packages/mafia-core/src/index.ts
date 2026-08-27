@@ -30,6 +30,7 @@ export {
   pmChannel,
   pmParticipants,
   rosterForSetup,
+  spokenLocale,
   type DayStage,
   type IntelEntry,
   type MafiaConfig,
@@ -75,6 +76,43 @@ export {
   type LegalAction
 } from './engine.js';
 export { toMafiaView, type MafiaPublicPlayer, type MafiaResultRow, type MafiaView, type MafiaViewer, type MafiaViewMe } from './view.js';
+export { toPublicInfo } from './observe.js';
+/**
+ * The social model. Exported because the live bot driver and the headless bench
+ * must reach for the same one: a bot that panics differently from the simulated
+ * seat we measured is a bot we have not measured.
+ */
+export {
+  advanceDesperation,
+  agendaOf,
+  CALM,
+  MASKS,
+  pickMask,
+  ridesWithTown,
+  stanceOf,
+  type Agenda,
+  type Pressure,
+  type Stance,
+  type StanceTraits
+} from './social.js';
+export {
+  claimerWeight,
+  contradicted,
+  DEFAULT_PROFILE,
+  feelPressure,
+  losingClock,
+  makeBrain,
+  makePersonality,
+  parityPressure,
+  provenLiar,
+  trustOf,
+  type Brain,
+  type Claim,
+  type ClaimKind,
+  type Personality,
+  type PublicInfo,
+  type VoteRecord
+} from './sim/policies.js';
 export {
   mafiaActionSchema,
   mafiaBallotSchema,

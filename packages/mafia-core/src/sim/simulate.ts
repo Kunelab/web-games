@@ -16,6 +16,8 @@ import {
   bindPersonalities,
   decideBallot,
   decideDay,
+  feelPressure,
+  makeBrain,
   decideNightTarget,
   isEvilRole,
   makePersonality,
@@ -25,6 +27,7 @@ import {
   type Personality,
   type PublicInfo
 } from './policies.js';
+import { toPublicInfo } from '../observe.js';
 
 /**
  * One full game, synchronously, through the real engine — the same functions
@@ -100,7 +103,7 @@ export function simulateGame(options: SimOptions): SimResult {
   const brains = new Map<string, Brain>(
     players.map((player) => [
       player.playerId,
-      { slot: player.slot, personality: makePersonality(profile, rng), checked: new Set<number>(), lastKillTarget: null }
+      makeBrain(player.slot, makePersonality(profile, rng))
     ])
   );
   bindPersonalities([...brains.values()]);
@@ -122,6 +125,9 @@ export function simulateGame(options: SimOptions): SimResult {
     return new Set(players.filter((other) => playerFamily(other) === family).map((other) => other.slot));
   };
 
+  const brainOf = (slot: number): Brain | undefined =>
+    [...brains.values()].find((brain) => brain.slot === slot);
+
   const claims: Claim[] = [];
   /** Final accusations of past days, for the town's pattern-readers. */
   const voteHistory: { day: number; voterSlot: number; targetSlot: number }[] = [];
@@ -138,7 +144,14 @@ export function simulateGame(options: SimOptions): SimResult {
         ? !targetEvil
         : claim.kind === 'role-claim'
           ? target?.role === claim.claimedRole
-          : targetEvil;
+          : claim.kind === 'account'
+            ? // An account is honest when it matches where the seat actually went.
+              (claim.account === 'home'
+                ? (brainOf(claim.claimerSlot)?.wentTo ?? null) === null
+                : (brainOf(claim.claimerSlot)?.wentTo ?? null) === claim.targetSlot)
+            : claim.kind === 'question' || claim.kind === 'taunt'
+              ? true // neither states a fact, so neither can be a lie
+              : targetEvil;
     claims.push(claim);
   };
 
@@ -216,54 +229,12 @@ export function simulateGame(options: SimOptions): SimResult {
     }
   };
 
-  const publicInfo = (): PublicInfo => ({
-    day: state.day,
-    aliveSlots: players.filter((player) => player.alive).map((player) => player.slot),
-    // A janitor-cleaned corpse keeps its secret from the public board too.
-    deadRoles: new Map(
-      players
-        .filter(
-          (player) =>
-            !player.alive && !state.deaths.some((death) => death.playerId === player.playerId && death.hidden)
-        )
-        .map((player) => [player.slot, player.role!])
-    ),
-    lastNightDeathSlots: new Set(
-      state.deaths
-        .filter((death) => death.phase === 'night' && death.day === state.day - 1)
-        .map((death) => state.players[death.playerId]?.slot)
-        .filter((slot): slot is number => slot !== undefined)
-    ),
-    nightDeathsTotal: state.deaths.filter((death) => death.phase === 'night').length,
-    totalDead: state.deaths.length,
-    trials: (state.trialLog ?? []).map((trial) => ({
-      day: trial.day,
-      accusedSlot: state.players[trial.accusedId]?.slot ?? 0,
-      lynched: trial.lynched,
-      guiltySlots: trial.guiltyIds.map((id) => state.players[id]?.slot).filter((slot): slot is number => slot !== undefined),
-      innocentSlots: trial.innocentIds.map((id) => state.players[id]?.slot).filter((slot): slot is number => slot !== undefined)
-    })),
-    voteHistory,
-    rampage: state.deaths.filter(
-      (death) =>
-        death.cause.includes('Tueur') ||
-        death.cause.includes('Incendiaire') ||
-        death.cause.includes('Électromane') ||
-        death.cause.includes('poison')
-    ).length,
-    votes: new Map(
-      Object.entries(state.votes)
-        .map(([voterId, targetId]) => {
-          const voter = state.players[voterId];
-          const target = state.players[targetId];
-          return voter && target ? ([voter.slot, target.slot] as [number, number]) : null;
-        })
-        .filter((entry): entry is [number, number] => entry !== null)
-    ),
-    revealedMayorSlot: players.find((player) => player.revealed && player.alive)?.slot ?? null,
-    trialSlot: state.trial ? (state.players[state.trial.accusedId]?.slot ?? null) : null,
-    claims
-  });
+  /**
+   * The public board, from the shared observer — the same function the live
+   * server uses to brief its LLM bots, so the bench and the real table never
+   * disagree about what a seat can see.
+   */
+  const publicInfo = (): PublicInfo => toPublicInfo(state, claims, voteHistory);
 
   const familyIntelFor = (playerId: string) => {
     const self = state.players[playerId];
@@ -294,6 +265,20 @@ export function simulateGame(options: SimOptions): SimResult {
       if (lastOpenedDay !== state.day) {
         lastOpenedDay = state.day;
         readWills();
+        /**
+         * The mood of the morning, taken once, before a word is said.
+         *
+         * Advanced here rather than inside `decideDay` because that runs several
+         * times a day (claims, then three voting passes) and desperation is a
+         * state of mind, not a per-decision reading — ticking it per call would
+         * have it compound four times a day and everybody would be frantic by
+         * Tuesday.
+         */
+        const dawn = publicInfo();
+        for (const player of players) {
+          if (!player.alive) continue;
+          feelPressure(player, brains.get(player.playerId)!, dawn, teammatesOf(player.playerId));
+        }
         for (const player of shuffledAlive()) {
           const decision = decideDay(player, brains.get(player.playerId)!, publicInfo(), teammatesOf(player.playerId), knownEvilFor(player.playerId), rng);
           // Ground truth is stamped at push time, where the full state is
@@ -364,6 +349,10 @@ export function simulateGame(options: SimOptions): SimResult {
           rng
         );
         if (target !== null) setNightAction(state, player.playerId, target);
+        // What this seat will be able to say tomorrow if asked — and what the
+        // record can catch it out on if it says otherwise.
+        const brain = brains.get(player.playerId)!;
+        brain.wentTo = target !== null && target !== player.slot && legal.targets.length > 0 ? target : null;
       }
       advance();
       continue;
@@ -392,8 +381,10 @@ function tally(state: MafiaState, options: SimOptions, claims: Claim[]): SimResu
             ? 'solo'
             : 'draw';
 
-  const lynched = state.deaths.filter((death) => death.cause.includes('pendu'));
-  const executed = state.deaths.filter((death) => death.cause.includes('Geôlier'));
+  // A lynching is a daytime death with no killer behind it; an execution is the
+  // jailor's. Both read off the record rather than off the sentence.
+  const lynched = state.deaths.filter((death) => death.phase === 'day' && death.source === undefined);
+  const executed = state.deaths.filter((death) => death.source === 'jailor');
   const rolePresent = (role: RoleId) => players.some((player) => player.role === role);
 
   return {
@@ -412,7 +403,7 @@ function tally(state: MafiaState, options: SimOptions, claims: Claim[]): SimResu
     jesterLynches: lynched.filter((death) => death.role === 'jester').length,
     townLynches: lynched.filter((death) => roleDef(death.role).faction === 'town').length,
     nightDeaths: state.deaths.filter((death) => death.phase === 'night').length,
-    vigMisfires: state.deaths.filter((death) => death.cause.includes('Justicier') && roleDef(death.role).faction === 'town').length,
+    vigMisfires: state.deaths.filter((death) => death.source === 'vigilante' && roleDef(death.role).faction === 'town').length,
     saves: state.points.filter((entry) => entry.reason === 'save').length,
     executions: executed.length,
     wrongExecutions: executed.filter((death) => !isEvilRole(death.role)).length,

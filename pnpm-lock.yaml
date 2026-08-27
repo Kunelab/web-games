@@ -68,6 +68,9 @@ importers:
       game-core:
         specifier: workspace:*
         version: link:../../packages/game-core
+      i18n:
+        specifier: workspace:*
+        version: link:../../packages/i18n
       mafia-core:
         specifier: workspace:*
         version: link:../../packages/mafia-core
@@ -147,6 +150,9 @@ importers:
       game-core:
         specifier: workspace:*
         version: link:../../packages/game-core
+      i18n:
+        specifier: workspace:*
+        version: link:../../packages/i18n
       mafia-core:
         specifier: workspace:*
         version: link:../../packages/mafia-core
@@ -216,6 +222,10 @@ importers:
         version: 8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0)
 
   packages/chat-core:
+    dependencies:
+      i18n:
+        specifier: workspace:*
+        version: link:../i18n
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1
@@ -295,11 +305,38 @@ importers:
         specifier: ^8.67.0
         version: 8.67.0(eslint@10.8.1)(typescript@6.0.3)
 
+  packages/i18n:
+    devDependencies:
+      '@eslint/js':
+        specifier: ^10.0.1
+        version: 10.0.1(eslint@10.8.1)
+      '@types/node':
+        specifier: ^26.2.0
+        version: 26.2.0
+      eslint:
+        specifier: ^10.8.1
+        version: 10.8.1
+      eslint-config-prettier:
+        specifier: ^10.1.8
+        version: 10.1.8(eslint@10.8.1)
+      tsx:
+        specifier: ^4.23.12
+        version: 4.23.12
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      typescript-eslint:
+        specifier: ^8.67.0
+        version: 8.67.0(eslint@10.8.1)(typescript@6.0.3)
+
   packages/mafia-core:
     dependencies:
       chat-core:
         specifier: workspace:*
         version: link:../chat-core
+      i18n:
+        specifier: workspace:*
+        version: link:../i18n
       zod:
         specifier: ^4.4.3
         version: 4.4.3
