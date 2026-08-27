@@ -15,9 +15,25 @@ import {
   startMafia,
   whisperTo
 } from './engine.js';
+import { translator, type Msg } from 'i18n';
+import { en } from 'i18n/locales/en';
+import { fr } from 'i18n/locales/fr';
+
 import type { RoleId } from './roles.js';
 import { createMafiaGame, playerBySlot, type MafiaState } from './state.js';
 import { toMafiaView } from './view.js';
+
+/**
+ * What the square actually said, in French.
+ *
+ * The engine now emits keys, so an assertion about prose has to render them —
+ * which makes these tests better than they were: they prove the whole path from a
+ * rule firing to a sentence a person reads, catalogue included.
+ */
+const t = translator(fr, en);
+const rendered = (message: { msg?: Msg; text: string }): string => (message.msg ? t(message.msg) : message.text);
+const said = (state: MafiaState): string =>
+  state.chat.messages.map((message) => (message.msg ? t(message.msg) : message.text)).join('\n');
 
 /** Deterministic rng for reproducible deals. */
 function lcg(seed: number): () => number {
@@ -225,7 +241,12 @@ describe('mafia engine', () => {
 
     const outsider = toMafiaView(state, { kind: 'player', playerId: bySlot(state, 3).playerId });
     assert.ok(!JSON.stringify(outsider.chat).includes('la 3 ment'), 'the content is private');
-    assert.ok(outsider.chat.some((m) => m.text.includes('murmure')), 'the gesture is public');
+    // The gesture is a system announcement, so it is a key now: rendering it is
+    // the assertion, because a key nobody can render is a leak of nothing.
+    assert.ok(
+      outsider.chat.some((m) => rendered(m).includes('murmure')),
+      'the gesture is public'
+    );
   });
 
   it('the triad is a real rival family: own kill, own victory', () => {
@@ -411,11 +432,11 @@ describe('mafia engine', () => {
     castBallot(state, bySlot(state, 2).playerId, 'guilty');
     advanceMafia(state, 20, lcg(6));
 
-    const said = state.chat.messages.map((message) => message.text).join('\n');
+    const spoken = said(state);
     // The weighted tally is public; the names that would give the weight away are not.
-    assert.ok(said.includes('Verdict : 4 coupable'), 'the tally still lands');
-    assert.ok(!said.includes('Ont voté coupable'), 'no roll call to subtract from');
-    assert.ok(said.includes('bulletin secret'));
+    assert.ok(spoken.includes('Verdict : 4 coupable'), 'the tally still lands');
+    assert.ok(!spoken.includes('Ont voté coupable'), 'no roll call to subtract from');
+    assert.ok(spoken.includes('bulletin secret'));
     // But the record keeps every hand, for the end-of-game reveal.
     const logged = state.trialLog?.at(-1);
     assert.equal(logged?.guiltyIds.length, 2);
@@ -433,8 +454,8 @@ describe('mafia engine', () => {
     castBallot(state, bySlot(state, 2).playerId, 'innocent');
     advanceMafia(state, 20, lcg(7));
 
-    const said = state.chat.messages.map((message) => message.text).join('\n');
-    assert.ok(said.includes('Ont voté coupable'), 'the roll call is safe without a hidden weight');
+    const spoken = said(state);
+    assert.ok(spoken.includes('Ont voté coupable'), 'the roll call is safe without a hidden weight');
   });
 
   it('an accusation moves the count without posting a line', () => {
@@ -468,7 +489,7 @@ describe('mafia engine', () => {
     assert.notEqual(state.phase, 'ended', 'and the game goes on, so the policy still applies');
     return {
       state,
-      said: state.chat.messages.map((message) => message.text).join('\n'),
+      said: said(state),
       row: toMafiaView(state, { kind: 'player', playerId: bySlot(state, 1).playerId }).players.find(
         (player) => player.slot === 5
       )!
@@ -561,17 +582,17 @@ describe('mafia engine', () => {
     const { state } = lynchUnder('role');
     const day = state.chat.messages.filter((message) => message.channel === 'day' && message.kind === 'system');
 
-    const gallows = day.find((message) => message.text.includes('se balance au bout de la corde'))!;
+    const gallows = day.find((message) => rendered(message).includes('se balance au bout de la corde'))!;
     assert.equal(gallows.reveals, true, 'the gallows names the body');
 
-    const verdict = day.find((message) => message.text.startsWith('Verdict :'))!;
+    const verdict = day.find((message) => rendered(message).startsWith('Verdict :'))!;
     assert.notEqual(verdict.reveals, true, 'a tally is not an identity');
 
-    const rollCall = day.find((message) => message.text.startsWith('Ont voté coupable'))!;
+    const rollCall = day.find((message) => rendered(message).startsWith('Ont voté coupable'))!;
     assert.notEqual(rollCall.reveals, true, 'who wanted the rope is a vote, not a role');
 
     // And nothing carrying a role name is left unflagged.
-    const leaked = day.filter((message) => !message.reveals && message.text.includes('Parrain'));
+    const leaked = day.filter((message) => !message.reveals && rendered(message).includes('Parrain'));
     assert.deepEqual(leaked, [], 'an unflagged line named a role');
   });
 
@@ -581,10 +602,10 @@ describe('mafia engine', () => {
     setNightAction(state, bySlot(state, 1).playerId, 2); // the family kills slot 2
     advanceMafia(state, 1, lcg(21));
 
-    const dawn = state.chat.messages.find((message) => message.text.includes('a été retrouvé mort'))!;
+    const dawn = state.chat.messages.find((message) => rendered(message).includes('a été retrouvé mort'))!;
     assert.equal(dawn.reveals, true, 'the dawn report names the body and its killer');
 
-    const quiet = state.chat.messages.find((message) => message.text.includes('Fermez vos portes'));
+    const quiet = state.chat.messages.find((message) => rendered(message).includes('Fermez vos portes'));
     assert.notEqual(quiet?.reveals, true, 'nightfall is not a reveal');
   });
 

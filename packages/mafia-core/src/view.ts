@@ -1,4 +1,5 @@
 import type { ChatMessage } from 'chat-core';
+import type { Msg } from 'i18n';
 
 import { chatVisibleTo, legalNightAction, type LegalAction } from './engine.js';
 import { roleDef, type Faction, type RoleId } from './roles.js';
@@ -49,7 +50,7 @@ export interface MafiaPublicPlayer {
   roleName: string | null;
   /** The camp a dead player belonged to, for the colour beside their name. */
   faction: Faction | null;
-  death: { day: number; phase: 'day' | 'night'; cause: string } | null;
+  death: { day: number; phase: 'day' | 'night'; cause: Msg } | null;
 }
 
 export interface MafiaViewMe {

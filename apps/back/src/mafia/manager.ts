@@ -23,6 +23,7 @@ import {
   type MafiaState
 } from 'mafia-core';
 import type { ChatMessage } from 'chat-core';
+import type { Locale } from 'i18n';
 import { eq, lt } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 
@@ -97,6 +98,11 @@ export class MafiaManager {
     return this.sessions.get(code);
   }
 
+  /** What this table's bots have publicly claimed, for the headless harness. */
+  botLedger(code: string) {
+    return this.bots.ledger(code);
+  }
+
   activeCodes(): ReadonlySet<string> {
     return new Set(this.sessions.keys());
   }
@@ -123,9 +129,17 @@ export class MafiaManager {
 
   /* ------------------------------ mutations ------------------------------ */
 
-  join(code: string, name: string, presetToken?: string, account?: string): { player: MafiaPlayer; state: MafiaState } {
+  join(
+    code: string,
+    name: string,
+    presetToken?: string,
+    account?: string,
+    locale?: Locale
+  ): { player: MafiaPlayer; state: MafiaState } {
     const state = this.mustGet(code);
     const { player } = joinMafia(state, name, randomBytes(24).toString('base64url'), randomUUID(), presetToken, account);
+    // Only matters for what the bots speak; see `spokenLocale`.
+    if (locale) player.locale = locale;
     this.afterChange(state);
     return { player, state };
   }

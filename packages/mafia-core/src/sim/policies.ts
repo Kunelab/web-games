@@ -1,5 +1,15 @@
 import type { RoleId } from '../roles.js';
 import { familyOf, isSoloKiller, roleDef } from '../roles.js';
+import {
+  advanceDesperation,
+  agendaOf,
+  CALM,
+  pickMask,
+  stanceOf,
+  type Agenda,
+  type Pressure,
+  type Stance
+} from '../social.js';
 import type { IntelEntry, MafiaPlayer } from '../state.js';
 
 /**
@@ -46,7 +56,16 @@ export const DEFAULT_PROFILE: Personality = {
   courage: 0.5
 };
 
-export type ClaimKind = 'accuse' | 'clear' | 'hint' | 'role-claim';
+/**
+ * What a seat can say out loud.
+ *
+ * `question` and `account` are what make a day phase feel like a day phase:
+ * somebody asks a seat to say where it was, and the answer goes on the record
+ * where a lookout can later contradict it. That contradiction is the only
+ * mechanism in this model that catches a liar *without* waiting for a corpse to
+ * prove it — which is what a real table spends its afternoons doing.
+ */
+export type ClaimKind = 'accuse' | 'clear' | 'hint' | 'role-claim' | 'question' | 'account' | 'taunt' | 'sighting';
 
 /** A public statement about a house. `truthful` is ground truth, sim-stamped. */
 export interface Claim {
@@ -57,6 +76,18 @@ export interface Claim {
   truthful: boolean;
   /** role-claim only: "je suis <rôle>" (targetSlot is the claimer). */
   claimedRole?: RoleId;
+  /**
+   * account only: what the claimer says they did last night. `home` means
+   * "I went nowhere"; otherwise `targetSlot` is the house they admit visiting.
+   */
+  account?: 'home' | 'visited';
+}
+
+/** One day's closing accusation, for the town's pattern-readers. */
+export interface VoteRecord {
+  day: number;
+  voterSlot: number;
+  targetSlot: number;
 }
 
 /** One completed trial as the whole town saw it: verdicts included. */
@@ -91,7 +122,7 @@ export interface PublicInfo {
   /** Completed trials with their public ballots. */
   trials: TrialRecord[];
   /** Final accusations of past days: who was pushing whom. */
-  voteHistory: { day: number; voterSlot: number; targetSlot: number }[];
+  voteHistory: VoteRecord[];
   revealedMayorSlot: number | null;
   trialSlot: number | null;
   claims: Claim[];
@@ -104,6 +135,18 @@ export interface Brain {
   checked: Set<number>;
   /** Killers only: who I went for last night, for the failed-kill deduction. */
   lastKillTarget: number | null;
+  /**
+   * How cornered this seat feels, 0..1, carried between rounds. Starts calm on
+   * day zero and is advanced once per day by `feelPressure`.
+   */
+  desperation: number;
+  /** Where I actually went last night, so `account` can be honest — or not. */
+  wentTo: number | null;
+}
+
+/** A fresh brain, calm and with nothing to hide yet. */
+export function makeBrain(slot: number, personality: Personality): Brain {
+  return { slot, personality, checked: new Set<number>(), lastKillTarget: null, desperation: CALM, wentTo: null };
 }
 
 export function makePersonality(profile: Personality, rng: () => number): Personality {
@@ -198,6 +241,102 @@ export function parityPressure(info: PublicInfo): number {
   return 0;
 }
 
+/* ----------------------------- desperation ------------------------------- */
+
+/**
+ * How badly this seat's side is losing, 0..1 — the floor under its panic.
+ *
+ * Deliberately asymmetric, because "losing" means opposite things across the
+ * table. The town loses to the parity clock. A family loses when its own numbers
+ * thin out and the graveyard fills with its colours. A butcher, having no bloc,
+ * measures how few strangers are left to hide among. And a Jester "loses" by
+ * being ignored, which is why his clock runs on *inattention*.
+ */
+export function losingClock(self: MafiaPlayer, agenda: Agenda, info: PublicInfo, allies: ReadonlySet<number>): number {
+  if (agenda === 'jester') {
+    // Nobody has looked at him in days: that is his emergency.
+    const heat = votesAgainst(self.slot, info) + (info.trialSlot === self.slot ? 3 : 0);
+    const ignored = Math.max(0, 1 - heat / 3);
+    return info.day >= 3 ? ignored : ignored * 0.4;
+  }
+
+  if (agenda === 'town' || agenda === 'passenger' || agenda === 'parasite') {
+    // The parity clock, straight. Parasites read it inverted below.
+    const clock = parityPressure(info);
+    return agenda === 'parasite' ? Math.max(0, 1 - clock) * 0.5 : clock;
+  }
+
+  // Families and butchers: how thin am I, and how much of my side is already cold.
+  const mine = [...allies].filter((slot) => info.aliveSlots.includes(slot)).length + 1;
+  const theirs = Math.max(1, info.aliveSlots.length - mine);
+  const buried = [...info.deadRoles.values()].filter((role) => isEvilRole(role)).length;
+  const thin = Math.min(1, Math.max(0, 1 - mine / Math.max(2, theirs)));
+  return Math.min(1, thin * 0.75 + Math.min(0.35, buried * 0.12));
+}
+
+/**
+ * Advances one seat's desperation for the day and hands back the stance it
+ * implies. Called once per dawn, before anything is decided, so every choice
+ * that morning is made in the same mood.
+ */
+export function feelPressure(
+  self: MafiaPlayer,
+  brain: Brain,
+  info: PublicInfo,
+  allies: ReadonlySet<number>
+): { agenda: Agenda; stance: Stance; desperation: number } {
+  const agenda = agendaOf(self.role!);
+  const outed = info.claims.some(
+    (claim) => claim.kind === 'role-claim' && claim.targetSlot === self.slot && claim.claimerSlot !== self.slot
+  );
+  const pressure: Pressure = {
+    day: info.day,
+    aliveCount: info.aliveSlots.length,
+    votesAgainstMe: votesAgainst(self.slot, info),
+    onTrial: info.trialSlot === self.slot,
+    roleOuted: outed,
+    targetedLastNight: self.intel.some((entry) => entry.night === info.day - 1 && entry.kind === 'saved'),
+    losingClock: losingClock(self, agenda, info, allies)
+  };
+  brain.desperation = advanceDesperation(brain.desperation, pressure);
+  return {
+    agenda,
+    desperation: brain.desperation,
+    stance: stanceOf(agenda, brain.desperation, brain.personality)
+  };
+}
+
+/**
+ * Seats caught out by their own mouth: they said they stayed home, and somebody
+ * credible says they saw them out.
+ *
+ * The evidence has to be a **sighting** specifically — a lookout's doorstep, a
+ * detective's tail, a spy's ear — and not merely an accusation. That distinction
+ * is the whole mechanism. Accepting any credible accusation as a contradiction
+ * was the first version, and it did the opposite of its job: it made "I stayed
+ * home" a liability for the honest (a framed townie telling the truth got hit
+ * twice) while adding no information the board did not already have. Measured
+ * cost of that mistake: correct lynches fell by up to nine points and the
+ * families picked up every one of them.
+ *
+ * Now the loop is tight. Asking is cheap, answering is forced, "home" is the
+ * comfortable lie, and exactly one kind of role can prove it false — so the
+ * town's afternoon of questions is worth having, and the liar's risk is real.
+ */
+export function contradicted(slot: number, info: PublicInfo): boolean {
+  const stayedHome = info.claims.some(
+    (claim) => claim.kind === 'account' && claim.claimerSlot === slot && claim.account === 'home'
+  );
+  if (!stayedHome) return false;
+  return info.claims.some(
+    (claim) =>
+      claim.kind === 'sighting' &&
+      claim.targetSlot === slot &&
+      claim.claimerSlot !== slot &&
+      claimerWeight(claim.claimerSlot, info) >= 1
+  );
+}
+
 /**
  * Process of elimination: the seats that could still be the killer, once the
  * cleared, the trusted and the accounted-for are crossed off. When this set
@@ -284,8 +423,13 @@ export function suspicion(targetSlot: number, self: MafiaPlayer, info: PublicInf
     const weight = claimerWeight(claim.claimerSlot, info);
     if (claim.kind === 'accuse') score += 2.0 * weight;
     if (claim.kind === 'hint') score += 0.8 * weight;
+    // Being out at night is not a crime — half the town is out at night.
+    if (claim.kind === 'sighting') score += 0.5 * weight;
     if (claim.kind === 'clear') score -= 2.2 * weight;
   }
+
+  // Being out at night *after saying you were home* is a different matter.
+  if (contradicted(targetSlot, info)) score += 3;
 
   // A proven liar is himself a prime candidate.
   if (provenLiar(targetSlot, info)) score += 2.5;
@@ -392,9 +536,22 @@ export function decideDay(
   const others = info.aliveSlots.filter((slot) => slot !== self.slot);
   if (others.length === 0) return decision;
 
-  const publish = (targetSlot: number, kind: ClaimKind, claimedRole?: RoleId) => {
+  // The mood this seat woke up in. `feelPressure` advanced the meter at dawn;
+  // everything below reads it rather than recomputing danger ad hoc.
+  const agenda = agendaOf(role);
+  const stance = stanceOf(agenda, brain.desperation, brain.personality);
+
+  const publish = (targetSlot: number, kind: ClaimKind, claimedRole?: RoleId, account?: 'home' | 'visited') => {
     if (!alreadyClaimed(info, self.slot, targetSlot, kind)) {
-      decision.publishes.push({ day: info.day, claimerSlot: self.slot, targetSlot, kind, truthful: false, claimedRole });
+      decision.publishes.push({
+        day: info.day,
+        claimerSlot: self.slot,
+        targetSlot,
+        kind,
+        truthful: false,
+        claimedRole,
+        account
+      });
     }
   };
 
@@ -468,7 +625,11 @@ export function decideDay(
       );
       if (watch && rng() < brain.personality.claimRate) {
         for (const visitor of watch.slots ?? []) {
-          if (info.aliveSlots.includes(visitor)) publish(visitor, 'accuse');
+          if (!info.aliveSlots.includes(visitor)) continue;
+          // Both, and they do different work: the accusation points, the
+          // sighting is what catches "I was home" in a lie.
+          publish(visitor, 'accuse');
+          publish(visitor, 'sighting');
         }
       }
     }
@@ -482,7 +643,19 @@ export function decideDay(
           info.aliveSlots.includes(entry.targetSlot) &&
           (entry.slots ?? []).some((slot) => info.lastNightDeathSlots.has(slot))
       );
-      if (caught && rng() < Math.max(speakChance, 0.6)) publish(caught.targetSlot, 'accuse');
+      if (caught && rng() < Math.max(speakChance, 0.6)) {
+        publish(caught.targetSlot, 'accuse');
+        publish(caught.targetSlot, 'sighting');
+      }
+      // Even a tail that led nowhere interesting establishes that they moved.
+      const seen = self.intel.find(
+        (entry) =>
+          entry.kind === 'tracked' &&
+          entry.night === info.day - 1 &&
+          info.aliveSlots.includes(entry.targetSlot) &&
+          (entry.slots ?? []).length > 0
+      );
+      if (seen && rng() < speakChance) publish(seen.targetSlot, 'sighting');
     }
 
     // The bus driver's deduction: I swapped A and B, and B died in A's bed —
@@ -521,6 +694,115 @@ export function decideDay(
       if (saved) publish(saved.targetSlot, 'clear');
     }
 
+    /* ---------------- The afternoon: ask, answer, needle ---------------- */
+
+    /**
+     * "Where were you last night?"
+     *
+     * The one thing every seat can do regardless of role, and the thing that
+     * turns a day phase from a voting queue into a conversation. Asked of the
+     * seats nobody has pinned down yet — the quiet ones who have neither claimed
+     * anything nor been asked — because an account is only worth extracting from
+     * somebody who has not already given one.
+     */
+    if (info.day >= 2 && rng() < stance.seekInfo * 0.5) {
+      const unaccounted = others.filter(
+        (slot) =>
+          !teammates.has(slot) &&
+          !info.claims.some((claim) => claim.kind === 'account' && claim.claimerSlot === slot) &&
+          !info.claims.some((claim) => claim.kind === 'question' && claim.targetSlot === slot)
+      );
+      const asked = unaccounted[Math.floor(rng() * unaccounted.length)];
+      if (asked !== undefined) publish(asked, 'question');
+    }
+
+    /**
+     * And answering when asked, which is where the lying starts.
+     *
+     * An honest seat says where it actually went — which outs it as a visiting
+     * role, so even the town does not always want to. A dishonest one says it
+     * stayed home, and `contradicted` will hang it if a lookout ever says
+     * otherwise. That is the whole trap: the safe answer is the checkable one.
+     */
+    const beingAsked = info.claims.some((claim) => claim.kind === 'question' && claim.targetSlot === self.slot);
+    const alreadyAnswered = info.claims.some(
+      (claim) => claim.kind === 'account' && claim.claimerSlot === self.slot && claim.day === info.day
+    );
+    if (beingAsked && !alreadyAnswered) {
+      const honest = rng() < stance.answerHonestly;
+      if (honest && brain.wentTo !== null && brain.wentTo !== self.slot) {
+        publish(brain.wentTo, 'account', undefined, 'visited');
+      } else if (honest) {
+        publish(self.slot, 'account', undefined, 'home');
+      } else {
+        // The comfortable lie, and the one the record can catch.
+        publish(self.slot, 'account', undefined, 'home');
+      }
+    }
+
+    /**
+     * Somebody said they were home and a credible voice put them on a doorstep.
+     * Every agenda piles onto that — the town because it is real evidence, the
+     * rest because a wagon that is already rolling is the cheapest place to
+     * spend a vote.
+     */
+    const caught = others.find((slot) => !teammates.has(slot) && contradicted(slot, info));
+    if (caught !== undefined && rng() < 0.7) publish(caught, 'accuse');
+
+    /**
+     * Noise, on purpose. A taunt carries no evidential weight anywhere in this
+     * model — it exists so the record contains things that are not information,
+     * because a square where every sentence is a data point is not a square.
+     */
+    if (rng() < stance.troll * 0.35) {
+      const mark = others[Math.floor(rng() * others.length)];
+      if (mark !== undefined) publish(mark, 'taunt');
+    }
+
+    /* --------------------------- masks and gambits --------------------------- */
+
+    /**
+     * The Jester's audition.
+     *
+     * He claims something big and checkable — Veteran, Jailor, Mayor — precisely
+     * so the town calls it a lie and reaches for the rope, and he pairs it with
+     * accusations that contradict what the room can see. Both are the product.
+     */
+    if (agenda === 'jester') {
+      const burned = burnedFaces(info);
+      const mask = pickMask('jester', stance, rng, burned);
+      if (mask) publish(self.slot, 'role-claim', mask);
+      if (rng() < stance.falseAccuse) {
+        // Deliberately the *least* suspected seat: contradicting the room is
+        // how he gets called a liar.
+        const calmest = others
+          .filter((slot) => !contradicted(slot, info))
+          .map((slot) => ({ slot, heat: suspicion(slot, self, info, rng) }))
+          .sort((a, b) => a.heat - b.heat)[0];
+        if (calmest) publish(calmest.slot, 'accuse');
+      }
+    }
+
+    /**
+     * And the mirror of it: a cornered villain claiming to *be* the Jester,
+     * because hanging a jester hands him the game and the whole room knows it.
+     * The best sentence available to a mafioso with three votes on his head.
+     */
+    if (agenda !== 'jester' && agenda !== 'town' && stance.jesterGambit > 0) {
+      const mask = pickMask(agenda, stance, rng, burnedFaces(info));
+      if (mask) publish(self.slot, 'role-claim', mask);
+    }
+
+    /**
+     * Buying a seat at the table. Evils and parasites vote with the room on
+     * things they actually agree about — a confirmed evil corpse's accuser, a
+     * seat the record has already caught — because credibility is spent late and
+     * has to be earned early.
+     */
+    if (rng() < stance.buildTrust * 0.3 && caught !== undefined && !teammates.has(caught)) {
+      publish(caught, 'accuse');
+    }
+
     // Neutral parasites fake investigations too: a scumbag or a witch
     // pointing a finger costs them nothing they weren't already losing.
     if ((role === 'scumbag' || role === 'witch') && rng() < brain.personality.deceit * 0.25) {
@@ -532,7 +814,7 @@ export function decideDay(
     // Family lies, priced. A fake accusation goes where suspicion already
     // lives — piling on is safe, inventing is how liars get caught.
     if (familyOf(role) !== null) {
-      if (rng() < brain.personality.deceit * 0.2) {
+      if (rng() < stance.falseAccuse * 0.4) {
         const marks = others
           .filter((slot) => !teammates.has(slot))
           .map((slot) => ({ slot, heat: votesAgainst(slot, info) + info.claims.filter((c) => c.targetSlot === slot && c.kind === 'accuse').length }))
@@ -540,20 +822,36 @@ export function decideDay(
         const mark = marks[0];
         if (mark && (mark.heat > 0 || rng() < 0.25)) publish(mark.slot, 'accuse');
       }
-      // With the rope close, wear a harmless face: "voyons, je suis citoyen."
-      if (endangered && rng() < brain.personality.deceit * 0.6) {
-        const safeFaces: RoleId[] = ['citizen', 'escort', 'lookout', 'crier'];
-        publish(self.slot, 'role-claim', safeFaces[Math.floor(rng() * safeFaces.length)]);
+      // With the rope close, wear a face. Which face is `pickMask`'s business —
+      // a boring one to get through the day, a frightening one to get through
+      // the night, or the Jester's, which makes hanging you a mistake.
+      if (rng() < stance.fakeClaim * 0.7) {
+        const mask = pickMask(agenda, stance, rng, burnedFaces(info));
+        if (mask) publish(self.slot, 'role-claim', mask);
       }
     }
 
-    // Lodge mates and family alike cover an endangered brother — the masons'
-    // clear happens to be true, the family's happens to be a lie.
-    if (teammates.size > 0 && rng() < brain.personality.deceit * 0.5 + (familyOf(role) === null ? 0.3 : 0)) {
-      const brotherInDanger = [...teammates].find(
-        (slot) => info.aliveSlots.includes(slot) && (votesAgainst(slot, info) >= 2 || info.trialSlot === slot)
-      );
-      if (brotherInDanger !== undefined) publish(brotherInDanger, 'clear');
+    /**
+     * Covering a brother — or deciding not to.
+     *
+     * The lodge always vouches; the family weighs it. Once `sacrificeAlly`
+     * outruns the instinct to protect, the smart play is silence: let the room
+     * have him, keep the credit for having agreed with them, and be two votes
+     * safer tomorrow. Past that, the family actively hands him over — which buys
+     * more trust than any claim in this model can.
+     */
+    const brotherInDanger = [...teammates].find(
+      (slot) => info.aliveSlots.includes(slot) && (votesAgainst(slot, info) >= 2 || info.trialSlot === slot)
+    );
+    if (brotherInDanger !== undefined) {
+      const family = familyOf(role) !== null;
+      const feedHim = family && rng() < stance.sacrificeAlly;
+      if (feedHim) {
+        // Not a word in his defence, and a vote to prove the point.
+        if (rng() < stance.sacrificeAlly * 0.6) publish(brotherInDanger, 'accuse');
+      } else if (rng() < (family ? stance.fakeClaim * 0.6 : 0.55)) {
+        publish(brotherInDanger, 'clear');
+      }
     }
 
     if (role === 'executioner' && self.obsessionId && rng() < brain.personality.deceit) {
@@ -561,10 +859,6 @@ export function decideDay(
       if (obsession !== null && info.aliveSlots.includes(obsession)) publish(obsession, 'accuse');
     }
 
-    if (role === 'jester' && rng() < brain.personality.deceit * 0.8) {
-      const mark = others[Math.floor(rng() * others.length)];
-      if (mark !== undefined) publish(mark, 'accuse');
-    }
   }
 
   /* -------- Vote. -------- */
@@ -613,6 +907,22 @@ export function decideDay(
   }
 
   return decision;
+}
+
+/**
+ * Roles it would be suicide to claim: already in the ground, or already worn by
+ * somebody still breathing. Claiming a burned face is how a liar gets caught in
+ * one sentence, so every mask draw filters through this.
+ */
+function burnedFaces(info: PublicInfo): Set<RoleId> {
+  const burned = new Set<RoleId>();
+  for (const role of info.deadRoles.values()) burned.add(role);
+  for (const claim of info.claims) {
+    if (claim.kind === 'role-claim' && claim.claimedRole && info.aliveSlots.includes(claim.claimerSlot)) {
+      burned.add(claim.claimedRole);
+    }
+  }
+  return burned;
 }
 
 function alreadyClaimed(info: PublicInfo, claimerSlot: number, targetSlot: number, kind: ClaimKind): boolean {
@@ -699,14 +1009,28 @@ export function decideBallot(
   rng: () => number
 ): 'guilty' | 'innocent' | 'abstain' {
   const role = self.role!;
-  if (teammates.has(accusedSlot)) return 'innocent';
+  const agenda = agendaOf(role);
+  const stance = stanceOf(agenda, brain.desperation, brain.personality);
+
+  if (teammates.has(accusedSlot)) {
+    /**
+     * The brother at the barre. Voting innocent is the reflex and, once the
+     * family is cornered, the wrong move: a public "guilty" on one of your own
+     * is the single most trust-buying thing a mafioso can do, and it costs a man
+     * the room was going to take anyway.
+     */
+    return rng() < stance.sacrificeAlly ? 'guilty' : 'innocent';
+  }
   if (role === 'executioner' && (self.obsessionSlotHint ?? null) === accusedSlot) return 'guilty';
   if (roleDef(role).faction === 'mafia') return 'guilty';
-  if (role === 'jester') return rng() < 0.5 ? 'guilty' : 'innocent';
+  // Any hanging is a good hanging: it keeps the rope in the room's hand and the
+  // Jester in the running for it.
+  if (role === 'jester') return rng() < 0.35 + stance.pushHard * 0.5 ? 'guilty' : 'innocent';
 
   const score = suspicion(accusedSlot, self, info, rng);
-  // At LyLo the town leans guilty: sparing the wrong person ends the game.
-  const pressure = parityPressure(info);
+  // At LyLo the town leans guilty: sparing the wrong person ends the game. A
+  // seat that personally feels the clock leans harder still.
+  const pressure = Math.max(parityPressure(info), stance.pushHard * 0.6);
   if (score >= 1.2 - 0.5 * pressure) return 'guilty';
   if (score <= 0.4 - 0.4 * pressure) return 'innocent';
   return rng() < brain.personality.herd + 0.25 * pressure ? 'guilty' : 'innocent';
@@ -725,10 +1049,22 @@ export function decideNightTarget(
   rng: () => number
 ): number | null {
   const role = self.role!;
+  const stance = stanceOf(agendaOf(role), brain.desperation, brain.personality);
+  /**
+   * How far down the hit list tonight's knife slips.
+   *
+   * A comfortable killer can afford to be sloppy; a cornered one goes straight
+   * for the biggest threat, because there may not be a tomorrow to correct it.
+   * This is the whole of what desperation does at night, and it is enough.
+   */
+  const slip = Math.max(0.05, 0.25 - stance.pushHard * 0.2);
   const random = () => legalTargets[Math.floor(rng() * legalTargets.length)] ?? null;
   if (legalTargets.length === 0) {
-    // Self-targeted powers. Vests are free comfort; alerts are rationed nerve.
-    if (actionType === 'alert') return rng() < 0.25 + brain.personality.courage * 0.4 ? self.slot : null;
+    // Self-targeted powers. Vests are free comfort; alerts are rationed nerve —
+    // and a veteran who feels hunted spends one.
+    if (actionType === 'alert') {
+      return rng() < 0.25 + brain.personality.courage * 0.4 + stance.pushHard * 0.3 ? self.slot : null;
+    }
     return self.slot;
   }
 
@@ -787,7 +1123,7 @@ export function decideNightTarget(
       .map((entry) => entry.slot);
     ranked.push(...trusted);
     const list = [...new Set(ranked)];
-    const choice = list.length > 0 ? pickRanked(list, rng) : (pool[Math.floor(rng() * pool.length)] ?? null);
+    const choice = list.length > 0 ? pickRanked(list, rng, slip) : (pool[Math.floor(rng() * pool.length)] ?? null);
     brain.lastKillTarget = choice;
     return choice;
   }

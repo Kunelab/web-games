@@ -20,6 +20,9 @@
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "lint": "eslint ."
   },
+  "dependencies": {
+    "i18n": "workspace:*"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.2.0",

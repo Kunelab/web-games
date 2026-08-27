@@ -1,13 +1,17 @@
 {
-  "name": "mafia-core",
+  "name": "i18n",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Mafia rules: roles, day/night cycle, votes and trials, night resolution, victory conditions, points and the realtime protocol. Pure, imported by both apps.",
+  "description": "Message keys and locale catalogues. The server sends keys and parameters; each client loads its own language plus the English fallback and renders them.",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./locales/*": {
+      "types": "./dist/locales/*.d.ts",
+      "default": "./dist/locales/*.js"
     }
   },
   "files": [
@@ -18,13 +22,7 @@
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
-    "sim": "tsx src/sim/cli.ts",
     "lint": "eslint ."
-  },
-  "dependencies": {
-    "chat-core": "workspace:*",
-    "i18n": "workspace:*",
-    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

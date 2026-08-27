@@ -10,7 +10,7 @@
     "pnpm": ">=10"
   },
   "scripts": {
-    "prepare": "pnpm --filter game-core build && pnpm --filter coronaz-core build && pnpm --filter chat-core build && pnpm --filter mafia-core build",
+    "prepare": "pnpm --filter i18n build && pnpm --filter game-core build && pnpm --filter coronaz-core build && pnpm --filter chat-core build && pnpm --filter mafia-core build",
     "dev": "pnpm --parallel --filter \"./packages/*\" --filter \"./apps/*\" dev",
     "build": "pnpm --filter game-core build && pnpm --filter coronaz-core build && pnpm --filter chat-core build && pnpm --filter mafia-core build && pnpm --parallel --filter \"./apps/*\" build",
     "typecheck": "pnpm -r typecheck",

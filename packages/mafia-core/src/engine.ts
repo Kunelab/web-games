@@ -1,8 +1,10 @@
 import { post, systemPost, visibleTo, type ChatMessage } from 'chat-core';
+import type { Msg } from 'i18n';
+
+import { BODY, CAUSE, M, type DeathSource } from './messages.js';
 
 import {
   BYSTANDER_ROLES,
-  FACTION_LABELS,
   FAMILIES,
   familyOf,
   isSoloKiller,
@@ -60,8 +62,8 @@ function notify(player: MafiaPlayer, text: string): void {
   if (player.notifications.length > 60) player.notifications.splice(0, player.notifications.length - 60);
 }
 
-function announce(state: MafiaState, text: string, now: number): void {
-  systemPost(state.chat, 'day', text, now);
+function announce(state: MafiaState, line: Msg, now: number): void {
+  systemPost(state.chat, 'day', line, now);
 }
 
 /**
@@ -71,13 +73,13 @@ function announce(state: MafiaState, text: string, now: number): void {
  * table still receives it in full; the flag is not privacy, it is a label saying
  * "this line is a reveal", for surfaces that more than one person is looking at.
  */
-function announceReveal(state: MafiaState, text: string, now: number): void {
-  systemPost(state.chat, 'day', text, now, { reveals: true });
+function announceReveal(state: MafiaState, line: Msg, now: number): void {
+  systemPost(state.chat, 'day', line, now, { reveals: true });
 }
 
 /** A line of the dawn report, and whether it gives an identity away. */
 interface Announcement {
-  text: string;
+  line: Msg;
   reveals?: boolean;
 }
 
@@ -199,7 +201,7 @@ export function startMafia(state: MafiaState, now: number, rng: () => number): v
     }
   }
 
-  beginDay(state, now, [{ text: 'La partie commence. Bienvenue en ville — apprenez à vous connaître, la nuit tombe vite.' }]);
+  beginDay(state, now, [{ line: M.gameStart() }]);
 }
 
 /* -------------------------------- chat ---------------------------------- */
@@ -251,7 +253,7 @@ export function whisperTo(
 
   const result = post(state.chat, { channel, authorId: fromId, authorName: from.name, text, at: now });
   if (result.ok) {
-    announce(state, `${from.name} murmure à l’oreille de ${target.name}…`, now);
+    announce(state, M.whisperSeen(from.name, target.name), now);
   }
   return result;
 }
@@ -274,13 +276,7 @@ export function revealMayor(state: MafiaState, playerId: string, now: number): A
   if (player.revealed) return { ok: false, error: 'Déjà révélé' };
 
   player.revealed = true;
-  announce(
-    state,
-    player.role === 'mayor'
-      ? `${player.name} sort son écharpe : c'est le Maire ! Son vote compte triple.`
-      : `${player.name} sort son insigne : c'est le Prévôt ! Aujourd'hui, la ville juge sans défense — et à la chaîne.`,
-    now
-  );
+  announce(state, player.role === 'mayor' ? M.mayorReveal(player.name) : M.marshallReveal(player.name), now);
   return { ok: true };
 }
 
@@ -324,7 +320,7 @@ export function callCourt(state: MafiaState, playerId: string, now: number): Act
   state.trialsToday += 1;
   state.phaseEndsAt = now + state.config.judgementMs;
   const accused = state.players[accusedId];
-  announce(state, `Une voix tonne : « TRIBUNAL D'EXCEPTION ! » ${accused.name} est jugé séance tenante, sans défense.`, now);
+  announce(state, M.trialCourt(accused.name), now);
   return { ok: true };
 }
 
@@ -390,11 +386,11 @@ export function castVote(state: MafiaState, voterId: string, targetSlot: number 
       // The marshall's day: straight to the verdict.
       state.stage = 'judgement';
       state.phaseEndsAt = now + state.config.judgementMs;
-      announce(state, `${target.name} est traîné à la barre. Le Prévôt refuse la défense : votez !`, now);
+      announce(state, M.trialNoDefence(target.name), now);
     } else {
       state.stage = 'defense';
       state.phaseEndsAt = now + state.config.defenseMs;
-      announce(state, `La ville traîne ${target.name} à la barre. Défendez-vous !`, now);
+      announce(state, M.trialDragged(target.name), now);
     }
   }
   return { ok: true };
@@ -534,10 +530,10 @@ function beginDay(state: MafiaState, now: number, announcements: Announcement[])
   state.nightActions = {};
   state.phaseEndsAt = now + (state.day === 1 ? Math.round(state.config.dayMs * 0.6) : state.config.dayMs);
 
-  announce(state, `— Jour ${state.day} —`, now);
+  announce(state, M.dayHeader(state.day), now);
   for (const line of announcements) {
-    if (line.reveals) announceReveal(state, line.text, now);
-    else announce(state, line.text, now);
+    if (line.reveals) announceReveal(state, line.line, now);
+    else announce(state, line.line, now);
   }
 }
 
@@ -549,13 +545,13 @@ function beginNight(state: MafiaState, now: number): void {
   state.nightActions = {};
   state.phaseEndsAt = now + state.config.nightMs;
 
-  announce(state, `La nuit ${state.day} tombe sur la ville. Fermez vos portes.`, now);
+  announce(state, M.nightFall(state.day), now);
 
   const jailed = state.jailedId ? state.players[state.jailedId] : null;
   const jailor = Object.values(state.players).find((player) => player.role === 'jailor' && player.alive);
   if (jailed?.alive && jailor?.alive) {
     notify(jailed, 'On vous a traîné en cellule pour la nuit. Le Geôlier vous écoute.');
-    systemPost(state.chat, jailChannel(state.day), `${jailed.name} est en cellule. La conversation est privée.`, now);
+    systemPost(state.chat, jailChannel(state.day), M.jailLocked(jailed.name), now);
   } else {
     state.jailedId = null;
   }
@@ -571,7 +567,7 @@ export function advanceMafia(state: MafiaState, now: number, rng: () => number):
     state.stage = 'judgement';
     state.phaseEndsAt = now + state.config.judgementMs;
     const accused = state.trial ? state.players[state.trial.accusedId] : null;
-    if (accused) announce(state, `La ville juge ${accused.name} : coupable ou innocent ?`, now);
+    if (accused) announce(state, M.trialJudging(accused.name), now);
     return;
   }
   if (state.phase === 'day' && state.stage === 'judgement') {
@@ -582,7 +578,7 @@ export function advanceMafia(state: MafiaState, now: number, rng: () => number):
     const announcements = resolveNight(state, rng);
     if (checkVictory(state, now)) return;
     if (state.day >= state.config.maxDays) {
-      endGame(state, now, 'La ville, épuisée, déclare un match nul.');
+      endGame(state, now, M.winDraw());
       return;
     }
     beginDay(state, now, announcements);
@@ -611,7 +607,7 @@ function concludeTrial(state: MafiaState, now: number): void {
     else innocent += weight;
   }
 
-  announce(state, `Verdict : ${guilty} coupable, ${innocent} innocent.`, now);
+  announce(state, M.trialVerdict(guilty, innocent), now);
 
   // The ballots go public with the verdict: the town sees who wanted the rope
   // and who wanted mercy. Saving a mafioso in public is how trust dies.
@@ -645,10 +641,14 @@ function concludeTrial(state: MafiaState, now: number): void {
    * weight above one, and everyone can already see his sash.
    */
   if (trial.court) {
-    announce(state, 'Le tribunal d’exception a voté à bulletin secret : aucun nom ne sortira de cette salle.', now);
+    announce(state, M.trialSecret(), now);
   } else {
-    const names = (ids: string[]) => ids.map((id) => state.players[id]?.name).filter(Boolean).join(', ') || 'personne';
-    announce(state, `Ont voté coupable : ${names(guiltyIds)}. Ont voté innocent : ${names(innocentIds)}.`, now);
+    const names = (ids: string[]) => {
+      const listed = ids.map((id) => state.players[id]?.name).filter(Boolean).join(', ');
+      // "nobody" is a word, so it travels as a fragment rather than a literal.
+      return listed || M.nobody();
+    };
+    announce(state, M.trialBallots(names(guiltyIds), names(innocentIds)), now);
   }
 
   if (guilty > innocent) {
@@ -658,7 +658,7 @@ function concludeTrial(state: MafiaState, now: number): void {
     return;
   }
 
-  announce(state, `${accused.name} est épargné.`, now);
+  announce(state, M.trialSpared(accused.name), now);
   const trialCap = state.config.trialsPerDay + (marshallActive(state) ? 2 : 0);
   if (state.trialsToday >= trialCap) {
     beginNight(state, now);
@@ -680,28 +680,24 @@ function evilRole(role: RoleId): boolean {
  * nobody. Reads the true `role` on purpose: a borrowed face is an examiner's
  * problem, and a role that was genuinely changed reveals what it became.
  */
-function bodyReads(state: MafiaState, player: MafiaPlayer): string {
+function bodyReads(state: MafiaState, player: MafiaPlayer): Msg {
   const role = player.role;
-  if (!role) return 'On ne saura jamais qui il était.';
+  if (!role) return BODY.unknown();
   switch (state.config.revealOnDeath ?? 'role') {
     case 'none':
-      return 'Son secret est mort avec lui.';
-    case 'faction': {
-      const faction = roleDef(role).faction;
-      return faction === 'neutral'
-        ? 'Il ne servait que lui-même.'
-        : `Il était de la ${FACTION_LABELS[faction]}.`;
-    }
+      return BODY.none();
+    case 'faction':
+      return BODY.faction(roleDef(role).faction);
     default:
-      return `C'était ${roleDef(role).name}.`;
+      return BODY.role(role);
   }
 }
 
 function lynch(state: MafiaState, accused: MafiaPlayer, trial: { ballots: Record<string, 'guilty' | 'innocent'> }, now: number): void {
   const role = accused.role!;
-  kill(state, accused, 'day', 'pendu par la ville');
-  announceReveal(state, `${accused.name} se balance au bout de la corde. ${bodyReads(state, accused)}`, now);
-  if (accused.lastWill) announceReveal(state, `Dernières volontés de ${accused.name} : « ${accused.lastWill} »`, now);
+  kill(state, accused, 'day', CAUSE.lynched());
+  announceReveal(state, M.hanged(accused.name, bodyReads(state, accused)), now);
+  if (accused.lastWill) announceReveal(state, M.lastWill(accused.name, accused.lastWill), now);
 
   if (evilRole(role)) {
     for (const [voterId, verdict] of Object.entries(trial.ballots)) {
@@ -714,7 +710,7 @@ function lynch(state: MafiaState, accused: MafiaPlayer, trial: { ballots: Record
     state.winners.push({ playerId: accused.playerId, reason: 'Bouffon pendu : il gagne seul' });
     addPoints(state, accused.playerId, 'solo-win');
     notify(accused, 'Ils vous ont pendu. Vous avez gagné.');
-    announce(state, `Un rire monte du gibet… le Bouffon voulait cette corde. Il gagne.`, now);
+    announce(state, M.winJester(), now);
   }
 
   for (const player of Object.values(state.players)) {
@@ -731,10 +727,16 @@ function lynch(state: MafiaState, accused: MafiaPlayer, trial: { ballots: Record
   }
 }
 
-function kill(state: MafiaState, victim: MafiaPlayer, phase: 'day' | 'night', cause: string): void {
+function kill(
+  state: MafiaState,
+  victim: MafiaPlayer,
+  phase: 'day' | 'night',
+  cause: Msg,
+  source?: DeathSource
+): void {
   victim.alive = false;
   victim.death = { day: state.day, phase, cause };
-  state.deaths.push({ playerId: victim.playerId, day: state.day, phase, cause, role: victim.role! });
+  state.deaths.push({ playerId: victim.playerId, day: state.day, phase, cause, source, role: victim.role! });
 
   // A dead jailor frees his prisoner; a dead prisoner empties the cell.
   const jailor = Object.values(state.players).find((player) => player.role === 'jailor');
@@ -748,8 +750,8 @@ function kill(state: MafiaState, victim: MafiaPlayer, phase: 'day' | 'night', ca
  * follow him down. Loops until stable (a chain of hearts falls link by link).
  * Returns the announcement lines.
  */
-function cascadeBonds(state: MafiaState): string[] {
-  const lines: string[] = [];
+function cascadeBonds(state: MafiaState): Msg[] {
+  const lines: Msg[] = [];
   let changed = true;
   while (changed) {
     changed = false;
@@ -757,8 +759,8 @@ function cascadeBonds(state: MafiaState): string[] {
       if (!player.alive || !player.bondPartnerId) continue;
       const partner = state.players[player.bondPartnerId];
       if (partner && !partner.alive) {
-        kill(state, player, state.phase === 'day' ? 'day' : 'night', 'mort de chagrin');
-        lines.push(`${player.name} s'est éteint de chagrin. ${bodyReads(state, player)}`);
+        kill(state, player, state.phase === 'day' ? 'day' : 'night', CAUSE.grief());
+        lines.push(M.grief(player.name, bodyReads(state, player)));
         changed = true;
       }
     }
@@ -772,7 +774,16 @@ interface Attack {
   attackerId: string;
   targetId: string;
   power: number;
-  label: string;
+  /**
+   * Who struck, as an identifier rather than a sentence.
+   *
+   * The resolver branches on this — whether a doctor can reach the victim, and
+   * whether armour applies — and it used to branch on the French display string
+   * instead (`label === 'le Geôlier'`). A rule keyed on prose is a rule that
+   * breaks the moment somebody improves the prose, and localisation improves all
+   * of it at once.
+   */
+  source: DeathSource;
 }
 
 /**
@@ -1046,7 +1057,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         attackerId: poisoner?.playerId ?? player.playerId,
         targetId: player.playerId,
         power: 2,
-        label: 'le poison'
+        source: 'poison'
       });
     }
   }
@@ -1059,7 +1070,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     if (action?.type !== 'douse' || action.targetId !== player.playerId) continue;
     for (const soaked of players) {
       if (soaked.alive && soaked.doused && soaked.playerId !== player.playerId) {
-        attacks.push({ attackerId: player.playerId, targetId: soaked.playerId, power: 3, label: 'l’Incendiaire' });
+        attacks.push({ attackerId: player.playerId, targetId: soaked.playerId, power: 3, source: 'arsonist' });
       }
     }
   }
@@ -1071,7 +1082,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     if (action?.type !== 'charge' || action.targetId !== player.playerId) continue;
     for (const wired of players) {
       if (wired.alive && wired.charged && wired.playerId !== player.playerId) {
-        attacks.push({ attackerId: player.playerId, targetId: wired.playerId, power: 2, label: 'l’Électromane' });
+        attacks.push({ attackerId: player.playerId, targetId: wired.playerId, power: 2, source: 'electromaniac' });
       }
     }
   }
@@ -1079,7 +1090,6 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   // The family kills: each family's leader orders, an executor carries.
   const familyKillTargets = new Map<FamilyId, string>();
   for (const familyId of Object.keys(FAMILIES) as (keyof typeof FAMILIES)[]) {
-    const meta = FAMILIES[familyId];
     const members = players.filter((entry) => entry.alive && playerFamily(entry) === familyId);
     if (members.length === 0) continue;
     const leader = members.find((entry) => roleDef(entry.role!).familyRank === 'leader');
@@ -1093,7 +1103,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       executors.find((entry) => !blocked.has(entry.playerId)) ??
       (leader && !blocked.has(leader.playerId) ? leader : null);
     if (target && carrier) {
-      attacks.push({ attackerId: carrier.playerId, targetId: target.playerId, power: 1, label: meta.label });
+      attacks.push({ attackerId: carrier.playerId, targetId: target.playerId, power: 1, source: familyId });
       visit(carrier.playerId, target.playerId);
       familyKillTargets.set(familyId, target.playerId);
     }
@@ -1112,13 +1122,13 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       if (player.role === 'vigilante') {
         if (player.charges <= 0) continue;
         player.charges -= 1;
-        attacks.push({ attackerId: player.playerId, targetId: target.playerId, power: 1, label: 'le Justicier' });
+        attacks.push({ attackerId: player.playerId, targetId: target.playerId, power: 1, source: 'vigilante' });
         visit(player.playerId, target.playerId);
       }
       if (player.role === 'serial-killer') {
         // Power 2: the blade goes through night immunity and vests — the
         // Godfather's predator (a 1v1 of untouchables was 84% of all draws).
-        attacks.push({ attackerId: player.playerId, targetId: target.playerId, power: 2, label: 'le Tueur en série' });
+        attacks.push({ attackerId: player.playerId, targetId: target.playerId, power: 2, source: 'serialKiller' });
         visit(player.playerId, target.playerId);
       }
     }
@@ -1126,7 +1136,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     // The massacre: the house, and everyone unlucky enough to be in it. Who was
     // in it is settled below, once every journey has been declared.
     if (action.type === 'rampage' && player.role === 'mass-murderer') {
-      attacks.push({ attackerId: player.playerId, targetId: target.playerId, power: 1, label: 'le Tueur de masse' });
+      attacks.push({ attackerId: player.playerId, targetId: target.playerId, power: 1, source: 'massMurderer' });
       visit(player.playerId, target.playerId);
       rampages.push({ attackerId: player.playerId, houseId: target.playerId });
     }
@@ -1145,7 +1155,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       visits.filter((entry) => entry.targetId === houseId && entry.visitorId !== attackerId).map((entry) => entry.visitorId)
     );
     for (const visitorId of caught) {
-      attacks.push({ attackerId, targetId: visitorId, power: 1, label: 'le Tueur de masse' });
+      attacks.push({ attackerId, targetId: visitorId, power: 1, source: 'massMurderer' });
     }
   }
 
@@ -1154,13 +1164,13 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   const jailed = living(jailedId);
   if (jailor && jailed && actionOf(jailor)?.type === 'jail-execute' && jailor.charges > 0) {
     jailor.charges -= 1;
-    attacks.push({ attackerId: jailor.playerId, targetId: jailed.playerId, power: 3, label: 'le Geôlier' });
+    attacks.push({ attackerId: jailor.playerId, targetId: jailed.playerId, power: 3, source: 'jailor' });
   }
 
   // The veteran shoots everything that moves on his porch.
   for (const { visitorId, targetId } of visits) {
     if (alerted.has(targetId) && visitorId !== targetId) {
-      attacks.push({ attackerId: targetId, targetId: visitorId, power: 2, label: 'le Vétéran' });
+      attacks.push({ attackerId: targetId, targetId: visitorId, power: 2, source: 'veteran' });
     }
   }
 
@@ -1174,8 +1184,8 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     const attacker = state.players[attack.attackerId];
     if (!target || !target.alive || diedTonight.has(target.playerId)) continue;
 
-    const fromJailor = attack.label === 'le Geôlier';
-    const isPoison = attack.label === 'le poison';
+    const fromJailor = attack.source === 'jailor';
+    const isPoison = attack.source === 'poison';
 
     // The cell protects its prisoner from the outside world, never from its keeper.
     if (target.playerId === jailedId && !fromJailor && !isPoison) {
@@ -1206,14 +1216,14 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       const guard = guardList[0];
       if (guard) {
         diedTonight.add(guard.playerId);
-        kill(state, guard, 'night', `mort en protégeant ${target.name}`);
+        kill(state, guard, 'night', CAUSE.guard(target.name));
         addPoints(state, guard.playerId, 'save');
         notify(target, 'Quelqu’un est mort pour vous cette nuit.');
         if (attacker && attacker.playerId !== guard.playerId) {
           const counterDefense = attacker.role && roleDef(attacker.role).nightImmune ? 1 : 0;
           if (2 > counterDefense && !diedTonight.has(attacker.playerId)) {
             diedTonight.add(attacker.playerId);
-            kill(state, attacker, 'night', 'abattu par un garde du corps');
+            kill(state, attacker, 'night', CAUSE.bodyguard());
           } else {
             notify(attacker, 'Un garde du corps vous a repoussé.');
           }
@@ -1242,7 +1252,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     }
 
     diedTonight.add(target.playerId);
-    kill(state, target, 'night', `tué par ${attack.label}`);
+    kill(state, target, 'night', CAUSE.killedBy(attack.source), attack.source);
     if (isPoison) target.poisonedNight = null;
     if (attacker && attacker.playerId !== target.playerId) {
       addPoints(state, attacker.playerId, 'kill');
@@ -1266,7 +1276,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
 
   // Bound hearts stop together.
   for (const line of cascadeBonds(state)) {
-    announcements.push({ text: line, reveals: true });
+    announcements.push({ line, reveals: true });
   }
 
   // The cleaners pass before dawn: a nameless body, one more family secret.
@@ -1286,19 +1296,19 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   for (const player of players) {
     if (diedTonight.has(player.playerId)) {
       const record = state.deaths.find((death) => death.playerId === player.playerId);
-      const roleLine = record?.hidden ? 'Le corps est méconnaissable.' : bodyReads(state, player);
+      const roleLine = record?.hidden ? BODY.cleaned() : bodyReads(state, player);
       announcements.push({
-        text: `${player.name} a été retrouvé mort — ${record?.cause ?? 'sans explication'}. ${roleLine}`,
+        line: M.found(player.name, record?.cause ?? CAUSE.unknown(), roleLine),
         reveals: true
       });
       if (player.lastWill && !record?.hidden) {
         // A will is a claim about roles; on a shared screen it is a reveal too.
-        announcements.push({ text: `Dernières volontés de ${player.name} : « ${player.lastWill} »`, reveals: true });
+        announcements.push({ line: M.lastWill(player.name, player.lastWill), reveals: true });
       }
     }
   }
   if (announcements.length === 0) {
-    announcements.push({ text: 'Personne n’est mort cette nuit. La ville respire — pour l’instant.' });
+    announcements.push({ line: M.nightQuiet() });
   }
 
   // A widowed executioner grieves into motley.
@@ -1443,7 +1453,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         player.cooldownUntilDay = state.day + 2;
         notify(target, 'Des voix dans la nuit… et soudain tout est clair. Vous appartenez à la Secte.');
         notify(player, `${target.name} a rejoint la Secte.`);
-        announcements.push({ text: 'Des cantiques étranges ont résonné cette nuit. La Secte grandit…', reveals: true });
+        announcements.push({ line: M.cultChant(), reveals: true });
       } else {
         notify(player, `${target.name} a résisté à l’appel.`);
       }
@@ -1455,7 +1465,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       player.charges = roleDef(remembered).charges ?? 0;
       notify(player, `Tout vous revient : vous êtes ${roleDef(remembered).name}.`);
       announcements.push({
-        text: `L'Amnésique s'est souvenu : il était ${roleDef(remembered).name}, comme ${target.name}.`,
+        line: M.amnesiacRemembered(roleDef(remembered).name, target.name),
         reveals: true
       });
     }
@@ -1487,27 +1497,27 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
 
 /* ------------------------------- endings -------------------------------- */
 
-const FAMILY_WIN: Record<FamilyId, { reason: string; headline: string }> = {
-  mafia: { reason: 'Victoire de la Mafia', headline: 'La famille contrôle la ville. La Mafia l’emporte !' },
-  triad: { reason: 'Victoire de la Triade', headline: 'Le Dragon déploie ses anneaux. La Triade l’emporte !' },
-  cult: { reason: 'Victoire de la Secte', headline: 'Les cantiques couvrent tout. La Secte l’emporte !' }
+const FAMILY_WIN: Record<FamilyId, { reason: string; headline: Msg }> = {
+  mafia: { reason: 'Victoire de la Mafia', headline: M.winFamily('mafia') },
+  triad: { reason: 'Victoire de la Triade', headline: M.winFamily('triad') },
+  cult: { reason: 'Victoire de la Secte', headline: M.winFamily('cult') }
 };
 
-const SOLO_WIN: Partial<Record<RoleId, { reason: string; headline: string }>> = {
+const SOLO_WIN: Partial<Record<RoleId, { reason: string; headline: Msg }>> = {
   'serial-killer': {
     reason: 'Dernier tueur debout',
-    headline: 'Plus personne ne répond à l’appel… sauf un. Le Tueur en série l’emporte.'
+    headline: M.winSolo('serial-killer')
   },
-  arsonist: { reason: 'Dernière flamme debout', headline: 'La ville n’est plus que cendres. L’Incendiaire l’emporte.' },
-  'mass-murderer': { reason: 'Dernier massacre debout', headline: 'Le silence est total. Le Tueur de masse l’emporte.' },
+  arsonist: { reason: 'Dernière flamme debout', headline: M.winSolo('arsonist') },
+  'mass-murderer': { reason: 'Dernier massacre debout', headline: M.winSolo('mass-murderer') },
   poisoner: {
     reason: 'Dernière fiole debout',
-    headline: 'Tout le monde avait bu quelque chose, un jour. L’Empoisonneur l’emporte.'
+    headline: M.winSolo('poisoner')
   },
-  electromaniac: { reason: 'Dernier courant debout', headline: 'La ville grésille encore. L’Électromane l’emporte.' }
+  electromaniac: { reason: 'Dernier courant debout', headline: M.winSolo('electromaniac') }
 };
 
-function endGame(state: MafiaState, now: number, headline: string): void {
+function endGame(state: MafiaState, now: number, headline: Msg): void {
   state.phase = 'ended';
   state.stage = null;
   state.trial = null;
@@ -1553,7 +1563,7 @@ function endGame(state: MafiaState, now: number, headline: string): void {
     .sort((a, b) => a.slot - b.slot)
     .map((player) => `${player.slot}. ${player.name} — ${roleDef(player.role!).name}`)
     .join(' · ');
-  announceReveal(state, `Les masques tombent : ${roster}`, now);
+  announceReveal(state, M.unmasked(roster), now);
 }
 
 /** True when the game just ended; the caller stops scheduling. */
@@ -1587,7 +1597,7 @@ export function checkVictory(state: MafiaState, now: number): boolean {
         addPoints(state, player.playerId, 'win');
       }
     }
-    endGame(state, now, 'La ville est purgée. La Ville l’emporte !');
+    endGame(state, now, M.winTown());
     return true;
   }
 

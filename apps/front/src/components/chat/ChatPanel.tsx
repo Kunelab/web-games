@@ -1,6 +1,7 @@
 import type { ChatMessage } from 'chat-core';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
+import { useT } from '../../i18n/locale-context';
 import './chat.css';
 
 /**
@@ -35,6 +36,7 @@ function authorHue(authorId: string): number {
 }
 
 export function ChatPanel({ messages, channels, onSend, disabled = false, placeholder }: ChatPanelProps) {
+  const t = useT();
   const [active, setActive] = useState(channels[0]?.id ?? 'day');
   const [draft, setDraft] = useState('');
   const logRef = useRef<HTMLDivElement>(null);
@@ -92,7 +94,9 @@ export function ChatPanel({ messages, channels, onSend, disabled = false, placeh
         {visible.map((message) =>
           message.kind === 'system' ? (
             <p key={message.id} className="chat-line chat-line--system">
-              {message.text}
+              {/* The game's own voice arrives as a key; the reader's language
+                  decides the words. A player's own text never does. */}
+              {message.msg ? t(message.msg) : message.text}
             </p>
           ) : (
             <p key={message.id} className="chat-line">

@@ -1,4 +1,7 @@
 import { createChat, type ChannelRules, type ChatState } from 'chat-core';
+import type { Locale, Msg } from 'i18n';
+
+import type { DeathSource } from './messages.js';
 
 import { familyOf, roleDef, rosterFor, type FamilyId, type NightActionType, type RoleId } from './roles.js';
 import { censusSetup, chaosSetup, fitSetup, rollSetup, setupById, type SlotToken } from './setups.js';
@@ -50,6 +53,16 @@ export interface MafiaConfig {
    */
   revealOnDeath: 'role' | 'faction' | 'none';
   /**
+   * The language this table is *spoken* in.
+   *
+   * Not the same thing as a reader's language, and the distinction is the whole
+   * localisation design. Announcements are keys, so every phone renders them in
+   * its owner's language and a mixed table works. But a bot's chat line is free
+   * text in a shared channel — it cannot be one thing to you and another to the
+   * person arguing with you — so it picks this, once, for the table.
+   */
+  locale: Locale;
+  /**
    * How the roles are dealt: the balanced automatic roster, a proposed
    * template, a player-saved slot list, or pure chaos.
    */
@@ -74,6 +87,7 @@ export const DEFAULT_CONFIG: MafiaConfig = {
   trialsPerDay: 3,
   maxDays: 20,
   revealOnDeath: 'role',
+  locale: 'en',
   setup: { mode: 'auto' }
 };
 
@@ -99,6 +113,13 @@ export interface MafiaPlayer {
   name: string;
   /** Seat number, 1-based, doubles as the house position on the map. */
   slot: number;
+  /**
+   * The language this person reads in, from their browser.
+   *
+   * Only used to decide what the *bots* speak: see `spokenLocale`. A player's own
+   * screen is localised client-side and needs no help from the server.
+   */
+  locale?: Locale;
   /** Kune login when the browser was signed in; points bank here. */
   account?: string;
   isBot: boolean;
@@ -132,7 +153,7 @@ export interface MafiaPlayer {
   /** The same night results, structured. Same privacy as the notifications. */
   intel: IntelEntry[];
   /** Filled at death; role goes public with it. */
-  death: { day: number; phase: 'day' | 'night'; cause: string } | null;
+  death: { day: number; phase: 'day' | 'night'; cause: Msg } | null;
 }
 
 export interface TrialState {
@@ -197,7 +218,23 @@ export interface MafiaState {
     innocentIds: string[];
   }[];
   /** The public graveyard, in order of death. `hidden` = cleaned by a janitor. */
-  deaths: { playerId: string; day: number; phase: 'day' | 'night'; cause: string; role: RoleId; hidden?: boolean }[];
+  deaths: {
+    playerId: string;
+    day: number;
+    phase: 'day' | 'night';
+    cause: Msg;
+    /**
+     * Who struck, when a killer did. Absent for a lynching or a broken heart.
+     *
+     * Stored alongside the sentence because two things count these: the lone-blade
+     * tally that briefly puts the families on the town's side, and the bench. Both
+     * used to do it by searching the French cause text for 'Tueur', which worked
+     * until the day the text stopped being French.
+     */
+    source?: DeathSource;
+    role: RoleId;
+    hidden?: boolean;
+  }[];
   /** Personal and faction wins, filled as they happen and at the end. */
   winners: { playerId: string; reason: string }[];
   points: PointEntry[];
@@ -380,31 +417,55 @@ export function chatRules(): ChannelRules<MafiaState> {
 }
 
 const BOT_NAMES = [
-  'Adèle',
-  'Bastien',
-  'Capucine',
-  'Damien',
-  'Elodie',
-  'Firmin',
-  'Garance',
-  'Honoré',
-  'Inès',
-  'Jules',
-  'Karine',
-  'Léon',
-  'Margot',
-  'Norbert',
-  'Octavie',
-  'Prosper',
-  'Quentin',
-  'Rosalie',
-  'Séverin',
-  'Thaïs',
-  'Ulysse',
-  'Violette',
-  'Wilfried',
-  'Yseult'
+  'Dracula',
+  'Link',
+  'Tarzan',
+  'Lara Croft',
+  'Son Goku',
+  'Pikachu',
+  'Han Solo',
+  'Kratos',
+  'James Bond',
+  'Saitama',
+  'Voldemort',
+  'Gandalf',
+  'Legolas',
+  'Mickey Mouse',
+  'Wolverine',
+  'Batman',
+  'Yoda',
+  'Homer Simpson',
+  'Jon Snow',
+  'Tony Soprano',
+  'Garfield',
+  'Shrek',
+  'Barbie',
+  'Mario'
 ] as const;
+
+/**
+ * What language the bots speak at this table.
+ *
+ * English by default, because a table is usually strangers and English is the
+ * common floor. The one exception is a table with exactly **one** human on it: a
+ * solo player against a house of bots is not a shared room, it is their room, so
+ * the bots meet them in their language.
+ *
+ * Two or more people and it goes back to English — a bot cannot say one thing to
+ * a French speaker and another to a German one in the same channel, and picking
+ * one of their languages would leave the other out of the conversation entirely.
+ *
+ * `config.locale` is the explicit override for a host who knows better than this
+ * heuristic; it wins whenever it is set to something other than the default.
+ */
+export function spokenLocale(state: MafiaState): Locale {
+  const humans = Object.values(state.players).filter((player) => !player.isBot);
+  if (humans.length === 1) {
+    const only = humans[0]?.locale;
+    if (only) return only;
+  }
+  return state.config.locale;
+}
 
 export function nextBotName(state: MafiaState): string {
   const taken = new Set(Object.values(state.players).map((player) => player.name));
