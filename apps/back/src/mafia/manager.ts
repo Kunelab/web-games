@@ -17,6 +17,7 @@ import {
   noteSeatSilent,
   proposeMafiaKick,
   removeMafiaBot,
+  restoreMafiaTable,
   revealMayor,
   sayInChat,
   setLastWill,
@@ -31,7 +32,7 @@ import {
   type MafiaPlayer,
   type MafiaState
 } from 'mafia-core';
-import { resetPresence, type KickRefusal } from 'presence-core';
+import { presenceIdle, type KickRefusal } from 'presence-core';
 import type { ChatMessage } from 'chat-core';
 import type { Locale } from 'i18n';
 import { eq, lt } from 'drizzle-orm';
@@ -260,12 +261,18 @@ export class MafiaManager {
      * It still only starts the window. Nothing is paused here — the tick decides
      * that several seconds later, and only if the phone has not come back.
      */
-    if (connected) noteSeatAlive(state, playerId);
+    if (connected) noteSeatAlive(state, playerId, Date.now());
     else noteSeatSilent(state, playerId, Date.now());
 
+    /**
+     * Through the funnel rather than a bare broadcast, because the pause model
+     * can end the game outright: a town of two that loses one of them has
+     * reached parity, and a game ended that way has careers to bank like any
+     * other. `connected` is part of the projection either way, so the room is
+     * told whether or not the model decided anything.
+     */
     this.runPresence(state);
-    this.listener?.(state);
-    void this.persist(state);
+    this.afterChange(state);
   }
 
   /**
@@ -277,9 +284,14 @@ export class MafiaManager {
   beat(code: string, playerId: string): void {
     const state = this.sessions.get(code);
     if (!state?.players[playerId]) return;
-    if (noteSeatAlive(state, playerId)) {
+    // The beat is recorded either way — that record is what lets the tick notice
+    // the beats stopping later — but only a seat coming back is news.
+    if (noteSeatAlive(state, playerId, Date.now())) {
+      // News, so it goes through the funnel: a seat coming back completes a
+      // resume, and a resume restarts the phase clock — a change worth saving
+      // rather than broadcasting and leaving to the next unrelated write.
       this.runPresence(state);
-      this.listener?.(state);
+      this.afterChange(state);
     }
   }
 
@@ -387,15 +399,12 @@ export class MafiaManager {
 
   /** Every live table, once a second. Cheap: most tables have nothing to decide. */
   private tickAllPresence(): void {
+    const now = Date.now();
     for (const state of this.sessions.values()) {
-      const presence = tablePresence(state);
-      const quiet =
-        presence.pause === null && presence.vote === null && Object.keys(presence.awaySince).length === 0;
-      if (quiet) continue;
-      if (this.runPresence(state)) {
-        this.listener?.(state);
-        void this.persist(state);
-      }
+      if (presenceIdle(tablePresence(state), now)) continue;
+      // The funnel, because a spent pause gives up on seats and giving up on a
+      // seat can end the game: banking the careers is part of ending it.
+      if (this.runPresence(state)) this.afterChange(state);
     }
   }
 
@@ -484,16 +493,9 @@ export class MafiaManager {
       }
       try {
         const state = JSON.parse(row.state) as MafiaState;
-        /**
-         * Every socket in the world is gone, so an absence measured before the
-         * restart says nothing about now — and a pause with nobody left to end it
-         * would freeze the table forever. The kick list survives.
-         */
-        resetPresence(tablePresence(state));
-        // A phase mid-flight when the server died resumes with a fresh clock.
-        if (state.phaseEndsAt !== null) {
-          state.phaseEndsAt = Date.now() + 30_000;
-        }
+        // Clears the absences nothing can measure any more and hands a phase that
+        // was mid-flight — including one a pause had parked — a fresh clock.
+        restoreMafiaTable(state, Date.now());
         this.sessions.set(state.code, state);
         this.armTimer(state);
         restored++;

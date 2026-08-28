@@ -337,6 +337,29 @@ export function cellXY(board: Board, index: number): { x: number; y: number } {
 interface BoardIndex {
   byId: Map<string, Room>;
   connections: Map<string, Connection[]>;
+  /**
+   * The deduplicated adjacency, one entry per room.
+   *
+   * Cached with the rest of the geometry because BFS asks for a room's
+   * neighbours once per visit and a single hero decision runs several searches:
+   * rebuilding the list on each call — a Set for the dedup, an array for the
+   * result, per room per visit — was the largest source of allocation in the
+   * whole game.
+   */
+  neighbors: Map<string, Room[]>;
+  /**
+   * Searches already answered for this board, keyed `from>to`.
+   *
+   * A search reads nothing but the geometry, and the geometry is fixed once the
+   * district is generated — so the same question always has the same answer, and
+   * asking it twice is pure waste. It is asked constantly: every creature paths
+   * to its prey each time it moves, and a horde converging on the same few rooms
+   * re-walks the same corridors from the same doorways over and over.
+   *
+   * Bounded by the pairs actually asked about, and collected with the board it
+   * belongs to.
+   */
+  paths: Map<string, string[] | null>;
 }
 
 const indexes = new WeakMap<Board, BoardIndex>();
@@ -365,7 +388,20 @@ function indexOf(board: Board): BoardIndex {
     connections.set(room.id, found);
   }
 
-  const built: BoardIndex = { byId, connections };
+  const neighbors = new Map<string, Room[]>();
+  for (const room of board.rooms) {
+    const seen = new Set<string>();
+    const found: Room[] = [];
+    for (const connection of connections.get(room.id) ?? []) {
+      if (seen.has(connection.roomId)) continue;
+      seen.add(connection.roomId);
+      const other = byId.get(connection.roomId);
+      if (other) found.push(other);
+    }
+    neighbors.set(room.id, found);
+  }
+
+  const built: BoardIndex = { byId, connections, neighbors, paths: new Map() };
   indexes.set(board, built);
   return built;
 }
@@ -416,17 +452,15 @@ export function connectionsOf(board: Board, room: Room): Connection[] {
   return indexOf(board).connections.get(room.id) ?? [];
 }
 
-/** Rooms reachable in one step. Deduplicated: a shared arch is still one move. */
+/**
+ * Rooms reachable in one step. Deduplicated: a shared arch is still one move.
+ *
+ * Read straight out of the board index, so this is a lookup rather than a
+ * rebuild. The list belongs to the index and is handed out as-is: like
+ * `connectionsOf`, callers read it and never edit it.
+ */
 export function neighbors(board: Board, room: Room): Room[] {
-  const seen = new Set<string>();
-  const result: Room[] = [];
-  for (const connection of connectionsOf(board, room)) {
-    if (seen.has(connection.roomId)) continue;
-    seen.add(connection.roomId);
-    const other = indexOf(board).byId.get(connection.roomId);
-    if (other) result.push(other);
-  }
-  return result;
+  return indexOf(board).neighbors.get(room.id) ?? [];
 }
 
 export function degree(board: Board, room: Room): number {
@@ -453,12 +487,30 @@ export function isRubble(board: Board, cell: number): boolean {
 export function shortestPath(board: Board, fromId: string, toId: string): string[] | null {
   if (fromId === toId) return [];
 
+  const index = indexOf(board);
+  const key = `${fromId}>${toId}`;
+  // `undefined` is "never asked"; a stored `null` is "asked, and there is no way".
+  const answered = index.paths.get(key);
+  if (answered !== undefined) return answered;
+
+  const found = searchPath(board, fromId, toId);
+  index.paths.set(key, found);
+  return found;
+}
+
+function searchPath(board: Board, fromId: string, toId: string): string[] | null {
   const cameFrom = new Map<string, string>();
   const queue: Room[] = [getRoom(board, fromId)];
   const seen = new Set<string>([fromId]);
 
-  while (queue.length > 0) {
-    const current = queue.shift();
+  /**
+   * Walked with a head index rather than drained with `shift()`, which re-indexes
+   * the whole queue on every pop and makes the search quadratic in the rooms it
+   * visits — on the larger boards this model allows, that is most of the cost of
+   * a search that is otherwise linear.
+   */
+  for (let head = 0; head < queue.length; head++) {
+    const current = queue[head];
     if (!current) break;
 
     for (const next of neighbors(board, current)) {
@@ -467,13 +519,15 @@ export function shortestPath(board: Board, fromId: string, toId: string): string
       cameFrom.set(next.id, current.id);
 
       if (next.id === toId) {
+        // Built back-to-front and reversed once, rather than unshifted at every
+        // step: same path, without re-indexing the array for each room on it.
         const path: string[] = [next.id];
         let step = current.id;
         while (step !== fromId) {
-          path.unshift(step);
+          path.push(step);
           step = cameFrom.get(step) ?? fromId;
         }
-        return path;
+        return path.reverse();
       }
       queue.push(next);
     }

@@ -5,6 +5,7 @@ import {
   applyGmAction,
   applyHeroAction,
   beginEnemyPhase,
+  checkEnd,
   computeCzAwards,
   decideHeroAction,
   endEnemyPhase,
@@ -26,6 +27,7 @@ import {
   raidAbandoned,
   raidPaused,
   raidPresence,
+  restoreRaidPresence,
   tickRaidPresence,
   voteHeroKick,
   playerMindsetNames,
@@ -42,7 +44,7 @@ import {
   type HeroState
 } from 'coronaz-core';
 import { buildLeaderboard, generateJoinCode } from 'game-core';
-import { resetPresence, type KickRefusal } from 'presence-core';
+import { presenceIdle, type KickRefusal } from 'presence-core';
 import { eq, lt } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 
@@ -76,6 +78,31 @@ const PRESENCE_TICK_MS = 1000;
 const AI_STEP_MS = 700;
 
 export type CzTransitionListener = (state: CzState) => void;
+
+/**
+ * What one presence evaluation leaves for its caller to do.
+ *
+ * A verdict rather than a boolean, because "the raid moved" and "the raid is
+ * gone" want opposite things and a `true` cannot tell them apart. Saving a raid
+ * that has just been destroyed writes its row straight back — `persist` is an
+ * upsert — and the next restart reads the ghost in as a live session.
+ *
+ * `settled` means somebody else has already finished the job: the raid was
+ * destroyed, or handed to `afterTransition`, which saves and announces it.
+ */
+type PresenceVerdict = 'quiet' | 'changed' | 'settled';
+
+/**
+ * A raid the engine has finished, either way.
+ *
+ * Spelled once, and as a function rather than inline, so that asking it after
+ * something that may have ended the raid actually re-reads the phase: inline,
+ * the narrowing from a guard further up hides the very transition being checked
+ * for.
+ */
+function raidOver(state: CzState): boolean {
+  return state.phase === 'won' || state.phase === 'lost';
+}
 
 /**
  * Fired once when a raid's careers have been banked.
@@ -129,10 +156,17 @@ export class CzManager {
   beat(code: string, playerId: string): void {
     const state = this.sessions.get(code);
     if (!state?.heroes[playerId]) return;
-    if (noteHeroAlive(state, playerId)) {
-      this.runPresence(state);
-      this.listener?.(state);
-    }
+    // The beat is recorded either way — that record is what lets the tick notice
+    // the beats stopping later — but only a survivor coming back is news.
+    if (!noteHeroAlive(state, playerId, Date.now())) return;
+
+    const verdict = this.runPresence(state);
+    if (verdict === 'settled') return;
+    // A seat coming back out of the dark is news either way; a resume also
+    // restarts the clock, which is worth saving rather than leaving to the next
+    // unrelated write.
+    this.listener?.(state);
+    if (verdict === 'changed') void this.persist(state);
   }
 
   /**
@@ -146,7 +180,7 @@ export class CzManager {
     const state = this.sessions.get(code);
     if (!state?.heroes[playerId]) return;
     noteHeroSilent(state, playerId, Date.now());
-    this.runPresence(state);
+    if (this.runPresence(state) === 'settled') return;
     this.listener?.(state);
     void this.persist(state);
   }
@@ -168,8 +202,7 @@ export class CzManager {
     const cast = voteHeroKick(state, playerId, yes);
     // A ballot may be the one that carries it, so the model is advanced here
     // rather than leaving the room to wait up to a second for the ticker.
-    if (cast.ok) {
-      this.runPresence(state);
+    if (cast.ok && this.runPresence(state) !== 'settled') {
       this.listener?.(state);
       void this.persist(state);
     }
@@ -184,13 +217,25 @@ export class CzManager {
    * here is the machinery a clock change implies: the phase timer, the horde, the
    * bot beats, and the seats a spent pause has given up on.
    */
-  private runPresence(state: CzState): boolean {
-    if (state.phase !== 'heroes' && state.phase !== 'enemy') return false;
+  private runPresence(state: CzState): PresenceVerdict {
+    if (state.phase !== 'heroes' && state.phase !== 'enemy') return 'quiet';
     const tick = tickRaidPresence(state, Date.now());
-    if (!tick.changed) return false;
+    if (!tick.changed) return 'quiet';
 
     if (tick.kicked) dropHeroSeat(state, tick.kicked);
     for (const playerId of tick.abandoned) dropHeroSeat(state, playerId);
+
+    if (tick.kicked !== null || tick.abandoned.length > 0) {
+      /**
+       * Losing the last survivor still inside can end the raid, and only the
+       * engine knows how it ended: a district whose other heroes are already out
+       * has been *won*, and calling that an abandonment would delete a finished
+       * raid along with everybody's scores. `dropHeroSeat` records a forfeit and
+       * nothing else, so the ending is checked for here — the same beat Mafia
+       * checks victory on after a seat goes.
+       */
+      checkEnd(state);
+    }
 
     if (tick.paused) {
       // Everything that moves on its own stops with the clock: the phase
@@ -198,15 +243,29 @@ export class CzManager {
       this.dropTimers(state.code);
     }
 
+    if (raidOver(state)) {
+      // The raid ended on this tick, so it finishes the way every other raid
+      // does: results banked, saved and announced by the one path that knows how.
+      void this.afterTransition(state).catch((error: unknown) =>
+        this.log.error({ err: error, code: state.code }, 'CoronaZ presence ending failed')
+      );
+      return 'settled';
+    }
+
     if (tick.resumed) {
       /**
        * A raid whose last human has gone is over rather than continuing against
        * an empty room: the horde would otherwise keep activating against four
        * bots nobody is watching until the idle sweep noticed hours later.
+       *
+       * Only reached when `checkEnd` did not end the raid, so this really is an
+       * abandonment and not a finish — there is no result to record.
        */
       if (raidAbandoned(state)) {
-        void this.destroy(state.code);
-        return true;
+        void this.destroy(state.code).catch((error: unknown) =>
+          this.log.error({ err: error, code: state.code }, 'CoronaZ abandoned raid cleanup failed')
+        );
+        return 'settled';
       }
 
       /**
@@ -219,7 +278,7 @@ export class CzManager {
         void this.toEnemyPhase(state).catch((error: unknown) =>
           this.log.error({ err: error, code: state.code }, 'CoronaZ resume into enemy phase failed')
         );
-        return true;
+        return 'settled';
       }
 
       this.armTimer(state);
@@ -234,17 +293,15 @@ export class CzManager {
         this.scheduleAiStep(state.code);
       }
     }
-    return true;
+    return 'changed';
   }
 
   /** Every live raid, once a second. Cheap: most have nothing to decide. */
   private tickAllPresence(): void {
+    const now = Date.now();
     for (const state of this.sessions.values()) {
-      const presence = raidPresence(state);
-      const quiet =
-        presence.pause === null && presence.vote === null && Object.keys(presence.awaySince).length === 0;
-      if (quiet) continue;
-      if (this.runPresence(state)) {
+      if (presenceIdle(raidPresence(state), now)) continue;
+      if (this.runPresence(state) === 'changed') {
         this.listener?.(state);
         void this.persist(state);
       }
@@ -286,9 +343,11 @@ export class CzManager {
         /**
          * Every socket in the world is gone, so an absence measured before the
          * restart says nothing about now — and a pause with nobody left to end it
-         * would freeze the raid forever. The kick list survives.
+         * would freeze the raid forever. Everybody's resync window re-opens from
+         * here, because nobody is connected any more whatever the snapshot says.
+         * The kick list survives.
          */
-        resetPresence(raidPresence(state));
+        restoreRaidPresence(state, Date.now());
         // Timers do not survive a restart; the phase waits for a human, same
         // policy as the quizzes. Bot heartbeats, though, restart themselves.
         state.phaseEndsAt = null;
@@ -400,7 +459,7 @@ export class CzManager {
     const state = this.sessions.get(code);
     if (!state) return null;
     // A raid in progress is not a thing to restart out from under the table.
-    if (state.phase !== 'won' && state.phase !== 'lost') return null;
+    if (!raidOver(state)) return null;
 
     // Any pending AI beat belongs to the raid that just ended.
     for (const key of [code, `ai:${code}`]) {
@@ -445,7 +504,7 @@ export class CzManager {
 
   /** Persist, notify screens, arm whatever timer the new phase needs. */
   private async afterTransition(state: CzState): Promise<void> {
-    if ((state.phase === 'won' || state.phase === 'lost') && !state.resultsRecorded) {
+    if (raidOver(state) && !state.resultsRecorded) {
       state.resultsRecorded = true;
       try {
         await this.recordResult(state);

@@ -513,6 +513,21 @@ export const czGmActionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('gmForfeit') })
 ]);
 
+/**
+ * A kick proposed against a survivor, or a ballot on the one already open.
+ *
+ * Validated rather than read defensively, because the fallback of "not a
+ * proposal, therefore a ballot" turns every malformed message into a vote: a
+ * payload with no `yes` reads as an explicit *no*, which is not an abstention —
+ * it is counted, it overwrites whatever that player voted before, and enough of
+ * them close the vote early as failed. A vote may only be opened once per
+ * absence, so that is not a refusal anybody can retry past.
+ */
+export const czKickSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('propose'), playerId: z.string().max(64) }),
+  z.object({ type: z.literal('vote'), yes: z.boolean() })
+]);
+
 export const czJoinSchema = z.object({
   code: z.string().min(4).max(8),
   name: z.string().trim().min(1).max(24),
@@ -606,7 +621,7 @@ export interface CzClientToServer {
   'cz:beat': () => void;
   /** Carry on without an absentee: propose it, or vote on the open proposal. */
   'cz:kick': (
-    payload: { type: 'propose'; playerId: string } | { type: 'vote'; yes: boolean },
+    payload: z.infer<typeof czKickSchema>,
     ack: (response: { ok: boolean; error?: string }) => void
   ) => void;
 }

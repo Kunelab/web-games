@@ -267,6 +267,7 @@ export {
   czHeroActionSchema,
   czGmActionSchema,
   czJoinSchema,
+  czKickSchema,
   type CzRole,
   type CzView,
   type CzItemView,
@@ -288,6 +289,7 @@ export {
   proposeHeroKick,
   raidAbandoned,
   raidPaused,
+  restoreRaidPresence,
   tickRaidPresence,
   voteHeroKick,
   type CzPresenceView

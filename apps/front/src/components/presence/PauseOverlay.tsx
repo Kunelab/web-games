@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import { useCountdown } from '../../hooks/useServerClock';
 import { cx } from '../../ui/cx';
 import './presence.css';
@@ -11,8 +13,18 @@ import './presence.css';
  * for, how long the wait may last, whether it is about to end, and the one
  * button that lets the room carry on without somebody.
  *
- * Deliberately not dismissable. A pause the room can click away is a pause that
- * silently stops protecting the person it exists for.
+ * Not dismissable, but foldable. A pause the room can click *away* is a pause
+ * that silently stops protecting the person it exists for, so it never leaves
+ * the screen — folded it is still a banner across the top, and it unfolds itself
+ * again for the two moments that are addressed to this player: a vote to answer,
+ * and the countdown back into play.
+ *
+ * Foldable because covering the whole page costs something real. Mafia keeps its
+ * chat open during a pause on purpose — a pause is a social moment, and "anyone
+ * know where house 4 went?" is how it ends — and a shade over the chat panel
+ * makes the server's permission unusable. Nothing is being guarded by the shade
+ * anyway: the engines refuse every board action while stopped, so this screen is
+ * the explanation, not the lock.
  */
 
 export interface PauseSeat {
@@ -60,6 +72,7 @@ export function PauseOverlay({
   onVote,
   error
 }: PauseOverlayProps) {
+  const [folded, setFolded] = useState(false);
   const resumeIn = useCountdown(resumesAt, serverNow);
   const expiresIn = useCountdown(expiresAt, serverNow);
   const voteIn = useCountdown(vote?.closesAt ?? null, serverNow);
@@ -74,6 +87,29 @@ export function PauseOverlay({
    * "waiting for" followed by nothing.
    */
   const resuming = resumesAt !== null || waitingFor.length === 0;
+
+  /**
+   * Folding is the player's choice right up until the screen has something to
+   * ask them. A vote is a question addressed to them, and the resume countdown
+   * is the one number everybody has to see at the same time — neither may be
+   * sitting behind a fold nobody remembered they had closed.
+   */
+  const demandsAttention = resuming || vote !== null;
+
+  if (folded && !demandsAttention) {
+    return (
+      <div className="pz-banner" role="status">
+        <span className="pz-spinner" aria-hidden="true" />
+        <span>
+          En pause · on attend <strong>{waitingFor.map((seat) => seat.label).join(', ')}</strong>
+          {expiresAt !== null && ` · reprise dans ${expiresIn}s`}
+        </span>
+        <button type="button" className="pz-fold" onClick={() => setFolded(false)}>
+          Détails
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="pz-shade" role="alertdialog" aria-modal="true" aria-labelledby="pz-title">
@@ -169,6 +205,12 @@ export function PauseOverlay({
         )}
 
         {error && <p className="pz-error">{error}</p>}
+
+        {!demandsAttention && (
+          <button type="button" className="pz-fold pz-fold--card" onClick={() => setFolded(true)}>
+            Réduire et parler
+          </button>
+        )}
       </div>
     </div>
   );

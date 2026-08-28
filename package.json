@@ -10,9 +10,9 @@
     "pnpm": ">=10"
   },
   "scripts": {
-    "prepare": "pnpm --filter i18n build && pnpm --filter game-core build && pnpm --filter coronaz-core build && pnpm --filter chat-core build && pnpm --filter presence-core build && pnpm --filter mafia-core build",
+    "prepare": "pnpm --filter \"./packages/*\" build",
     "dev": "pnpm --parallel --filter \"./packages/*\" --filter \"./apps/*\" dev",
-    "build": "pnpm --filter game-core build && pnpm --filter coronaz-core build && pnpm --filter chat-core build && pnpm --filter presence-core build && pnpm --filter mafia-core build && pnpm --parallel --filter \"./apps/*\" build",
+    "build": "pnpm --filter \"./packages/*\" build && pnpm --parallel --filter \"./apps/*\" build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",

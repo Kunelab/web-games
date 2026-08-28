@@ -8,7 +8,9 @@ import {
   isPaused,
   markAway,
   markPresent,
+  noteBeat,
   openKickVote,
+  presenceIdle,
   presenceView,
   recovering,
   resetPresence,
@@ -141,6 +143,68 @@ describe('presence', () => {
     assert.equal(isPaused(presence), false);
   });
 
+  it('stops the room for a phone that goes quiet without dropping', () => {
+    const presence = table();
+    // Beating normally, then the screen locks and the socket stays open.
+    noteBeat(presence, 'b', 0);
+    noteBeat(presence, 'b', HEARTBEAT_MS);
+
+    // Four missed beats: still inside the window, nothing has happened.
+    assert.equal(tickPresence(presence, TABLE, HEARTBEAT_MS + RULES.graceMs - 1).paused, false);
+
+    /**
+     * The fifth is the one the rules are written around. Nothing announces this
+     * kind of absence — no socket closed — so if the tick did not notice the
+     * beats stopping, the only thing that ever would is socket.io's own ping
+     * timeout, several times further out than the window documented here.
+     */
+    const paused = tickPresence(presence, TABLE, HEARTBEAT_MS + RULES.graceMs);
+    assert.equal(paused.paused, true);
+    // And it is dated from the last beat, not from whenever a tick got round to
+    // looking: the room is told how long they have really been gone.
+    assert.equal(presence.awaySince.b, HEARTBEAT_MS);
+  });
+
+  it('lets a beat that arrives late end the absence it opened', () => {
+    const presence = table();
+    noteBeat(presence, 'b', 0);
+    tickPresence(presence, TABLE, RULES.graceMs);
+    assert.equal(isPaused(presence), true);
+
+    // The tab is foregrounded again and the beats resume.
+    assert.equal(noteBeat(presence, 'b', 60_000), true, 'coming back is news');
+    tickPresence(presence, TABLE, 60_000);
+    tickPresence(presence, TABLE, 60_000 + RULES.resumeCountdownMs);
+    assert.equal(isPaused(presence), false);
+  });
+
+  it('does not let a ticker skip a table whose beats have stopped', () => {
+    const presence = table();
+    noteBeat(presence, 'b', 0);
+
+    /**
+     * The trap this closes: with nobody marked away, a pause model that is only
+     * run when somebody is already known to be missing is never run at all — and
+     * the tick is the only thing that ever notices beats stopping. A table full
+     * of seats marked present is precisely the state a phone dying quietly
+     * leaves behind.
+     */
+    assert.equal(presenceIdle(presence, RULES.graceMs - 1), true, 'inside the window there is nothing to do');
+    assert.equal(presenceIdle(presence, RULES.graceMs), false, 'an overdue beat is work outstanding');
+
+    // And a game that is stopped, or mid-vote, is never idle either.
+    tickPresence(presence, TABLE, RULES.graceMs);
+    assert.equal(presenceIdle(presence, RULES.graceMs), false);
+  });
+
+  it('leaves a seat that has never beaten to its socket', () => {
+    const presence = table();
+    // Nothing on record for anybody: a roster is not an accusation, and marking
+    // one away here would stop every game the instant it was restored.
+    assert.equal(tickPresence(presence, TABLE, 10 * RULES.graceMs).paused, false);
+    assert.deepEqual(presence.awaySince, {});
+  });
+
   it('refuses a kick until the absence has lasted', () => {
     const presence = table();
     markAway(presence, 'b', 0);
@@ -152,6 +216,29 @@ describe('presence', () => {
 
     const allowed = openKickVote(presence, 'a', 'b', TABLE, RULES.kickAfterMs);
     assert.deepEqual(allowed, { ok: true });
+  });
+
+  it('tells the room the moment a kick may be proposed', () => {
+    const presence = table();
+    markAway(presence, 'b', 0);
+    assert.equal(tickPresence(presence, TABLE, RULES.graceMs).paused, true);
+    // The pause forms twenty seconds before the room may do anything about it.
+    assert.deepEqual(presenceView(presence, TABLE, RULES.graceMs, 'a').kickableSeatIds, []);
+
+    // Nothing whatever happens in between: nobody drops, nobody returns.
+    assert.equal(tickPresence(presence, TABLE, RULES.kickAfterMs - 1).changed, false);
+
+    /**
+     * And then the only thing that changes is time passing. If that is not
+     * reported, no view is ever rebuilt and the button simply never appears —
+     * on a stopped table there is no other traffic to carry it.
+     */
+    const offered = tickPresence(presence, TABLE, RULES.kickAfterMs);
+    assert.equal(offered.changed, true);
+    assert.deepEqual(presenceView(presence, TABLE, RULES.kickAfterMs, 'a').kickableSeatIds, ['b']);
+
+    // Once, though: a steady wait is not a broadcast every second.
+    assert.equal(tickPresence(presence, TABLE, RULES.kickAfterMs + 1).changed, false);
   });
 
   it('refuses to kick the present, oneself, and a second time over', () => {
@@ -205,6 +292,44 @@ describe('presence', () => {
     const closed = tickPresence(presence, TABLE, 60_001);
     assert.equal(closed.voteClosed, true);
     assert.equal(closed.kicked, null);
+  });
+
+  it('drops the vote the moment the accused is back', () => {
+    const presence = table();
+    markAway(presence, 'b', 0);
+    openKickVote(presence, 'a', 'b', TABLE, 60_000);
+    castKickBallot(presence, 'c', true, TABLE);
+    // One more yes and it would carry.
+    assert.equal(presence.vote?.ballots.c, true);
+
+    markPresent(presence, 'b');
+    const closed = tickPresence(presence, TABLE, 60_001);
+
+    // Reported, not merely dropped: the room was asked to vote and is owed the
+    // outcome — "the table gives b more time" is a result.
+    assert.equal(closed.voteClosed, true);
+    assert.equal(closed.voteTargetId, 'b');
+    assert.equal(closed.kicked, null);
+    assert.deepEqual(presence.kicked, []);
+    assert.equal(presence.vote, null);
+  });
+
+  it('will not carry a kick against somebody who came back', () => {
+    const presence = table();
+    markAway(presence, 'b', 0);
+    openKickVote(presence, 'a', 'b', TABLE, 60_000);
+    markPresent(presence, 'b');
+
+    // Nobody may add the ballot that would carry it...
+    assert.deepEqual(castKickBallot(presence, 'c', true, TABLE), {
+      ok: false,
+      reason: 'target-present'
+    });
+    // ...and the electorate shrinking cannot carry it either: at three players
+    // the proposer's lone yes would be a majority.
+    const closed = tickPresence(presence, ['a', 'b', 'c'], 60_001);
+    assert.equal(closed.kicked, null);
+    assert.deepEqual(presence.kicked, []);
   });
 
   it('never pauses for a seat it kicked in the same tick', () => {

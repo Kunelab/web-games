@@ -6,6 +6,7 @@ import {
   markAway,
   markPresent,
   missing,
+  noteBeat,
   openKickVote,
   parkDeadline,
   resetPresence,
@@ -148,7 +149,9 @@ export function joinMafia(
         throw new Error('La table a continué sans vous');
       }
       seated.connected = true;
-      noteSeatAlive(state, seated.playerId);
+      // Reclaiming a seat proves somebody is at it; the beat contract starts
+      // with the phone's first beat, a moment later.
+      markPresent(tablePresence(state), seated.playerId);
       return { player: seated, rejoined: true };
     }
   }
@@ -554,13 +557,78 @@ export function setNightAction(
  * Returns true only when this beat was news — a seat coming back from the dead —
  * so the caller broadcasts once per return rather than once per heartbeat.
  */
-export function noteSeatAlive(state: MafiaState, playerId: string): boolean {
-  return markPresent(tablePresence(state), playerId);
+export function noteSeatAlive(state: MafiaState, playerId: string, now: number): boolean {
+  return noteBeat(tablePresence(state), playerId, now);
 }
 
 /** A socket that dropped, or a phone that has stopped beating. */
 export function noteSeatSilent(state: MafiaState, playerId: string, now: number): boolean {
   return markAway(tablePresence(state), playerId, now);
+}
+
+/**
+ * How long a restored table gets before its phase runs out.
+ *
+ * Whatever was left of the phase died with the process, and resuming a night
+ * with four seconds on it would resolve it before anybody had finished
+ * reconnecting. A flat half-minute is long enough for the room to come back and
+ * read the board, short enough that it is not a second phase.
+ */
+const RESTORE_CLOCK_MS = 30_000;
+
+/**
+ * Puts a table back on its feet after a restart. The counterpart to
+ * `startPresenceFresh`, for a state read back out of the database.
+ *
+ * The clock is the delicate part, and the order here is the whole point. A table
+ * snapshotted mid-pause has no `phaseEndsAt` at all — the pause parked it, and
+ * what was left of the phase lives in `presence.parkedMs` — so whether this
+ * phase was running has to be asked *before* the presence record that answers it
+ * is cleared. Asking afterwards reads a paused table as one with no clock by
+ * design, and since every phase in this game ends on a server timer, the table
+ * would come back with no deadline and nothing left that could ever arm one:
+ * frozen until the idle sweep noticed it hours later.
+ */
+export function restoreMafiaTable(state: MafiaState, now: number): void {
+  const presence = tablePresence(state);
+  const running = state.phaseEndsAt !== null || presence.parkedMs !== null;
+
+  /**
+   * Every socket in the world is gone, so an absence measured before the restart
+   * says nothing about now — and a pause with nobody left to end it would freeze
+   * the table forever. The kick list survives: somebody the room voted out stays
+   * voted out across a deploy.
+   */
+  resetPresence(presence);
+
+  /**
+   * And then the truth about the sockets: there are none.
+   *
+   * Every connection in the world died with the process, so a `connected` flag
+   * read back out of the snapshot records what was true before the restart and
+   * nothing at all about now. Leaving it is worse than having no information —
+   * the table counts an empty chair as occupied, no heartbeat ever arrives to
+   * contradict it, so it never pauses for that seat and the room cannot even
+   * vote it out ("that player is here"). The same trap `startPresenceFresh`
+   * exists to avoid at the other end of the game.
+   *
+   * So everybody starts the resync window together, and whoever comes back
+   * inside it — which is nearly everybody, the phones reconnect on their own —
+   * is never noticed by anyone.
+   */
+  for (const player of Object.values(state.players)) {
+    if (!player.isBot) player.connected = false;
+  }
+  // A lobby and a finished game wait for nobody, and an absence recorded there
+  // would only be a stale entry nothing ever clears.
+  if (state.phase !== 'lobby' && state.phase !== 'ended') {
+    for (const seatId of waitedOnSeats(state)) {
+      // Not the ones already voted out: the room stopped waiting for those.
+      if (!presence.kicked.includes(seatId)) markAway(presence, seatId, now);
+    }
+  }
+
+  if (running) state.phaseEndsAt = now + RESTORE_CLOCK_MS;
 }
 
 /**
