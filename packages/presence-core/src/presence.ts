@@ -96,6 +96,13 @@ export interface PauseState {
    * pause that is ending, which is a different thing to render.
    */
   resumesAt: number | null;
+  /**
+   * Whether the room has been told that a kick may now be proposed.
+   *
+   * Remembered so the telling happens exactly once. Optional, so a pause
+   * snapshotted before this existed still parses — it simply gets told again.
+   */
+  offered?: boolean;
 }
 
 export interface KickVote {
@@ -116,6 +123,22 @@ export interface PresenceState {
    * tell the room it is waiting on.
    */
   awaySince: Record<string, number>;
+  /**
+   * When each seat was last heard from.
+   *
+   * A dropped socket announces itself, but the failures this whole file exists
+   * for mostly do not: a phone goes into a pocket, a tab is throttled in the
+   * background, a laptop lid comes half down. The connection stays open and the
+   * beats simply stop, so without a record of the last one there is nothing to
+   * measure the silence against — and the only thing that would eventually
+   * notice is socket.io's ping timeout, which answers a different question
+   * (is the *connection* dead) several times more slowly.
+   *
+   * Optional so a game persisted before this existed still parses; a seat with
+   * no beat on record has not entered the contract yet and is left to the
+   * socket to report.
+   */
+  lastBeat?: Record<string, number>;
   pause: PauseState | null;
   vote: KickVote | null;
   /** Seats the room voted out. They may not reclaim their token. */
@@ -146,6 +169,7 @@ export function createPresence(rules?: Partial<PresenceRules>): PresenceState {
   return {
     rules: { ...DEFAULT_RULES, ...rules },
     awaySince: {},
+    lastBeat: {},
     pause: null,
     vote: null,
     kicked: [],
@@ -196,6 +220,41 @@ export function markPresent(presence: PresenceState, seatId: string): boolean {
 }
 
 /**
+ * A heartbeat: the seat is here, and here is when it said so.
+ *
+ * Separate from `markPresent` because the two are different claims. Reclaiming a
+ * seat proves somebody is at it *now*; a beat additionally puts that moment on
+ * the record, which is what lets `tickPresence` notice the beats stopping later.
+ * A join has no clock to hand and does not need one — it uses `markPresent`, and
+ * the seat joins the beat contract with its first beat.
+ */
+export function noteBeat(presence: PresenceState, seatId: string, now: number): boolean {
+  (presence.lastBeat ??= {})[seatId] = now;
+  return markPresent(presence, seatId);
+}
+
+/**
+ * Seats whose phone has simply stopped talking, marked away.
+ *
+ * The absence is dated from the last beat rather than from the moment it was
+ * noticed, so it is measured honestly however coarse the caller's ticker is —
+ * and so a seat that has been silent for a minute before anybody ran a tick is
+ * already a minute absent, not a fresh one.
+ *
+ * Only seats with a beat on record: one that has never sent a beat is not under
+ * this contract, and treating its silence as an absence would mark an entire
+ * roster away the moment a game restored.
+ */
+function sweepSilent(presence: PresenceState, roster: Roster, now: number): void {
+  const beats = presence.lastBeat;
+  if (!beats) return;
+  for (const seatId of roster) {
+    const beat = beats[seatId];
+    if (beat !== undefined && now - beat >= presence.rules.graceMs) markAway(presence, seatId, beat);
+  }
+}
+
+/**
  * Reports a seat as silent, keeping the earliest moment it went quiet.
  *
  * Earliest, because a socket that drops, retries and drops again is one absence
@@ -211,6 +270,7 @@ export function markAway(presence: PresenceState, seatId: string, now: number): 
 /** Forgets a seat entirely: it left, was kicked, or the game is over for it. */
 export function forgetSeat(presence: PresenceState, seatId: string): void {
   delete presence.awaySince[seatId];
+  delete presence.lastBeat?.[seatId];
   if (presence.vote?.targetId === seatId) presence.vote = null;
   if (presence.vote) delete presence.vote.ballots[seatId];
 }
@@ -295,16 +355,39 @@ export function tickPresence(presence: PresenceState, roster: Roster, now: numbe
     changed: false
   };
 
+  /**
+   * First, because everything below asks who is absent and this is half the
+   * answer: a socket that closed said so, and a phone that went quiet did not.
+   */
+  sweepSilent(presence, roster, now);
+
   const vote = presence.vote;
-  if (vote && (now >= vote.closesAt || decided(presence, roster, vote))) {
-    presence.vote = null;
-    result.voteClosed = true;
-    result.voteTargetId = vote.targetId;
-    result.changed = true;
-    if (carried(presence, roster, vote)) {
-      result.kicked = vote.targetId;
-      presence.kicked.push(vote.targetId);
-      forgetSeat(presence, vote.targetId);
+  if (vote) {
+    /**
+     * The one thing that ends a vote early and in the accused's favour: they are
+     * back.
+     *
+     * A kick is the remedy for an absence, so it lasts exactly as long as the
+     * absence does. Without this the premise is checked once, at the moment the
+     * vote opens, and never again — the vote then survives the reconnection and
+     * the resume, and goes on counting through live play against somebody who is
+     * sitting there playing. It carries in the end because `carried` counts
+     * against everyone still entitled to vote, and that roster *shrinks*: in a
+     * game where players are eliminated, two stale yeses that were short of a
+     * majority at six players are a majority at three.
+     */
+    const returned = presence.awaySince[vote.targetId] === undefined;
+
+    if (returned || now >= vote.closesAt || decided(presence, roster, vote)) {
+      presence.vote = null;
+      result.voteClosed = true;
+      result.voteTargetId = vote.targetId;
+      result.changed = true;
+      if (!returned && carried(presence, roster, vote)) {
+        result.kicked = vote.targetId;
+        presence.kicked.push(vote.targetId);
+        forgetSeat(presence, vote.targetId);
+      }
     }
   }
 
@@ -335,6 +418,23 @@ export function tickPresence(presence: PresenceState, roster: Roster, now: numbe
       result.changed = true;
     }
 
+    /**
+     * The kick delay elapsing is a change to what the room may do, and nothing
+     * else marks it.
+     *
+     * `kickableSeatIds` is computed when a view is built, and views are built
+     * when something changes — but during a plain wait nothing does: the absent
+     * seat stays absent, everybody else keeps beating, and this returns
+     * `changed: false` every second for half a minute. Without saying so here,
+     * the button the whole feature exists for turns up only if some unrelated
+     * event happens to force a broadcast, which on a stopped table is exactly
+     * what has stopped happening.
+     */
+    if (!pause.offered && gone.some((seatId) => age(presence, seatId, now) >= presence.rules.kickAfterMs)) {
+      pause.offered = true;
+      result.changed = true;
+    }
+
     if (now >= pause.expiresAt) {
       presence.pausedMs += now - pause.since;
       presence.pause = null;
@@ -347,7 +447,7 @@ export function tickPresence(presence: PresenceState, roster: Roster, now: numbe
   }
 
   if (gone.length > 0) {
-    presence.pause = { since: now, expiresAt: now + presence.rules.maxPauseMs, resumesAt: null };
+    presence.pause = { since: now, expiresAt: now + presence.rules.maxPauseMs, resumesAt: null, offered: false };
     result.paused = true;
     result.changed = true;
   }
@@ -358,6 +458,25 @@ export function tickPresence(presence: PresenceState, roster: Roster, now: numbe
 /** True while nothing in the game may act: no clock, no bots, no actions. */
 export function isPaused(presence: PresenceState): boolean {
   return presence.pause !== null;
+}
+
+/**
+ * Whether a tick would decide nothing, so a ticker may skip this game entirely.
+ *
+ * Lives here rather than being spelled out by each caller because getting it
+ * wrong is silent: a game skipped is a game whose pause model does not run, and
+ * the tick is the only thing that ever notices the beats stopping. An overdue
+ * beat therefore has to count as work outstanding — a table where everybody is
+ * marked present is exactly the state a phone that died quietly leaves behind,
+ * and it is the state this would otherwise skip forever.
+ */
+export function presenceIdle(presence: PresenceState, now: number): boolean {
+  if (presence.pause !== null || presence.vote !== null) return false;
+  if (Object.keys(presence.awaySince).length > 0) return false;
+
+  const beats = presence.lastBeat;
+  if (!beats) return true;
+  return !Object.values(beats).some((beat) => now - beat >= presence.rules.graceMs);
 }
 
 /* --------------------------------- votes --------------------------------- */
@@ -421,6 +540,10 @@ export function castKickBallot(presence: PresenceState, voterId: string, yes: bo
   if (!vote) return { ok: false, reason: 'no-vote' };
   if (!roster.includes(voterId)) return { ok: false, reason: 'not-seated' };
   if (voterId === vote.targetId) return { ok: false, reason: 'self' };
+  // The same rule that refused to open the vote, applied at the door for the
+  // rest of its life: the next tick voids a vote whose target is back, and until
+  // it runs there is nothing here worth voting on either.
+  if (presence.awaySince[vote.targetId] === undefined) return { ok: false, reason: 'target-present' };
   vote.ballots[voterId] = yes;
   return { ok: true };
 }
@@ -544,6 +667,8 @@ export function presenceView(
  */
 export function resetPresence(presence: PresenceState): void {
   presence.awaySince = {};
+  // A beat from before the restart is not evidence of anything either.
+  presence.lastBeat = {};
   presence.pause = null;
   presence.vote = null;
   presence.parkedMs = null;

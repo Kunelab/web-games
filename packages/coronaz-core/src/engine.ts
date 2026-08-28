@@ -870,9 +870,22 @@ const DROP_LOOT = 0.6;
  * arrangement.
  */
 export function activateNextZombie(state: CzState): boolean {
-  const zombie = Object.values(state.zombies)
-    .filter((candidate) => candidate.ap > 0)
-    .sort((a, b) => a.id.localeCompare(b.id))[0];
+  /**
+   * The lowest id still holding action points, found in one pass.
+   *
+   * Sorting the whole horde to take its first element reads harmlessly and is
+   * not: this runs once per creature per turn, so the sort makes an enemy phase
+   * quadratic in the size of the horde. A raid that ends with thirty of them
+   * never notices; an endless district climbs past two hundred, and the bench
+   * spent most of its time here. Same comparison as the sort it replaces, on
+   * purpose — which creature steps first decides who gets bitten, so any other
+   * order would be a different game.
+   */
+  let zombie: ZombieState | undefined;
+  for (const id in state.zombies) {
+    const candidate = state.zombies[id];
+    if (candidate && candidate.ap > 0 && (!zombie || candidate.id.localeCompare(zombie.id) < 0)) zombie = candidate;
+  }
   if (!zombie) return false;
 
   // A screamer breeds when it wakes: killing it fast is the whole assignment.

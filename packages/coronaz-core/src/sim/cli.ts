@@ -5,6 +5,7 @@ import { ALL_GM_PERKS, ALL_HERO_PERKS } from '../perks.js';
 import { gmMindsetNames, type GmMindset } from './gm-policies.js';
 import { playerMindsetNames, skillNames } from './policies.js';
 import { randInt, seedRng } from '../rng.js';
+import { runCells, type CellOptions, type CellSummary } from './pool.js';
 import { runGame, runMany, uniformParty, type PartyMember } from './simulate.js';
 
 /**
@@ -36,6 +37,8 @@ function has(name: string): boolean {
 const games = Number(arg('games', '400'));
 const scenario = arg('scenario', 'escape');
 const heroCount = Number(arg('heroes', '3'));
+/** One core, for when a run has to be compared against an older one exactly. */
+const serial = has('serial');
 
 function row(label: string, summary: ReturnType<typeof runMany>): void {
   console.log(
@@ -230,39 +233,59 @@ if (has('seed')) {
   );
 } else {
   /* ------------------------- the calibration matrix ----------------------- */
-  console.log(`\n=== vs IA (évasion, ${games} parties par case, ${heroCount} héros experts) ===`);
-  for (const preset of ['facile', 'normal', 'difficile', 'cauchemar', 'apocalypse']) {
-    for (const mindset of playerMindsetNames) {
-      const summary = runMany({
+
+  /**
+   * The matrix, described before any of it is run.
+   *
+   * Written as a list rather than as nested loops that print as they go, because
+   * a list can be handed to every core at once. `before` and `after` carry the
+   * headings and the blank lines, so the sheet reads exactly as it did when one
+   * core produced it top to bottom.
+   */
+  interface Cell {
+    label: string;
+    options: CellOptions;
+    before?: string;
+    after?: string;
+  }
+
+  const cells: Cell[] = [];
+  const escape = (preset: string) => ({ ...DIFFICULTY_PRESETS[preset], scenario: 'escape' }) as const;
+
+  cells.push(
+    ...['facile', 'normal', 'difficile', 'cauchemar', 'apocalypse'].flatMap((preset, index) =>
+      playerMindsetNames.map((mindset, at) => ({
+        label: `${preset} / ${mindset}`,
+        options: { games, config: escape(preset), party: uniformParty(heroCount, mindset, 'expert') },
+        before:
+          index === 0 && at === 0
+            ? `\n=== vs IA (évasion, ${games} parties par case, ${heroCount} héros experts) ===`
+            : undefined,
+        after: at === playerMindsetNames.length - 1 ? '' : undefined
+      }))
+    )
+  );
+
+  cells.push(
+    ...skillNames.map((skill, at) => ({
+      label: `skill ${skill}`,
+      options: { games, config: escape('normal'), party: uniformParty(heroCount, 'balanced', skill) },
+      before: at === 0 ? `=== Niveaux de jeu (évasion normal, mindset balanced) ===` : undefined
+    }))
+  );
+
+  cells.push(
+    ...gmMindsetNames.map((gm, at) => ({
+      label: `MJ ${gm}`,
+      options: {
         games,
-        config: { ...DIFFICULTY_PRESETS[preset], scenario: 'escape' },
-        party: uniformParty(heroCount, mindset, 'expert')
-      });
-      row(`${preset} / ${mindset}`, summary);
-    }
-    console.log('');
-  }
-
-  console.log(`=== Niveaux de jeu (évasion normal, mindset balanced) ===`);
-  for (const skill of skillNames) {
-    const summary = runMany({
-      games,
-      config: { ...DIFFICULTY_PRESETS.normal, scenario: 'escape' },
-      party: uniformParty(heroCount, 'balanced', skill)
-    });
-    row(`skill ${skill}`, summary);
-  }
-
-  console.log(`\n=== vs Maître du jeu (évasion, préréglage normal, joueurs experts) ===`);
-  for (const gm of gmMindsetNames) {
-    const summary = runMany({
-      games,
-      config: { ...DIFFICULTY_PRESETS.normal, scenario: 'escape' },
-      party: uniformParty(heroCount, 'balanced', 'expert'),
-      gmMindset: gm
-    });
-    row(`MJ ${gm}`, summary);
-  }
+        config: escape('normal'),
+        party: uniformParty(heroCount, 'balanced', 'expert'),
+        gmMindset: gm
+      },
+      before: at === 0 ? `\n=== vs Maître du jeu (évasion, préréglage normal, joueurs experts) ===` : undefined
+    }))
+  );
 
   /**
    * How much the first six draws decide the evening.
@@ -272,49 +295,82 @@ if (has('seed')) {
    * otherwise. Forcing both ends tells us whether the game is *decided* by the
    * dice or merely coloured by them; the gap is the number to keep small.
    */
-  console.log(`\n=== Chance au butin (6 premiers tirages forcés, évasion) ===`);
-  for (const preset of ['normal', 'difficile']) {
-    for (const luck of [undefined, 'lucky', 'unlucky'] as const) {
-      const summary = runMany({
+  cells.push(
+    ...['normal', 'difficile'].flatMap((preset, index) =>
+      ([undefined, 'lucky', 'unlucky'] as const).map((luck, at) => ({
+        label: `${preset} / ${luck ?? 'butin normal'}`,
+        options: {
+          games,
+          config: escape(preset),
+          party: uniformParty(heroCount, 'balanced', 'expert').map((member) => ({ ...member, luck }))
+        },
+        before: index === 0 && at === 0 ? `\n=== Chance au butin (6 premiers tirages forcés, évasion) ===` : undefined,
+        after: at === 2 ? '' : undefined
+      }))
+    )
+  );
+
+  cells.push(
+    ...['normal', 'difficile'].map((preset, at) => ({
+      label: `${preset} / sans atout`,
+      options: {
         games,
-        config: { ...DIFFICULTY_PRESETS[preset], scenario: 'escape' },
-        party: uniformParty(heroCount, 'balanced', 'expert').map((member) => ({ ...member, luck }))
-      });
-      row(`${preset} / ${luck ?? 'butin normal'}`, summary);
-    }
-    console.log('');
-  }
+        config: escape(preset),
+        party: uniformParty(heroCount, 'balanced', 'expert').map((member) => ({ ...member, noPerks: true }))
+      },
+      before: at === 0 ? `=== Tables sans atout (le handicap volontaire, évasion) ===` : undefined
+    }))
+  );
 
-  console.log(`=== Tables sans atout (le handicap volontaire, évasion) ===`);
-  for (const preset of ['normal', 'difficile']) {
-    const summary = runMany({
-      games,
-      config: { ...DIFFICULTY_PRESETS[preset], scenario: 'escape' },
-      party: uniformParty(heroCount, 'balanced', 'expert').map((member) => ({ ...member, noPerks: true }))
-    });
-    row(`${preset} / sans atout`, summary);
-  }
+  cells.push(
+    ...['normal', 'difficile', 'cauchemar'].flatMap((preset, index) =>
+      [1, 2, 3, 4, 5].map((size, at) => ({
+        label: `${preset} / ${size} joueur(s)`,
+        options: { games, config: escape(preset), party: uniformParty(size, 'balanced', 'expert') },
+        before: index === 0 && at === 0 ? `\n=== Taille de table (évasion, experts, sans MJ) ===` : undefined,
+        after: at === 4 ? '' : undefined
+      }))
+    )
+  );
 
-  console.log(`\n=== Taille de table (évasion, experts, sans MJ) ===`);
-  for (const preset of ['normal', 'difficile', 'cauchemar']) {
-    for (const size of [1, 2, 3, 4, 5]) {
-      const summary = runMany({
-        games,
-        config: { ...DIFFICULTY_PRESETS[preset], scenario: 'escape' },
-        party: uniformParty(size, 'balanced', 'expert')
-      });
-      row(`${preset} / ${size} joueur(s)`, summary);
-    }
-    console.log('');
-  }
+  cells.push(
+    ...playerMindsetNames.map((mindset, at) => ({
+      label: `endless / ${mindset}`,
+      options: {
+        games: Math.min(games, 200),
+        config: { ...DIFFICULTY_PRESETS.normal, scenario: 'endless' } as const,
+        party: uniformParty(heroCount, mindset, 'expert')
+      },
+      before: at === 0 ? `\n=== Sans fin (score avant la nuit) ===` : undefined
+    }))
+  );
 
-  console.log(`\n=== Sans fin (score avant la nuit) ===`);
-  for (const mindset of playerMindsetNames) {
-    const summary = runMany({
-      games: Math.min(games, 200),
-      config: { ...DIFFICULTY_PRESETS.normal, scenario: 'endless' },
-      party: uniformParty(heroCount, mindset, 'expert')
-    });
-    row(`endless / ${mindset}`, summary);
+  /**
+   * The heaviest cells first, so the last core to be given work is not the one
+   * handed the endless district. Only the dispatch order changes; the sheet is
+   * still printed in the order it was written.
+   */
+  const order = cells.map((_, index) => index);
+  const weight = (cell: Cell): number =>
+    cell.options.config.scenario === 'endless' ? cell.options.games * 12 : cell.options.games;
+  order.sort((a, b) => weight(cells[b]) - weight(cells[a]));
+
+  const queue = order.map((index) => cells[index].options);
+  const summaries = new Array<CellSummary | undefined>(cells.length);
+
+  await runCells(
+    queue,
+    (position, summary) => {
+      summaries[order[position]] = summary;
+    },
+    serial ? 1 : undefined
+  );
+
+  for (const [index, cell] of cells.entries()) {
+    const summary = summaries[index];
+    if (!summary) continue;
+    if (cell.before !== undefined) console.log(cell.before);
+    row(cell.label, summary);
+    if (cell.after !== undefined) console.log(cell.after);
   }
 }

@@ -2,7 +2,7 @@ import {
   castKickBallot,
   isPaused,
   markAway,
-  markPresent,
+  noteBeat,
   openKickVote,
   parkDeadline,
   presenceView,
@@ -45,9 +45,43 @@ export function startRaidPresence(state: CzState, now: number): void {
   }
 }
 
+/**
+ * Puts a raid back on its feet after a restart. The counterpart to
+ * `startRaidPresence`, for a state read back out of the database.
+ *
+ * Same trap as the lobby, and worse here. Every connection in the world died
+ * with the process, so a `connected` flag read out of the snapshot describes the
+ * moment before the restart and nothing about now; clearing the absences without
+ * writing that down leaves an empty seat counting as a present survivor. No
+ * heartbeat ever arrives to contradict it, so the raid never pauses for them —
+ * and because it also never ends its hero phase without them (nobody sends their
+ * ready, and a restored raid has no deadline), the room is stuck. The one remedy,
+ * voting the seat out, is refused for the same reason: that player is here.
+ *
+ * Marking everybody away instead costs nothing when the phones reconnect on their
+ * own inside the resync window, and gives the room its remedies back when they do
+ * not.
+ */
+export function restoreRaidPresence(state: CzState, now: number): void {
+  const presence = raidPresence(state);
+  resetPresence(presence);
+
+  for (const hero of Object.values(state.heroes)) {
+    if (!hero.isBot) hero.connected = false;
+  }
+  // A raid that is not being played waits for nobody, and an absence recorded
+  // there would only be a stale entry nothing ever clears.
+  if (state.phase === 'heroes' || state.phase === 'enemy') {
+    for (const playerId of waitedOnHeroes(state)) {
+      // Not the ones already voted out: the room stopped waiting for those.
+      if (!presence.kicked.includes(playerId)) markAway(presence, playerId, now);
+    }
+  }
+}
+
 /** A phone saying it is still there. True only when the seat was previously dark. */
-export function noteHeroAlive(state: CzState, playerId: string): boolean {
-  return markPresent(raidPresence(state), playerId);
+export function noteHeroAlive(state: CzState, playerId: string, now: number): boolean {
+  return noteBeat(raidPresence(state), playerId, now);
 }
 
 /** A socket that dropped, or a phone that has stopped beating. */

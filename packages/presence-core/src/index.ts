@@ -7,6 +7,8 @@ export {
   isPaused,
   markAway,
   markPresent,
+  noteBeat,
+  presenceIdle,
   missing,
   openKickVote,
   parkDeadline,

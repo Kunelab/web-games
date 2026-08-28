@@ -124,6 +124,50 @@
   font-size: 0.85rem;
 }
 
+/*
+ * Folded: still unmistakably a pause, but out of the way of the chat.
+ *
+ * Along the top rather than the bottom, because the bottom of both games is
+ * where the things a player reaches for live — the chat composer in Mafia, the
+ * action bar in CoronaZ — and a strip parked over those is the problem this
+ * fold exists to solve, in miniature.
+ */
+.pz-banner {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 900;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--border, #2b3040);
+  background: rgb(8 10 16 / 94%);
+  color: var(--text, #e8ecf5);
+  font-size: 0.9rem;
+}
+
+.pz-fold {
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--border, #2b3040);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted, #9aa3b8);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.pz-fold:hover {
+  border-color: var(--accent, #6b8cff);
+  color: var(--text, #e8ecf5);
+}
+
+.pz-fold--card {
+  margin-top: 1.25rem;
+}
+
 /* The quiet tier: a mark beside one name, no overlay. */
 .pz-recovering {
   display: inline-flex;

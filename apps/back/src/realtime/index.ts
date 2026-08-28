@@ -2,6 +2,7 @@ import {
   czGmActionSchema,
   czHeroActionSchema,
   czJoinSchema,
+  czKickSchema,
   joinHero,
   setLoadout,
   setMutations,
@@ -885,10 +886,22 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
         respond({ ok: false, error: 'Vous n’êtes pas dans une partie' });
         return;
       }
+      /**
+       * Parsed rather than read defensively: without this, anything that is not
+       * a proposal falls through to the ballot arm and a missing `yes` is cast
+       * as a no — a real ballot, counted, overwriting whatever that player voted
+       * before, and enough of them close the vote as failed for good.
+       */
+      const parsed = czKickSchema.safeParse(payload);
+      if (!parsed.success) {
+        respond({ ok: false, error: 'Requête invalide' });
+        return;
+      }
+
       const result =
-        payload?.type === 'propose'
-          ? cz.proposeKick(czCode, czRole.playerId, payload.playerId)
-          : cz.voteKick(czCode, czRole.playerId, payload?.yes === true);
+        parsed.data.type === 'propose'
+          ? cz.proposeKick(czCode, czRole.playerId, parsed.data.playerId)
+          : cz.voteKick(czCode, czRole.playerId, parsed.data.yes);
       respond(result.ok ? { ok: true } : { ok: false, error: kickRefusal(result.reason) });
     });
 
@@ -1112,11 +1125,16 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
       if (!state || !hero) return;
 
       hero.connected = false;
-      // Opens the seat's resync window, which is what eventually stops the clock
-      // if the phone does not come back. It pauses nothing by itself.
+      /**
+       * Opens the seat's resync window, which is what eventually stops the clock
+       * if the phone does not come back. It pauses nothing by itself.
+       *
+       * It also broadcasts and saves, so nothing more is done here. Repeating
+       * either would not merely be wasteful: the pause model may have just ended
+       * this raid — or destroyed an abandoned one — and writing the state again
+       * afterwards puts the deleted row straight back.
+       */
       cz.markGone(czCode, czRole.playerId);
-      czBroadcast(state);
-      void cz.persist(state);
     }
 
     /**

@@ -13,6 +13,7 @@ import {
   noteSeatSilent,
   joinMafia,
   proposeMafiaKick,
+  restoreMafiaTable,
   setNightAction,
   startMafia,
   tickMafiaPresence,
@@ -106,7 +107,7 @@ describe('the pause', () => {
     const left = tablePresence(state).parkedMs!;
 
     // Away for a further minute, then back.
-    noteSeatAlive(state, absentee);
+    noteSeatAlive(state, absentee, 90_000);
     tickMafiaPresence(state, 90_000);
     const resumeAt = 90_000 + DEFAULT_RULES.resumeCountdownMs;
     const resumed = tickMafiaPresence(state, resumeAt);
@@ -225,6 +226,91 @@ describe('the pause', () => {
     });
     // But the seat is still known to be dark, so the table does stop for it.
     assert.equal(tickMafiaPresence(state, startedAt + GRACE).paused, true);
+  });
+
+  it('gives a table restored mid-pause its clock back', () => {
+    const state = humanTable(['sheriff', 'doctor', 'citizen', 'godfather']);
+    noteSeatSilent(state, playerBySlot(state, 2)!.playerId, 1_000);
+    tickMafiaPresence(state, 1_000 + GRACE);
+    // The pause parked the day: this is the snapshot the server writes.
+    assert.equal(state.phaseEndsAt, null);
+    assert.notEqual(tablePresence(state).parkedMs, null);
+
+    const restored = JSON.parse(JSON.stringify(state)) as MafiaState;
+    const bootedAt = 500_000;
+    restoreMafiaTable(restored, bootedAt);
+
+    /**
+     * The parked clock is the trap: read after the presence reset it looks like a
+     * phase that never had a deadline, and since every phase here ends on a
+     * server timer, the table would sit in that night until the idle sweep.
+     */
+    assert.equal(mafiaPaused(restored), false);
+    assert.equal(restored.phaseEndsAt, bootedAt + 30_000, 'the day runs to a fresh clock');
+  });
+
+  it('does not invent a clock for a table that had none', () => {
+    const state = createMafiaGame({ code: 'LOBBY2', hostToken: 'h', hostUserId: null, now: 0 });
+    joinMafia(state, 'Joueur', 'tokL', 'lobby-solo');
+
+    restoreMafiaTable(state, 500_000);
+
+    // A lobby waits for its host, not for a timer.
+    assert.equal(state.phaseEndsAt, null);
+  });
+
+  it('waits for a seat that never comes back from a restart', () => {
+    const state = humanTable(['sheriff', 'doctor', 'citizen', 'godfather'], { bots: 1 });
+    const bot = Object.values(state.players).find((player) => player.isBot)!;
+    // The snapshot says everyone was connected, because everyone was — until the
+    // process died underneath them.
+    for (const player of Object.values(state.players)) player.connected = true;
+
+    const bootedAt = 500_000;
+    restoreMafiaTable(state, bootedAt);
+
+    /**
+     * A restored `connected: true` is not evidence of anything, and believing it
+     * is the trap: the table would count an empty chair as occupied, never pause
+     * for it, and refuse to vote it out on the grounds that the player is here.
+     */
+    const absentee = playerBySlot(state, 2)!;
+    assert.equal(absentee.connected, false);
+    assert.equal(bot.connected, true, 'the server is always present');
+
+    // One phone comes back inside the resync window; the rest of the table never
+    // learns it was gone.
+    for (const player of Object.values(state.players)) {
+      if (player !== absentee && !player.isBot) noteSeatAlive(state, player.playerId, bootedAt);
+    }
+    assert.equal(tickMafiaPresence(state, bootedAt + GRACE / 2).paused, false);
+
+    // The one that does not stops the clock, and can be voted out.
+    assert.equal(tickMafiaPresence(state, bootedAt + GRACE).paused, true);
+    assert.deepEqual(
+      proposeMafiaKick(state, playerBySlot(state, 1)!.playerId, 2, bootedAt + DEFAULT_RULES.kickAfterMs),
+      { ok: true }
+    );
+  });
+
+  it('keeps the kick list across a restart, and re-measures the absences', () => {
+    const state = humanTable(['sheriff', 'doctor', 'citizen', 'godfather']);
+    const removed = playerBySlot(state, 4)!.playerId;
+    const absentee = playerBySlot(state, 2)!.playerId;
+    tablePresence(state).kicked.push(removed);
+    noteSeatSilent(state, absentee, 0);
+
+    const bootedAt = 500_000;
+    restoreMafiaTable(state, bootedAt);
+
+    const presence = tablePresence(state);
+    // Somebody the room voted out stays voted out across a deploy, and the room
+    // does not start waiting for them again.
+    assert.deepEqual(presence.kicked, [removed]);
+    assert.equal(presence.awaySince[removed], undefined);
+    // An absence measured before the restart says nothing about now, so it is
+    // re-measured from it: nobody comes back already past the kick delay.
+    assert.equal(presence.awaySince[absentee], bootedAt);
   });
 
   it('beats often enough that the window means what it says', () => {

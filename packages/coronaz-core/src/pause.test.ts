@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import { DEFAULT_RULES } from 'presence-core';
 
-import { applyHeroAction } from './engine.js';
+import { applyHeroAction, checkEnd } from './engine.js';
 import {
   czPresenceView,
   dropHeroSeat,
@@ -12,11 +12,13 @@ import {
   proposeHeroKick,
   raidAbandoned,
   raidPaused,
+  restoreRaidPresence,
   tickRaidPresence,
   voteHeroKick
 } from './presence.js';
 import { createGame, joinHero, raidPresence, type CzState } from './state.js';
 import { gameConfigSchema } from './config.js';
+import { czKickSchema } from './protocol.js';
 
 /**
  * The pause, on a real raid with a real hero-phase clock.
@@ -79,7 +81,7 @@ describe('the raid pause', () => {
     const left = raidPresence(state).parkedMs;
     assert.equal(left, 60_000 - (1_000 + GRACE));
 
-    noteHeroAlive(state, second);
+    noteHeroAlive(state, second, 80_000);
     tickRaidPresence(state, 80_000);
     const resumeAt = 80_000 + DEFAULT_RULES.resumeCountdownMs;
     assert.equal(tickRaidPresence(state, resumeAt).resumed, true);
@@ -154,5 +156,77 @@ describe('the raid pause', () => {
     assert.equal(raidAbandoned(state), false, 'one survivor is still a raid');
     dropHeroSeat(state, second);
     assert.equal(raidAbandoned(state), true);
+  });
+
+  it('waits for a survivor who never comes back from a restart', () => {
+    const state = raid(3);
+    const [first, second, third] = seatIds(state);
+    for (const hero of Object.values(state.heroes)) hero.connected = true;
+
+    const bootedAt = 500_000;
+    restoreRaidPresence(state, bootedAt);
+
+    /**
+     * The raid has no deadline after a restart — it waits for its humans — so
+     * believing a stale `connected` is not merely untidy here: the phase would
+     * never end (nobody sends the missing survivor's ready), the raid would
+     * never pause, and the room's one remedy would be refused because that
+     * player is supposedly present.
+     */
+    assert.equal(state.heroes[third].connected, false);
+
+    noteHeroAlive(state, first, bootedAt);
+    noteHeroAlive(state, second, bootedAt);
+    assert.equal(tickRaidPresence(state, bootedAt + GRACE / 2).paused, false);
+    assert.equal(tickRaidPresence(state, bootedAt + GRACE).paused, true);
+    assert.deepEqual(proposeHeroKick(state, first, third, bootedAt + DEFAULT_RULES.kickAfterMs), { ok: true });
+  });
+
+  it('refuses a malformed kick instead of counting it as a no', () => {
+    /**
+     * The dangerous shapes are the near-misses, not the nonsense: read
+     * defensively, each of these lands on the ballot arm with `yes` falsy, which
+     * is not an abstention — it is a counted no that overwrites the sender's
+     * previous ballot and helps close the vote as failed for good.
+     */
+    for (const payload of [{}, { type: 'vote' }, { type: 'Vote', yes: true }, { type: 'propose' }, null]) {
+      assert.equal(czKickSchema.safeParse(payload).success, false, JSON.stringify(payload));
+    }
+
+    assert.equal(czKickSchema.safeParse({ type: 'vote', yes: false }).success, true);
+    assert.equal(czKickSchema.safeParse({ type: 'propose', playerId: 'p1' }).success, true);
+  });
+
+  it('calls a raid whose survivors got out a win, not an abandonment', () => {
+    const state = raid(3);
+    const [first, second, third] = seatIds(state);
+
+    // Two are already outside the district; the third's phone dies and the
+    // pause runs out on them.
+    state.heroes[first].escaped = true;
+    state.heroes[second].escaped = true;
+    dropHeroSeat(state, third);
+
+    /**
+     * `raidAbandoned` counts *active* survivors, and somebody who escaped is not
+     * one — so on its own it reads this finished raid as an empty room and would
+     * have the manager delete it, results and all. The engine is the one that
+     * knows an escape scenario with somebody outside has been won, so it gets
+     * asked first.
+     */
+    assert.equal(raidAbandoned(state), true);
+    checkEnd(state);
+    assert.equal(state.phase, 'won');
+  });
+
+  it('calls a raid nobody escaped a loss, not an abandonment', () => {
+    const state = raid(2);
+    const [first, second] = seatIds(state);
+
+    state.heroes[first].alive = false;
+    dropHeroSeat(state, second);
+
+    checkEnd(state);
+    assert.equal(state.phase, 'lost');
   });
 });

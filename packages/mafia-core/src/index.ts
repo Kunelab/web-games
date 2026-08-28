@@ -80,6 +80,7 @@ export {
   noteSeatSilent,
   proposeMafiaKick,
   removeMafiaBot,
+  restoreMafiaTable,
   revealMayor,
   sayInChat,
   setLastWill,
