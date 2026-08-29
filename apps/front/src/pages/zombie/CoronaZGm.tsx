@@ -410,7 +410,11 @@ export default function CoronaZGm() {
         {panel === 'log' && (
           <ul className="cz-log phone">
             {[...view.log].reverse().map((entry, index) => (
-              <li key={`${entry.turn}-${index}`}>{entry.text}</li>
+              // Dimmed when the survivors could not see it happen. Knowing which
+              // of your moves they read is half of playing the horde.
+              <li key={`${entry.turn}-${index}`} className={entry.hidden ? 'unseen' : undefined}>
+                {entry.text}
+              </li>
             ))}
           </ul>
         )}

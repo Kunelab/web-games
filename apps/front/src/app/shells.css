@@ -65,10 +65,14 @@
 /* A link to the account page since there is one to go to, so it needs to look
  * like something you can press rather than a label that happens to be your name. */
 .whoami {
+  font: inherit;
   font-size: var(--text-sm);
   color: var(--ink-faint);
   padding: 0.4em 0.6em;
+  background: none;
+  border: none;
   border-radius: var(--radius-sm);
+  cursor: pointer;
 }
 .whoami:hover {
   color: var(--ink);
@@ -88,8 +92,16 @@
     padding: var(--space-3);
     gap: var(--space-3);
   }
+  /*
+   * Kept on a phone now that it is the way to the account page rather than a
+   * label. There is room for it: the bar carries the games menu and nothing
+   * else since the quiz links moved onto the quiz menu.
+   */
   .whoami {
-    display: none;
+    max-width: 8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .atelier-main {
     padding: var(--space-5) var(--space-3) var(--space-6);
@@ -273,3 +285,85 @@
  * No narrow-screen rule any more: the panel is clamped to the viewport in script,
  * which the old `right: 0` was standing in for.
  */
+
+/* ------------------------------------------------------------ account menu */
+
+/*
+ * Same portal, same reason as the games menu: `.topbar` is a stacking context
+ * of its own, so a panel anchored inside it can never rise above what a game
+ * mounts over the page.
+ */
+.accountmenu {
+  display: inline-flex;
+}
+
+.accountmenu-panel {
+  /* Fixed, with top/right set inline from the trigger's rectangle. */
+  position: fixed;
+  z-index: 9500;
+  min-width: 15rem;
+  max-width: min(20rem, calc(100vw - var(--space-4)));
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+}
+
+.accountmenu-group {
+  padding: var(--space-2) var(--space-2) 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* Three across, so the whole choice is visible rather than hidden in a select. */
+.accountmenu-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr));
+  gap: var(--space-1);
+  padding: 0 var(--space-1) var(--space-1);
+}
+
+.accountmenu-choice {
+  padding: 0.45em 0.4em;
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.accountmenu-choice:hover {
+  color: var(--ink);
+  background: var(--bg-hover);
+}
+.accountmenu-choice.on {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.accountmenu-item {
+  display: block;
+  width: 100%;
+  padding: var(--space-3);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  color: var(--ink);
+  background: none;
+  border: none;
+  border-top: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.accountmenu-item:hover {
+  background: var(--bg-hover);
+}

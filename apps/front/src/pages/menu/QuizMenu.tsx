@@ -45,6 +45,20 @@ const TILES: MenuTile[] = [
     requiresAccount: true
   },
   {
+    to: '/bibliotheque',
+    label: 'Ma bibliothèque',
+    hint: 'Retrouver et modifier les questions déjà écrites.',
+    emoji: '🗂️',
+    requiresAccount: true
+  },
+  {
+    to: '/historique',
+    label: 'Historique et carrières',
+    hint: 'Les parties terminées et ce qu’elles ont laissé, tous jeux confondus.',
+    emoji: '🏆',
+    requiresAccount: true
+  },
+  {
     to: '/quiz/boutique',
     label: 'Boutique',
     hint: 'Dépenser vos jetons en skins.',

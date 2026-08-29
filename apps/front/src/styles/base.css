@@ -7,8 +7,9 @@
 }
 
 html {
-  /* Both shells are dark, so tell the browser: form controls and scrollbars
-     follow without needing to be styled one by one. */
+  /* Tells the browser which way form controls and scrollbars should go, without
+     styling them one by one. Overridden for the light atelier in tokens.css;
+     the game shell is a stage and stays dark whatever the choice. */
   color-scheme: dark;
 }
 
@@ -20,7 +21,12 @@ body,
 
 body {
   margin: 0;
-  /* Painted explicitly rather than inherited, so the page never shows through. */
+  /*
+   * Painted explicitly rather than inherited, so the page never shows through —
+   * the shell covers it, but an overscroll does not. Restated for the light
+   * atelier below, because the body sits outside every shell and so inherits
+   * none of their variables.
+   */
   background: #0a0b0f;
   color: #e8e6e1;
   font-family: var(--font-sans);
@@ -100,4 +106,16 @@ img {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/*
+ * Daylight reaches the page itself, not only the shell drawn on top of it.
+ *
+ * The game shell paints its own near-black ground regardless, so a raid looks
+ * the same in either theme; this is what an overscroll and the browser's own
+ * chrome see.
+ */
+:root[data-theme='light'] body {
+  background: #faf8f4;
+  color: #1e1c18;
 }

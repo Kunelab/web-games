@@ -873,6 +873,18 @@ export function registerRealtime(
       });
     });
 
+    socket.on('cz:say', (payload, ack) => {
+      const respond = responder(ack);
+      const { czCode, czRole } = socket.data;
+      if (!czCode || czRole?.kind !== 'player') {
+        respond({ ok: false, error: 'Vous n’êtes pas dans une partie' });
+        return;
+      }
+
+      const text = typeof payload?.text === 'string' ? payload.text : '';
+      respond(cz.say(czCode, czRole.playerId, text));
+    });
+
     socket.on('cz:action', (payload, ack) => {
       const respond = responder(ack);
       const { czCode, czRole } = socket.data;

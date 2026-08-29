@@ -24,6 +24,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 
+import CzChat from './CzChat';
 import { czPerkMeta } from '../../app/czMeta';
 import { useCountdown } from '../../hooks/useGameSocket';
 import { PauseOverlay } from '../../components/presence/PauseOverlay';
@@ -307,7 +308,15 @@ export default function CoronaZPlayer() {
           error={kickError}
         />
       )}
-      <PlayScreen view={view} me={me} myId={myId ?? ''} serverNow={serverNow} send={send} error={error} />
+      <PlayScreen
+        view={view}
+        me={me}
+        myId={myId ?? ''}
+        serverNow={serverNow}
+        send={send}
+        say={(text) => socket?.emit('cz:say', { text }, () => undefined)}
+        error={error}
+      />
     </>
   );
 }
@@ -451,6 +460,7 @@ function PlayScreen({
   myId,
   serverNow,
   send,
+  say,
   error
 }: {
   view: CzView;
@@ -458,6 +468,7 @@ function PlayScreen({
   myId: string;
   serverNow: () => number;
   send: (action: HeroAction) => Promise<CzActionAck>;
+  say: (text: string) => void;
   error: string | null;
 }) {
   const remaining = useCountdown(view.phaseEndsAt, serverNow);
@@ -651,6 +662,8 @@ function PlayScreen({
 
       {!me.alive && <p className="play-error">Vous êtes tombé. La partie continue sans vous.</p>}
       {me.escaped && <p className="play-good">Vous êtes dehors. Regardez-les courir.</p>}
+
+      <CzChat messages={view.chat} me={me.playerId} onSend={say} />
 
       {/* Everything below is docked to the bottom of the screen: the map owns
           the middle, the hands own the bottom, the page never scrolls. */}
