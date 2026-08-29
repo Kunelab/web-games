@@ -29,6 +29,7 @@ import {
   raidPaused,
   raidPresence,
   restoreRaidPresence,
+  sayInRaid,
   tickRaidPresence,
   voteHeroKick,
   playerMindsetNames,
@@ -45,6 +46,7 @@ import {
   type HeroAction,
   type HeroState
 } from 'coronaz-core';
+import { createChat } from 'chat-core';
 import { buildLeaderboard, generateJoinCode } from 'game-core';
 import { pickBotName } from 'lobby-core';
 import { presenceIdle, type KickRefusal } from 'presence-core';
@@ -359,6 +361,8 @@ export class CzManager {
          * here, because nobody is connected any more whatever the snapshot says.
          * The kick list survives.
          */
+        // Raids saved before the chat existed come back without one.
+        state.chat ??= createChat();
         restoreRaidPresence(state, Date.now());
         // Timers do not survive a restart; the phase waits for a human, same
         // policy as the quizzes. Bot heartbeats, though, restart themselves.
@@ -564,6 +568,26 @@ export class CzManager {
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : 'Impossible' };
     }
+    void this.persist(state);
+    this.listener?.(state);
+    return { ok: true };
+  }
+
+  /**
+   * Says something in the raid.
+   *
+   * Rate limiting, length and whitespace are `chat-core`'s job — the same code
+   * that polices Mafia's town square. All this adds is who is allowed to speak,
+   * which is a question only the raid can answer.
+   */
+  say(code: string, playerId: string, text: string): { ok: boolean; error?: string } {
+    const state = this.sessions.get(code);
+    if (!state) return { ok: false, error: 'Partie introuvable' };
+
+    const result = sayInRaid(state, playerId, text, Date.now());
+    if (!result.ok) return { ok: false, error: result.error };
+
+    state.lastActivityAt = Date.now();
     void this.persist(state);
     this.listener?.(state);
     return { ok: true };

@@ -283,6 +283,21 @@ export default function CoronaZTv() {
                 <li key={`${entry.turn}-${index}`}>{entry.text}</li>
               ))}
             </ul>
+
+            {/* The room's own voices, under the game's. Read-only: nobody types
+                on a television, and everyone who could is holding a phone. */}
+            {view.chat.length > 0 && (
+              <ul className="cz-log cz-said">
+                {[...view.chat]
+                  .slice(-6)
+                  .reverse()
+                  .map((message) => (
+                    <li key={message.id}>
+                      <strong>{message.authorName}</strong> {message.text}
+                    </li>
+                  ))}
+              </ul>
+            )}
           </aside>
         </div>
       )}

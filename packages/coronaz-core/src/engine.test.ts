@@ -20,6 +20,7 @@ import {
   activateNextZombie,
   applyGmAction,
   applyHeroAction,
+  sayInRaid,
   beginEnemyPhase,
   endEnemyPhase,
   heroPhaseDone,
@@ -52,10 +53,13 @@ import { seedRng } from './rng.js';
 import {
   activeHeroes,
   createGame,
+  joinBot,
   joinHero,
+  log,
   makeItem,
   objectivesDone,
   spawnZombie,
+  visibleRooms,
   type CzState
 } from './state.js';
 
@@ -1154,6 +1158,129 @@ describe('projections', () => {
       [...mapView.edgeRight, ...mapView.edgeDown].some((code) => code === 'D' || code === 'A'),
       'the plan shows its openings'
     );
+  });
+
+  /**
+   * The log used to be shipped whole to every screen while the map beside it was
+   * carefully fogged, so survivors read where the horde was massing and what it
+   * was made of. It also quietly cancelled the Bone Colossus, whose entire
+   * ability is to surface where nobody has looked.
+   */
+  it('the log respects the same fog the map does', () => {
+    const state = newGame({ startingZombies: 0 });
+    const { hero } = joinHero(state, 'Éclaireur', undefined);
+    startGame(state, 0);
+
+    const lit = [...visibleRooms(state)];
+    const dark = state.board.rooms.find((room) => !lit.includes(room.id));
+    assert(dark, 'a fresh map has somewhere dark');
+    assert(lit[0], 'and somewhere lit');
+
+    log(state, 'dans le noir', dark.id);
+    log(state, 'sous les yeux', lit[0]);
+    log(state, 'une annonce');
+
+    const read = (role: Parameters<typeof toView>[1]) => toView(state, role).log.map((entry) => entry.text);
+
+    const player = read({ kind: 'player', playerId: hero.playerId });
+    assert(!player.includes('dans le noir'), 'what happened in the dark stays there');
+    assert(player.includes('sous les yeux'), 'what happened in sight is reported');
+    assert(player.includes('une annonce'), 'a line about no room at all is for everyone');
+
+    // The television is the screen the survivors are all looking at.
+    assert(!read({ kind: 'tv' }).includes('dans le noir'), 'the shared screen leaks nothing either');
+
+    assert(read({ kind: 'gm' }).includes('dans le noir'), 'the game master runs the horde and sees it');
+  });
+
+  it('and gives it all back once the raid is over', () => {
+    const state = newGame({ startingZombies: 0 });
+    const { hero } = joinHero(state, 'Curieuse', undefined);
+    startGame(state, 0);
+
+    const dark = state.board.rooms.find((room) => !visibleRooms(state).has(room.id));
+    assert(dark, 'a fresh map has somewhere dark');
+    log(state, 'ce qui rôdait', dark.id);
+
+    const during = toView(state, { kind: 'player', playerId: hero.playerId });
+    assert(!during.log.some((entry) => entry.text === 'ce qui rôdait'));
+
+    state.phase = 'lost';
+    const after = toView(state, { kind: 'player', playerId: hero.playerId });
+    assert(
+      after.log.some((entry) => entry.text === 'ce qui rôdait'),
+      'the debrief is allowed to explain what killed you'
+    );
+  });
+
+  it('still hands a survivor a full dozen lines, not a dozen minus the dark', () => {
+    const state = newGame({ startingZombies: 0 });
+    const { hero } = joinHero(state, 'Comptable', undefined);
+    startGame(state, 0);
+
+    const dark = state.board.rooms.find((room) => !visibleRooms(state).has(room.id));
+    assert(dark, 'a fresh map has somewhere dark');
+
+    // Interleaved, so trimming before filtering would eat half the survivor's log.
+    for (let i = 0; i < 20; i++) {
+      log(state, `visible ${i}`);
+      log(state, `caché ${i}`, dark.id);
+    }
+
+    const player = toView(state, { kind: 'player', playerId: hero.playerId }).log;
+    assert.equal(player.length, 12);
+    assert(
+      player.every((entry) => entry.text.startsWith('visible')),
+      'and none of them from the dark'
+    );
+  });
+
+  it('the survivors have a channel the horde is not on', () => {
+    const state = newGame({ mode: 'gm', startingZombies: 0 });
+    const { hero } = joinHero(state, 'Bavarde', undefined);
+    startGame(state, 0);
+
+    assert.equal(sayInRaid(state, hero.playerId, 'on passe par la droite', 1000).ok, true);
+
+    const mine = toView(state, { kind: 'player', playerId: hero.playerId });
+    assert.equal(mine.chat.length, 1);
+    assert.equal(mine.chat[0]?.text, 'on passe par la droite');
+    assert.equal(mine.chat[0]?.authorName, 'Bavarde');
+
+    // The television is the survivors' own screen, so it carries their voices.
+    assert.equal(toView(state, { kind: 'tv' }).chat.length, 1);
+
+    // The horde does not get to read the plan, during or after.
+    assert.equal(toView(state, { kind: 'gm' }).chat.length, 0);
+    state.phase = 'lost';
+    assert.equal(toView(state, { kind: 'gm' }).chat.length, 0, 'not even in the debrief');
+  });
+
+  it('lets the fallen speak and keeps the bots quiet', () => {
+    const state = newGame({ startingZombies: 0 });
+    const { hero } = joinHero(state, 'Tombée', undefined);
+    const bot = joinBot(state, 'Machine', 'balanced', 'expert');
+    startGame(state, 0);
+
+    hero.alive = false;
+    assert.equal(sayInRaid(state, hero.playerId, 'attention à gauche', 1000).ok, true);
+    assert.equal(sayInRaid(state, bot.playerId, 'bip', 1000).ok, false);
+
+    assert.equal(sayInRaid(state, 'personne', 'coucou', 1000).ok, false);
+  });
+
+  it('holds a talker to the same limits the town square uses', () => {
+    const state = newGame({ startingZombies: 0 });
+    const { hero } = joinHero(state, 'Pressée', undefined);
+    startGame(state, 0);
+
+    assert.equal(sayInRaid(state, hero.playerId, '   ', 1000).ok, false, 'nothing to say');
+    assert.equal(sayInRaid(state, hero.playerId, 'a'.repeat(401), 1000).ok, false, 'too long');
+
+    // The burst allowance is chat-core's, shared with Mafia rather than reinvented.
+    const sent = [];
+    for (let i = 0; i < 8; i++) sent.push(sayInRaid(state, hero.playerId, `ligne ${i}`, 1000).ok);
+    assert(sent.includes(false), 'a flood is refused');
   });
 
   it('the game master sees everything', () => {

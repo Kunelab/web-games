@@ -5,6 +5,30 @@
     <link rel="icon" type="image/svg+xml" href="/KuneLab.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kune</title>
+    <script>
+      /*
+        Resolved before the first paint, which is the whole reason it is inline
+        and not in the bundle: reading the choice after React mounts means the
+        page is drawn in the wrong palette and corrected a frame later, and that
+        flash is worse than having no light mode at all.
+
+        The *preference* stored may be "system"; what lands on the element is
+        always a concrete theme, so the stylesheet needs one selector instead of
+        one plus a media query saying the same thing.
+      */
+      (function () {
+        try {
+          var preference = localStorage.getItem('kune.theme') || 'dark';
+          var dark =
+            preference === 'dark' ||
+            (preference === 'system' && !window.matchMedia('(prefers-color-scheme: light)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        } catch (error) {
+          // Storage refused, or an ancient browser. The house look is dark.
+          document.documentElement.dataset.theme = 'dark';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,3 +1,4 @@
+import type { ChatMessage } from 'chat-core';
 import { z } from 'zod';
 
 import type { Scenario } from './config.js';
@@ -191,6 +192,8 @@ export interface CzView {
     optional?: boolean;
   }[];
   log: LogEntry[];
+  /** What the survivors have said. Never sent to the game master. */
+  chat: ChatMessage[];
   me?: CzMeView;
   /** Present for the game master during the enemy phase. */
   gmBudget?: number;
@@ -390,7 +393,18 @@ export function toView(state: CzState, role: CzRole, now = Date.now()): CzView {
     heroPhaseSeconds: state.config.heroPhaseSeconds,
     objectives: state.objectives.map((objective) => ({ ...objective })),
     presence: czPresenceView(state, now, role.kind === 'player' ? role.playerId : null),
-    log: state.log.slice(-12),
+    /**
+     * Filtered before it is trimmed, so a survivor still gets twelve lines they
+     * are allowed to read rather than twelve minus whatever happened in the dark.
+     * The game master, and everyone once the raid is over, reads all of it.
+     */
+    log: state.log.filter((entry) => omniscient || !entry.hidden).slice(-12),
+    /**
+     * Empty for the game master, always — including after the raid, where the
+     * log opens up but the survivors' private planning has no reason to. The
+     * television carries it: it is the screen they are all looking at.
+     */
+    chat: role.kind === 'gm' ? [] : (state.chat?.messages ?? []).slice(-40),
     me: me
       ? {
           playerId: me.playerId,
@@ -586,6 +600,14 @@ export interface CzClientToServer {
     ack: (response: { ok: boolean; error?: string }) => void
   ) => void;
   'cz:removeBot': (payload: { hostToken: string; playerId: string }) => void;
+  /**
+   * Speaking in the raid.
+   *
+   * No token in the payload: the socket already knows which hero it belongs to,
+   * the same way `cz:action` does. A token here would be a second answer to a
+   * question already answered, and the weaker of the two.
+   */
+  'cz:say': (payload: { text: string }, ack: (response: { ok: boolean; error?: string }) => void) => void;
   'cz:action': (payload: unknown, ack: (response: CzActionAck) => void) => void;
   'cz:gmAction': (payload: unknown, ack: (response: CzActionAck) => void) => void;
   'cz:gmEnd': (payload: { gmToken: string }) => void;

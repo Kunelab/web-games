@@ -1,3 +1,4 @@
+import { createChat, type ChatState } from 'chat-core';
 import { createPresence, markPresent, type PresenceState, type Roster } from 'presence-core';
 
 import type { GameConfig } from './config.js';
@@ -210,6 +211,15 @@ export interface GmUpgrades {
 export interface LogEntry {
   turn: number;
   text: string;
+  /**
+   * Written about something the survivors could not see when it happened.
+   *
+   * The fog is a team fog — `visibleRooms` unions every hero's sight — so this is
+   * one flag rather than a list of who witnessed it. Recorded at write time and
+   * never revised: a line you saw stays in your log after you walk away, and a
+   * line you missed does not appear because somebody later opened that door.
+   */
+  hidden?: boolean;
 }
 
 export type CzPhase = 'lobby' | 'heroes' | 'enemy' | 'won' | 'lost';
@@ -280,6 +290,19 @@ export interface CzState {
    */
   gmSurgeUsed?: boolean;
   log: LogEntry[];
+  /**
+   * What the survivors say to each other.
+   *
+   * Separate from `log` on purpose. The log is the game's own account of events
+   * and is fogged **per entry** — one line hidden, the next not, decided by the
+   * room it happened in. `chat-core` answers visibility per *channel* and says so
+   * in its header, which is the right model for speech and the wrong one for a
+   * fog. Two feeds, each with the rule that fits it, rendered side by side.
+   *
+   * Optional because raids saved before it existed restore without one; the
+   * manager fills it in on the way back.
+   */
+  chat?: ChatState;
   resultsRecorded?: boolean;
   /**
    * Who is still on the raid: heartbeats, the pause, and any vote to carry on
@@ -351,6 +374,7 @@ export function createGame(options: {
     gmDiscountUsed: false,
     gmSurgeUsed: false,
     log: [],
+    chat: createChat(),
     lastActivityAt: options.now ?? Date.now()
   };
 
@@ -747,7 +771,9 @@ export function spawnZombie(state: CzState, roomId: string, def: string): Zombie
   state.zombies[zombie.id] = zombie;
 
   if (definition.boss) {
-    log(state, `${definition.emoji} ${definition.name} est arrivé.`);
+    // Tied to the room it walked into: naming the creature is exactly the kind of
+    // thing the survivors are supposed to discover rather than read.
+    log(state, `${definition.emoji} ${definition.name} est arrivé.`, roomId);
   }
   return zombie;
 }
@@ -1197,8 +1223,22 @@ export function updateExplored(state: CzState): void {
   state.explored = [...explored];
 }
 
-export function log(state: CzState, text: string): void {
-  state.log.push({ turn: state.turn, text });
+/**
+ * Adds a line to the raid log.
+ *
+ * `roomId` is what the line is *about*. Given one the survivors cannot currently
+ * see, the entry is marked hidden and only the game master reads it until the
+ * raid ends.
+ *
+ * This is not decoration. The log used to be shipped to every screen unfiltered
+ * while the map beside it was carefully fogged, so players read where the horde
+ * was massing and what it was made of. It also quietly cancelled the Bone
+ * Colossus, whose whole ability is to surface in rooms nobody has explored: the
+ * ambush was announced in writing the moment it was bought.
+ */
+export function log(state: CzState, text: string, roomId?: string): void {
+  const hidden = roomId !== undefined && !visibleRooms(state).has(roomId);
+  state.log.push(hidden ? { turn: state.turn, text, hidden } : { turn: state.turn, text });
   if (state.log.length > MAX_LOG) {
     state.log.splice(0, state.log.length - MAX_LOG);
   }

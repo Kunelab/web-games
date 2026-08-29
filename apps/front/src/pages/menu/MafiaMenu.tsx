@@ -37,6 +37,13 @@ const TILES: MenuTile[] = [
     requiresAccount: true
   },
   {
+    to: '/historique',
+    label: 'Historique et carrières',
+    hint: 'Les parties terminées, et ce que chacun a fini par devenir.',
+    emoji: '🏆',
+    requiresAccount: true
+  },
+  {
     to: '/mafia/guide',
     label: 'Rôles et règles',
     hint: 'Les camps, les rôles, le déroulé d’un jour et d’une nuit.',

@@ -1,3 +1,4 @@
+import { createChat, post, type PostResult } from 'chat-core';
 import { resolveHeroAttack, resolveZombieAttack, weaponFor, type Hand } from './combat.js';
 import { archetypeOf, itemFor, zombieFor } from './content/registry.js';
 import { gearStats, heroDef, itemDef, RARITY_META, zombieDef } from './data.js';
@@ -1166,8 +1167,43 @@ export function spawnReinforcements(state: CzState): void {
     for (let i = 0; i < count; i++) {
       spawnZombie(state, room.id, def);
     }
-    log(state, `${count > 1 ? `${count} renforts` : 'Un renfort'} (${zombieDef(def).name}) en ${room.id}`);
+    // Named room and creature both: this is the line that told survivors where
+    // the horde was massing and what it was made of, from across the map.
+    log(state, `${count > 1 ? `${count} renforts` : 'Un renfort'} (${zombieDef(def).name}) en ${room.id}`, room.id);
   }
+}
+
+/**
+ * The one channel a raid has: the survivors talking to each other.
+ *
+ * The game master is not on it, and that is the design rather than an oversight.
+ * They play the horde; a squad deciding which corridor to try should not be read
+ * by the thing waiting in it. Taunting back would be a second channel, not this
+ * one.
+ */
+export const RAID_CHANNEL = 'raid';
+
+/**
+ * Says something out loud in the raid.
+ *
+ * The downed are not silenced: watching your squad finish without you and being
+ * unable to say so is a worse game than a dead player who can still shout advice.
+ * Bots say nothing — theirs would be filler, and a feed of filler is one nobody
+ * reads.
+ */
+export function sayInRaid(state: CzState, playerId: string, text: string, now = Date.now()): PostResult {
+  const hero = state.heroes[playerId];
+  if (!hero) return { ok: false, error: 'Vous n’êtes pas dans ce raid' };
+  if (hero.isBot) return { ok: false, error: 'Les bots ne parlent pas' };
+
+  state.chat ??= createChat();
+  return post(state.chat, {
+    channel: RAID_CHANNEL,
+    authorId: playerId,
+    authorName: hero.name,
+    text,
+    at: now
+  });
 }
 
 export function endEnemyPhase(state: CzState, now = Date.now()): void {
@@ -1334,9 +1370,9 @@ export function applyGmAction(state: CzState, action: GmAction): ActionResult {
       if (state.config.gmClass === 'general' && !state.gmSurgeUsed && summoned) {
         state.gmSurgeUsed = true;
         summoned.ap = zombieDef(action.def).ap + mutationEffects(state.config.mutations).ap;
-        log(state, `${def.name} arrive au pas de charge`);
+        log(state, `${def.name} arrive au pas de charge`, room.id);
       }
-      log(state, `Le maître du jeu invoque ${def.name}`);
+      log(state, `Le maître du jeu invoque ${def.name}`, room.id);
       return { ok: true };
     }
 

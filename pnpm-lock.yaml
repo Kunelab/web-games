@@ -260,6 +260,9 @@ importers:
 
   packages/coronaz-core:
     dependencies:
+      chat-core:
+        specifier: workspace:*
+        version: link:../chat-core
       presence-core:
         specifier: workspace:*
         version: link:../presence-core

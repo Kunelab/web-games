@@ -1,21 +1,38 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 
+import { LOCALES, type Locale } from 'i18n';
+
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
+import { useTheme, type ThemePreference } from '../hooks/useTheme';
+import { useLocale } from '../i18n/locale-context';
 import { Button, Field, Input } from '../ui';
 import './home.css';
 
+const THEMES: { value: ThemePreference; label: string; hint: string }[] = [
+  { value: 'dark', label: '🌙 Sombre', hint: 'La maison, telle qu’elle a toujours été.' },
+  { value: 'light', label: '☀️ Clair', hint: 'Pour préparer une soirée en plein jour.' },
+  { value: 'system', label: '💻 Système', hint: 'Ce que dit votre machine, et il suit.' }
+];
+
+const LANGUAGE_NAMES: Record<Locale, string> = { fr: 'Français', en: 'English' };
+
 /**
- * The account screen, which for now is one form.
+ * Settings, and the account they belong to.
  *
- * Changing a password is the only thing here because it is the only thing that
- * works without mail leaving the box: a reset needs an address it can trust, and
- * this deployment has no SMTP path yet. Knowing the old password is the proof
- * until it does.
+ * The two dials also live in the menu behind your name, because you flip a theme
+ * to see it happen. They are repeated here with their explanations, which is
+ * what a page is for and what a menu has no room for.
+ *
+ * Preferences are kept on the device, not on the account. Phones join a game
+ * without ever signing in and need a language too, and a theme that waited for
+ * `/api/user` would paint the page twice on every load.
  */
 export default function Account() {
   const { user } = useAuth();
+  const { preference, theme, setPreference } = useTheme();
+  const { locale, setLocale } = useLocale();
 
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -57,6 +74,43 @@ export default function Account() {
     <div className="auth-page">
       <h1 className="page-title">Mon compte</h1>
       {user && <p className="auth-alt">Connecté en tant que {user.login}.</p>}
+
+      <h2 className="auth-section">Apparence</h2>
+      <div className="settings-choices">
+        {THEMES.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className={`settings-choice ${preference === option.value ? 'on' : ''}`}
+            aria-pressed={preference === option.value}
+            onClick={() => setPreference(option.value)}
+          >
+            <strong>{option.label}</strong>
+            <span>{option.hint}</span>
+          </button>
+        ))}
+      </div>
+      {preference === 'system' && (
+        <p className="auth-alt">
+          Actuellement : {theme === 'light' ? 'clair' : 'sombre'}. Les écrans de jeu restent sombres dans tous les cas —
+          ils sont conçus pour être lus à quatre mètres.
+        </p>
+      )}
+
+      <h2 className="auth-section">Langue</h2>
+      <div className="settings-choices">
+        {LOCALES.map((value) => (
+          <button
+            key={value}
+            type="button"
+            className={`settings-choice ${locale === value ? 'on' : ''}`}
+            aria-pressed={locale === value}
+            onClick={() => setLocale(value)}
+          >
+            <strong>{LANGUAGE_NAMES[value]}</strong>
+          </button>
+        ))}
+      </div>
 
       <h2 className="auth-section">Changer de mot de passe</h2>
 

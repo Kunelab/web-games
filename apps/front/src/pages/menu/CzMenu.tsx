@@ -37,6 +37,13 @@ const TILES: MenuTile[] = [
     requiresAccount: true
   },
   {
+    to: '/historique',
+    label: 'Historique et carrières',
+    hint: 'Les raids terminés, les records par scénario et les trophées.',
+    emoji: '🏆',
+    requiresAccount: true
+  },
+  {
     to: '/coronaz/guide',
     label: 'Lore, bestiaire et règles',
     hint: 'Ce qui est arrivé au quartier, ce qui y vit, et comment on en sort.',

@@ -24,6 +24,7 @@
     "why": "tsx src/sim/why.ts"
   },
   "dependencies": {
+    "chat-core": "workspace:*",
     "presence-core": "workspace:*",
     "zod": "^4.4.3"
   },

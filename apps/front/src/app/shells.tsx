@@ -4,7 +4,8 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 
 import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
-import { Button, ChevronDown, PortalContainerProvider } from '../ui';
+import { ChevronDown, PortalContainerProvider } from '../ui';
+import AccountMenu from './AccountMenu';
 import { GAMES } from './games';
 import './shells.css';
 
@@ -48,33 +49,20 @@ export function AtelierShell() {
               Kune
             </NavLink>
 
+            {/*
+              Only the games menu. The bar used to grow three quiz links the
+              moment you signed in — the library, the playlists and the history —
+              and then carry them into CoronaZ and Mafia, where they meant
+              nothing. Each game's own menu is the front door now, so those live
+              as tiles on the menus they belong to.
+            */}
             <nav className="mainnav" aria-label="Navigation principale">
               <GamesMenu container={shell} />
-              {user && (
-                <>
-                  <NavLink to="/bibliotheque" className={({ isActive }) => `navlink ${isActive ? 'on' : ''}`}>
-                    Bibliothèque
-                  </NavLink>
-                  <NavLink to="/playlists" className={({ isActive }) => `navlink ${isActive ? 'on' : ''}`}>
-                    Mes quiz
-                  </NavLink>
-                  <NavLink to="/historique" className={({ isActive }) => `navlink ${isActive ? 'on' : ''}`}>
-                    Historique
-                  </NavLink>
-                </>
-              )}
             </nav>
 
             <div className="topbar-end">
               {user ? (
-                <>
-                  <NavLink to="/compte" className="whoami">
-                    {user.login}
-                  </NavLink>
-                  <Button variant="ghost" size="sm" onClick={() => void logout()}>
-                    Déconnexion
-                  </Button>
-                </>
+                <AccountMenu login={user.login} container={shell} onLogout={() => void logout()} />
               ) : (
                 <NavLink to="/connexion" className="navlink">
                   Connexion

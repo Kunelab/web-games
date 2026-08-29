@@ -117,3 +117,54 @@
   background: radial-gradient(120% 85% at 50% -15%, #2a2f3f 0%, rgba(42, 47, 63, 0) 60%), var(--bg);
   color: var(--ink);
 }
+
+/* -------------------------------------------------------------------------- *
+ * Atelier, in daylight.
+ *
+ * Only the atelier. The game shell is a stage — near-black with a spotlight,
+ * built to be legible from four metres across a lit room — and a pale version of
+ * it would be a different product, not the same one lighter. CoronaZ and Mafia
+ * keep their own palettes for the same reason.
+ *
+ * The amber had to move: `#d99a3f` on white is about 2.2:1, which is a decoration
+ * rather than a colour you can read. `#9a6410` keeps the warmth at 5.2:1, and the
+ * ink on top of it flips to white.
+ * -------------------------------------------------------------------------- */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  /* Semantic colours are declared on :root for both shells, so they are restated
+     here rather than inside the shell block: the game screens never see this. */
+  --ok: #1f7a4d;
+  --ok-ink: #ffffff;
+  --warn: #8a5d10;
+  --warn-ink: #ffffff;
+  --bad: #b03a2b;
+  --bad-ink: #ffffff;
+
+  /* Read at a glance down a long list, so they carry the same weight as before
+     rather than being left pale. */
+  --kind-blindtest: #9a6410;
+  --kind-quiz: #3f5c8a;
+  --kind-estimation: #9a423d;
+  --kind-coronaz: #8a2f29;
+  --kind-image-reveal: #3f7a4c;
+  --kind-image-memory: #6f4a8a;
+  --kind-mafia: #574a8a;
+}
+
+:root[data-theme='light'] .shell-atelier {
+  --bg: #faf8f4;
+  --bg-raised: #ffffff;
+  --bg-sunken: #f0ece4;
+  --bg-hover: #eee9e0;
+  --ink: #1e1c18;
+  --ink-soft: #5f5a51;
+  --ink-faint: #8a847a;
+  --rule: #e0dad0;
+  --rule-strong: #c8c0b4;
+  --accent: #9a6410;
+  --accent-ink: #ffffff;
+  --accent-soft: #f6ecda;
+  --shadow: 0 1px 2px rgb(30 28 24 / 0.08), 0 8px 24px rgb(30 28 24 / 0.1);
+}

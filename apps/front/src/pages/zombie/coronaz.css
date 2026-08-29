@@ -1205,3 +1205,141 @@
   background: color-mix(in srgb, #e5484d 12%, transparent);
   color: #f0787c;
 }
+
+/*
+ * A log line the survivors never saw.
+ *
+ * Only the game master's screen ever receives one — the projection drops them
+ * for everyone else — so this marks what the horde did in the dark, and by
+ * contrast what it did in full view.
+ */
+.cz-log li.unseen {
+  opacity: 0.62;
+  font-style: italic;
+}
+.cz-log li.unseen::before {
+  content: '🌑 ';
+  font-style: normal;
+}
+
+/* ---------------------------------------------------------------- raid chat */
+
+/*
+ * A drawer, not a column.
+ *
+ * The raid screen never scrolls, so a permanent thread would have to take its
+ * space from the map or from the hands. This opens over the board and closes
+ * again, and the dot is what makes that acceptable: you can ignore it and still
+ * know somebody spoke.
+ */
+.cz-chat-toggle {
+  position: absolute;
+  right: var(--space-2);
+  top: var(--space-2);
+  z-index: 9000;
+  width: 2.75rem;
+  height: 2.75rem;
+  display: grid;
+  place-items: center;
+  font-size: 1.2rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: rgb(7 8 11 / 0.72);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+.cz-chat-toggle.on {
+  border-color: var(--rule-strong);
+}
+
+.cz-chat-dot {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.35rem;
+  min-width: 1.15rem;
+  padding: 0 0.25rem;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  line-height: 1.15rem;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+}
+
+.cz-chat {
+  position: absolute;
+  right: var(--space-2);
+  top: calc(2.75rem + var(--space-3));
+  z-index: 9000;
+  width: min(22rem, calc(100vw - var(--space-4)));
+  max-height: min(24rem, 55vh);
+  display: flex;
+  flex-direction: column;
+  background: rgb(7 8 11 / 0.94);
+  backdrop-filter: blur(3px);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+}
+
+.cz-chat-feed {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cz-chat-empty {
+  color: var(--ink-faint);
+  font-size: var(--text-sm);
+}
+
+.cz-chat-line {
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+.cz-chat-line strong {
+  color: var(--ink-soft);
+}
+/* Your own lines, so a fast thread still reads as a conversation. */
+.cz-chat-line.mine strong {
+  color: var(--accent);
+}
+
+.cz-chat-compose {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-top: 1px solid var(--rule);
+}
+.cz-chat-compose input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.45em 0.6em;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--bg-sunken);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+}
+.cz-chat-compose button {
+  padding: 0.45em 0.8em;
+  font-size: var(--text-sm);
+  color: var(--accent-ink);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.cz-chat-compose button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* On the television: the room's voices, quieter than the game's own. */
+.cz-said li strong {
+  color: var(--accent);
+}

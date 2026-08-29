@@ -189,6 +189,8 @@ export {
 export {
   applyHeroAction,
   applyGmAction,
+  RAID_CHANNEL,
+  sayInRaid,
   startGame,
   startHeroPhase,
   beginEnemyPhase,

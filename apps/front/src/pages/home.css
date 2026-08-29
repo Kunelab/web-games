@@ -105,3 +105,40 @@
   font-weight: 600;
   margin-bottom: calc(var(--space-2) * -1);
 }
+
+/*
+ * A row of exclusive choices, spelled out.
+ *
+ * A select would be shorter and would hide two of the three answers behind a
+ * click; the page exists precisely to show what a menu cannot.
+ */
+.settings-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-2);
+}
+
+.settings-choice {
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.settings-choice:hover {
+  background: var(--bg-hover);
+}
+.settings-choice.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.settings-choice span {
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+}
