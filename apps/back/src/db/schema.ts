@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /**
  * These tables were originally created by Sequelize `sync()`, which pluralises
@@ -24,17 +24,27 @@ const sequelizeTimestamps = {
     .$defaultFn(() => new Date().toISOString())
 };
 
-export const users = sqliteTable('Users', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  role: text('role'),
-  login: text('login'),
-  email: text('email'),
-  password: text('password'),
-  created_at: text('created_at').default(now),
-  last_modified: text('last_modified').default(now),
-  last_login: text('last_login'),
-  ...sequelizeTimestamps
-});
+export const users = sqliteTable(
+  'Users',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    role: text('role'),
+    login: text('login'),
+    email: text('email'),
+    password: text('password'),
+    created_at: text('created_at').default(now),
+    last_modified: text('last_modified').default(now),
+    last_login: text('last_login'),
+    ...sequelizeTimestamps
+  },
+  (table) => [
+    // Declared so this file stays the truth about the table; the index itself is
+    // installed by `bootstrapSchema`, which can report duplicates instead of
+    // failing. Nullable on purpose — the column is legacy, and SQLite counts
+    // NULLs as distinct.
+    uniqueIndex('Users_login_unique').on(table.login)
+  ]
+);
 
 export const videos = sqliteTable(
   'Videos',

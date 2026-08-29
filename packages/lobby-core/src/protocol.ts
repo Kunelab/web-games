@@ -27,12 +27,26 @@ export const quickJoinSchema = z.object({
   memberToken: z.string().max(128).optional()
 });
 
-export const quickReadySchema = z.object({ code: codeSchema, ready: z.boolean() });
+export const quickReadySchema = z.object({
+  code: codeSchema,
+  ready: z.boolean()
+});
 export const quickVoteSchema = z.object({
   code: codeSchema,
   key: z.string().max(32),
   value: z.string().max(64)
 });
+/**
+ * How many machine players the room wants, as an absolute count rather than a
+ * nudge: two phones pressing "+" at the same moment should land on three bots,
+ * not four, and an absolute value is the only version of this that is safe to
+ * send twice.
+ */
+export const quickBotsSchema = z.object({
+  code: codeSchema,
+  count: z.number().int().min(0).max(64)
+});
+
 export const quickLeaveSchema = z.object({ code: codeSchema });
 export const quickBeatSchema = z.object({ code: codeSchema });
 
@@ -76,6 +90,7 @@ export interface QuickClientToServer {
   'quick:replay': (payload: z.infer<typeof quickReplaySchema>, ack: Ack<QuickJoinAck>) => void;
   'quick:ready': (payload: z.infer<typeof quickReadySchema>) => void;
   'quick:vote': (payload: z.infer<typeof quickVoteSchema>) => void;
+  'quick:bots': (payload: z.infer<typeof quickBotsSchema>) => void;
   'quick:beat': (payload: z.infer<typeof quickBeatSchema>) => void;
   'quick:leave': (payload: z.infer<typeof quickLeaveSchema>) => void;
 }

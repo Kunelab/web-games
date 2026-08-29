@@ -8,6 +8,7 @@ import { AtelierShell, JeuShell } from './shells';
 const Home = lazy(() => import('../pages/Home'));
 const Login = lazy(() => import('../pages/Login'));
 const Register = lazy(() => import('../pages/Register'));
+const Account = lazy(() => import('../pages/Account'));
 const Library = lazy(() => import('../pages/Library'));
 const MediaEditor = lazy(() => import('../pages/MediaEditor'));
 const Playlists = lazy(() => import('../pages/Playlists'));
@@ -73,6 +74,14 @@ const router = createBrowserRouter([
       { path: '/', element: <Home /> },
       { path: '/connexion', element: <Login /> },
       { path: '/inscription', element: <Register /> },
+      {
+        path: '/compte',
+        element: (
+          <RequireAuth>
+            <Account />
+          </RequireAuth>
+        )
+      },
       {
         path: '/bibliotheque',
         element: (
@@ -148,8 +157,22 @@ const router = createBrowserRouter([
           </RequireAuth>
         )
       },
-      { path: '/quiz/boutique', element: <RequireAuth><Locker game="quiz" mode="shop" /></RequireAuth> },
-      { path: '/quiz/equipement', element: <RequireAuth><Locker game="quiz" mode="locker" /></RequireAuth> },
+      {
+        path: '/quiz/boutique',
+        element: (
+          <RequireAuth>
+            <Locker game="quiz" mode="shop" />
+          </RequireAuth>
+        )
+      },
+      {
+        path: '/quiz/equipement',
+        element: (
+          <RequireAuth>
+            <Locker game="quiz" mode="locker" />
+          </RequireAuth>
+        )
+      },
 
       { path: '/coronaz', element: <CzMenu /> },
       { path: '/coronaz/guide', element: <CzGuide /> },
@@ -161,8 +184,22 @@ const router = createBrowserRouter([
           </RequireAuth>
         )
       },
-      { path: '/coronaz/boutique', element: <RequireAuth><Locker game="coronaz" mode="shop" /></RequireAuth> },
-      { path: '/coronaz/equipement', element: <RequireAuth><Locker game="coronaz" mode="locker" /></RequireAuth> },
+      {
+        path: '/coronaz/boutique',
+        element: (
+          <RequireAuth>
+            <Locker game="coronaz" mode="shop" />
+          </RequireAuth>
+        )
+      },
+      {
+        path: '/coronaz/equipement',
+        element: (
+          <RequireAuth>
+            <Locker game="coronaz" mode="locker" />
+          </RequireAuth>
+        )
+      },
 
       { path: '/mafia', element: <MafiaMenu /> },
       { path: '/mafia/guide', element: <MafiaGuide /> },
@@ -174,8 +211,22 @@ const router = createBrowserRouter([
           </RequireAuth>
         )
       },
-      { path: '/mafia/boutique', element: <RequireAuth><Locker game="mafia" mode="shop" /></RequireAuth> },
-      { path: '/mafia/equipement', element: <RequireAuth><Locker game="mafia" mode="locker" /></RequireAuth> },
+      {
+        path: '/mafia/boutique',
+        element: (
+          <RequireAuth>
+            <Locker game="mafia" mode="shop" />
+          </RequireAuth>
+        )
+      },
+      {
+        path: '/mafia/equipement',
+        element: (
+          <RequireAuth>
+            <Locker game="mafia" mode="locker" />
+          </RequireAuth>
+        )
+      },
       { path: '*', element: <NotFound /> }
     ]
   },

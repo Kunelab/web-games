@@ -1,4 +1,6 @@
 import {
+  quickBotsAllowed,
+  quickMaxBots,
   quickNeeded,
   quickPresent,
   tallyQuick,
@@ -51,6 +53,12 @@ export interface QuickLobbyView {
   members: QuickMemberView[];
   minPlayers: number;
   maxPlayers: number;
+  /** Machine players the room has ordered; they take their seats at launch. */
+  bots: number;
+  /** The most it could order, people having priority for the seats. */
+  maxBots: number;
+  /** False for the quiz, which has nothing for a bot to do. */
+  botsAllowed: boolean;
   /** Yes votes among the people actually present. */
   ready: number;
   /** Yes votes needed to start. */
@@ -88,6 +96,9 @@ export function toQuickView(
       })),
     minPlayers: lobby.minPlayers,
     maxPlayers: lobby.maxPlayers,
+    bots: lobby.bots,
+    maxBots: quickMaxBots(lobby),
+    botsAllowed: quickBotsAllowed(lobby.game),
     ready: present.filter((member) => member.ready).length,
     needed: quickNeeded(lobby, now),
     startsAt: lobby.startsAt,

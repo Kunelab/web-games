@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 
 import { api } from '../api/client';
@@ -48,7 +49,7 @@ export function AtelierShell() {
             </NavLink>
 
             <nav className="mainnav" aria-label="Navigation principale">
-              <GamesMenu />
+              <GamesMenu container={shell} />
               {user && (
                 <>
                   <NavLink to="/bibliotheque" className={({ isActive }) => `navlink ${isActive ? 'on' : ''}`}>
@@ -67,7 +68,9 @@ export function AtelierShell() {
             <div className="topbar-end">
               {user ? (
                 <>
-                  <span className="whoami">{user.login}</span>
+                  <NavLink to="/compte" className="whoami">
+                    {user.login}
+                  </NavLink>
                   <Button variant="ghost" size="sm" onClick={() => void logout()}>
                     Déconnexion
                   </Button>
@@ -101,10 +104,13 @@ export function AtelierShell() {
  *
  * It is deliberately visible signed out. The games are the reason to be here.
  */
-function GamesMenu() {
+function GamesMenu({ container }: { container: HTMLElement | null }) {
   const [open, setOpen] = useState(false);
   const location = useLocation();
-  const wrapper = useRef<HTMLDivElement | null>(null);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const panel = useRef<HTMLDivElement | null>(null);
+  /** Where the panel sits, in viewport coordinates. Null until it is measured. */
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
 
   /**
    * Navigating is an answer to the menu, so the menu should not still be open on
@@ -121,8 +127,28 @@ function GamesMenu() {
   useEffect(() => {
     if (!open) return;
 
+    /**
+     * The panel is portalled out of the header, so nothing anchors it any more.
+     * Clamping is part of the job the old `right: 0` media query used to do: a
+     * trigger near the right edge would otherwise push the panel off screen.
+     */
+    function place() {
+      const rect = trigger.current?.getBoundingClientRect();
+      if (!rect) return;
+      const margin = 8;
+      const width = panel.current?.offsetWidth ?? 320;
+      const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+      setAt({ top: rect.bottom + margin, left });
+    }
+
+    place();
+
+    // Both refs, now that the panel is no longer a descendant of the trigger's box.
     function onPointerDown(event: PointerEvent) {
-      if (!wrapper.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (trigger.current?.contains(target)) return;
+      if (panel.current?.contains(target)) return;
+      setOpen(false);
     }
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') setOpen(false);
@@ -130,18 +156,57 @@ function GamesMenu() {
 
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', place);
+    // Capture: the scroll that moves the trigger is often an inner one.
+    window.addEventListener('scroll', place, true);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
     };
   }, [open]);
 
   const onGamePage = GAMES.some((game) => location.pathname.startsWith(game.path));
 
+  const menu = (
+    <div
+      className="gamesmenu-panel"
+      role="menu"
+      ref={panel}
+      // Hidden rather than unmounted for the one frame before it is measured:
+      // rendering it is what gives `place` a width to clamp against.
+      style={at ? { top: at.top, left: at.left } : { visibility: 'hidden' }}
+    >
+      {GAMES.map((game) => (
+        <NavLink key={game.id} to={game.path} role="menuitem" className="gamesmenu-item">
+          <span className="gamesmenu-emoji" aria-hidden="true">
+            {game.emoji}
+          </span>
+          <span>
+            <strong style={{ color: game.accent }}>{game.name}</strong>
+            <span className="gamesmenu-tagline">{game.tagline}</span>
+          </span>
+        </NavLink>
+      ))}
+
+      <NavLink to="/rejoindre" role="menuitem" className="gamesmenu-item gamesmenu-join">
+        <span className="gamesmenu-emoji" aria-hidden="true">
+          🔑
+        </span>
+        <span>
+          <strong>Rejoindre une partie</strong>
+          <span className="gamesmenu-tagline">Un code, ou la liste des salons ouverts.</span>
+        </span>
+      </NavLink>
+    </div>
+  );
+
   return (
-    <div className="gamesmenu" ref={wrapper}>
+    <div className="gamesmenu">
       <button
         type="button"
+        ref={trigger}
         className={`navlink gamesmenu-trigger ${onGamePage ? 'on' : ''}`}
         aria-expanded={open}
         aria-haspopup="menu"
@@ -151,31 +216,7 @@ function GamesMenu() {
         <ChevronDown />
       </button>
 
-      {open && (
-        <div className="gamesmenu-panel" role="menu">
-          {GAMES.map((game) => (
-            <NavLink key={game.id} to={game.path} role="menuitem" className="gamesmenu-item">
-              <span className="gamesmenu-emoji" aria-hidden="true">
-                {game.emoji}
-              </span>
-              <span>
-                <strong style={{ color: game.accent }}>{game.name}</strong>
-                <span className="gamesmenu-tagline">{game.tagline}</span>
-              </span>
-            </NavLink>
-          ))}
-
-          <NavLink to="/rejoindre" role="menuitem" className="gamesmenu-item gamesmenu-join">
-            <span className="gamesmenu-emoji" aria-hidden="true">
-              🔑
-            </span>
-            <span>
-              <strong>Rejoindre une partie</strong>
-              <span className="gamesmenu-tagline">Un code, ou la liste des salons ouverts.</span>
-            </span>
-          </NavLink>
-        </div>
-      )}
+      {open && (container ? createPortal(menu, container) : menu)}
     </div>
   );
 }

@@ -24,6 +24,7 @@
   "dependencies": {
     "chat-core": "workspace:*",
     "i18n": "workspace:*",
+    "lobby-core": "workspace:*",
     "presence-core": "workspace:*",
     "zod": "^4.4.3"
   },

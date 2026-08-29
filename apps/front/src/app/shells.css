@@ -62,9 +62,17 @@
   gap: var(--space-3);
 }
 
+/* A link to the account page since there is one to go to, so it needs to look
+ * like something you can press rather than a label that happens to be your name. */
 .whoami {
   font-size: var(--text-sm);
   color: var(--ink-faint);
+  padding: 0.4em 0.6em;
+  border-radius: var(--radius-sm);
+}
+.whoami:hover {
+  color: var(--ink);
+  background: var(--bg-hover);
 }
 
 .atelier-main {
@@ -182,13 +190,21 @@
 /*
  * One dropdown for the whole catalogue.
  *
- * Anchored to its trigger rather than portalled: it belongs to the header, it is
- * never taller than the viewport, and the shell already owns the palette it
- * needs — which is the reason the select components are portalled *into* the
- * shell rather than onto the body.
+ * Portalled into the shell, and positioned from the trigger's own rectangle.
+ *
+ * It used to be a plain absolute child of the header, which read as the simpler
+ * choice and was wrong: `.topbar` opens a stacking context (its own z-index, and
+ * again its backdrop-filter), so this panel could never rise above the header's
+ * 30 no matter what z-index it carried. Every overlay a game mounts — a dialog at
+ * 50, a select at 60, the presence banner at 900, CoronaZ's minimap at 9000 —
+ * therefore covered an open menu.
+ *
+ * The shell rather than the body, for the same reason the selects use it: the
+ * palette variables are declared on the shell, and a panel on the body would come
+ * out with no background at all.
  */
 .gamesmenu {
-  position: relative;
+  display: inline-flex;
 }
 
 .gamesmenu-trigger {
@@ -202,10 +218,9 @@
 }
 
 .gamesmenu-panel {
-  position: absolute;
-  top: calc(100% + var(--space-2));
-  left: 0;
-  z-index: 40;
+  /* Fixed, with top/left set inline from the trigger's rectangle. */
+  position: fixed;
+  z-index: 9500;
   min-width: 20rem;
   max-width: min(24rem, calc(100vw - var(--space-5) * 2));
   padding: var(--space-2);
@@ -254,9 +269,7 @@
   line-height: 1.45;
 }
 
-@media (max-width: 640px) {
-  .gamesmenu-panel {
-    left: auto;
-    right: 0;
-  }
-}
+/*
+ * No narrow-screen rule any more: the panel is clamped to the viewport in script,
+ * which the old `right: 0` was standing in for.
+ */

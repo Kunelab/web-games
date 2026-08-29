@@ -9,9 +9,13 @@ export {
   isLobbyGame,
   joinQuickLobby,
   markQuickSeen,
+  quickBotsAllowed,
   quickDecision,
+  quickMaxBots,
   quickNeeded,
   quickPresent,
+  quickSeats,
+  setQuickBots,
   setQuickReady,
   setQuickVote,
   tallyQuick,
@@ -26,11 +30,9 @@ export {
   type QuickPhase
 } from './state.js';
 
-export {
-  QUICK_PLAYLIST_KEY,
-  quickSize,
-  quickSpecs
-} from './options.js';
+export { BOT_NAMES, pickBotName } from './bots.js';
+
+export { QUICK_PLAYLIST_KEY, quickSize, quickSpecs } from './options.js';
 
 export {
   CURRENCIES,
@@ -57,6 +59,7 @@ export {
 
 export {
   quickBeatSchema,
+  quickBotsSchema,
   quickJoinPath,
   quickJoinSchema,
   quickLeaveSchema,

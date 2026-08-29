@@ -10,7 +10,8 @@ ARG NODE_VERSION=22
 
 FROM node:${NODE_VERSION}-bookworm-slim AS build
 
-# bcrypt and better-sqlite3 compile native code when no prebuilt binary matches.
+# better-sqlite3 compiles native code when no prebuilt binary matches its target.
+# @node-rs/argon2 never does: its binaries are per-platform optional dependencies.
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 

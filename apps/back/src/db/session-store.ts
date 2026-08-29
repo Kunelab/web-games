@@ -1,5 +1,5 @@
 import type { SessionStore } from '@fastify/session';
-import { eq, lt } from 'drizzle-orm';
+import { eq, lt, sql } from 'drizzle-orm';
 import type { Session } from 'fastify';
 
 import { db } from './index.js';
@@ -77,6 +77,30 @@ export class SqliteSessionStore implements SessionStore {
     } catch (error) {
       callback(asError(error));
     }
+  }
+
+  /**
+   * Signs one account out everywhere, optionally sparing the session asking.
+   *
+   * Changing a password should end every other session the account has — that is
+   * the whole point of changing it after a scare — and `regenerate()` cannot do
+   * that: it re-issues the caller's own cookie and knows nothing about the phone
+   * still logged in on the other side of the room.
+   *
+   * The owner is read out of the stored JSON rather than kept in a column of its
+   * own, so this needs no migration on a table that already holds live sessions.
+   */
+  destroyForUser(userId: number, exceptSid?: string): number {
+    const result = db
+      .delete(sessions)
+      .where(
+        exceptSid === undefined
+          ? sql`json_extract(${sessions.data}, '$.user.id') = ${userId}`
+          : sql`json_extract(${sessions.data}, '$.user.id') = ${userId} and ${sessions.sid} <> ${exceptSid}`
+      )
+      .run();
+
+    return result.changes;
   }
 
   /** Deletes expired rows now, then hourly. */

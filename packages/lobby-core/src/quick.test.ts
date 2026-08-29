@@ -8,8 +8,12 @@ import {
   dropQuickMember,
   joinQuickLobby,
   markQuickSeen,
+  quickBotsAllowed,
   quickDecision,
+  quickMaxBots,
   quickNeeded,
+  quickSeats,
+  setQuickBots,
   setQuickReady,
   setQuickVote,
   tallyQuick,
@@ -262,5 +266,102 @@ describe('the projection', () => {
 
     assert.equal(view.you, null);
     assert.equal(view.options[0]?.yours, null);
+  });
+});
+
+/**
+ * Bots exist so a room that is short of people can still play, which makes them
+ * part of the launch arithmetic rather than decoration. These are the cases that
+ * decided how far that goes: they count towards the minimum, they never count as
+ * a vote, and they always give a seat back to a person.
+ */
+describe('bots', () => {
+  it('lets a room short of people reach the minimum', () => {
+    const lobby = lobbyWith(['a'], 1000);
+    lobby.minPlayers = 4;
+
+    assert.equal(quickDecision(lobby, 1000), 'wait');
+
+    assert.equal(setQuickBots(lobby, 3, 1000), true);
+    setQuickReady(lobby, 'a', true, 1000);
+
+    assert.equal(quickDecision(lobby, 1000), 'countdown');
+  });
+
+  it('drops the yes votes needed by however many it seated', () => {
+    const lobby = lobbyWith(['a'], 1000);
+    lobby.minPlayers = 5;
+
+    // Five needed from one phone: unreachable, which is the bug this guards.
+    assert.equal(quickNeeded(lobby, 1000), 5);
+
+    setQuickBots(lobby, 4, 1000);
+    assert.equal(quickNeeded(lobby, 1000), 1);
+  });
+
+  it('never lets a bot vote: a room of one plus bots still needs that one yes', () => {
+    const lobby = lobbyWith(['a'], 1000);
+    lobby.minPlayers = 3;
+    setQuickBots(lobby, 2, 1000);
+
+    assert.equal(quickDecision(lobby, 1000), 'wait');
+    setQuickReady(lobby, 'a', true, 1000);
+    assert.equal(quickDecision(lobby, 1000), 'countdown');
+  });
+
+  it('clamps to the seats left rather than refusing the whole request', () => {
+    const lobby = lobbyWith(['a', 'b'], 1000, 6);
+
+    setQuickBots(lobby, 99, 1000);
+    assert.equal(lobby.bots, 4);
+    assert.equal(quickMaxBots(lobby), 4);
+    assert.equal(quickSeats(lobby), 6);
+  });
+
+  it('gives a bot’s seat back when a person arrives at a full table', () => {
+    const lobby = lobbyWith(['a'], 1000, 3);
+    setQuickBots(lobby, 2, 1000);
+    assert.equal(quickSeats(lobby), 3);
+
+    joinQuickLobby(lobby, { id: 'b', name: 'b', now: 1000 });
+
+    assert.equal(lobby.bots, 1);
+    assert.equal(quickSeats(lobby), 3);
+  });
+
+  it('refuses them for the quiz, which has nothing for a bot to do', () => {
+    const lobby = createQuickLobby({
+      code: 'QUIZZ',
+      game: 'quiz',
+      specs: SPECS,
+      minPlayers: 2,
+      maxPlayers: 6,
+      randomInt: lastChoice,
+      now: 1000,
+    });
+
+    assert.equal(quickBotsAllowed('quiz'), false);
+    assert.equal(setQuickBots(lobby, 3, 1000), false);
+    assert.equal(lobby.bots, 0);
+    assert.equal(toQuickView(lobby, SPECS, null, 1000).botsAllowed, false);
+  });
+
+  it('does not start a room on its own just because bots filled every seat', () => {
+    const lobby = lobbyWith(['a'], 1000, 4);
+    setQuickBots(lobby, 3, 1000);
+
+    // Full, but nobody said yes: a full house of machines is not a decision.
+    assert.equal(quickSeats(lobby), 4);
+    assert.equal(quickDecision(lobby, 1000), 'wait');
+  });
+
+  it('reports them to the screen, with the room’s own ceiling', () => {
+    const lobby = lobbyWith(['a', 'b'], 1000, 5);
+    setQuickBots(lobby, 2, 1000);
+    const view = toQuickView(lobby, SPECS, 'a', 1000);
+
+    assert.equal(view.bots, 2);
+    assert.equal(view.maxBots, 3);
+    assert.equal(view.botsAllowed, true);
   });
 });

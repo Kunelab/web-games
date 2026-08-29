@@ -56,7 +56,7 @@ function table(roles: RoleId[], day = 2): MafiaState {
   roles.forEach((role, index) => {
     const id = freshId();
     if (index === 0) joinMafia(state, `Humain${index}`, `tok${id}`, id);
-    else addMafiaBot(state, `tok${id}`, id);
+    else addMafiaBot(state, `tok${id}`, id, () => 0);
     const player = state.players[id];
     player.role = role;
     player.charges = role === 'vigilante' || role === 'veteran' || role === 'jailor' ? 3 : role === 'survivor' ? 4 : 0;
@@ -78,7 +78,7 @@ describe('mafia engine', () => {
     for (let i = 0; i < 12; i++) {
       const id = freshId();
       if (i === 0) joinMafia(state, 'Max', `t${id}`, id);
-      else addMafiaBot(state, `t${id}`, id);
+      else addMafiaBot(state, `t${id}`, id, () => 0);
     }
     startMafia(state, 1000, lcg(42));
 

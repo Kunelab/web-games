@@ -36,6 +36,7 @@ import {
 
 import {
   quickBeatSchema,
+  quickBotsSchema,
   quickJoinPath,
   quickJoinSchema,
   quickLeaveSchema,
@@ -1169,8 +1170,6 @@ export function registerRealtime(
       });
     });
 
-
-
     /* ------------------------------- quick match ------------------------------ */
 
     /**
@@ -1275,6 +1274,13 @@ export function registerRealtime(
       const member = socket.data.quickMemberId;
       if (!parsed.success || !member || socket.data.quickCode !== parsed.data.code) return;
       quick.vote(parsed.data.code, member, parsed.data.key, parsed.data.value);
+    });
+
+    socket.on('quick:bots', (payload) => {
+      const parsed = quickBotsSchema.safeParse(payload);
+      const member = socket.data.quickMemberId;
+      if (!parsed.success || !member || socket.data.quickCode !== parsed.data.code) return;
+      quick.bots(parsed.data.code, parsed.data.count);
     });
 
     socket.on('quick:beat', (payload) => {

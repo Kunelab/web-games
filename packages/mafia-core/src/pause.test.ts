@@ -56,7 +56,7 @@ function humanTable(roles: RoleId[], options: { bots?: number; now?: number } = 
   });
   // Bots are seated while it is still a lobby, which is the only time they may be.
   for (let i = 0; i < (options.bots ?? 0); i++) {
-    const bot = addMafiaBot(state, `botTok${++uid}`, `bot${uid}`);
+    const bot = addMafiaBot(state, `botTok${++uid}`, `bot${uid}`, () => 0);
     bot.role = 'citizen';
   }
   state.phase = 'day';

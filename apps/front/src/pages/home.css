@@ -95,3 +95,13 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/*
+ * The account page's one section heading. Smaller than a page title because the
+ * page already has one, and the form below it is the actual subject.
+ */
+.auth-section {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin-bottom: calc(var(--space-2) * -1);
+}
