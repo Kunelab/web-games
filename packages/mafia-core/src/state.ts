@@ -1,5 +1,6 @@
 import { createChat, type ChannelRules, type ChatState } from 'chat-core';
 import type { Locale, Msg } from 'i18n';
+import { pickBotName } from 'lobby-core';
 import { createPresence, type PresenceState, type Roster } from 'presence-core';
 
 import type { DeathSource } from './messages.js';
@@ -555,33 +556,6 @@ export function chatRules(): ChannelRules<MafiaState> {
   };
 }
 
-const BOT_NAMES = [
-  'Dracula',
-  'Link',
-  'Tarzan',
-  'Lara Croft',
-  'Son Goku',
-  'Pikachu',
-  'Han Solo',
-  'Kratos',
-  'James Bond',
-  'Saitama',
-  'Voldemort',
-  'Gandalf',
-  'Legolas',
-  'Mickey Mouse',
-  'Wolverine',
-  'Batman',
-  'Yoda',
-  'Homer Simpson',
-  'Jon Snow',
-  'Tony Soprano',
-  'Garfield',
-  'Shrek',
-  'Barbie',
-  'Mario'
-] as const;
-
 /**
  * What language the bots speak at this table.
  *
@@ -606,12 +580,18 @@ export function spokenLocale(state: MafiaState): Locale {
   return state.config.locale;
 }
 
-export function nextBotName(state: MafiaState): string {
-  const taken = new Set(Object.values(state.players).map((player) => player.name));
-  for (const name of BOT_NAMES) {
-    if (!taken.has(name)) return name;
-  }
-  return `Bot ${Object.keys(state.players).length + 1}`;
+/**
+ * The cast moved to `lobby-core`, and the draw became a draw.
+ *
+ * The list used to live here and be walked from the top, so every table opened
+ * with Dracula and the names past the fifth were never seen. Both games seat bots
+ * from the same lobby now, so they share the pool and pick out of it at random.
+ */
+export function nextBotName(state: MafiaState, randomInt: (maxExclusive: number) => number): string {
+  return pickBotName(
+    Object.values(state.players).map((player) => player.name),
+    randomInt
+  );
 }
 
 export function nextFreeSlot(state: MafiaState): number | null {

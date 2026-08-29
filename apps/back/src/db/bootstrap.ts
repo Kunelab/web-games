@@ -227,8 +227,39 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS "Sessions_expires_at_idx" ON "Sessions" ("expires_at")`
 ];
 
-export function bootstrapSchema(sqlite: Database): void {
+/**
+ * One account per name, enforced by the database rather than by a check.
+ *
+ * The registration route looks the login up before inserting, which makes a fine
+ * error message and no guarantee at all: two people claiming the same name at
+ * once both pass that check, both insert, and every lookup afterwards is a
+ * `LIMIT 1` that returns one of them — leaving the other account permanently
+ * unreachable. SQLite treats NULLs as distinct, so the legacy nullable column
+ * needs no further care.
+ *
+ * Kept apart from the list above because it is the one statement here that can
+ * fail on an existing database: duplicates already in the table refuse the
+ * index. That is worth shouting about and not worth refusing to boot over — the
+ * server runs on without the guarantee, naming the accounts to fix.
+ */
+function enforceUniqueLogins(sqlite: Database, warn: (message: string) => void): void {
+  try {
+    sqlite.exec('CREATE UNIQUE INDEX IF NOT EXISTS "Users_login_unique" ON "Users" ("login")');
+  } catch {
+    const clashes = sqlite
+      .prepare('SELECT login FROM "Users" WHERE login IS NOT NULL GROUP BY login HAVING COUNT(*) > 1')
+      .all() as { login: string }[];
+
+    warn(
+      `Users.login is not unique: ${clashes.map((row) => row.login).join(', ') || 'unknown duplicates'}. ` +
+        'Rename or delete the duplicate accounts, then restart to install the index.'
+    );
+  }
+}
+
+export function bootstrapSchema(sqlite: Database, warn: (message: string) => void = console.warn): void {
   for (const statement of statements) {
     sqlite.exec(statement);
   }
+  enforceUniqueLogins(sqlite, warn);
 }

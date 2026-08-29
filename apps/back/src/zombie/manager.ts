@@ -46,6 +46,7 @@ import {
   type HeroState
 } from 'coronaz-core';
 import { buildLeaderboard, generateJoinCode } from 'game-core';
+import { pickBotName } from 'lobby-core';
 import { presenceIdle, type KickRefusal } from 'presence-core';
 import { eq, lt } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
@@ -538,9 +539,6 @@ export class CzManager {
     await this.afterTransition(state);
   }
 
-  /** Names bots introduce themselves with. The flag in the view adds the 🤖. */
-  private static readonly BOT_NAMES = ['Léon', 'Mireille', 'Gaspard', 'Odette', 'Marcel'];
-
   /** Seats a machine teammate. Lobby only, host's call. */
   addBot(code: string, skill: string): { ok: boolean; error?: string } {
     const state = this.sessions.get(code);
@@ -548,8 +546,13 @@ export class CzManager {
     if (state.phase !== 'lobby') return { ok: false, error: 'La partie a commencé' };
     if (!(skill in SKILLS)) return { ok: false, error: 'Niveau inconnu' };
 
-    const used = new Set(Object.values(state.heroes).map((hero) => hero.name));
-    const name = CzManager.BOT_NAMES.find((candidate) => !used.has(candidate)) ?? 'Bot';
+    // The pop-culture cast the lobby shares with Mafia; the flag in the view adds
+    // the 🤖. It used to be five French first names here, which meant a raid never
+    // saw a sixth bot and never saw the same table twice as anything else.
+    const name = pickBotName(
+      Object.values(state.heroes).map((hero) => hero.name),
+      randomInt
+    );
     // A random play style per bot: a table of machines should be a table, not
     // four copies of one player.
     const mindset = playerMindsetNames[randomInt(playerMindsetNames.length)] ?? 'balanced';

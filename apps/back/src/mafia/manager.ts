@@ -134,7 +134,11 @@ export class MafiaManager {
 
   private rng = (): number => randomInt(2 ** 31) / 2 ** 31;
 
-  create(input: { hostUserId: number | null; config?: Partial<MafiaConfig>; takenCodes: ReadonlySet<string> }): MafiaState {
+  create(input: {
+    hostUserId: number | null;
+    config?: Partial<MafiaConfig>;
+    takenCodes: ReadonlySet<string>;
+  }): MafiaState {
     let code: string;
     do {
       code = generateJoinCode((maxExclusive) => randomInt(maxExclusive));
@@ -162,7 +166,14 @@ export class MafiaManager {
     locale?: Locale
   ): { player: MafiaPlayer; state: MafiaState } {
     const state = this.mustGet(code);
-    const { player } = joinMafia(state, name, randomBytes(24).toString('base64url'), randomUUID(), presetToken, account);
+    const { player } = joinMafia(
+      state,
+      name,
+      randomBytes(24).toString('base64url'),
+      randomUUID(),
+      presetToken,
+      account
+    );
     // Only matters for what the bots speak; see `spokenLocale`.
     if (locale) player.locale = locale;
     this.afterChange(state);
@@ -173,7 +184,7 @@ export class MafiaManager {
     const state = this.mustGet(code);
     const capped = Math.max(0, Math.min(count, state.config.maxPlayers - Object.keys(state.players).length));
     for (let i = 0; i < capped; i++) {
-      addMafiaBot(state, randomBytes(24).toString('base64url'), randomUUID());
+      addMafiaBot(state, randomBytes(24).toString('base64url'), randomUUID(), randomInt);
     }
     this.afterChange(state);
   }
@@ -210,7 +221,12 @@ export class MafiaManager {
     return this.mutate(code, (state) => castBallot(state, playerId, verdict));
   }
 
-  nightAction(code: string, playerId: string, targetSlot: number | null, secondTargetSlot?: number | null): ActionOutcome {
+  nightAction(
+    code: string,
+    playerId: string,
+    targetSlot: number | null,
+    secondTargetSlot?: number | null
+  ): ActionOutcome {
     return this.mutate(code, (state) => setNightAction(state, playerId, targetSlot, secondTargetSlot));
   }
 

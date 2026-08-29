@@ -267,6 +267,8 @@ export const api = {
   register: (username: string, password: string, email: string) =>
     request<AuthUser>('/user/register', { method: 'POST', body: { username, password, email } }),
   logout: () => request<{ message: string }>('/user/logout', { method: 'POST' }),
+  changePassword: (current: string, next: string) =>
+    request<{ message: string }>('/user/password', { method: 'POST', body: { current, next } }),
 
   /* media */
   kinds: () => request<KindDescriptor[]>('/media/kinds'),
@@ -380,7 +382,8 @@ export const api = {
     nightMs?: number;
     /** What a corpse gives away; see MafiaConfig.revealOnDeath. */
     revealOnDeath?: 'role' | 'faction' | 'none';
-    setup?: { mode: 'auto' } | { mode: 'chaos' } | { mode: 'preset'; presetId: string } | { mode: 'custom'; slots: string[] };
+    setup?:
+      { mode: 'auto' } | { mode: 'chaos' } | { mode: 'preset'; presetId: string } | { mode: 'custom'; slots: string[] };
     /** Lists the table on the public board. Private by default. */
     public?: boolean;
   }) => request<{ code: string; hostToken: string }>('/mafia/sessions', { method: 'POST', body: { config } }),
@@ -388,7 +391,8 @@ export const api = {
   mafiaTemplates: () => request<{ name: string; slots: string[] }[]>('/mafia/templates'),
   mafiaSaveTemplate: (name: string, slots: string[]) =>
     request<void>('/mafia/templates', { method: 'PUT', body: { name, slots } }),
-  mafiaDeleteTemplate: (name: string) => request<void>(`/mafia/templates/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  mafiaDeleteTemplate: (name: string) =>
+    request<void>(`/mafia/templates/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   mafiaSummary: (code: string) =>
     request<{ code: string; phase: string; players: number; maxPlayers: number }>(`/mafia/sessions/${code}`, {
       allowAnonymous: true

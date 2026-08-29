@@ -200,3 +200,74 @@
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------------------------------------------------------------------- bots */
+
+/*
+ * Machine players, under the people rather than mixed in with them.
+ *
+ * They are not members: they have no vote, no presence dot and no name until the
+ * engine deals them one at launch. Listing them in the same roster would have
+ * invited the reader to count them as votes, which is exactly the arithmetic the
+ * tally below is careful about.
+ */
+.qp-bots {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.qp-bots-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.qp-member-bot .qp-member-name {
+  color: var(--ink-soft);
+}
+
+.qp-bots-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.qp-bot-step {
+  width: 2.25rem;
+  height: 2.25rem;
+  display: grid;
+  place-items: center;
+  font-size: var(--text-lg);
+  line-height: 1;
+  color: var(--ink);
+  background: var(--bg-hover);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.qp-bot-step:hover:not(:disabled) {
+  border-color: var(--rule-strong);
+}
+.qp-bot-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The one-tap version of pressing + until the table is legal. */
+.qp-bot-fill {
+  padding: 0.45em 0.9em;
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--bg-hover);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.qp-bot-fill:hover:not(:disabled) {
+  border-color: var(--rule-strong);
+}

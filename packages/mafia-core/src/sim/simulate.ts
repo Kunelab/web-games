@@ -93,7 +93,7 @@ export function simulateGame(options: SimOptions): SimResult {
   });
 
   for (let index = 0; index < options.players; index++) {
-    addMafiaBot(state, `t${index}`, `p${index}`);
+    addMafiaBot(state, `t${index}`, `p${index}`, (max) => Math.floor(rng() * max));
   }
   let now = 1000;
   startMafia(state, now, rng);

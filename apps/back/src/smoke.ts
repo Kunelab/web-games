@@ -45,6 +45,19 @@ function section(name: string) {
   console.log(`\n--- ${name} ---`);
 }
 
+/**
+ * The session cookie a response actually leaves you holding.
+ *
+ * A response that regenerates the session sets `kune.sid` twice: once empty and
+ * expired in 1970 to clear the old id, then again carrying the new one. Reaching
+ * for the first match is the obvious move and it hands back an empty string,
+ * which looks enough like a cookie to be sent and authenticates nothing.
+ */
+function sessionCookie(response: { cookies: { name: string; value: string }[] }): string {
+  const issued = response.cookies.filter((entry) => entry.name === 'kune.sid' && entry.value !== '');
+  return issued.at(-1)?.value ?? '';
+}
+
 const login = `smoke_${Date.now()}`;
 
 /* ----------------------------- auth and access ---------------------------- */
@@ -63,9 +76,9 @@ const registered = await app.inject({
 });
 check('register is 201', registered.statusCode === 201, registered.body);
 
-const cookie = registered.cookies.find((entry) => entry.name === 'kune.sid');
+const cookie = sessionCookie(registered);
 assert(cookie, 'register must set a session cookie');
-const headers = { cookie: `${cookie.name}=${cookie.value}` };
+const headers = { cookie: `kune.sid=${cookie}` };
 
 const shortPassword = await app.inject({
   method: 'POST',
@@ -74,13 +87,24 @@ const shortPassword = await app.inject({
 });
 check('a password under eight characters is rejected', shortPassword.statusCode === 400, shortPassword.statusCode);
 
+const takenAgain = await app.inject({
+  method: 'POST',
+  url: '/api/user/register',
+  payload: { username: login, password: 'hunter2hunter2', email: `dup${login}@example.com` }
+});
+check('a name already taken is refused', takenAgain.statusCode === 409, takenAgain.statusCode);
+
 /**
- * Eleven wrong passwords in a row. The limit is ten a minute, so the last one is
- * refused without ever reaching bcrypt, which is the point: guessing has to cost
- * the attacker something other than time.
+ * Guessing, and the two different limits that answer it.
+ *
+ * The route's rate limit counts requests from one address. The per-account
+ * throttle counts failures against one login wherever they come from, which is
+ * what a thousand addresses sharing the work would otherwise walk straight past.
+ * Both refuse before argon2 runs: 19 MiB of hashing per guess is a denial of
+ * service an attacker should not be handed for free.
  */
 const attempts: number[] = [];
-for (let attempt = 0; attempt < 11; attempt++) {
+for (let attempt = 0; attempt < 9; attempt++) {
   const response = await app.inject({
     method: 'POST',
     url: '/api/user/login',
@@ -90,10 +114,40 @@ for (let attempt = 0; attempt < 11; attempt++) {
 }
 check(
   'wrong passwords are refused',
-  attempts.slice(0, 10).every((status) => status === 400),
+  attempts.slice(0, 5).every((status) => status === 400),
   attempts
 );
-check('and repeated attempts are rate limited', attempts[10] === 429, attempts[10]);
+check('and the account is throttled before the guesses run out', attempts.slice(5).includes(429), attempts);
+
+/**
+ * The right password, from an account nobody has been guessing at.
+ *
+ * Its session cookie must differ from the one registration handed out: writing
+ * the user onto whatever session id the browser already carried is session
+ * fixation, and it was this file's one real hole.
+ */
+const fresh = `${login}_fixation`;
+const freshRegistered = await app.inject({
+  method: 'POST',
+  url: '/api/user/register',
+  payload: { username: fresh, password: 'hunter2hunter2', email: `${fresh}@example.com` }
+});
+const freshCookie = sessionCookie(freshRegistered);
+assert(freshCookie, 'register must set a session cookie');
+
+const signedIn = await app.inject({
+  method: 'POST',
+  url: '/api/user/login',
+  headers: { cookie: `kune.sid=${freshCookie}` },
+  payload: { username: fresh, password: 'hunter2hunter2' }
+});
+check('the right password signs in', signedIn.statusCode === 200, signedIn.statusCode);
+
+const afterLogin = sessionCookie(signedIn);
+check('and logging in issues a session id nobody has seen', afterLogin !== '' && afterLogin !== freshCookie, {
+  before: freshCookie.slice(0, 12),
+  after: afterLogin.slice(0, 12)
+});
 
 /* -------------------------------- kinds ----------------------------------- */
 section('media kinds');
@@ -886,11 +940,7 @@ check('the board is readable without a login', boardAnon.statusCode === 200, boa
  * whole meaning of that default.
  */
 const privateBoard = JSON.parse(boardAnon.body) as { code: string; game: string }[];
-check(
-  'a private game is not listed',
-  !privateBoard.some((card) => card.code === session.code),
-  privateBoard
-);
+check('a private game is not listed', !privateBoard.some((card) => card.code === session.code), privateBoard);
 
 const publicStart = await app.inject({
   method: 'POST',
@@ -913,11 +963,7 @@ check('the card names its host', publicCard?.host === login, publicCard);
 const mafiaOnly = JSON.parse((await app.inject({ method: 'GET', url: '/api/lobbies?game=mafia' })).body) as {
   code: string;
 }[];
-check(
-  'filtering by game excludes the others',
-  !mafiaOnly.some((card) => card.code === publicSession.code),
-  mafiaOnly
-);
+check('filtering by game excludes the others', !mafiaOnly.some((card) => card.code === publicSession.code), mafiaOnly);
 
 const badFilter = await app.inject({ method: 'GET', url: '/api/lobbies?game=echecs' });
 check('an unknown game is rejected', badFilter.statusCode === 400, badFilter.statusCode);
@@ -933,7 +979,11 @@ const shop = JSON.parse(catalogue.body) as {
   items: { id: string; price: number; game: string }[];
   currency: { name: string };
 };
-check('it only lists that game', shop.items.every((item) => item.game === 'coronaz'), shop.items);
+check(
+  'it only lists that game',
+  shop.items.every((item) => item.game === 'coronaz'),
+  shop.items
+);
 check('it names the currency', shop.currency.name === 'rations', shop.currency);
 
 const lockerAnon = await app.inject({ method: 'GET', url: '/api/locker/coronaz' });
@@ -1001,6 +1051,53 @@ const deletedPlaylist = await app.inject({
   headers
 });
 check('playlist deletes', deletedPlaylist.statusCode === 204, deletedPlaylist.statusCode);
+
+/* ---------------------------- password change ----------------------------- */
+section('password change');
+
+// The account from the fixation check above, whose session is the one it issued.
+const mine = { cookie: `kune.sid=${afterLogin}` };
+
+const wrongCurrent = await app.inject({
+  method: 'POST',
+  url: '/api/user/password',
+  headers: mine,
+  payload: { current: 'not-my-password', next: 'a-whole-new-secret' }
+});
+check('a wrong current password is refused', wrongCurrent.statusCode === 400, wrongCurrent.statusCode);
+
+const anonymousChange = await app.inject({
+  method: 'POST',
+  url: '/api/user/password',
+  payload: { current: 'hunter2hunter2', next: 'a-whole-new-secret' }
+});
+check('and changing one needs a session at all', anonymousChange.statusCode === 401, anonymousChange.statusCode);
+
+const changed = await app.inject({
+  method: 'POST',
+  url: '/api/user/password',
+  headers: mine,
+  payload: { current: 'hunter2hunter2', next: 'a-whole-new-secret' }
+});
+check('the password changes', changed.statusCode === 200, changed.body);
+
+/**
+ * Every other session for the account is gone, including the one that asked —
+ * which is why the reply carries a new cookie. A password changed in a hurry
+ * that leaves the other phone logged in has not done its job.
+ */
+const staleCookie = await app.inject({ method: 'GET', url: '/api/media', headers: mine });
+check('the old session is revoked', staleCookie.statusCode === 401, staleCookie.statusCode);
+
+const reissued = sessionCookie(changed);
+check('and the caller is handed a fresh one', reissued !== '' && reissued !== afterLogin, reissued.slice(0, 12));
+
+const withNew = await app.inject({
+  method: 'GET',
+  url: '/api/media',
+  headers: { cookie: `kune.sid=${reissued}` }
+});
+check('which still works', withNew.statusCode === 200, withNew.statusCode);
 
 await app.close();
 // Same order as the real shutdown in server.ts. Closing the database matters

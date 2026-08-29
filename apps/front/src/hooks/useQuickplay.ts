@@ -1,4 +1,11 @@
-import type { LobbyGame, QuickClientToServer, QuickJoinAck, QuickLaunch, QuickLobbyView, QuickServerToClient } from 'lobby-core';
+import type {
+  LobbyGame,
+  QuickClientToServer,
+  QuickJoinAck,
+  QuickLaunch,
+  QuickLobbyView,
+  QuickServerToClient
+} from 'lobby-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 
@@ -14,6 +21,8 @@ export interface QuickConnection {
   error: string | null;
   ready: (value: boolean) => void;
   vote: (key: string, value: string) => void;
+  /** How many machine players the room should seat. Absolute, not a nudge. */
+  setBots: (count: number) => void;
   leave: () => void;
 }
 
@@ -161,10 +170,18 @@ export function useQuickplay(options: QuickplayOptions): QuickConnection {
     [lobby?.code]
   );
 
+  const setBots = useCallback(
+    (count: number) => {
+      const current = lobby?.code;
+      if (current) socketRef.current?.emit('quick:bots', { code: current, count });
+    },
+    [lobby?.code]
+  );
+
   const leave = useCallback(() => {
     const current = lobby?.code;
     if (current) socketRef.current?.emit('quick:leave', { code: current });
   }, [lobby?.code]);
 
-  return { connected, lobby, launch, error, ready, vote, leave };
+  return { connected, lobby, launch, error, ready, vote, setBots, leave };
 }

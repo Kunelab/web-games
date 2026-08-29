@@ -14,6 +14,7 @@ import {
   quickSize,
   quickSpecs,
   setQuickReady,
+  setQuickBots,
   setQuickVote,
   tallyQuick,
   type LobbyCard,
@@ -82,15 +83,15 @@ export interface QuickJoinInput {
   name: string;
 }
 
-export type QuickJoinOutcome =
-  | { ok: true; lobby: QuickLobby; specs: QuickOptionSpec[] }
-  | { ok: false; error: string };
+export type QuickJoinOutcome = { ok: true; lobby: QuickLobby; specs: QuickOptionSpec[] } | { ok: false; error: string };
 
 /** A game started by a quick room, waiting for its players to arrive. */
 interface Boarding {
   game: LobbyGame;
   code: string;
   expected: number;
+  /** Machine players the room ordered, seated when the first round is dealt. */
+  bots: number;
   deadline: number;
   started: boolean;
 }
@@ -288,6 +289,21 @@ export class QuickplayManager {
     if (!lobby) return;
     if (!setQuickVote(lobby, memberId, this.specs(code), key, value, Date.now())) return;
     this.changed(lobby);
+  }
+
+  /**
+   * Order machine players.
+   *
+   * Through `settle` rather than `changed`, because the count feeds the launch
+   * arithmetic: the bot that takes a room from four seats to five is exactly the
+   * one that makes an already-agreed table startable, and it should not have to
+   * wait for somebody to toggle their vote for the room to notice.
+   */
+  bots(code: string, count: number): void {
+    const lobby = this.lobbies.get(code);
+    if (!lobby) return;
+    if (!setQuickBots(lobby, count, Date.now())) return;
+    this.settle(lobby);
   }
 
   beat(code: string, memberId: string): void {
@@ -505,6 +521,7 @@ export class QuickplayManager {
       game: lobby.game,
       code,
       expected,
+      bots: lobby.bots,
       deadline: Date.now() + BOARDING_MS,
       started: false
     });
@@ -613,6 +630,11 @@ export class QuickplayManager {
             await this.deps.cz.destroy(entry.code);
             return;
           }
+          // One call each: CoronaZ seats bots one at a time because each draws its
+          // own mindset and loadout, which is what keeps a squad of them a squad.
+          for (let i = 0; i < entry.bots; i++) {
+            this.deps.cz.addBot(entry.code, 'expert');
+          }
           await this.deps.cz.start(entry.code);
           return;
         }
@@ -625,8 +647,13 @@ export class QuickplayManager {
             await this.deps.mafia.destroy(entry.code);
             return;
           }
-          if (seated < state.config.minPlayers) {
-            this.deps.mafia.addBots(entry.code, state.config.minPlayers - seated);
+          // What the room asked for first, then whatever the deal still needs. The
+          // top-up is the old behaviour and stays: a room that lost people during
+          // the redirect gets a town rather than an error.
+          if (entry.bots > 0) this.deps.mafia.addBots(entry.code, entry.bots);
+          const withBots = Object.keys(this.deps.mafia.get(entry.code)?.players ?? {}).length;
+          if (withBots < state.config.minPlayers) {
+            this.deps.mafia.addBots(entry.code, state.config.minPlayers - withBots);
           }
           this.deps.mafia.start(entry.code);
           return;

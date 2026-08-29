@@ -61,6 +61,28 @@ export interface QuickMember {
 
 export type QuickPhase = 'gathering' | 'countdown' | 'launched' | 'closed';
 
+/**
+ * Whether this game can seat machine players.
+ *
+ * Not the quiz: its bots would have to answer the questions, and a bot that knows
+ * every answer is not an opponent, it is a scoreboard. The other two already run
+ * bots in their own lobbies, which is what this exposes to the shared room.
+ */
+export function quickBotsAllowed(game: LobbyGame): boolean {
+  return game === 'coronaz' || game === 'mafia';
+}
+
+/** Members plus bots: what the game will actually be dealt. */
+export function quickSeats(lobby: QuickLobby): number {
+  return Object.keys(lobby.members).length + lobby.bots;
+}
+
+/** The most bots this room could still ask for, people having priority. */
+export function quickMaxBots(lobby: QuickLobby): number {
+  if (!quickBotsAllowed(lobby.game)) return 0;
+  return Math.max(0, lobby.maxPlayers - Object.keys(lobby.members).length);
+}
+
 export interface QuickLobby {
   code: string;
   game: LobbyGame;
@@ -71,6 +93,14 @@ export interface QuickLobby {
   /** Drawn once at creation: what a tied or empty vote falls back to. */
   rolled: Record<string, string>;
   members: Record<string, QuickMember>;
+  /**
+   * Machine players the room has asked for, seated when the game is created.
+   *
+   * A count rather than a roster: they have no vote, no presence and no name
+   * until the engine deals them one, so there is nothing else to keep. Quiz is
+   * always 0 — see `quickBotsAllowed`.
+   */
+  bots: number;
   /** Set when the room has decided; the launch happens when the clock reaches it. */
   startsAt: number | null;
   /** The real game, once it exists. */
@@ -132,6 +162,7 @@ export function createQuickLobby(options: CreateQuickLobbyOptions): QuickLobby {
     maxPlayers: options.maxPlayers,
     rolled,
     members: {},
+    bots: 0,
     startsAt: null,
     launch: null,
     fromGameCode: options.fromGameCode ?? null,
@@ -139,14 +170,9 @@ export function createQuickLobby(options: CreateQuickLobbyOptions): QuickLobby {
   };
 }
 
-export type QuickJoinResult =
-  | { ok: true; member: QuickMember }
-  | { ok: false; error: 'full' | 'closed' | 'started' };
+export type QuickJoinResult = { ok: true; member: QuickMember } | { ok: false; error: 'full' | 'closed' | 'started' };
 
-export function joinQuickLobby(
-  lobby: QuickLobby,
-  input: { id: string; name: string; now: number }
-): QuickJoinResult {
+export function joinQuickLobby(lobby: QuickLobby, input: { id: string; name: string; now: number }): QuickJoinResult {
   if (lobby.phase === 'closed') return { ok: false, error: 'closed' };
   if (lobby.phase === 'launched') return { ok: false, error: 'started' };
 
@@ -173,6 +199,9 @@ export function joinQuickLobby(
   };
 
   lobby.members[input.id] = member;
+  // A person always outranks a machine: the room gives back a bot's seat rather
+  // than turning somebody away from a table it filled itself.
+  lobby.bots = Math.min(lobby.bots, quickMaxBots(lobby));
   lobby.lastActivityAt = input.now;
   return { ok: true, member };
 }
@@ -207,6 +236,26 @@ export function setQuickReady(lobby: QuickLobby, memberId: string, ready: boolea
   lobby.lastActivityAt = now;
 }
 
+/**
+ * How many machine players the room wants.
+ *
+ * Anyone may set it, like every other setting here — a hostless room has nobody
+ * to own the decision, and a bot count is far less contentious than the map.
+ * Clamped rather than refused, so a stale screen asking for eight seats in a room
+ * that has room for three gets three instead of nothing.
+ */
+export function setQuickBots(lobby: QuickLobby, count: number, now: number): boolean {
+  if (lobby.phase === 'launched' || lobby.phase === 'closed') return false;
+  if (!quickBotsAllowed(lobby.game)) return false;
+
+  const wanted = Math.max(0, Math.min(Math.trunc(count), quickMaxBots(lobby)));
+  if (wanted === lobby.bots) return false;
+
+  lobby.bots = wanted;
+  lobby.lastActivityAt = now;
+  return true;
+}
+
 /** An unknown key or an unknown value is ignored rather than stored. */
 export function setQuickVote(
   lobby: QuickLobby,
@@ -232,9 +281,7 @@ export function setQuickVote(
 
 /** Members whose phone has said something recently enough to be counted. */
 export function quickPresent(lobby: QuickLobby, now: number): QuickMember[] {
-  return Object.values(lobby.members).filter(
-    (member) => member.connected && now - member.lastSeenAt < QUICK_STALE_MS
-  );
+  return Object.values(lobby.members).filter((member) => member.connected && now - member.lastSeenAt < QUICK_STALE_MS);
 }
 
 /**
@@ -278,10 +325,20 @@ export function tallyQuick(lobby: QuickLobby, specs: QuickOptionSpec[]): Record<
   return settings;
 }
 
-/** How many yes votes this room needs: a strict majority of who is actually here. */
+/**
+ * How many yes votes this room needs: a strict majority of who is actually here.
+ *
+ * The floor used to be `minPlayers` flat, which was right when only people could
+ * take a seat: a room of three could not start a game that deals five, and asking
+ * for five yes votes from three phones said so. Bots fill that gap now, so the
+ * floor drops by however many the room has ordered — one player who seated four
+ * machines needs one yes, not five, and without this they would watch a
+ * permanently unreachable `1 / 5`.
+ */
 export function quickNeeded(lobby: QuickLobby, now: number): number {
   const present = quickPresent(lobby, now).length;
-  return Math.max(lobby.minPlayers, Math.floor(present / 2) + 1);
+  const playable = Math.max(0, lobby.minPlayers - lobby.bots);
+  return Math.max(playable, Math.floor(present / 2) + 1);
 }
 
 export type QuickDecision = 'wait' | 'countdown' | 'launch' | 'cancel';
@@ -298,8 +355,13 @@ export function quickDecision(lobby: QuickLobby, now: number): QuickDecision {
   if (lobby.phase === 'launched' || lobby.phase === 'closed') return 'wait';
 
   const present = quickPresent(lobby, now);
+  // `full` stays a count of people. A room that filled its own spare seats with
+  // bots has not decided anything, and starting it on their behalf would rob the
+  // table of the countdown it is entitled to.
   const full = Object.keys(lobby.members).length >= lobby.maxPlayers;
-  const enough = present.length >= lobby.minPlayers;
+  // Bots do count here: seating them is exactly how three friends start a game
+  // that needs five, which is the reason the room can ask for them at all.
+  const enough = present.length + lobby.bots >= lobby.minPlayers;
   const yes = present.filter((member) => member.ready).length;
   const decided = enough && (full || yes >= quickNeeded(lobby, now));
 

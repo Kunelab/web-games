@@ -36,7 +36,7 @@ export default function Quickplay() {
   const room = search.get('salon') ?? undefined;
   const replayOf = search.get('revanche') ?? undefined;
 
-  const { connected, lobby, launch, error, ready, vote } = useQuickplay({
+  const { connected, lobby, launch, error, ready, vote, setBots } = useQuickplay({
     game,
     name,
     code: room,
@@ -138,7 +138,10 @@ export default function Quickplay() {
 
       <section className="qp-panel">
         <h2 className="qp-panel-title">
-          Joueurs <span className="qp-count">{lobby.members.length}/{lobby.maxPlayers}</span>
+          Joueurs{' '}
+          <span className="qp-count">
+            {lobby.members.length + lobby.bots}/{lobby.maxPlayers}
+          </span>
         </h2>
         <ul className="qp-members">
           {lobby.members.map((member) => (
@@ -154,9 +157,67 @@ export default function Quickplay() {
           ))}
         </ul>
 
-        {lobby.members.length < lobby.minPlayers && (
+        {lobby.botsAllowed && (
+          <div className="qp-bots">
+            <div className="qp-bots-head">
+              <strong>Bots</strong>
+              <span className="qp-count">{lobby.bots}</span>
+            </div>
+
+            {lobby.bots > 0 && (
+              <ul className="qp-members qp-members-bots">
+                {Array.from({ length: lobby.bots }, (unused, index) => (
+                  <li key={index} className="qp-member qp-member-bot">
+                    <span className="qp-member-dot" aria-hidden="true">
+                      🤖
+                    </span>
+                    <span className="qp-member-name">Bot {index + 1}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="qp-bots-controls">
+              <button
+                type="button"
+                className="qp-bot-step"
+                onClick={() => setBots(lobby.bots - 1)}
+                disabled={!connected || lobby.bots === 0}
+                aria-label="Un bot de moins"
+              >
+                −
+              </button>
+              <button
+                type="button"
+                className="qp-bot-step"
+                onClick={() => setBots(lobby.bots + 1)}
+                disabled={!connected || lobby.bots >= lobby.maxBots}
+                aria-label="Un bot de plus"
+              >
+                +
+              </button>
+              {lobby.members.length + lobby.bots < lobby.minPlayers && (
+                <button
+                  type="button"
+                  className="qp-bot-fill"
+                  onClick={() => setBots(lobby.minPlayers - lobby.members.length)}
+                  disabled={!connected}
+                >
+                  Compléter la table
+                </button>
+              )}
+            </div>
+
+            <p className="qp-hint">
+              Ils prennent leur place au lancement, et rendent leur siège dès qu’une personne arrive.
+            </p>
+          </div>
+        )}
+
+        {lobby.members.length + lobby.bots < lobby.minPlayers && (
           <p className="qp-hint">
-            Il faut au moins {lobby.minPlayers} joueur{lobby.minPlayers > 1 ? 's' : ''} pour lancer. En attente…
+            Il faut au moins {lobby.minPlayers} joueur{lobby.minPlayers > 1 ? 's' : ''} pour lancer
+            {lobby.botsAllowed ? ', bots compris' : ''}. En attente…
           </p>
         )}
       </section>
@@ -203,7 +264,10 @@ export default function Quickplay() {
           <strong>
             {lobby.ready} / {lobby.needed}
           </strong>
-          <span> prêt{lobby.ready > 1 ? 's' : ''} — il en faut {lobby.needed}</span>
+          <span>
+            {' '}
+            prêt{lobby.ready > 1 ? 's' : ''} — il en faut {lobby.needed}
+          </span>
         </div>
 
         {counting ? (

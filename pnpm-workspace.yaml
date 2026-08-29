@@ -4,10 +4,14 @@ packages:
 
 # Only esbuild genuinely needs its install script here.
 #
-# better-sqlite3 and bcrypt are deliberately absent. Both ship prebuilt binaries
-# (a `prebuilds/` directory, loaded via node-gyp-build), so listing them makes
-# pnpm run `node-gyp rebuild` and compile from source for no reason, which needs
-# a real Python and MSVC toolchain. Leaving them unlisted uses the prebuilt
-# binary and works out of the box.
+# better-sqlite3 is deliberately absent. It ships prebuilt binaries (a
+# `prebuilds/` directory, loaded via node-gyp-build), so listing it makes pnpm run
+# `node-gyp rebuild` and compile from source for no reason, which needs a real
+# Python and MSVC toolchain. Leaving it unlisted uses the prebuilt binary and
+# works out of the box.
+#
+# @node-rs/argon2, which hashes the passwords, needs nothing here at all: it
+# ships one ready-made binary per platform as an optional dependency, so there is
+# no install script to allow.
 onlyBuiltDependencies:
   - esbuild

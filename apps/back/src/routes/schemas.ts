@@ -26,3 +26,15 @@ export const registerSchema = credentialsSchema.extend({
   password: z.string().min(8, 'Le mot de passe doit faire au moins 8 caractères').max(200),
   email: z.email().max(254)
 });
+
+/**
+ * Changing a password proves the old one.
+ *
+ * The new one is held to the same minimum as registration; the current one is
+ * not, because it may predate that rule and refusing it here would lock out
+ * exactly the person trying to fix it.
+ */
+export const changePasswordSchema = z.object({
+  current: z.string().min(1).max(200),
+  next: z.string().min(8, 'Le mot de passe doit faire au moins 8 caractères').max(200)
+});

@@ -172,12 +172,18 @@ export function joinMafia(
   return { player, rejoined: false };
 }
 
-export function addMafiaBot(state: MafiaState, token: string, playerId: string): MafiaPlayer {
+/** `randomInt` draws the name; see `nextBotName`. */
+export function addMafiaBot(
+  state: MafiaState,
+  token: string,
+  playerId: string,
+  randomInt: (maxExclusive: number) => number
+): MafiaPlayer {
   if (state.phase !== 'lobby') throw new Error('La partie a déjà commencé');
   const slot = nextFreeSlot(state);
   if (slot === null) throw new Error('La table est pleine');
 
-  const player = seatPlayer({ playerId, token, name: nextBotName(state), slot, isBot: true });
+  const player = seatPlayer({ playerId, token, name: nextBotName(state, randomInt), slot, isBot: true });
   state.players[playerId] = player;
   return player;
 }
