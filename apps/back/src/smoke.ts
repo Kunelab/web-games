@@ -874,6 +874,117 @@ const unknownToken = await app.inject({ method: 'GET', url: `/api/play/asset/${'
 check('an unknown asset token is 404', unknownToken.statusCode === 404, unknownToken.statusCode);
 
 /* ------------------------------- cleanup ---------------------------------- */
+/* ------------------------------ the public board -------------------------- */
+section('lobby board');
+
+const boardAnon = await app.inject({ method: 'GET', url: '/api/lobbies' });
+check('the board is readable without a login', boardAnon.statusCode === 200, boardAnon.statusCode);
+
+/**
+ * The private/public distinction, end to end. `session` above was started with no
+ * config at all, so it is private by default — and staying off this list is the
+ * whole meaning of that default.
+ */
+const privateBoard = JSON.parse(boardAnon.body) as { code: string; game: string }[];
+check(
+  'a private game is not listed',
+  !privateBoard.some((card) => card.code === session.code),
+  privateBoard
+);
+
+const publicStart = await app.inject({
+  method: 'POST',
+  url: '/api/play/sessions',
+  headers,
+  payload: { playlistId: playlistView.id, config: { public: true } }
+});
+const publicSession = JSON.parse(publicStart.body) as { code: string };
+
+const boardWithPublic = JSON.parse((await app.inject({ method: 'GET', url: '/api/lobbies' })).body) as {
+  code: string;
+  game: string;
+  host: string | null;
+}[];
+const publicCard = boardWithPublic.find((card) => card.code === publicSession.code);
+check('a public game is listed', Boolean(publicCard), boardWithPublic);
+check('the card names its game', publicCard?.game === 'quiz', publicCard);
+check('the card names its host', publicCard?.host === login, publicCard);
+
+const mafiaOnly = JSON.parse((await app.inject({ method: 'GET', url: '/api/lobbies?game=mafia' })).body) as {
+  code: string;
+}[];
+check(
+  'filtering by game excludes the others',
+  !mafiaOnly.some((card) => card.code === publicSession.code),
+  mafiaOnly
+);
+
+const badFilter = await app.inject({ method: 'GET', url: '/api/lobbies?game=echecs' });
+check('an unknown game is rejected', badFilter.statusCode === 400, badFilter.statusCode);
+
+await app.inject({ method: 'DELETE', url: `/api/play/sessions/${publicSession.code}`, headers });
+
+/* --------------------------------- the shop ------------------------------- */
+section('shop and locker');
+
+const catalogue = await app.inject({ method: 'GET', url: '/api/shop/coronaz' });
+check('the catalogue is public', catalogue.statusCode === 200, catalogue.statusCode);
+const shop = JSON.parse(catalogue.body) as {
+  items: { id: string; price: number; game: string }[];
+  currency: { name: string };
+};
+check('it only lists that game', shop.items.every((item) => item.game === 'coronaz'), shop.items);
+check('it names the currency', shop.currency.name === 'rations', shop.currency);
+
+const lockerAnon = await app.inject({ method: 'GET', url: '/api/locker/coronaz' });
+check('a locker needs a login', lockerAnon.statusCode === 401, lockerAnon.statusCode);
+
+const myLocker = await app.inject({ method: 'GET', url: '/api/locker/coronaz', headers });
+const lockerView = JSON.parse(myLocker.body) as { owned: string[]; balance: number };
+check('a fresh locker is empty', myLocker.statusCode === 200 && lockerView.owned.length === 0, myLocker.body);
+check('a fresh wallet is empty', lockerView.balance === 0, lockerView.balance);
+
+/**
+ * The one thing a shop must never do. A brand-new account has no rations, so
+ * every purchase has to be refused — and refused by the server's own price
+ * rather than by whatever the client believed the price was.
+ */
+const brokePurchase = await app.inject({
+  method: 'POST',
+  url: '/api/locker/coronaz/buy',
+  headers,
+  payload: { itemId: shop.items[0]?.id ?? 'cz-pompier' }
+});
+check('an empty wallet cannot buy', brokePurchase.statusCode === 400, brokePurchase.body);
+
+const wrongGame = await app.inject({
+  method: 'POST',
+  url: '/api/locker/coronaz/buy',
+  headers,
+  payload: { itemId: 'mafia-fedora' }
+});
+check("another game's item cannot be bought here", wrongGame.statusCode === 400, wrongGame.body);
+
+const unowned = await app.inject({
+  method: 'POST',
+  url: '/api/locker/coronaz/wear',
+  headers,
+  payload: { slot: 'avatar', itemId: 'cz-hazmat' }
+});
+check('an unowned item cannot be worn', unowned.statusCode === 400, unowned.body);
+
+/* ------------------------------- quick match ------------------------------ */
+section('quick match');
+
+/**
+ * The room itself is a socket conversation and is exercised by lobby-core's unit
+ * tests; what is worth checking from here is that the manager is wired into the
+ * app at all, and that an empty house yields an empty board rather than an error.
+ */
+const quickCards = app.quick.cards();
+check('the quick manager is mounted', Array.isArray(quickCards), typeof quickCards);
+check('no rooms exist before anyone asks', quickCards.length === 0, quickCards);
+
 section('cleanup');
 
 const removed = await app.inject({ method: 'DELETE', url: `/api/media/${quizItem.id}`, headers });

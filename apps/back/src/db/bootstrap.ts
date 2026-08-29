@@ -188,6 +188,23 @@ const statements = [
     "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP
   )`,
 
+  // Quiz tokens per nickname: the shop's wallet. See schema.ts.
+  `CREATE TABLE IF NOT EXISTS "QuizCareers" (
+    "name" TEXT PRIMARY KEY,
+    "stats" TEXT NOT NULL,
+    "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP
+  )`,
+
+  // What an account owns and wears, one row per account per game.
+  `CREATE TABLE IF NOT EXISTS "Cosmetics" (
+    "user_id" INTEGER NOT NULL REFERENCES "Users" ("id") ON DELETE CASCADE,
+    "game" TEXT NOT NULL,
+    "owned" TEXT NOT NULL DEFAULT '[]',
+    "worn" TEXT NOT NULL DEFAULT '{}',
+    "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY ("user_id", "game")
+  )`,
+
   // Player-saved Mafia setups: ten named slot lists per account, max.
   `CREATE TABLE IF NOT EXISTS "MafiaTemplates" (
     "user_id" INTEGER NOT NULL REFERENCES "Users" ("id") ON DELETE CASCADE,

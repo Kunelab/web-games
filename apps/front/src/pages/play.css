@@ -796,3 +796,98 @@
 .host-solo-panel .player-round {
   flex: none;
 }
+
+/* -------------------------------------------------------------- join board */
+
+/*
+ * The join screen carries two things now: the code box, which is how most
+ * evenings actually start, and the board of public lobbies underneath it. One
+ * column, because this is read on a phone standing in a doorway.
+ */
+.join-page {
+  max-width: 34rem;
+  width: 100%;
+  margin: 0 auto;
+  gap: var(--space-6);
+}
+
+.join-board {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.join-board-head h2 {
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  margin-bottom: var(--space-2);
+}
+
+.join-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.join-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  /* The colour is the game, set inline from the registry. */
+  border-left: 3px solid var(--rule);
+  border-radius: var(--radius-sm);
+}
+
+.join-card-emoji {
+  font-size: var(--text-xl);
+  line-height: 1;
+  flex: none;
+}
+
+.join-card-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.join-card-body strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.join-card-meta {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+
+.join-card-count {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  flex: none;
+}
+
+/* ------------------------------------------------------- the end of a game */
+
+/*
+ * Two buttons under the standings: again, or out. Pinned nowhere — the ceremony
+ * above them is the thing being read, and these wait at the bottom of it.
+ */
+.quick-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}

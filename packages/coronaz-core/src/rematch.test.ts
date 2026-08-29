@@ -114,8 +114,28 @@ describe('rematch drops the raid', () => {
   });
 
   it('clears the board of the last raid', () => {
-    assert.equal(Object.keys(next.zombies).length, 0);
-    assert.equal(next.log.length, 0);
+    /**
+     * Against a freshly drawn world rather than against nothing.
+     *
+     * A new district seats its own pieces before anybody arrives — a boss
+     * objective puts its colossus down at creation — so "the board is empty" is
+     * a claim about the seed, not about the rematch, and it breaks the day the
+     * dice fall differently. What has to hold is that the rematch adds nothing
+     * of its own: the raid that just ended left nothing behind.
+     */
+    const fresh = createGame({
+      code: state.code,
+      hostToken: state.hostToken,
+      gmToken: state.gmToken,
+      hostUserId: state.hostUserId,
+      config: { ...state.config, mutations: [...state.config.mutations] },
+      seed: 222,
+      gmPerks: [...state.gmPerks],
+      gmLoadout: [...state.gmLoadout]
+    });
+
+    assert.equal(Object.keys(next.zombies).length, Object.keys(fresh.zombies).length);
+    assert.equal(next.log.length, fresh.log.length);
   });
 
   it('draws a new world', () => {

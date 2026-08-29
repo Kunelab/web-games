@@ -7,9 +7,9 @@ import { badgeMeta } from '../app/badges';
 import { useAuth } from '../hooks/useAuth';
 import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
 import { RoundPanel } from './Player';
-import { useYoutubePlayer } from '../hooks/useYoutube';
 import { joinUrl } from '../tools/api-url';
 import { Button, Loading } from '../ui';
+import { BlindtestAudio } from '../ui/BlindtestAudio';
 import { Ceremony } from '../ui/Ceremony';
 import { RevealImage } from '../ui/RevealImage';
 import './play.css';
@@ -179,7 +179,7 @@ export default function Host() {
         <>
           <div className="host-stage">
             {/* The clip plays here and only here: players receive nothing of it. */}
-            {blindtestCode && <HiddenAudio code={blindtestCode} payload={round.payload} phase={round.phase} />}
+            {blindtestCode && <BlindtestAudio code={blindtestCode} payload={round.payload} phase={round.phase} />}
 
             {round.phase === 'reveal' ? (
               <div className="host-stage-content">
@@ -604,41 +604,3 @@ function panelColumns(
   return best;
 }
 
-/**
- * Plays the clip without showing it during the guess phase.
- *
- * Kept nearly invisible rather than unmounted: destroying and recreating the iframe
- * between phases costs a reload and a gap in the audio.
- */
-function HiddenAudio({ code, payload, phase }: { code: string; payload: unknown; phase: string }) {
-  const revealing = phase === 'reveal';
-  const window_ = payload as {
-    startGuess?: number;
-    endGuess?: number;
-    startReveal?: number;
-    endReveal?: number;
-  };
-
-  const { YoutubePlayer, player } = useYoutubePlayer({
-    width: 640,
-    height: 360,
-    playerVars: { controls: 0, disablekb: 1, fs: 0, autoplay: 1 },
-    events: { onError: (event) => console.error('youtube error', event.data) }
-  });
-
-  const start = revealing ? window_.startReveal : window_.startGuess;
-  const end = revealing ? window_.endReveal : window_.endGuess;
-
-  useEffect(() => {
-    if (!code) return;
-    player.loadVideoById({ videoId: code, startSeconds: start, endSeconds: end });
-    // `player` is stable for the life of the hook.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, start, end]);
-
-  return (
-    <div className={revealing ? 'yt-visible' : 'yt-hidden'}>
-      <YoutubePlayer />
-    </div>
-  );
-}

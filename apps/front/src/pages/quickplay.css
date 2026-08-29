@@ -1,0 +1,202 @@
+/*
+ * The quick room.
+ *
+ * Read on a phone, standing up, in the thirty seconds before a game starts, so
+ * everything here is one column, generously spaced and thumb-sized. The two
+ * things that must be legible at a glance are the tally and the countdown, which
+ * is why they sit in a bar pinned to the bottom rather than in the flow.
+ */
+
+.qp {
+  max-width: 34rem;
+  width: 100%;
+  margin: 0 auto;
+  padding-bottom: 10rem;
+}
+
+.qp-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.qp-title {
+  font-size: var(--text-xl);
+  line-height: 1.2;
+}
+
+.qp-lede {
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  margin-top: var(--space-2);
+}
+
+.qp-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-lg);
+  letter-spacing: 0.15em;
+  color: var(--ink-faint);
+  flex: none;
+}
+
+.qp-panel {
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.qp-panel-title {
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.qp-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.qp-hint {
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+.qp-members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.qp-member {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.35em 0.7em;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  font-size: var(--text-sm);
+}
+
+.qp-member.on {
+  border-color: var(--ok);
+  color: var(--ink);
+}
+
+.qp-member-name em {
+  color: var(--ink-faint);
+  font-style: normal;
+}
+
+/* --------------------------------------------------------------- the votes */
+
+.qp-option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--rule);
+}
+.qp-option:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.qp-option-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.qp-option-value {
+  font-size: var(--text-sm);
+  color: var(--accent);
+  text-align: right;
+}
+
+.qp-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.qp-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.5em 0.85em;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.qp-choice:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+/* Two different facts, so two different marks: what you chose, and what is winning. */
+.qp-choice.mine {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.qp-choice.winning {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-sunken));
+  color: var(--ink);
+}
+
+.qp-votes {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 0.1em 0.5em;
+}
+
+/* --------------------------------------------------------------- the start */
+
+.qp-start {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid var(--rule);
+}
+
+.qp-tally {
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+.qp-tally strong {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.qp-countdown {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}

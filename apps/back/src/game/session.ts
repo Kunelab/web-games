@@ -25,7 +25,7 @@ import {
   type SessionView
 } from 'game-core';
 
-import type { HostRoundView } from 'game-core';
+import type { HostRoundView, StageRoundView } from 'game-core';
 
 import type { MediaView } from '../services/media-service.js';
 import { computeAwards } from './awards.js';
@@ -62,6 +62,15 @@ export interface PlayerState {
    */
   comboLength?: number;
   joinedAt: number;
+  /**
+   * The Kune login behind this seat, when the phone happened to be signed in.
+   *
+   * Players join with a nickname and no account, and that stays true — this is
+   * never required and never asked for. It exists so the tokens a game pays out
+   * can follow an account rather than a nickname when there is one, which is the
+   * only way a shop purchase survives someone typing "Max" instead of "max".
+   */
+  account?: string;
 }
 
 export interface SubmissionState {
@@ -853,6 +862,31 @@ function toHostRoundView(state: SessionState, title: string): HostRoundView | nu
   };
 }
 
+/**
+ * The payload, with nothing that names it.
+ *
+ * Built only for an autonomous session, and it is the whole reason that flag
+ * exists: with no host screen there is no other way for a clip to reach the room.
+ * It borrows the host round's shape minus `title` and `answers`, which are the
+ * two fields that would simply print the solution on every phone.
+ */
+function toStageRoundView(state: SessionState): StageRoundView | null {
+  const round = state.round;
+  if (!round) return null;
+
+  return {
+    roundId: round.id,
+    index: round.index,
+    total: state.order.length,
+    kind: round.kind,
+    phase: round.phase,
+    phaseStartAt: round.phaseStartAt,
+    phaseEndsAt: round.phaseEndsAt,
+    answerMs: round.timing.answerMs,
+    payload: round.payload
+  };
+}
+
 export function toSessionView(
   state: SessionState,
   playerId: string | null,
@@ -869,6 +903,7 @@ export function toSessionView(
     reveal: toRevealView(state),
     isHost,
     hostRound: isHost ? toHostRoundView(state, currentTitle) : null,
+    stageRound: state.config.autonomous ? toStageRoundView(state) : undefined,
     skipped: isHost ? state.skipped : undefined,
     // The ceremony. An oral game scored nothing, so it has nothing to hand out.
     final: state.phase === 'finished' && !state.config.oral ? { awards: computeAwards(state) } : undefined

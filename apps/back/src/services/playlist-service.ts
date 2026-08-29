@@ -124,6 +124,21 @@ export const playlistService = {
     return view;
   },
 
+  /**
+   * The published shelf: public playlists with something playable in them.
+   *
+   * This is what a quick match draws from, and the readiness filter is the whole
+   * point of it — a hostless room that rolls a playlist of three broken YouTube
+   * links has no host to notice and no way to recover. Contents come back with it
+   * because the caller needs the count and the owner, not because it needs the
+   * items; `getById` is still the way to actually play one.
+   */
+  async listPublic(): Promise<PlaylistView[]> {
+    const rows = await db.select().from(playlists).where(eq(playlists.public, true));
+    const views = await attachItems(rows);
+    return views.filter((view) => view.items.length - view.notReadyCount > 0);
+  },
+
   /** Ownership check, separate from visibility: public does not mean editable. */
   async isOwnedBy(id: number, userId: number): Promise<boolean> {
     const [row] = await db

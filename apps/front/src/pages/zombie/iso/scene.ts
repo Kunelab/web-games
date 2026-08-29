@@ -1,5 +1,7 @@
 import { SHINY_LOOT, type CzRoomView, type CzView } from 'coronaz-core';
 
+import { czTerrain } from '../../../app/assets';
+
 import {
   fillPolygon,
   paintFloor,
@@ -322,7 +324,7 @@ export function renderScene(view: CzView, devicePixelRatio = 1): Scene {
       }
 
       if (room.kind === 'fungus') {
-        const creep = sprite('/coronaz/terrain/creep.png');
+        const creep = sprite(czTerrain('creep.png'));
         const shape = diamond(cx, cy);
         if (creep) {
           ctx.save();
@@ -504,7 +506,7 @@ function paintMarkers(
 
   if (room.kind === 'spawn') {
     paintGlow(ctx, cx, cy, 'rgb(229 72 77 / 0.3)', 0.9);
-    const mark = sprite('/coronaz/terrain/spawn.png');
+    const mark = sprite(czTerrain('spawn.png'));
     if (mark) drawFlat(ctx, mark, cx, cy, 0.7);
   }
 
@@ -527,7 +529,7 @@ function paintMarkers(
 
   if (room.hasKey) {
     paintGlow(ctx, cx, cy, 'rgb(232 163 61 / 0.35)', 0.7);
-    const key = sprite('/coronaz/terrain/key.png');
+    const key = sprite(czTerrain('key.png'));
     if (key) drawFlat(ctx, key, cx, cy, 0.5);
     else {
       const at = project(cx, cy);

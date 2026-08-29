@@ -406,6 +406,80 @@ function indexOf(board: Board): BoardIndex {
   return built;
 }
 
+/**
+ * Rooms this one touches but cannot reach: the walls worth putting a hole in.
+ *
+ * The other half of `setBoundary` — knowing a wall can be broken is useless
+ * without knowing which walls there are. Excludes anything already reachable,
+ * because a doorway two steps round is not a wall anybody needs to break, and
+ * excludes glass, which is a hole with something in it rather than a wall.
+ */
+export function sealedNeighbours(board: Board, room: Room): Room[] {
+  const open = new Set(neighbors(board, room).map((other) => other.id));
+  const found = new Map<string, Room>();
+
+  for (const cell of room.cells) {
+    const x = cell % board.width;
+    const y = Math.floor(cell / board.width);
+    for (const [dx, dy] of DIRS) {
+      if (edgeBetween(board, x, y, x + dx, y + dy) !== 'wall') continue;
+      const index = cellIndex(board, x + dx, y + dy);
+      if (index === -1) continue;
+      const otherId = board.cellRoom[index];
+      if (!otherId || otherId === room.id || open.has(otherId) || found.has(otherId)) continue;
+      const other = indexOf(board).byId.get(otherId);
+      if (other) found.set(otherId, other);
+    }
+  }
+  return [...found.values()];
+}
+
+/**
+ * Changes a boundary after the district was drawn, and forgets what was cached
+ * about the old shape.
+ *
+ * The one crack in "geometry never changes after generation", and it is
+ * deliberate: a survivor with three action points and something heavy can put a
+ * hole through a wall, which is the difference between a dead end and a way out.
+ *
+ * Everything the index holds — adjacency, and every route ever asked for — was
+ * computed against the wall that is no longer there, so the index goes. It is
+ * rebuilt on the next question, once, and that is far cheaper than trying to
+ * work out which of the cached routes a new doorway would have shortened: the
+ * answer is "most of them".
+ *
+ * Returns false when there was no such boundary to change, so a caller can
+ * refuse the action rather than silently charging for nothing.
+ */
+export function setBoundary(board: Board, ax: number, ay: number, bx: number, by: number, kind: EdgeKind): boolean {
+  const a = cellIndex(board, ax, ay);
+  const b = cellIndex(board, bx, by);
+  if (a === -1 || b === -1) return false;
+
+  // The boundary belongs to the left/upper cell of the pair — same rule as
+  // `edgeBetween`, which is what reads it back.
+  let side: 'right' | 'down';
+  let owner: number;
+  if (by === ay && bx === ax + 1) [side, owner] = ['right', a];
+  else if (by === ay && bx === ax - 1) [side, owner] = ['right', b];
+  else if (bx === ax && by === ay + 1) [side, owner] = ['down', a];
+  else if (bx === ax && by === ay - 1) [side, owner] = ['down', b];
+  else return false;
+
+  const source = side === 'right' ? board.edgeRight : board.edgeDown;
+  if (owner >= source.length) return false;
+
+  const code = edgeCode(kind);
+  if (source[owner] === code) return false;
+
+  const rewritten = source.slice(0, owner) + code + source.slice(owner + 1);
+  if (side === 'right') board.edgeRight = rewritten;
+  else board.edgeDown = rewritten;
+
+  indexes.delete(board);
+  return true;
+}
+
 export function roomAt(board: Board, x: number, y: number): Room | undefined {
   const index = cellIndex(board, x, y);
   if (index === -1) return undefined;

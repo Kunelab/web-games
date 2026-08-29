@@ -327,6 +327,48 @@ export const mafiaCareers = sqliteTable('MafiaCareers', {
   updated_at: text('updated_at').default(now)
 });
 
+/**
+ * The quiz wallet, per nickname (accounts under `@login`).
+ *
+ * The two other games banked a currency from their first day and the quizzes
+ * never did — their history table holds scores, which are a record rather than a
+ * balance: spending one would falsify the leaderboard. So the tokens live here,
+ * credited alongside the result row and debited by the shop, and the scoreboard
+ * stays a scoreboard. Same JSON-per-nickname design as `CzCareers`.
+ */
+export const quizCareers = sqliteTable('QuizCareers', {
+  name: text('name').primaryKey(),
+  /** JSON QuizCareerStats. */
+  stats: text('stats').notNull(),
+  updated_at: text('updated_at').default(now)
+});
+
+/**
+ * What an account owns and wears, per game.
+ *
+ * Deliberately not folded into the three career tables. Those are keyed by
+ * nickname, because that is who *plays*; a wardrobe is keyed by account, because
+ * that is who *buys*. Two JSON columns rather than a row per item: a locker is
+ * always read whole, never queried across users, and the shop's catalogue lives
+ * in code — there is nothing here to join against.
+ */
+export const cosmetics = sqliteTable(
+  'Cosmetics',
+  {
+    user_id: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** 'quiz' | 'coronaz' | 'mafia'. */
+    game: text('game').notNull(),
+    /** JSON string[]: the shop ids owned. */
+    owned: text('owned').notNull().default('[]'),
+    /** JSON Record<slot, itemId>: what is worn where. */
+    worn: text('worn').notNull().default('{}'),
+    updated_at: text('updated_at').default(now)
+  },
+  (table) => [primaryKey({ columns: [table.user_id, table.game] })]
+);
+
 /** Player-saved Mafia setups: up to ten named slot lists per account. */
 export const mafiaTemplates = sqliteTable(
   'MafiaTemplates',

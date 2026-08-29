@@ -7,6 +7,7 @@ import { api, ApiError } from '../api/client';
 import { useAsync } from '../hooks/useAsync';
 import { joinUrl } from '../tools/api-url';
 import { Badge, Button, Field, Input, Loading, Switch } from '../ui';
+import { PublicSwitch } from '../ui/PublicSwitch';
 import './playlists.css';
 
 /**
@@ -145,6 +146,12 @@ export default function Launch() {
       <div className="launch-layout">
         <div className="editor-section">
           <h2 className="editor-section-title">Options de la partie</h2>
+
+          <PublicSwitch
+            what="cette partie"
+            value={config.public}
+            onChange={(checked) => setConfig({ ...config, public: checked })}
+          />
 
           <Switch
             label="Ordre aléatoire"

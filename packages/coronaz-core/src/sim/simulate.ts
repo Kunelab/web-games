@@ -12,6 +12,7 @@ import {
 } from '../engine.js';
 import {
   createGame,
+  objectivesDone,
   joinHero,
   randomGmLoadout,
   randomHeroLoadout,
@@ -69,6 +70,16 @@ export interface GameOutcome {
    */
   searches: number;
   heroesDead: number;
+  /**
+   * How far the objectives got before the raid ended.
+   *
+   * Reported so a loss can be read rather than guessed at: a table wiped with the
+   * exit already open lost a fight it could have walked away from, and a table
+   * wiped two keys short never had the option. Those are different problems and
+   * the win rate alone cannot tell them apart.
+   */
+  keysCollected: number;
+  exitOpen: boolean;
   heroesEscaped: number;
   /** The full combat log, when asked for: the seed replay's transcript. */
   log?: string[];
@@ -180,6 +191,8 @@ export function runGame(options: {
     kills: state.killsTotal,
     searches: state.searchesTotal,
     heroesDead: Object.values(state.heroes).filter((hero) => !hero.alive).length,
+    keysCollected: state.keysCollected,
+    exitOpen: state.keysCollected >= state.config.keys && objectivesDone(state),
     heroesEscaped: Object.values(state.heroes).filter((hero) => hero.escaped).length,
     log: options.captureLog ? state.log.map((entry) => `T${entry.turn} ${entry.text}`) : undefined
   };
@@ -228,7 +241,7 @@ function playEnemyPhase(state: CzState, gmMindset?: GmMindset): void {
 
   // The shared movement AI walks whatever is on the board, both modes.
   let guard = 0;
-  while (state.phase === 'enemy' && activateNextZombie(state) && guard++ < 500) {
+  while (state.phase === 'enemy' && activateNextZombie(state).more && guard++ < 500) {
     /* one zombie per call */
   }
 

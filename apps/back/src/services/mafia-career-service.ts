@@ -104,5 +104,20 @@ export const mafiaCareerService = {
     }
 
     return rewards;
+  },
+
+  /** The spendable balance. Points are earned by playing and spent in the shop. */
+  async balance(name: string): Promise<number> {
+    return (await readStats(name)).points;
+  },
+
+  /** Spends, refusing rather than going negative. The shop owns the price. */
+  async spend(name: string, amount: number): Promise<{ ok: boolean; balance: number }> {
+    const stats = await readStats(name);
+    if (stats.points < amount) return { ok: false, balance: stats.points };
+
+    stats.points -= amount;
+    await writeStats(name, stats);
+    return { ok: true, balance: stats.points };
   }
 };

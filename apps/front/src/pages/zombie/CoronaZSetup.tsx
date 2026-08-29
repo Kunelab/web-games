@@ -20,6 +20,7 @@ import { api, ApiError } from '../../api/client';
 import { useAsync } from '../../hooks/useAsync';
 import { buzzerOrigin } from '../../tools/api-url';
 import { Badge, Button, Field, Input } from '../../ui';
+import { PublicSwitch } from '../../ui/PublicSwitch';
 import './coronaz.css';
 import '../playlists.css';
 
@@ -216,6 +217,15 @@ export default function CoronaZSetup() {
 
       <div className="launch-layout">
         <div className="stack-5">
+          <div className="editor-section">
+            <h2 className="editor-section-title">Qui peut entrer ?</h2>
+            <PublicSwitch
+              what="ce raid"
+              value={config.public}
+              onChange={(checked) => set('public', checked)}
+            />
+          </div>
+
           <div className="editor-section">
             <h2 className="editor-section-title">Qui joue la horde ?</h2>
             <div className="cz-actions">

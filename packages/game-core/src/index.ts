@@ -97,7 +97,8 @@ export {
   type RoundView,
   type SessionConfig,
   type SessionPhase,
-  type SessionView
+  type SessionView,
+  type StageRoundView
 } from './protocol/session.js';
 
 export {

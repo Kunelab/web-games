@@ -132,9 +132,18 @@ export class GameManager {
   async create(options: {
     playlistId: number;
     playlistName: string;
-    hostUserId: number;
+    /** Null for a hostless quick match: nobody opened this one. */
+    hostUserId: number | null;
     items: MediaView[];
     config?: unknown;
+    /**
+     * Stop after this many rounds.
+     *
+     * Applied after the order is built, so a shuffled session takes a random
+     * slice rather than the top of the playlist — which is what a quick match
+     * asking for "eight rounds" out of a hundred-item quiz actually means.
+     */
+    maxRounds?: number;
   }): Promise<SessionState> {
     const parsedConfig = sessionConfigSchema.safeParse(options.config ?? {});
     const config: SessionConfig = parsedConfig.success ? parsedConfig.data : defaultSessionConfig;
@@ -147,6 +156,10 @@ export class GameManager {
       config,
       existingCodes: this.activeCodes()
     });
+
+    if (options.maxRounds !== undefined && options.maxRounds > 0) {
+      state.order = state.order.slice(0, options.maxRounds);
+    }
 
     this.sessions.set(state.code, state);
     this.mediaBySession.set(state.code, new Map(options.items.map((item) => [item.id, item])));

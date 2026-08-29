@@ -1,4 +1,5 @@
 import type { AnswerField, FieldMeta, FinalAward, KindTiming, Readiness, SessionConfig } from 'game-core';
+import type { Currency, LobbyCard, LobbyGame, LockerView, ShopItem } from 'lobby-core';
 
 import { apiBaseUrl } from '../tools/api-url';
 
@@ -354,6 +355,24 @@ export const api = {
   czMe: () => request<CzCareer>('/zombie/me'),
   czUnlockGm: (classId: string) => request<CzCareer>('/zombie/unlock', { method: 'POST', body: { classId } }),
 
+  /* the board, and the shop */
+
+  /**
+   * Open lobbies across every game. Anonymous, like the join screen it feeds:
+   * players have no accounts and a board you must sign in to read is a board
+   * nobody arrives at.
+   */
+  lobbies: (game?: LobbyGame) =>
+    request<LobbyCard[]>(`/lobbies${game ? `?game=${game}` : ''}`, { allowAnonymous: true }),
+
+  shop: (game: LobbyGame) =>
+    request<{ items: ShopItem[]; currency: Currency }>(`/shop/${game}`, { allowAnonymous: true }),
+  locker: (game: LobbyGame) => request<LockerView>(`/locker/${game}`),
+  buyItem: (game: LobbyGame, itemId: string) =>
+    request<LockerView>(`/locker/${game}/buy`, { method: 'POST', body: { itemId } }),
+  wearItem: (game: LobbyGame, slot: string, itemId: string | null) =>
+    request<LockerView>(`/locker/${game}/wear`, { method: 'POST', body: { slot, itemId } }),
+
   /* Mafia */
   mafiaCreate: (config?: {
     maxPlayers?: number;
@@ -362,6 +381,8 @@ export const api = {
     /** What a corpse gives away; see MafiaConfig.revealOnDeath. */
     revealOnDeath?: 'role' | 'faction' | 'none';
     setup?: { mode: 'auto' } | { mode: 'chaos' } | { mode: 'preset'; presetId: string } | { mode: 'custom'; slots: string[] };
+    /** Lists the table on the public board. Private by default. */
+    public?: boolean;
   }) => request<{ code: string; hostToken: string }>('/mafia/sessions', { method: 'POST', body: { config } }),
   mafiaSetups: () => request<{ id: string; name: string; description: string; slots: string[] }[]>('/mafia/setups'),
   mafiaTemplates: () => request<{ name: string; slots: string[] }[]>('/mafia/templates'),

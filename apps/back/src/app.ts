@@ -16,13 +16,17 @@ import { allowedOrigins, env, isProduction, packageRoot } from './env.js';
 import { GameManager } from './game/manager.js';
 import { MafiaManager } from './mafia/manager.js';
 import authPlugin from './plugins/auth.js';
+import { QuickplayManager } from './quickplay/manager.js';
 import { registerRealtime } from './realtime/index.js';
+import lobbyRoutes from './routes/lobbies.js';
+import lockerRoutes from './routes/locker.js';
 import mafiaRoutes from './routes/mafia.js';
 import mediaRoutes from './routes/media.js';
 import playRoutes from './routes/play.js';
 import playlistRoutes from './routes/playlists.js';
 import userRoutes from './routes/user.js';
 import zombieRoutes from './routes/zombie.js';
+import { createLobbyService } from './services/lobby-service.js';
 import { CzManager } from './zombie/manager.js';
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -135,6 +139,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   const mafia = new MafiaManager(app.log);
   app.decorate('mafia', mafia);
 
+  const quick = new QuickplayManager(app.log, { games, cz, mafia });
+  app.decorate('quick', quick);
+
+  app.decorate('lobbies', createLobbyService({ games, cz, mafia, quick }));
+
   await app.register(
     async (api) => {
       await api.register(userRoutes);
@@ -143,6 +152,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(playRoutes);
       await api.register(zombieRoutes);
       await api.register(mafiaRoutes);
+      await api.register(lobbyRoutes);
+      await api.register(lockerRoutes);
     },
     { prefix: '/api' }
   );
@@ -183,7 +194,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.code(statusCode).send({ message: error.message });
   });
 
-  app.decorate('io', registerRealtime(app, games, cz, mafia));
+  app.decorate('io', registerRealtime(app, games, cz, mafia, quick));
 
   if (mediaMigration.ran && (mediaMigration.videos > 0 || mediaMigration.images > 0)) {
     app.log.info(
@@ -219,6 +230,9 @@ export async function buildApp(): Promise<FastifyInstance> {
       app.log.info({ restored: tables }, 'restored Mafia tables in progress');
     }
     mafia.startSweeping();
+
+    // No restore: a quick room is a decision in progress, not a game. See the manager.
+    quick.start();
   });
 
   app.addHook('onClose', async () => {
@@ -226,6 +240,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     games.stopSweeping();
     cz.stopSweeping();
     mafia.stopSweeping();
+    quick.stop();
     await app.io.close();
   });
 

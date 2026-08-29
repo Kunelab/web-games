@@ -2,7 +2,9 @@ import type { Server as SocketServer } from 'socket.io';
 
 import type { GameManager } from '../game/manager.js';
 import type { SqliteSessionStore } from '../db/session-store.js';
+import type { LobbyService } from '../services/lobby-service.js';
 import type { MafiaManager } from '../mafia/manager.js';
+import type { QuickplayManager } from '../quickplay/manager.js';
 import type { CzManager } from '../zombie/manager.js';
 
 /** Everything the API stores in the session cookie. */
@@ -32,6 +34,12 @@ declare module 'fastify' {
 
     /** Owns every live Mafia table. */
     mafia: MafiaManager;
+
+    /** Owns the hostless quick-match rooms, across all three games. */
+    quick: QuickplayManager;
+
+    /** The public board: open lobbies from every game, in one list. */
+    lobbies: LobbyService;
     /**
      * Throws 401 unless the request carries a logged-in session. Use as a
      * route-level `preHandler`.
