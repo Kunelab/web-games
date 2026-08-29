@@ -4,9 +4,16 @@
  * hardcoded `:5173`). It is assembled once here instead.
  *
  * `VITE_API_PORT` is accepted with or without its leading colon.
+ *
+ * These fall back with `||` rather than `??` because an unset variable and one
+ * set to the empty string have to mean the same thing here. The Docker build
+ * passes `VITE_API_URL=` explicitly to mean "derive the host from the page",
+ * and `??` treated that empty string as a real value: every request went to
+ * `https:///api` behind a reverse proxy.
  */
-const protocol = import.meta.env.VITE_API_PROTOCOL ?? 'http';
-const host = import.meta.env.VITE_API_URL ?? window.location.hostname;
+
+const protocol = import.meta.env.VITE_API_PROTOCOL || 'http';
+const host = import.meta.env.VITE_API_URL || window.location.hostname;
 
 function portSuffix(value: string | undefined): string {
   if (!value) return '';
@@ -44,7 +51,7 @@ export function assetUrl(path: string | undefined): string {
  * it defaults to wherever the app is currently served from rather than to a
  * hardcoded dev port.
  */
-export const buzzerOrigin = import.meta.env.VITE_BUZZER_ORIGIN ?? window.location.origin;
+export const buzzerOrigin = import.meta.env.VITE_BUZZER_ORIGIN || window.location.origin;
 
 /** The address a player opens for a given join code. */
 export function joinUrl(code: string): string {
