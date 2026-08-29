@@ -1,5 +1,7 @@
 import { isOutdoorProgram, type FloorKind, type RoomProgram } from 'coronaz-core';
 
+import { czIso, czIsoManifest } from '../../../app/assets';
+
 import { diamond, project, TILE_H, TILE_W, WALL_H, type Vec2 } from './geometry';
 
 /**
@@ -9,7 +11,7 @@ import { diamond, project, TILE_H, TILE_W, WALL_H, type Vec2 } from './geometry'
  * Everything here can draw itself with nothing but a 2D context, because a raid
  * has to be playable before an artist has delivered anything. What ships is a
  * *slot*: ask for `desk` and you get the raster if one has been dropped into
- * `public/coronaz/iso/` and listed in its manifest, and a painted one if not. No
+ * `public/games/coronaz/iso/` and listed in its manifest, and a painted one if not. No
  * asset is ever a hole in the floor, and no code changes when the art lands.
  *
  * See docs/coronaz-art.md for the sizes and anchors a raster must respect.
@@ -18,7 +20,7 @@ import { diamond, project, TILE_H, TILE_W, WALL_H, type Vec2 } from './geometry'
 /* ------------------------------- raster slots ------------------------------ */
 
 interface ArtManifest {
-  /** Prop kind → file path, relative to /coronaz/iso/. */
+  /** Prop kind → file path, relative to the iso folder. */
   props?: Record<string, string>;
   /** Floor kind → seamless tile, drawn clipped to the cell diamond. */
   floors?: Record<string, string>;
@@ -50,7 +52,7 @@ function announce(): void {
 export function loadArtManifest(): void {
   if (manifestState !== 'idle') return;
   manifestState = 'loading';
-  fetch('/coronaz/iso/manifest.json')
+  fetch(czIsoManifest())
     .then((response) => (response.ok ? (response.json() as Promise<ArtManifest>) : null))
     .then((parsed) => {
       manifest = parsed;
@@ -88,7 +90,7 @@ export function sprite(path: string): HTMLImageElement | null {
 /** The raster for a manifest slot, if the artwork for it has been shipped. */
 export function raster(group: keyof ArtManifest, key: string): HTMLImageElement | null {
   const file = manifest?.[group]?.[key];
-  return file ? sprite(`/coronaz/iso/${file}`) : null;
+  return file ? sprite(czIso(file)) : null;
 }
 
 /* --------------------------------- colour ---------------------------------- */

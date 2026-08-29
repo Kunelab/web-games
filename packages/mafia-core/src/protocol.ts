@@ -69,7 +69,9 @@ export const mafiaConfigSchema = z.object({
   nightMs: z.number().int().min(15_000).max(180_000).optional(),
   revealOnDeath: z.enum(['role', 'faction', 'none']).optional(),
   locale: z.enum(['en', 'fr']).optional(),
-  setup: mafiaSetupSchema.optional()
+  setup: mafiaSetupSchema.optional(),
+  /** Lists the table on the public board; see MafiaConfig.public. */
+  public: z.boolean().optional()
 });
 
 type Ack<T> = (response: T) => void;

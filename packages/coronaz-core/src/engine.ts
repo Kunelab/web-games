@@ -4,7 +4,16 @@ import { gearStats, heroDef, itemDef, RARITY_META, zombieDef } from './data.js';
 import { rollLoot } from './loot.js';
 import { mutationEffects } from './mutations.js';
 import { CZ_EVENTS, EVENT_CHANCE, EVENT_FROM_TURN } from './events.js';
-import { getRoom, neighbors, shortestPath } from './map.js';
+import {
+  cellIndex,
+  DIRS,
+  edgeBetween,
+  getRoom,
+  neighbors,
+  setBoundary,
+  shortestPath,
+  type Room
+} from './map.js';
 import { SHINY_LOOT } from './mapgen/programs.js';
 import { chance, randInt } from './rng.js';
 import { raidPaused, startRaidPresence } from './presence.js';
@@ -45,6 +54,17 @@ import {
 
 export type HeroAction =
   | { type: 'move'; roomId: string }
+  /**
+   * Three points and something heavy: a hole through a wall into the next room.
+   *
+   * The one action that edits the district. It exists because a map you can only
+   * read is a map you can only obey — a dead end stays a dead end, and the route
+   * the generator happened to draw is the route you walk. Priced so it is never
+   * the cheap way round (a door two rooms away costs two points and no noise),
+   * and loud, because knocking a wall through is not a quiet way to solve a
+   * problem.
+   */
+  | { type: 'breach'; roomId: string }
   | { type: 'attack'; zombieId: string; hand: Hand }
   | { type: 'search' }
   | { type: 'pickupKey' }
@@ -58,6 +78,45 @@ export type HeroAction =
   | { type: 'ready' }
   /** Walk away mid-raid. The others keep playing. */
   | { type: 'forfeit' };
+
+/**
+ * What breaking through costs, and how far the sound carries.
+ *
+ * Three points is a whole turn for most survivors, which is the point: it buys a
+ * route that was not there, so it has to compete with simply walking round, and
+ * walking round is usually right. The noise is worth more than a sprint's,
+ * because a wall coming down is the loudest thing anybody does all evening.
+ */
+export const BREACH_AP = 3;
+const BREACH_NOISE = 2;
+
+/**
+ * A cell boundary two rooms share, if any wall does.
+ *
+ * Only a wall: an existing doorway needs no breaching, and glass is not a wall —
+ * a window is already a hole with something in it, and going through one is a
+ * different action than making one.
+ */
+function wallBetween(
+  board: CzState['board'],
+  from: Room,
+  into: Room
+): { ax: number; ay: number; bx: number; by: number } | null {
+  const mine = new Set(into.cells);
+  for (const cell of from.cells) {
+    const ax = cell % board.width;
+    const ay = Math.floor(cell / board.width);
+    for (const [dx, dy] of DIRS) {
+      const bx = ax + dx;
+      const by = ay + dy;
+      const index = cellIndex(board, bx, by);
+      if (index === -1 || !mine.has(index)) continue;
+      if (edgeBetween(board, ax, ay, bx, by) !== 'wall') continue;
+      return { ax, ay, bx, by };
+    }
+  }
+  return null;
+}
 
 export interface ActionResult {
   ok: boolean;
@@ -214,6 +273,37 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
   };
 
   switch (action.type) {
+    case 'breach': {
+      const cost = BREACH_AP;
+      if (hero.ap < cost) return { ok: false, error: `Il faut ${cost} PA pour percer un mur` };
+
+      const from = getRoom(state.board, hero.roomId);
+      const into = state.board.rooms.find((room) => room.id === action.roomId);
+      if (!into) return { ok: false, error: 'Pièce inconnue' };
+      if (into.id === from.id) return { ok: false, error: 'Vous y êtes déjà' };
+      if (neighbors(state.board, from).some((room) => room.id === into.id)) {
+        return { ok: false, error: 'Il y a déjà un passage' };
+      }
+
+      const seam = wallBetween(state.board, from, into);
+      if (!seam) return { ok: false, error: 'Ces pièces ne se touchent pas' };
+
+      hero.ap -= cost;
+      setBoundary(state.board, seam.ax, seam.ay, seam.bx, seam.by, 'door');
+
+      /**
+       * Loud, and laid on the far side.
+       *
+       * The noise is what prices the shortcut: the horde comes to where the wall
+       * came down, and it lands in the room being opened rather than the one
+       * being left, so breaking into somewhere is also announcing yourself to
+       * whatever is already in there.
+       */
+      state.noise[into.id] = (state.noise[into.id] ?? 0) + BREACH_NOISE;
+      updateExplored(state);
+      log(state, `${hero.name} défonce un mur`);
+      return { ok: true };
+    }
     case 'move': {
       const from = getRoom(state.board, hero.roomId);
       const open = neighbors(state.board, from).some((room) => room.id === action.roomId);
@@ -869,7 +959,26 @@ const DROP_LOOT = 0.6;
  * horde move piece by piece, rather than the board teleporting into its final
  * arrangement.
  */
-export function activateNextZombie(state: CzState): boolean {
+/**
+ * What one creature did with its turn, for whoever is pacing the phase.
+ *
+ * The horde is *watched*, so the server spends a beat per activation and the
+ * room sees it close in. Most of a large horde is nowhere anybody can see,
+ * though, and a beat spent on a creature shuffling through a basement two
+ * streets away is dead time the table sits through for nothing. Reporting where
+ * it went is what lets the caller tell the two apart without having to guess
+ * from the state.
+ */
+export interface Activation {
+  /** Another creature is still waiting to move. */
+  more: boolean;
+  /** Every room it stood in, starting with the one it woke in. */
+  visited: string[];
+  /** It reached somebody. */
+  struck: boolean;
+}
+
+export function activateNextZombie(state: CzState): Activation {
   /**
    * The lowest id still holding action points, found in one pass.
    *
@@ -886,7 +995,10 @@ export function activateNextZombie(state: CzState): boolean {
     const candidate = state.zombies[id];
     if (candidate && candidate.ap > 0 && (!zombie || candidate.id.localeCompare(zombie.id) < 0)) zombie = candidate;
   }
-  if (!zombie) return false;
+  if (!zombie) return { more: false, visited: [], struck: false };
+
+  const visited = [zombie.roomId];
+  let struck = false;
 
   // A screamer breeds when it wakes: killing it fast is the whole assignment.
   // Under the Great Screamer, the scream carries twice as far.
@@ -901,6 +1013,7 @@ export function activateNextZombie(state: CzState): boolean {
   while (zombie.ap > 0 && state.zombies[zombie.id]) {
     if (heroesInRoom(state, zombie.roomId).length > 0) {
       zombie.ap -= 1;
+      struck = true;
       resolveZombieAttack(state, zombie);
       checkEnd(state);
       continue;
@@ -915,12 +1028,21 @@ export function activateNextZombie(state: CzState): boolean {
 
     zombie.ap -= 1;
     zombie.roomId = step;
+    visited.push(step);
     // It walked into somebody's sights.
     if (!fireOverwatch(state, zombie)) break;
   }
 
   zombie.ap = 0;
-  return Object.values(state.zombies).some((candidate) => candidate.ap > 0);
+
+  let more = false;
+  for (const id in state.zombies) {
+    if ((state.zombies[id]?.ap ?? 0) > 0) {
+      more = true;
+      break;
+    }
+  }
+  return { more, visited, struck };
 }
 
 /**

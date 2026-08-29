@@ -21,6 +21,15 @@ const CoronaZGm = lazy(() => import('../pages/zombie/CoronaZGm'));
 const MafiaSetup = lazy(() => import('../pages/mafia/MafiaSetup'));
 const MafiaPlayer = lazy(() => import('../pages/mafia/MafiaPlayer'));
 const MafiaTv = lazy(() => import('../pages/mafia/MafiaTv'));
+const QuizMenu = lazy(() => import('../pages/menu/QuizMenu'));
+const QuizGuide = lazy(() => import('../pages/menu/QuizGuide'));
+const QuizCreate = lazy(() => import('../pages/menu/QuizCreate'));
+const CzMenu = lazy(() => import('../pages/menu/CzMenu'));
+const CzGuide = lazy(() => import('../pages/menu/CzGuide'));
+const MafiaMenu = lazy(() => import('../pages/menu/MafiaMenu'));
+const MafiaGuide = lazy(() => import('../pages/menu/MafiaGuide'));
+const Locker = lazy(() => import('../pages/menu/Locker'));
+const Quickplay = lazy(() => import('../pages/Quickplay'));
 const Host = lazy(() => import('../pages/Host'));
 const Join = lazy(() => import('../pages/Join'));
 const Player = lazy(() => import('../pages/Player'));
@@ -120,22 +129,53 @@ const router = createBrowserRouter([
           </RequireAuth>
         )
       },
+      /**
+       * One menu per game, and the setup form a click inside it.
+       *
+       * `/coronaz` used to *be* the setup form, which meant deciding to play and
+       * deciding what to play were the same click, and there was no page at all
+       * from which to join someone else's raid or read what a screamer does.
+       * Every static segment here outranks the `:code` routes below it, and no
+       * join code can spell "nouveau" — the alphabet excludes most of it.
+       */
+      { path: '/quiz', element: <QuizMenu /> },
+      { path: '/quiz/regles', element: <QuizGuide /> },
       {
-        path: '/coronaz',
+        path: '/quiz/creer',
+        element: (
+          <RequireAuth>
+            <QuizCreate />
+          </RequireAuth>
+        )
+      },
+      { path: '/quiz/boutique', element: <RequireAuth><Locker game="quiz" mode="shop" /></RequireAuth> },
+      { path: '/quiz/equipement', element: <RequireAuth><Locker game="quiz" mode="locker" /></RequireAuth> },
+
+      { path: '/coronaz', element: <CzMenu /> },
+      { path: '/coronaz/guide', element: <CzGuide /> },
+      {
+        path: '/coronaz/nouveau',
         element: (
           <RequireAuth>
             <CoronaZSetup />
           </RequireAuth>
         )
       },
+      { path: '/coronaz/boutique', element: <RequireAuth><Locker game="coronaz" mode="shop" /></RequireAuth> },
+      { path: '/coronaz/equipement', element: <RequireAuth><Locker game="coronaz" mode="locker" /></RequireAuth> },
+
+      { path: '/mafia', element: <MafiaMenu /> },
+      { path: '/mafia/guide', element: <MafiaGuide /> },
       {
-        path: '/mafia',
+        path: '/mafia/nouveau',
         element: (
           <RequireAuth>
             <MafiaSetup />
           </RequireAuth>
         )
       },
+      { path: '/mafia/boutique', element: <RequireAuth><Locker game="mafia" mode="shop" /></RequireAuth> },
+      { path: '/mafia/equipement', element: <RequireAuth><Locker game="mafia" mode="locker" /></RequireAuth> },
       { path: '*', element: <NotFound /> }
     ]
   },
@@ -152,6 +192,12 @@ const router = createBrowserRouter([
         )
       },
       { path: '/rejoindre', element: <Join /> },
+      /**
+       * The hostless room, one screen for all three games. No account: a quick
+       * match is the mode for a phone that was handed a link, and asking it to
+       * sign in first would defeat the point.
+       */
+      { path: '/partie-rapide/:game', element: <Quickplay /> },
       { path: '/rejoindre/:code', element: <Player /> },
       {
         path: '/coronaz/:code',

@@ -1,8 +1,9 @@
 import { itemDef, weaponStats, zombieDef } from '../data.js';
-import type { HeroAction } from '../engine.js';
-import { getRoom, lineOfSight, neighbors, shortestPath } from '../map.js';
+import { BREACH_AP, type HeroAction } from '../engine.js';
+import { getRoom, lineOfSight, neighbors, sealedNeighbours, shortestPath } from '../map.js';
 import { rand, randInt } from '../rng.js';
 import {
+  activeHeroes,
   bagCapacity,
   objectivesDone,
   type CzState,
@@ -64,6 +65,15 @@ export interface SkillProfile {
   focusFire: boolean;
   /** Splits the team across different keys instead of herding. */
   coordinates: boolean;
+  /**
+   * Keeps formation: stays within reach of the team, closes up when the district
+   * turns against them, and gives ground when badly hurt.
+   *
+   * The difference between four survivors and four people who happen to be in the
+   * same district. Two rooms apart they can reach each other's fight in a turn;
+   * five rooms apart they are four separate raids, each losing its own.
+   */
+  regroups: boolean;
   /** Extra searches past the mindset's budget: shiny-loot syndrome. */
   greed: number;
 }
@@ -76,6 +86,7 @@ export const SKILLS: Record<string, SkillProfile> = {
     kites: false,
     focusFire: false,
     coordinates: false,
+    regroups: false,
     greed: 4
   },
   advanced: {
@@ -85,11 +96,30 @@ export const SKILLS: Record<string, SkillProfile> = {
     kites: false,
     focusFire: false,
     coordinates: false,
+    regroups: false,
     greed: 2
   },
   /** The calibration reference: the balance targets are defined against this. */
-  expert: { blunder: 0, equips: 1, usesConsumables: true, kites: true, focusFire: false, coordinates: false, greed: 0 },
-  master: { blunder: 0, equips: 1, usesConsumables: true, kites: true, focusFire: true, coordinates: true, greed: 0 }
+  expert: {
+    blunder: 0,
+    equips: 1,
+    usesConsumables: true,
+    kites: true,
+    focusFire: true,
+    coordinates: true,
+    regroups: true,
+    greed: 0
+  },
+  master: {
+    blunder: 0,
+    equips: 1,
+    usesConsumables: true,
+    kites: true,
+    focusFire: true,
+    coordinates: true,
+    regroups: true,
+    greed: 0
+  }
 };
 
 export const skillNames = Object.keys(SKILLS);
@@ -158,6 +188,24 @@ function bestHand(hero: HeroState, melee: boolean, target?: ZombieState): { hand
  * also prefers what they can finish this attack, because a dead zombie deals no
  * damage and a wounded one deals all of it.
  */
+/**
+ * How badly somebody *else* needs this creature dead.
+ *
+ * Zero when it is nobody's problem but the shooter's, and rising with how hurt
+ * the survivor it is standing on happens to be. This is the whole of team focus
+ * fire: a creature in the room with a teammate on nine health is worth more dead
+ * than a healthier target the shooter happens to be closer to, and without it two
+ * survivors will cheerfully shoot past each other's fights all raid.
+ */
+function pressingOn(state: CzState, hero: HeroState, zombie: ZombieState): number {
+  let worst = 0;
+  for (const other of activeHeroes(state)) {
+    if (other.playerId === hero.playerId || other.roomId !== zombie.roomId) continue;
+    worst = Math.max(worst, 1 + (1 - other.hp / Math.max(1, other.maxHp)));
+  }
+  return worst;
+}
+
 function pickTarget(state: CzState, hero: HeroState, targets: ZombieState[], skill: SkillProfile): ZombieState | null {
   if (targets.length === 0) return null;
   const bossWanted = state.objectives.some((objective) => objective.kind === 'boss' && !objective.done);
@@ -173,6 +221,13 @@ function pickTarget(state: CzState, hero: HeroState, targets: ZombieState[], ski
       const aKill = a.hp <= Math.ceil(punchAt(a)) ? 1 : 0;
       const bKill = b.hp <= Math.ceil(punchAt(b)) ? 1 : 0;
       if (aKill !== bKill) return bKill - aKill;
+    }
+
+    if (skill.focusFire) {
+      // Then whoever is bleeding worst behind it.
+      const aPress = pressingOn(state, hero, a);
+      const bPress = pressingOn(state, hero, b);
+      if (aPress !== bPress) return bPress - aPress;
     }
 
     return a.hp - b.hp || a.id.localeCompare(b.id);
@@ -198,13 +253,8 @@ function goalRoom(state: CzState, hero: HeroState, skill: SkillProfile): string 
         ? []
         : state.board.rooms.filter((room) => room.hasKey).map((room) => room.id);
     if (keyRooms.length > 0) {
-      if (skill.coordinates) {
-        const heroIds = Object.keys(state.heroes).sort();
-        const index = Math.max(0, heroIds.indexOf(hero.playerId));
-        const sortedKeys = [...keyRooms].sort();
-        return sortedKeys[index % sortedKeys.length] ?? null;
-      }
-      return nearestRoom(state, hero.roomId, keyRooms);
+      const mine = skill.coordinates ? assignedKey(state, hero, keyRooms) : null;
+      return mine ?? nearestRoom(state, hero.roomId, keyRooms);
     }
 
     const killsPending = state.objectives.some(
@@ -246,6 +296,178 @@ function goalRoom(state: CzState, hero: HeroState, skill: SkillProfile): string 
     }))
     .sort((a, b) => b.distance - a.distance)[0];
   return safest && safest.id !== hero.roomId ? safest.id : null;
+}
+
+/* -------------------------------- formation ------------------------------- */
+
+/**
+ * Formation, and why there is no leash.
+ *
+ * The obvious version of this — keep everyone within a few rooms at all times —
+ * was written, measured, and thrown away: it lost about a third of a point across
+ * the whole bench and up to eighteen on the coordinating skill, whose whole plan
+ * is to send survivors to different keys. Spreading out *is* the strategy in a
+ * district you have to search, and holding a formation through a quiet raid buys
+ * nothing but walking.
+ *
+ * What is worth doing is the opposite shape: no formation at all until something
+ * is actually looking at them, and then closing right up. Below is that, and only
+ * that.
+ */
+
+/** Shoulder to shoulder, once it is worth being shoulder to shoulder. */
+const LEASH_OVERMATCHED = 1;
+
+/** Below this share of their health, a survivor gives ground instead of trading. */
+const HURT = 0.4;
+
+/** And only when somebody is close enough for the retreat to reach them. */
+const RESCUE_RANGE = 2;
+
+/**
+ * How many rooms of detour a hole in the wall has to save to be worth its turn.
+ *
+ * Three of those points are the breach itself; the fourth is the noise, which
+ * lands in the room being opened and brings whatever is nearby to it.
+ */
+const BREACH_WORTH = 4;
+
+/** How far out a survivor counts their friends, in rooms. */
+const ODDS_RANGE = 2;
+
+/**
+ * How much visible menace it takes to break formation discipline open.
+ *
+ * One, meaning "more coming at us than we can answer". Measured in the same
+ * ×10 scale on both sides: what a creature hits for against what a survivor hits
+ * for, each carrying its remaining health as staying power.
+ */
+const GATHER_RATIO = 1.5;
+
+/**
+ * How far a survivor reads a threat as *theirs*, in rooms.
+ *
+ * Not as far as they can see. On an open district a street runs the width of the
+ * map, so unbounded sight meant a survivor counted every creature on the far
+ * pavement into their own odds and spent the raid huddling — measurably worse
+ * than ignoring the whole question. What matters is what can reach them before
+ * they can do anything about it, which is a turn's walk.
+ */
+const MENACE_RANGE = 3;
+
+function roomsApart(state: CzState, from: string, to: string): number {
+  if (from === to) return 0;
+  return shortestPath(state.board, from, to)?.length ?? 99;
+}
+
+function nearestAlly(state: CzState, hero: HeroState): { ally: HeroState; distance: number } | null {
+  let best: { ally: HeroState; distance: number } | null = null;
+  for (const other of activeHeroes(state)) {
+    if (other.playerId === hero.playerId) continue;
+    const distance = roomsApart(state, hero.roomId, other.roomId);
+    if (!best || distance < best.distance) best = { ally: other, distance };
+  }
+  return best;
+}
+
+/**
+ * Whether what a survivor can see coming outweighs what is standing with them.
+ *
+ * Strength rather than headcount, because the two answers differ exactly where it
+ * matters: six walkers is a busy afternoon and one abomination is a funeral, and
+ * a rule that counts noses treats them the same. Each side is scored on what it
+ * hits for plus the health it has left to keep hitting.
+ *
+ * Only what is *seen*. Partly because it is what the survivor could actually
+ * react to — a bot flinching from a pack behind a wall is reading the state
+ * rather than the room — and partly because a horde is usually somewhere, so
+ * counting the unseen ones would have everybody permanently huddled.
+ */
+function overmatched(state: CzState, hero: HeroState): boolean {
+  const sight = lineOfSight(state.board, hero.roomId, MENACE_RANGE);
+
+  let menace = 0;
+  for (const zombie of Object.values(state.zombies)) {
+    if (!sight.has(zombie.roomId)) continue;
+    const def = zombieDef(zombie.def);
+    menace += def.damage + (zombie.bonusDmg ?? 0) + zombie.hp / 10;
+  }
+  if (menace === 0) return false;
+
+  let guns = 0;
+  for (const other of activeHeroes(state)) {
+    if (roomsApart(state, hero.roomId, other.roomId) > ODDS_RANGE) continue;
+    guns += bestHandScore(other) + other.hp / 10;
+  }
+  return menace > guns * GATHER_RATIO;
+}
+
+/**
+ * Ground to give up, when giving ground is the play.
+ *
+ * Towards the team and away from the horde, and only into a room that is
+ * actually empty — backing into something is not a retreat. Returns null when
+ * standing still is already the best available, which is the common case in a
+ * corner and the reason this cannot simply pick a neighbour.
+ */
+function fallBackRoom(state: CzState, hero: HeroState, ally: HeroState): string | null {
+  const zombieRooms = Object.values(state.zombies).map((zombie) => zombie.roomId);
+  const clear = neighbors(state.board, getRoom(state.board, hero.roomId)).filter(
+    (room) => !zombieRooms.includes(room.id)
+  );
+  if (clear.length === 0) return null;
+
+  const here = roomsApart(state, hero.roomId, ally.roomId);
+  const scored = clear
+    .map((room) => ({
+      id: room.id,
+      toAlly: roomsApart(state, room.id, ally.roomId),
+      fromHorde: Math.min(...zombieRooms.map((other) => roomsApart(state, room.id, other)))
+    }))
+    .sort((a, b) => a.toAlly - b.toAlly || b.fromHorde - a.fromHorde);
+
+  const best = scored[0];
+  return best && best.toAlly < here ? best.id : null;
+}
+
+/**
+ * Which key is this survivor's, on a table that divides the work.
+ *
+ * Handed out nearest-first rather than round-robin by seat, which is the whole
+ * difference between splitting up and scattering: seat order has no idea where
+ * anybody is standing, so it routinely sent the survivor by the front door
+ * across the district for a key somebody else was already next to. Everyone runs
+ * the same greedy pass over the same sorted crew, so they agree on the division
+ * without needing to talk about it.
+ *
+ * Null for a survivor alone, or one who arrives after the keys are all spoken
+ * for — both fall back to simply taking the nearest, which is correct for them.
+ * A lone survivor obeying a rota is the worst of both: measured at ten points
+ * below simply walking to the closest key.
+ */
+function assignedKey(state: CzState, hero: HeroState, keyRooms: string[]): string | null {
+  const crew = activeHeroes(state)
+    .map((other) => other.playerId)
+    .sort();
+  if (crew.length < 2) return null;
+
+  const claimed = new Set<string>();
+  for (const playerId of crew) {
+    const who = state.heroes[playerId];
+    if (!who) continue;
+    let best: { room: string; distance: number } | null = null;
+    for (const room of keyRooms) {
+      if (claimed.has(room)) continue;
+      const distance = roomsApart(state, who.roomId, room);
+      if (!best || distance < best.distance || (distance === best.distance && room < best.room)) {
+        best = { room, distance };
+      }
+    }
+    if (!best) break;
+    claimed.add(best.room);
+    if (playerId === hero.playerId) return best.room;
+  }
+  return null;
 }
 
 function nearestRoom(state: CzState, from: string, candidates: string[]): string | null {
@@ -326,6 +548,63 @@ function intendedAction(state: CzState, hero: HeroState, mindset: Mindset, skill
     return null;
   }
 
+  /**
+   * The door is open: take it, and take it before anything else.
+   *
+   * More than half of every raid this bench loses is lost with the keys already
+   * in and the side quests already done — the team wipes in a fight it had
+   * finished needing to have, and not one survivor is outside when it ends. The
+   * raid is won the moment somebody is out, so once the way is open, walking to
+   * it is worth more than the creature in the room, the crate down the corridor
+   * and the teammate two streets away.
+   *
+   * Placed above the fighting deliberately. A survivor beside an open exit with a
+   * pack on them was choosing to swing at it, and swinging is how the pack wins:
+   * stepping out ends their raid safely and banks the district for everybody,
+   * which is the one thing a creature cannot answer.
+   */
+  const exitRoom = state.board.rooms.find((room) => room.kind === 'exit');
+  const open =
+    state.config.scenario === 'escape' && state.keysCollected >= state.config.keys && objectivesDone(state);
+  if (open && exitRoom) {
+    if (hero.roomId === exitRoom.id) return { type: 'exit' };
+    const run = shortestPath(state.board, hero.roomId, exitRoom.id)?.[0];
+    if (run) return { type: 'move', roomId: run };
+  }
+
+  /* ------------------------------- formation ------------------------------- */
+
+  const mate = skill.regroups ? nearestAlly(state, hero) : null;
+  const swarmed = mate !== null && overmatched(state, hero);
+
+  /**
+   * Badly hurt, and the odds are wrong: give ground rather than trade.
+   *
+   * Before the fight below, because the fight below has no opinion about how much
+   * blood is left — it picks the best target in the room and swings, which at
+   * fifteen health against three creatures is how a survivor becomes a casualty
+   * and the rest of the team becomes one gun short. Only when outnumbered: a
+   * hurt survivor against one walker should finish it, not lead it to the others.
+   */
+  if (mate && mate.distance <= RESCUE_RANGE && hero.hp <= hero.maxHp * HURT) {
+    /**
+     * Only backwards into somebody's arms, and only when the room is genuinely
+     * losing.
+     *
+     * Retreat on its own measures *worse* than standing and fighting, and the
+     * rules say why: creatures walk toward the nearest survivor with action
+     * points of their own, so giving ground does not break contact — it spends a
+     * point, keeps the wound, and hands the pack a free step. The only version
+     * that pays is falling back onto a teammate near enough to make the next
+     * exchange two guns against the same pack.
+     */
+    const pressing = Object.values(state.zombies).filter((zombie) => zombie.roomId === hero.roomId).length;
+    if (pressing >= 2) {
+      const ground = fallBackRoom(state, hero, mate.ally);
+      if (ground) return { type: 'move', roomId: ground };
+    }
+  }
+
   // Something in the room: fight it (melee first, ranged as fallback).
   const inRoom = Object.values(state.zombies).filter((zombie) => zombie.roomId === hero.roomId);
   const roomTarget = pickTarget(state, hero, inRoom, skill);
@@ -381,11 +660,48 @@ function intendedAction(state: CzState, hero: HeroState, mindset: Mindset, skill
     /** How far a bot will reach for a target it cannot be reached by. */
     const patience = idle || mindset.aggression >= 0.8 ? range : 1;
 
-    const visible = Object.values(state.zombies).filter((zombie) => (sight.get(zombie.roomId) ?? 99) <= patience);
+    /**
+     * Covering fire reaches as far as the gun does.
+     *
+     * `patience` deliberately keeps a survivor from spending the raid shooting at
+     * things across the district — but a creature standing on a teammate is not
+     * that. It is the one shot nobody else can take, and the reason to carry a
+     * rifle at all, so it is exempt from the discipline the rest of the range is
+     * held to.
+     */
+    const covering = new Set(
+      activeHeroes(state)
+        .filter((other) => other.playerId !== hero.playerId)
+        .map((other) => other.roomId)
+    );
+    const visible = Object.values(state.zombies).filter((zombie) => {
+      const away = sight.get(zombie.roomId) ?? 99;
+      return away <= patience || (covering.has(zombie.roomId) && away <= range);
+    });
     const target = pickTarget(state, hero, visible, skill);
     if (target && (killsWanted || mindset.aggression >= 0.5)) {
       return { type: 'attack', zombieId: target.id, hand: ranged.hand };
     }
+  }
+
+  /**
+   * Outnumbered and scattered: close right up, and let the mission wait.
+   *
+   * The only case where formation is allowed to override the objective, because
+   * it is the only case where the objective is not the thing that decides the
+   * raid. Four survivors fighting a pack in sequence, one room apart, lose to a
+   * pack the same four would beat standing together — so the walk back is not a
+   * detour, it is the fight.
+   *
+   * Deliberately *not* applied to a team that is merely spread out. A leash that
+   * outranks the mission means the key-fetchers argue with it every turn: whoever
+   * walks toward a key breaks the leash, walks back, and the raid rots while
+   * everybody keeps formation beautifully. The plain distance is handled below,
+   * where it costs a crate rather than the objective.
+   */
+  if (mate && swarmed && mate.distance > LEASH_OVERMATCHED) {
+    const closing = shortestPath(state.board, hero.roomId, mate.ally.roomId)?.[0];
+    if (closing) return { type: 'move', roomId: closing };
   }
 
   // Loot while it is quiet and the arsenal is still wanting. Greed pads the
@@ -402,8 +718,38 @@ function intendedAction(state: CzState, hero: HeroState, mindset: Mindset, skill
    * of correction as the room-stock check above.
    */
   const canCarry = hero.bag.length < bagCapacity(hero) || hero.loadout.includes('brocanteur');
-  const wantsLoot =
-    canCarry && (searchesPending || (handScore < mindset.gearGoal && hero.searches < mindset.maxSearches + skill.greed));
+  /**
+   * And nobody shops once the door is open.
+   *
+   * The raid is won the moment somebody is outside, so once the keys are in and
+   * the side quests are done every remaining action point is either a step
+   * towards the exit or a gift to the horde — and the horde compounds with the
+   * turn count, so the crate is not free, it is priced in everybody's survival.
+   * Without this a survivor stands beside the way out working through a gear
+   * target that stopped mattering several turns ago.
+   */
+  const wayOut =
+    state.config.scenario === 'escape' && state.keysCollected >= state.config.keys && objectivesDone(state);
+  const wantsGear =
+    !wayOut && (searchesPending || (handScore < mindset.gearGoal && hero.searches < mindset.maxSearches + skill.greed));
+  const wantsLoot = canCarry && wantsGear;
+
+  /**
+   * A full bag is a decision, not a wall.
+   *
+   * The old behaviour was to stop looting entirely, which quietly capped every
+   * bot's gear at whatever the first five crates happened to be — a survivor
+   * carrying two spare pistols would walk past an armoury rather than put one
+   * down. Dropping is free, so the only question is what is genuinely redundant:
+   * a weapon that scores below what is already in both hands. Medicine, armour
+   * and adrenaline are never dropped; they are why the bag exists.
+   */
+  if (!canCarry && wantsGear && getRoom(state.board, hero.roomId).finds > 0) {
+    const deadWeight = hero.bag
+      .filter((item) => itemDef(item.def).kind === 'weapon' && weaponScore(item) < handScore)
+      .sort((a, b) => weaponScore(a) - weaponScore(b))[0];
+    if (deadWeight) return { type: 'drop', uid: deadWeight.uid };
+  }
 
   if (wantsLoot) {
     /**
@@ -428,6 +774,27 @@ function intendedAction(state: CzState, hero: HeroState, mindset: Mindset, skill
   // Advance the mission.
   const goal = goalRoom(state, hero, skill);
   if (goal && goal !== hero.roomId) {
+    /**
+     * A wall, when the way round it is long enough to be worth a sledgehammer.
+     *
+     * Breaking through costs the whole turn — three points, which is every point a
+     * survivor has — so it only pays when the detour it removes is longer than the
+     * turn it costs, plus something for the noise it makes. Four rooms is that
+     * line. Below it, walking is simply better, which is why a bot that breached
+     * whenever it could would be a worse bot.
+     *
+     * Checked before the walk rather than after, because the walk is what it
+     * replaces: one turn spent opening the wall against four spent going round.
+     */
+    const detour = roomsApart(state, hero.roomId, goal);
+    if (hero.ap >= BREACH_AP && detour >= BREACH_WORTH) {
+      for (const sealed of sealedNeighbours(state.board, getRoom(state.board, hero.roomId))) {
+        if (detour - (1 + roomsApart(state, sealed.id, goal)) >= BREACH_WORTH) {
+          return { type: 'breach', roomId: sealed.id };
+        }
+      }
+    }
+
     const path = shortestPath(state.board, hero.roomId, goal);
     const step = path?.[0];
     if (step) return { type: 'move', roomId: step };

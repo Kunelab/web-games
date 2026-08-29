@@ -1,6 +1,8 @@
+import { czEnemySprite, czHeroPortrait, czItemSprite } from '../../app/assets';
+
 /**
- * The 2020 repo's art, mapped onto today's roster. The sprites live in
- * `public/coronaz/` and ship with the frontend; anything without a sprite (the
+ * The 2020 repo's art, mapped onto today's roster. The sprites live under
+ * `public/games/coronaz/` and ship with the frontend; anything without a sprite (the
  * two new consumables, the fists, every portrait) falls back to its emoji, so a
  * missing file is a cosmetic downgrade and never a broken screen.
  *
@@ -39,12 +41,12 @@ const ITEM_SPRITES: Record<string, string> = {
 
 export function zombieSprite(def: string): string | null {
   const file = ZOMBIE_SPRITES[def];
-  return file ? `/coronaz/zombies/${file}` : null;
+  return file ? czEnemySprite(file) : null;
 }
 
 export function itemSprite(def: string): string | null {
   const file = ITEM_SPRITES[def];
-  return file ? `/coronaz/items/${file}` : null;
+  return file ? czItemSprite(file) : null;
 }
 
 /**
@@ -52,11 +54,11 @@ export function itemSprite(def: string): string | null {
  *
  * Nothing is here yet — twenty of them is a real commission — so the component
  * that uses this falls back to the emoji medallion when the file 404s. Drop
- * `public/coronaz/heroes/charles.jpg` in and Charles has a face, with no code
+ * `public/games/coronaz/heroes/charles.jpg` in and Charles has a face, with no code
  * change. See docs/coronaz-art.md for the size and framing.
  */
 export function heroPortrait(heroId: string): string {
-  return `/coronaz/heroes/${heroId}.jpg`;
+  return czHeroPortrait(heroId);
 }
 
 /**

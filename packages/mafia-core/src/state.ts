@@ -68,6 +68,15 @@ export interface MafiaConfig {
    * template, a player-saved slot list, or pure chaos.
    */
   setup: MafiaSetupChoice;
+  /**
+   * Whether the table is listed on the public board.
+   *
+   * A private table is reachable only by its code, which is how every table
+   * worked before there was a board at all — so that stays the default. Making
+   * one public is an invitation to strangers, and an invitation is something you
+   * send rather than something that happens to you.
+   */
+  public: boolean;
 }
 
 export type MafiaSetupChoice =
@@ -89,7 +98,8 @@ export const DEFAULT_CONFIG: MafiaConfig = {
   maxDays: 20,
   revealOnDeath: 'role',
   locale: 'en',
-  setup: { mode: 'auto' }
+  setup: { mode: 'auto' },
+  public: false
 };
 
 /**

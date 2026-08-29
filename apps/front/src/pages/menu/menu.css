@@ -1,0 +1,274 @@
+/*
+ * Game menus, guides, shop and locker.
+ *
+ * All four are the same object seen from different angles — a page about one
+ * game — so they share a palette hook: `--game-accent` is set once on the root
+ * element from the registry, and every rule below reads it rather than naming a
+ * colour. That is what makes the CoronaZ menu red and the Mafia menu violet
+ * without a line of per-game CSS.
+ */
+
+.menu,
+.guide,
+.locker {
+  --game-accent: var(--accent);
+  max-width: 60rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.menu-head,
+.guide-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 2px solid color-mix(in srgb, var(--game-accent) 55%, transparent);
+}
+
+.menu-emoji,
+.guide-emoji {
+  font-size: 3rem;
+  line-height: 1;
+  flex: none;
+}
+
+.menu-title,
+.guide-title {
+  font-size: var(--text-2xl);
+  color: var(--game-accent);
+}
+
+.menu-lede,
+.guide-lede {
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  margin-top: var(--space-2);
+  max-width: 46rem;
+}
+
+/* ---------------------------------------------------------------- the tiles */
+
+.menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--space-3);
+}
+
+.menu-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--rule);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  transition: border-color 120ms, background 120ms;
+}
+
+.menu-tile:hover {
+  background: var(--bg-hover);
+  border-left-color: var(--game-accent);
+}
+
+/* The one thing most visitors came to do, stated rather than merely available. */
+.menu-tile.primary {
+  border-left-color: var(--game-accent);
+  background: color-mix(in srgb, var(--game-accent) 10%, var(--bg-raised));
+}
+
+.menu-tile.locked {
+  opacity: 0.6;
+}
+
+.menu-tile-emoji {
+  font-size: var(--text-xl);
+  line-height: 1;
+}
+
+.menu-tile strong {
+  font-size: var(--text-base);
+}
+
+.menu-tile-hint {
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+  line-height: 1.45;
+}
+
+.menu-back {
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+.menu-back:hover {
+  color: var(--ink);
+}
+
+/* -------------------------------------------------------------- the guides */
+
+.guide-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.guide-section h2 {
+  font-size: var(--text-lg);
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: var(--space-2);
+}
+
+.guide-prose {
+  font-size: var(--text-base);
+  line-height: 1.65;
+  color: var(--ink-soft);
+  max-width: 46rem;
+}
+
+.guide-prose strong {
+  color: var(--ink);
+}
+
+.guide-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: var(--space-3);
+}
+
+.guide-card {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+}
+
+.guide-card-emoji {
+  font-size: var(--text-xl);
+  line-height: 1.2;
+  flex: none;
+}
+
+.guide-card-name {
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+.guide-card-note {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+  line-height: 1.5;
+}
+
+/* A creature's numbers, read across rather than down. */
+.guide-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.guide-faction {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--game-accent);
+}
+
+/* ------------------------------------------------------- shop and wardrobe */
+
+.locker-balance {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-lg);
+}
+.locker-balance strong {
+  font-size: var(--text-2xl);
+  color: var(--game-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.locker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--space-3);
+}
+
+.locker-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+}
+
+.locker-item.owned {
+  border-color: color-mix(in srgb, var(--game-accent) 45%, var(--rule));
+}
+
+.locker-item.worn {
+  background: color-mix(in srgb, var(--game-accent) 12%, var(--bg-raised));
+  border-color: var(--game-accent);
+}
+
+.locker-item-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  max-height: 7rem;
+  font-size: 3rem;
+  background: var(--bg-sunken);
+  border-radius: var(--radius-sm);
+}
+
+.locker-item-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
+.locker-item-name {
+  font-weight: 600;
+}
+
+.locker-item-note {
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+  flex: 1;
+}
+
+.locker-price {
+  font-variant-numeric: tabular-nums;
+  color: var(--game-accent);
+  font-weight: 600;
+}
+
+.locker-slot-title {
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+}
+
+@media (max-width: 640px) {
+  .menu-head,
+  .guide-head {
+    gap: var(--space-3);
+  }
+  .menu-emoji,
+  .guide-emoji {
+    font-size: 2rem;
+  }
+}

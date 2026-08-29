@@ -21,6 +21,8 @@ packages/
   i18n/            The server sends keys; the client owns the words.
   coronaz-core/    The zombie raid: board, horde, loot, careers.
   mafia-core/      The Mafia table: roles, day and night, trials, victory.
+  lobby-core/      The front door all three share: the public board, the hostless
+                   quick-match room and its votes, the shop catalogue.
 ```
 
 `game-core` is imported by both apps. That is deliberate: the rules of the game,

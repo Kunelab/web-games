@@ -176,3 +176,87 @@
   min-height: 0;
   overflow: hidden;
 }
+
+/* --------------------------------------------------------------- games menu */
+
+/*
+ * One dropdown for the whole catalogue.
+ *
+ * Anchored to its trigger rather than portalled: it belongs to the header, it is
+ * never taller than the viewport, and the shell already owns the palette it
+ * needs — which is the reason the select components are portalled *into* the
+ * shell rather than onto the body.
+ */
+.gamesmenu {
+  position: relative;
+}
+
+.gamesmenu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+.gamesmenu-panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  z-index: 40;
+  min-width: 20rem;
+  max-width: min(24rem, calc(100vw - var(--space-5) * 2));
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+}
+
+.gamesmenu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+}
+.gamesmenu-item:hover {
+  background: var(--bg-hover);
+}
+
+/* Joining is not a game, so it sits under a rule rather than in the list. */
+.gamesmenu-join {
+  border-top: 1px solid var(--rule);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+.gamesmenu-emoji {
+  font-size: var(--text-lg);
+  line-height: 1.2;
+  flex: none;
+}
+
+.gamesmenu-item strong {
+  display: block;
+  font-size: var(--text-sm);
+}
+
+.gamesmenu-tagline {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+  line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+  .gamesmenu-panel {
+    left: auto;
+    right: 0;
+  }
+}

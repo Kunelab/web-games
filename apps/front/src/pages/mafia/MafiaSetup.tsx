@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router';
 import { api } from '../../api/client';
 import { useAsync } from '../../hooks/useAsync';
 import { Button, Field, Input, Select } from '../../ui';
+import { PublicSwitch } from '../../ui/PublicSwitch';
 import './mafia.css';
 
 /**
@@ -74,6 +75,7 @@ export default function MafiaSetup() {
   const [choice, setChoice] = useState<SetupChoice>({ mode: 'auto' });
   const [draftSlots, setDraftSlots] = useState<string[]>([]);
   const [draftName, setDraftName] = useState('');
+  const [isPublic, setIsPublic] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ code: string; hostToken: string } | null>(null);
@@ -89,7 +91,8 @@ export default function MafiaSetup() {
         dayMs: Number(dayMs),
         nightMs: Number(nightMs),
         revealOnDeath: revealOnDeath as 'role' | 'faction' | 'none',
-        setup: choice
+        setup: choice,
+        public: isPublic
       });
       sessionStorage.setItem(`mafia:host:${session.code}`, session.hostToken);
       setCreated(session);
@@ -303,6 +306,7 @@ export default function MafiaSetup() {
           </section>
 
           <section className="mz-setup-form">
+            <PublicSwitch what="cette table" value={isPublic} onChange={setIsPublic} />
             <p className="mz-hint">
               Distribution choisie : <strong>{choiceLabel}</strong>
             </p>

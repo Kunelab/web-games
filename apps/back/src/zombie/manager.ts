@@ -18,6 +18,7 @@ import {
   SKILLS,
   spawnReinforcements,
   startGame,
+  visibleRooms,
   createGame,
   dropHeroSeat,
   gameConfigSchema,
@@ -35,6 +36,7 @@ import {
   randomHeroLoadout,
   setLoadout,
   validGmLoadout,
+  type Activation,
   type ActionResult,
   type CzRaidReward,
   type CzState,
@@ -76,6 +78,15 @@ const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 const PRESENCE_TICK_MS = 1000;
 /** Milliseconds between AI activations. Slow enough to read, fast enough to fear. */
 const AI_STEP_MS = 700;
+/**
+ * And the beat for a creature nobody can see.
+ *
+ * Not zero: each activation is still broadcast, and firing them off with no gap
+ * would hand every phone a burst of states to reconcile in one frame. Short
+ * enough that a district's worth of unseen shuffling costs a moment rather than
+ * the minute it used to.
+ */
+const AI_QUIET_MS = 40;
 
 export type CzTransitionListener = (state: CzState) => void;
 
@@ -393,7 +404,8 @@ export class CzManager {
    * the wrong join screen should get "no such game", never someone else's game.
    */
   async create(options: {
-    hostUserId: number;
+    /** Null for a hostless quick match: nobody opened this one. */
+    hostUserId: number | null;
     config: unknown;
     quizCodes: ReadonlySet<string>;
     /** Replay a world: same seed + same config = same map and dice. */
@@ -414,7 +426,7 @@ export class CzManager {
     // The game master's roguelite perks ride in from his career, under his login.
     let gmPerks: string[] = [];
     if (config.mode === 'gm') {
-      const host = await userService.getById(options.hostUserId);
+      const host = options.hostUserId === null ? undefined : await userService.getById(options.hostUserId);
       if (host?.login) {
         gmPerks = await czCareerService.gmPerks(host.login);
       }
@@ -698,7 +710,7 @@ export class CzManager {
    * One AI beat: activate a zombie, show the room, book the next beat. When the
    * horde has moved, reinforcements arrive and the phase hands back to the heroes.
    */
-  private scheduleAiStep(code: string): void {
+  private scheduleAiStep(code: string, delay = AI_STEP_MS): void {
     // Parked under its own key: the phase-deadline timer lives under `code`,
     // and the two must never be able to cancel each other.
     const timer = setTimeout(() => {
@@ -710,7 +722,7 @@ export class CzManager {
         // horde waits with everybody else, and resuming re-books it.
         if (raidPaused(state)) return;
 
-        const more = activateNextZombie(state);
+        const act = activateNextZombie(state);
 
         if (state.phase !== 'enemy') {
           // The last bite ended the game.
@@ -718,10 +730,20 @@ export class CzManager {
           return;
         }
 
-        if (more) {
+        if (act.more) {
           await this.persist(state);
           this.listener?.(state);
-          this.scheduleAiStep(code);
+          /**
+           * The next beat is paced by whether there was anything to watch.
+           *
+           * The slow beat is the point of the phase — the room watches the horde
+           * close in, and that dread is most of the game. It is also the reason a
+           * large district crawls: most of a horde is streets away behind a wall,
+           * and a beat spent on a creature nobody can see is the table sitting in
+           * silence for no reason. Seen creatures keep their beat; the rest are
+           * resolved as fast as the broadcasts can carry them.
+           */
+          this.scheduleAiStep(code, this.watched(state, act) ? AI_STEP_MS : AI_QUIET_MS);
           return;
         }
 
@@ -740,10 +762,28 @@ export class CzManager {
         closing.unref();
         this.timers.set(`ai:${code}`, closing);
       })().catch((error: unknown) => this.log.error({ err: error, code }, 'CoronaZ AI step failed'));
-    }, AI_STEP_MS);
+    }, delay);
 
     timer.unref();
     this.timers.set(`ai:${code}`, timer);
+  }
+
+  /**
+   * Whether anybody could have seen that.
+   *
+   * A creature that bit somebody always counts — the victim saw it whatever the
+   * fog says — and otherwise it is a question of where it walked: a horde
+   * stepping into view has to be watched arriving, and one crossing a basement
+   * nobody has a line on has nothing to show.
+   *
+   * Sight is taken per activation rather than once per phase because a hero dying
+   * mid-horde changes it. It costs one ray-cast per survivor, against a beat this
+   * is deciding whether to spend most of a second on.
+   */
+  private watched(state: CzState, act: Activation): boolean {
+    if (act.struck) return true;
+    const seen = visibleRooms(state);
+    return act.visited.some((roomId) => seen.has(roomId));
   }
 
   /** Server-driven deadlines: hero phase clock, and the GM's clock. */

@@ -1,5 +1,14 @@
 import type { GameConfig } from '../config.js';
-import { degree, distancesFrom, MAX_ROOM_CELLS, neighbors, type Board, type Room, type RoomProgram } from '../map.js';
+import {
+  degree,
+  distancesFrom,
+  lineOfSight,
+  MAX_ROOM_CELLS,
+  neighbors,
+  type Board,
+  type Room,
+  type RoomProgram
+} from '../map.js';
 import { chance, pick, randInt, shuffled, type RngState } from '../rng.js';
 import { partition } from './bsp.js';
 import { borderOf, BoardBuilder, chunk, rectArea, rectCells, tileRects, type Plot, type Rect } from './builder.js';
@@ -74,8 +83,105 @@ export function generateBoard(rng: RngState, config: GameConfig): Board {
    * down. Never on the border ring, so the world always has a way round.
    */
   const rubble = new Set<number>();
+
+  /**
+   * The district's outline, cut before anything is built inside it.
+   *
+   * The size in the config is a *bounding box*, not a floor plan, and a world
+   * that fills its box to the corner every time is the one thing every map in
+   * this game had in common. A district is bounded by whatever the district is
+   * next to — a river, a rail cutting, a motorway, the edge of the fire — so its
+   * outline is allowed to be a wedge, an L, or a ragged bank, and the raid inside
+   * it is a different shape for it.
+   *
+   * Cut as rubble because rubble is already the word for "no cell here": every
+   * later pass flows around it, so an outline costs nothing but this decision.
+   */
   {
-    const wanted = Math.floor(width * height * config.rubble);
+    const area = width * height;
+    const outline: number[] = [];
+    const shave = (keep: (x: number, y: number) => boolean): void => {
+      for (let cell = 0; cell < area; cell++) {
+        if (!keep(cell % width, Math.floor(cell / width))) outline.push(cell);
+      }
+    };
+
+    /** A ragged edge, walked rather than ruled, so it reads as erosion. */
+    const bank = (along: 'top' | 'bottom' | 'left' | 'right'): void => {
+      const span = along === 'top' || along === 'bottom' ? width : height;
+      const limit = Math.max(2, Math.floor((along === 'top' || along === 'bottom' ? height : width) * 0.22));
+      let depth = 1 + randInt(rng, limit);
+      const depths: number[] = [];
+      for (let index = 0; index < span; index++) {
+        depth = Math.max(0, Math.min(limit, depth + randInt(rng, 3) - 1));
+        depths.push(depth);
+      }
+      shave((x, y) => {
+        const cut = depths[along === 'top' || along === 'bottom' ? x : y] ?? 0;
+        if (along === 'top') return y >= cut;
+        if (along === 'bottom') return y < height - cut;
+        if (along === 'left') return x >= cut;
+        return x < width - cut;
+      });
+    };
+
+    const style = pick(rng, ['bloc', 'coin', 'coin', 'biseau', 'biseau', 'triangle', 'berge', 'berge'] as const);
+    const sides = ['top', 'bottom', 'left', 'right'] as const;
+
+    if (style === 'coin') {
+      // A block taken out of one corner: the district turns a corner instead of
+      // filling a rectangle.
+      const cw = Math.max(3, Math.floor(width * (0.25 + randInt(rng, 3) * 0.06)));
+      const ch = Math.max(3, Math.floor(height * (0.25 + randInt(rng, 3) * 0.06)));
+      const cx = chance(rng, 0.5) ? 0 : width - cw;
+      const cy = chance(rng, 0.5) ? 0 : height - ch;
+      shave((x, y) => !(x >= cx && x < cx + cw && y >= cy && y < cy + ch));
+    } else if (style === 'biseau') {
+      // One or two corners taken off on the diagonal.
+      const count = 1 + randInt(rng, 2);
+      const chosen = shuffled(rng, [0, 1, 2, 3]).slice(0, count);
+      const depth = Math.max(5, Math.floor(Math.min(width, height) * (0.34 + randInt(rng, 3) * 0.05)));
+      for (const corner of chosen) {
+        const cx = corner % 2 === 0 ? 0 : width - 1;
+        const cy = corner < 2 ? 0 : height - 1;
+        shave((x, y) => Math.abs(x - cx) + Math.abs(y - cy) >= depth);
+      }
+    } else if (style === 'triangle') {
+      // A whole diagonal edge: the wedge between two roads that never met.
+      const flipX = chance(rng, 0.5);
+      const flipY = chance(rng, 0.5);
+      const slack = 1.2 + randInt(rng, 4) * 0.08;
+      shave((x, y) => {
+        const nx = (flipX ? width - 1 - x : x) / Math.max(1, width - 1);
+        const ny = (flipY ? height - 1 - y : y) / Math.max(1, height - 1);
+        return nx + ny < slack;
+      });
+    } else if (style === 'berge') {
+      for (const along of shuffled(rng, [...sides]).slice(0, 1 + randInt(rng, 2))) bank(along);
+    }
+
+    /**
+     * And a floor under it. An outline that ate most of the box would leave a
+     * district too small to lose anybody in, so a greedy roll is simply refused
+     * and the block stands.
+     */
+    if (outline.length <= area * 0.34) {
+      for (const cell of outline) rubble.add(cell);
+    }
+  }
+
+  {
+    /**
+     * Debris is measured against the district, not against the box.
+     *
+     * The two are different things that happen to be stored in the same set: the
+     * outline is where the district *is not*, and rubble is what fell down inside
+     * it. Budgeting them together made the shape self-cancelling — a wedge cut
+     * from the corner simply bought fewer collapsed blocks elsewhere, and the
+     * amount of standing floor came out the same however the district was shaped.
+     */
+    const standing = width * height - rubble.size;
+    const wanted = rubble.size + Math.floor(standing * config.rubble);
 
     /**
      * Whether every free cell can still reach every other one.
@@ -529,7 +635,7 @@ function carveBuilding(
   for (let a = 0; a < spaces.length; a++) {
     for (const b of adjacency[a] ?? []) {
       if (b <= a) continue;
-      if (chance(rng, 0.18)) openBetween(a, b);
+      if (chance(rng, 0.62)) openBetween(a, b);
     }
   }
 
@@ -661,7 +767,7 @@ function connectEntrances(
   const doors = outward.length > 0 ? outward : inward;
   if (doors.length === 0) return;
 
-  const wanted = 1 + (doors.length > 6 && chance(rng, 0.6) ? 1 : 0);
+  const wanted = 2 + (doors.length > 4 ? 1 + (chance(rng, 0.5) ? 1 : 0) : 0);
   const chosen = shuffled(rng, doors).slice(0, wanted);
   // Prefer the most public room among the shuffled candidates for the front door.
   chosen.sort((a, b) => rank(b.room.program) - rank(a.room.program));
@@ -867,8 +973,94 @@ function placeObjectives(rng: RngState, board: Board, config: GameConfig): void 
   /* --------------------------------- start --------------------------------- */
 
   const gates = outdoor.filter(onBorder);
-  const start = gates.length > 0 ? pick(rng, gates) : pick(rng, board.rooms);
+
+  /**
+   * The two ends of the evening, pinned to opposite corners of the district.
+   *
+   * The exit used to be simply "the room furthest from the start by the graph",
+   * which sounds like variety and is not: on a rectangle the furthest thing from
+   * anywhere is the opposite corner, so every raid ran the same diagonal, and
+   * because the start was any border room at all it was frequently a mid-edge
+   * one — half a district to cross instead of a whole one.
+   *
+   * Pinning both ends and rolling *which* diagonal gives the opposite of what it
+   * sounds like: the walk is a known length, and the district it crosses is
+   * different every time. `CORNER_SLACK` keeps it from being the same paving
+   * stone twice — anywhere within a few tiles of the corner is that corner.
+   */
+  const CORNER_SLACK = 5;
+  const corners = [
+    { x: 0, y: 0 },
+    { x: board.width - 1, y: 0 },
+    { x: 0, y: board.height - 1 },
+    { x: board.width - 1, y: board.height - 1 }
+  ];
+
+  /** How close a room gets to a point, in tiles. */
+  const reachOf = (room: Room, at: { x: number; y: number }): number => {
+    let best = Infinity;
+    for (const cell of room.cells) {
+      const x = cell % board.width;
+      const y = Math.floor(cell / board.width);
+      best = Math.min(best, Math.max(Math.abs(x - at.x), Math.abs(y - at.y)));
+    }
+    return best;
+  };
+
+  /**
+   * The rooms that count as "at" a corner: everything inside the slack, or — if
+   * masonry and buildings have taken that whole patch — simply the nearest one,
+   * because a raid with no way in is not a raid.
+   */
+  const nearest = (pool: Room[], at: { x: number; y: number }): Room | undefined => {
+    if (pool.length === 0) return undefined;
+    const within = pool.filter((room) => reachOf(room, at) <= CORNER_SLACK);
+    if (within.length > 0) return pick(rng, within);
+    return pool.reduce((a, b) => (reachOf(b, at) < reachOf(a, at) ? b : a));
+  };
+
+  const startPool = gates.length > 0 ? gates : board.rooms;
+
+  /**
+   * The diagonal is chosen from the ones the district can actually offer.
+   *
+   * Picking a corner blind and hoping is what made the arrangement lopsided: the
+   * arrival may drift to whichever corner happens to have a doorway, while the
+   * exit is pinned to the one opposite and has no such freedom — so a corner
+   * built over or buried in rubble left the way out stranded halfway down an
+   * edge. Asking first which diagonals have a doorway at *both* ends costs one
+   * pass and keeps the roll honest: still random, only now among the corners
+   * this world actually has.
+   */
+  const doorwaysNear = (at: { x: number; y: number }): boolean =>
+    startPool.some((room) => reachOf(room, at) <= CORNER_SLACK);
+  const usable = [0, 1, 2, 3].filter((index) => {
+    const here = corners[index];
+    const across = corners[3 - index];
+    return here !== undefined && across !== undefined && doorwaysNear(here) && doorwaysNear(across);
+  });
+
+  const cornerIndex = usable.length > 0 ? pick(rng, usable) : randInt(rng, 4);
+  const start = nearest(startPool, corners[cornerIndex] ?? corners[0]) ?? pick(rng, board.rooms);
   start.kind = 'start';
+
+  /**
+   * The far corner is measured from where the arrival actually landed, not from
+   * the corner that was asked for.
+   *
+   * They are usually the same and occasionally not: a corner built over, or
+   * buried in rubble, has no doorway within the slack, and the fallback takes
+   * the nearest one there is — which can sit against a different corner
+   * entirely. Aiming the exit at the opposite of the *intended* corner then
+   * points it somewhere that is not opposite anything, and the diagonal the
+   * whole arrangement exists to create quietly stops being a diagonal.
+   */
+  // 0↔3 and 1↔2 are the diagonals of the list above.
+  const landed = corners.reduce(
+    (best, corner, index) => (reachOf(start, corner) < reachOf(start, corners[best] ?? corner) ? index : best),
+    0
+  );
+  const exitCorner = corners[3 - landed] ?? corners[3];
   /**
    * The start room is stocked, whatever it happens to be.
    *
@@ -886,15 +1078,53 @@ function placeObjectives(rng: RngState, board: Board, config: GameConfig): void 
   // One walk of the graph answers "how far from the start" for the whole board.
   const distance = distancesFrom(board, start.id);
   const far = (room: Room) => distance.get(room.id) ?? -1;
-  const exitPool = (gates.length > 1 ? gates : outdoor.length > 0 ? outdoor : board.rooms).filter(
-    (room) => room.id !== start.id
-  );
-  const exit = exitPool.length > 0 ? exitPool.reduce((a, b) => (far(b) > far(a) ? b : a)) : undefined;
+
+  /**
+   * What the arrival can see from where it stands, straight down the streets.
+   *
+   * The district is crossed on foot and the fog is the reason it is worth
+   * crossing. A way out that is legible from the doorstep — down one long
+   * boulevard, before a single action point is spent — is not a way out that was
+   * found, and the same goes for a key sitting in plain view.
+   */
+  const seen = lineOfSight(board, start.id);
+
+  /**
+   * Reachability is not negotiable, so it filters the pool first; being out of
+   * sight and near the far corner are preferences, applied while they can be.
+   * Rubble or a sealed block can take a whole patch, and a raid with no way out
+   * is worse than a raid with an obvious one.
+   */
+  const walkable = (pool: Room[]) => pool.filter((room) => room.id !== start.id && far(room) >= 0);
+  const borderGates = walkable(gates);
+  const streets = walkable(outdoor.length > 0 ? outdoor : board.rooms);
+  const outOfSight = (pool: Room[]) => pool.filter((room) => !seen.has(room.id));
+  const atCorner = (pool: Room[]) => pool.filter((room) => reachOf(room, exitCorner) <= CORNER_SLACK);
+
+  /**
+   * Best available, in order of what matters most.
+   *
+   * A doorway out of the district, near the far corner, that cannot be seen from
+   * the arrival. Each rung drops the least important requirement: first the far
+   * corner stops needing to be on the border — a street two tiles inside it is
+   * still a street — and only then does being out of sight give way, because on
+   * a district whose whole border is one open ring there is nowhere out of sight
+   * to put it and an obvious exit still beats an unreachable one.
+   */
+  const ladder = [
+    atCorner(outOfSight(borderGates)),
+    atCorner(outOfSight(streets)),
+    atCorner(borderGates),
+    outOfSight(borderGates),
+    borderGates,
+    streets
+  ];
+
+  const exitPool = ladder.find((pool) => pool.length > 0) ?? [];
+  const exit = nearest(exitPool, exitCorner);
   if (exit) exit.kind = 'exit';
 
   /* ---------------------------------- keys --------------------------------- */
-
-  const keyPool = (indoor.length >= config.keys ? indoor : board.rooms).filter((room) => room.kind === 'normal');
 
   /**
    * A key goes where the loot is, when there is anywhere like that.
@@ -911,14 +1141,62 @@ function placeObjectives(rng: RngState, board: Board, config: GameConfig): void 
    * drew no landmark has no such room at all — which is the point of the landmark pool
    * and must not be a way to generate an unwinnable raid.
    */
+  /**
+   * No two keys within a few tiles of each other.
+   *
+   * Two keys in neighbouring rooms are one errand, not two: the team walks once
+   * and collects both, and the objective that was supposed to send them across
+   * the district costs them a corridor. Spacing is what makes three keys three
+   * decisions.
+   *
+   * A preference, though, not a law — see the sweep at the end. A cramped map
+   * that cannot honour it must still be winnable.
+   */
+  const KEY_SPACING = 4;
+  const held: Room[] = [];
+
+  const gap = (a: Room, b: Room): number => {
+    let best = Infinity;
+    for (const one of a.cells) {
+      const ax = one % board.width;
+      const ay = Math.floor(one / board.width);
+      for (const two of b.cells) {
+        const bx = two % board.width;
+        const by = Math.floor(two / board.width);
+        best = Math.min(best, Math.max(Math.abs(ax - bx), Math.abs(ay - by)));
+      }
+    }
+    return best;
+  };
+
+  const spaced = (room: Room): boolean => held.every((other) => gap(room, other) >= KEY_SPACING);
+
+  const plant = (room: Room): void => {
+    room.hasKey = true;
+    held.push(room);
+  };
+
+  /**
+   * And none of them on the doorstep, or in sight of it.
+   *
+   * A key a few tiles from where the team lands is not an objective, it is a
+   * formality — and one visible straight down the street from the arrival is
+   * worse, because the district stops being something to search before anybody
+   * has taken a step. Both are preferences with the same escape hatch as the
+   * spacing: a small map that cannot honour them still gets its keys.
+   */
+  const KEY_START_GAP = 5;
+  const roomy = indoor.length >= config.keys ? indoor : board.rooms;
+  const anyNormal = roomy.filter((room) => room.kind === 'normal');
+  const keyPool = anyNormal.filter((room) => !seen.has(room.id) && gap(room, start) >= KEY_START_GAP);
+
   const vaults = shuffled(
     rng,
     keyPool.filter((room) => room.loot >= SHINY_LOOT)
   );
-  let planted = 0;
-  for (const vault of vaults.slice(0, Math.max(1, Math.floor(config.keys / 2)))) {
-    vault.hasKey = true;
-    planted += 1;
+  for (const vault of vaults) {
+    if (held.length >= Math.max(1, Math.floor(config.keys / 2))) break;
+    if (spaced(vault)) plant(vault);
   }
 
   // Busiest rooms first, but never two keys in one building while another has none.
@@ -931,15 +1209,25 @@ function placeObjectives(rng: RngState, board: Board, config: GameConfig): void 
     byZone.set(room.zone, list);
   }
   const zones = shuffled(rng, [...byZone.keys()]);
-  let placed = planted;
-  for (let round = 0; placed < config.keys && round < 8; round++) {
+  for (let round = 0; held.length < config.keys && round < 8; round++) {
     for (const zone of zones) {
-      if (placed >= config.keys) break;
+      if (held.length >= config.keys) break;
       const room = byZone.get(zone)?.[round];
-      if (!room) continue;
-      room.hasKey = true;
-      placed += 1;
+      if (!room || room.hasKey || !spaced(room)) continue;
+      plant(room);
     }
+  }
+
+  /**
+   * Whatever spacing could not deliver, placed anyway.
+   *
+   * A district of two buildings has nowhere to put three keys four tiles apart,
+   * and refusing to place them would lock the exit forever. The rule bends here
+   * rather than the raid breaking.
+   */
+  for (const room of [...keyPool, ...anyNormal]) {
+    if (held.length >= config.keys) break;
+    if (!room.hasKey) plant(room);
   }
 
   /* --------------------------------- spawns -------------------------------- */

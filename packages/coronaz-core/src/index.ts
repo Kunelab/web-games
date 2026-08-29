@@ -194,6 +194,7 @@ export {
   beginEnemyPhase,
   endEnemyPhase,
   activateNextZombie,
+  type Activation,
   spawnReinforcements,
   heroPhaseDone,
   checkEnd,

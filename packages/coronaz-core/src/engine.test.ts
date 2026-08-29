@@ -394,7 +394,17 @@ describe('board generation', () => {
         }
       }
       assert(blocked > 0, `${layout} ${seed}: no rubble at all`);
-      assert(blocked < cells * 0.3, `${layout} ${seed}: ${blocked}/${cells} cells are rubble`);
+      /**
+       * Generous, because two different things are counted here.
+       *
+       * The size in the config is a bounding box rather than a floor plan: a
+       * district may be cut to a wedge or an L, and everything outside its
+       * outline is stored the same way rubble is. So this is the bound on
+       * "outline plus debris" — the district still has to be the majority of its
+       * own box, which is what stops a runaway outline shaving the world to a
+       * corridor.
+       */
+      assert(blocked < cells * 0.45, `${layout} ${seed}: ${blocked}/${cells} cells are void`);
 
       assert.equal(board.edgeRight.length, cells);
       assert.equal(board.edgeDown.length, cells);
@@ -663,7 +673,7 @@ describe('enemy phase', () => {
     assert.equal(heroPhaseDone(state), true);
     beginEnemyPhase(state, 0);
 
-    const more = activateNextZombie(state);
+    const { more } = activateNextZombie(state);
     assert.equal(more, false, 'one zombie, fully activated');
     // Two rooms of distance, two AP: it is either on the hero or biting them.
     const closed = state.zombies[runner.id]?.roomId === hero.roomId;

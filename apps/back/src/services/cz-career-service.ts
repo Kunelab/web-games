@@ -225,6 +225,28 @@ export const czCareerService = {
     return stats.unlockedGm.includes(classId);
   },
 
+  /**
+   * Spends rations on something this service does not know the price of.
+   *
+   * The two unlocks above price their own goods because the roster owns those
+   * numbers. A shop item's price is the shop's, so this takes an amount and does
+   * only the part that must not be done anywhere else: check the balance and
+   * decrement it in the same read-modify-write.
+   */
+  async spend(name: string, amount: number): Promise<{ ok: boolean; balance: number }> {
+    const stats = await readStats(name);
+    if (stats.rations < amount) return { ok: false, balance: stats.rations };
+
+    stats.rations -= amount;
+    await writeStats(name, stats);
+    return { ok: true, balance: stats.rations };
+  },
+
+  /** The spendable balance alone, without deriving trophies and perks for it. */
+  async balance(name: string): Promise<number> {
+    return (await readStats(name)).rations;
+  },
+
   /** One nickname's full ledger, for the lobby and the setup screen. */
   async forName(name: string): Promise<CzCareerView> {
     const stats = await readStats(name);

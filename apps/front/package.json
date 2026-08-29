@@ -25,6 +25,7 @@
     "coronaz-core": "workspace:*",
     "game-core": "workspace:*",
     "i18n": "workspace:*",
+    "lobby-core": "workspace:*",
     "mafia-core": "workspace:*",
     "presence-core": "workspace:*",
     "react": "^19.2.8",

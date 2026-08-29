@@ -48,6 +48,25 @@
   font-size: var(--text-sm);
   color: var(--ink-soft);
   line-height: 1.5;
+  flex: 1;
+}
+
+/* The cards are links now, so they have to behave like ones. */
+.home-game:hover {
+  background: var(--bg-hover);
+}
+
+.home-game-emoji {
+  font-size: var(--text-2xl);
+  line-height: 1;
+}
+
+.home-game-go {
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+.home-game:hover .home-game-go {
+  color: var(--ink);
 }
 
 /* ------------------------------------------------------------------- auth -- */

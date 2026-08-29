@@ -22,7 +22,7 @@ import {
   type Rarity
 } from 'coronaz-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useParams } from 'react-router';
 
 import { czPerkMeta } from '../../app/czMeta';
 import { useCountdown } from '../../hooks/useGameSocket';
@@ -36,6 +36,7 @@ import { CzHeroSelect } from './CzHeroSelect';
 import { rarityVars } from './czRarity';
 import { isMuted, sfxEscape, sfxHeal, sfxKill, sfxLoot, sfxShoot, sfxStep, toggleMute } from './czSound';
 import { Badge, Button, Input, Loading } from '../../ui';
+import { QuickEnd } from '../../ui/QuickEnd';
 import { CzEndScreen } from './CoronaZTv';
 import { CzMap } from './CzMap';
 import './coronaz.css';
@@ -51,7 +52,6 @@ import '../play.css';
  */
 export default function CoronaZPlayer() {
   const { code = '' } = useParams<{ code: string }>();
-  const navigate = useNavigate();
   const { socket, connected, view, rewards, error, serverNow, applyView } = useCzSocket();
 
   const [name, setName] = useState('');
@@ -245,8 +245,17 @@ export default function CoronaZPlayer() {
           // Solo or TV-less: this device created the raid, so it can start the next
           // one without anybody walking back through setup.
           onRematch={hostToken ? () => socket?.emit('cz:rematch', { hostToken }) : undefined}
-          onExit={() => void navigate(hostToken ? '/coronaz' : '/')}
+          /* The way out is QuickEnd's below, so there are not two of them. */
         />
+        {/**
+         * A rematch and a replay are not the same offer.
+         *
+         * `cz:rematch` above keeps this exact table in this exact slot, seats and
+         * all, and only the host can call it. This is the other one: a quick match
+         * had no host, so "encore" means a new room that anyone from the raid — and
+         * anyone else — can walk into.
+         */}
+        <QuickEnd code={code} fallbackGame="coronaz" />
       </div>
     );
   }

@@ -131,6 +131,32 @@ export interface FinalAward {
   value: string;
 }
 
+/**
+ * The stage, when there is nobody standing on it.
+ *
+ * A quick match has no host screen: the phone in your hand is the television as
+ * well as the buzzer. That leaves the payload with nowhere to go but to the
+ * players, so this is the host round with the answers taken out — the clip to
+ * play, the picture to reveal, and not one word of what they are.
+ *
+ * The trade is stated rather than hidden: a blindtest payload carries a YouTube
+ * id, and a player determined enough to open it in another tab inside a
+ * twenty-second round can read the title off it. That is the price of a game with
+ * no television, it is paid only in the hostless modes, and the title, the
+ * category and every answer field still never leave the server.
+ */
+export interface StageRoundView {
+  roundId: string;
+  index: number;
+  total: number;
+  kind: string;
+  phase: RoundPhase;
+  phaseStartAt: number;
+  phaseEndsAt: number | null;
+  answerMs: number;
+  payload: unknown;
+}
+
 export interface SessionView {
   code: string;
   phase: SessionPhase;
@@ -149,6 +175,8 @@ export interface SessionView {
   isHost: boolean;
   /** Present only when `isHost`. */
   hostRound?: HostRoundView | null;
+  /** Present only in an autonomous session, where every player is also the stage. */
+  stageRound?: StageRoundView | null;
   /** Items excluded from this session because they were incomplete. */
   skipped?: { title: string; missing: string[] }[];
   /** Present once the session is finished: the ceremony. */
@@ -177,7 +205,27 @@ export const sessionConfigSchema = z.object({
   attemptsPerField: z.number().int().min(1).max(10).default(3),
   /** Advance automatically when the reveal timer ends, rather than waiting. */
   autoAdvance: z.boolean().default(true),
-  scoring: scoringConfigSchema.default(scoringConfigSchema.parse({}))
+  scoring: scoringConfigSchema.default(scoringConfigSchema.parse({})),
+
+  /**
+   * Lists the game on the public board, where anyone can find its code.
+   *
+   * Private by default. Everything about the join flow already worked by passing
+   * a code around a room, and a game that starts accepting strangers because a
+   * default flipped is not a feature anybody asked for.
+   */
+  public: z.boolean().default(false),
+
+  /**
+   * Nobody is driving.
+   *
+   * A quick match has no host: no one chose the playlist, and no one is sitting at
+   * a television pressing "suivant". The server owns every transition instead —
+   * which it already did, the host merely had a veto — and each player's phone
+   * becomes its own stage, via `stageRound`. Implies `autoAdvance`, because there
+   * is no hand left to advance it.
+   */
+  autonomous: z.boolean().default(false)
 });
 
 export type SessionConfig = z.infer<typeof sessionConfigSchema>;

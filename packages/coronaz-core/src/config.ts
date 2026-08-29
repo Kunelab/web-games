@@ -122,7 +122,17 @@ export const gameConfigSchema = z.object({
    * Shifts the loot table by whole rarity ranks: +1 turns the 40% common slot
    * into uncommon-or-better odds. -1 makes the map stingy.
    */
-  lootLuck: z.number().int().min(-1).max(2).default(0)
+  lootLuck: z.number().int().min(-1).max(2).default(0),
+
+  /**
+   * Whether the raid is listed on the public board.
+   *
+   * Private by default: a code shared with four friends is how CoronaZ has
+   * always been played, and a table that suddenly accepts strangers because a
+   * default changed under it would be a bad surprise. Public is a deliberate
+   * invitation, and the only thing it changes is who can find the code.
+   */
+  public: z.boolean().default(false)
 });
 
 export type GameConfig = z.infer<typeof gameConfigSchema>;

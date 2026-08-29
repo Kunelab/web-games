@@ -19,7 +19,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "sim": "tsx src/sim/cli.ts",
-    "lint": "eslint ."
+    "district": "tsx src/sim/district.ts",
+    "lint": "eslint .",
+    "why": "tsx src/sim/why.ts"
   },
   "dependencies": {
     "presence-core": "workspace:*",

@@ -5,6 +5,8 @@ import { useParams } from 'react-router';
 import { awardMeta } from '../app/awards';
 import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
 import { assetUrl } from '../tools/api-url';
+import { BlindtestAudio } from '../ui/BlindtestAudio';
+import { QuickEnd } from '../ui/QuickEnd';
 import { RevealImage } from '../ui/RevealImage';
 import { cx } from '../ui/cx';
 import { Badge, Button, Input, Loading } from '../ui';
@@ -166,6 +168,22 @@ export default function Player() {
         </div>
       )}
 
+      {/**
+       * The stage, on the phone, when there is no television.
+       *
+       * `stageRound` is present only in an autonomous session — a quick match, with
+       * nobody at a host screen — and only the blind test actually needs it: every
+       * other kind already reaches the player through its own redacted
+       * presentation. So this is one clip player, mounted for one mode.
+       */}
+      {session.phase === 'playing' && session.stageRound?.kind === 'blindtest' && (
+        <BlindtestAudio
+          code={(session.stageRound.payload as { code?: string }).code ?? ''}
+          payload={session.stageRound.payload}
+          phase={session.stageRound.phase}
+        />
+      )}
+
       {session.phase === 'playing' && session.round && (
         <RoundPanel
           key={session.round.roundId}
@@ -221,6 +239,7 @@ export default function Player() {
                 </li>
               ))}
             </ol>
+            <QuickEnd code={code} fallbackGame="quiz" />
           </div>
         </div>
       )}

@@ -15,6 +15,7 @@ import { useMafiaSocket } from '../../hooks/useMafiaSocket';
 import { useCountdown } from '../../hooks/useServerClock';
 import { cx } from '../../ui/cx';
 import { Button, Field, Input, Loading } from '../../ui';
+import { QuickEnd } from '../../ui/QuickEnd';
 import { msg } from 'i18n';
 
 import { useLocale } from '../../i18n/locale-context';
@@ -672,6 +673,7 @@ export default function MafiaPlayer() {
                     .join(' · ') || 'Connectez-vous pour conserver vos points de partie en partie.'}
                 </p>
               )}
+              <QuickEnd code={code} fallbackGame="mafia" />
             </section>
           )}
         </div>

@@ -44,6 +44,7 @@
     "fastify-type-provider-zod": "^7.0.0",
     "game-core": "workspace:*",
     "i18n": "workspace:*",
+    "lobby-core": "workspace:*",
     "mafia-core": "workspace:*",
     "presence-core": "workspace:*",
     "socket.io": "^4.8.3",

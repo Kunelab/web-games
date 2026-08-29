@@ -484,6 +484,7 @@ export function computeCzAwards(state: CzState): CzAwardView[] {
 
 export const czHeroActionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('move'), roomId: z.string().max(16) }),
+  z.object({ type: z.literal('breach'), roomId: z.string().max(16) }),
   z.object({
     type: z.literal('attack'),
     zombieId: z.string().max(16),

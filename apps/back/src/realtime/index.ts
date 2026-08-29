@@ -13,6 +13,8 @@ import {
   type CzServerToClient,
   type CzState
 } from 'coronaz-core';
+import { randomUUID } from 'node:crypto';
+
 import type { FastifyInstance } from 'fastify';
 import {
   chatRules,
@@ -32,6 +34,21 @@ import {
   type MafiaState
 } from 'mafia-core';
 
+import {
+  quickBeatSchema,
+  quickJoinPath,
+  quickJoinSchema,
+  quickLeaveSchema,
+  quickReadySchema,
+  quickReplaySchema,
+  quickVoteSchema,
+  toQuickView,
+  type QuickClientToServer,
+  type QuickJoinAck,
+  type QuickLobby,
+  type QuickOptionSpec,
+  type QuickServerToClient
+} from 'lobby-core';
 import type { KickRefusal } from 'presence-core';
 
 import { accountOf } from './account.js';
@@ -50,6 +67,7 @@ import { joinSession, revealChoices, submitAnswer, type SessionState } from '../
 import { careerKey, czCareerService } from '../services/cz-career-service.js';
 import { resultsService } from '../services/results-service.js';
 import type { MafiaManager } from '../mafia/manager.js';
+import type { QuickplayManager } from '../quickplay/manager.js';
 import type { CzManager } from '../zombie/manager.js';
 
 /** Per-connection bookkeeping, kept out of the game state. */
@@ -65,10 +83,13 @@ interface SocketData {
   mafiaPlayerId?: string;
   mafiaHost?: boolean;
   mafiaSpectator?: boolean;
+  /** Quick-match attachment: one socket waits in at most one room, as one member. */
+  quickCode?: string;
+  quickMemberId?: string;
 }
 
-type AllClientToServer = ClientToServerEvents & CzClientToServer & MafiaClientToServer;
-type AllServerToClient = ServerToClientEvents & CzServerToClient & MafiaServerToClient;
+type AllClientToServer = ClientToServerEvents & CzClientToServer & MafiaClientToServer & QuickClientToServer;
+type AllServerToClient = ServerToClientEvents & CzServerToClient & MafiaServerToClient & QuickServerToClient;
 
 type GameSocket = Socket<AllClientToServer, AllServerToClient, Record<string, never>, SocketData>;
 
@@ -128,7 +149,13 @@ function mafiaViewerFor(data: SocketData): MafiaViewer {
   return data.mafiaHost ? { kind: 'host' } : { kind: 'spectator' };
 }
 
-export function registerRealtime(app: FastifyInstance, games: GameManager, cz: CzManager, mafia: MafiaManager): SocketServer {
+export function registerRealtime(
+  app: FastifyInstance,
+  games: GameManager,
+  cz: CzManager,
+  mafia: MafiaManager,
+  quick: QuickplayManager
+): SocketServer {
   const io: SocketServer<AllClientToServer, AllServerToClient, Record<string, never>, SocketData> = new SocketServer(
     app.server,
     {
@@ -270,6 +297,39 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
     }
   }
 
+  /**
+   * The quick room, to everyone waiting in it.
+   *
+   * Same per-recipient projection as everywhere else, for a different reason:
+   * there is nothing secret in a lobby, but each phone needs to see which of the
+   * votes on screen is its own. That is the only thing `toQuickView` personalises.
+   */
+  function quickBroadcast(lobby: QuickLobby, specs: QuickOptionSpec[]): void {
+    const now = Date.now();
+    for (const socket of io.sockets.sockets.values()) {
+      if (socket.data.quickCode !== lobby.code) continue;
+      socket.emit('quick:state', toQuickView(lobby, specs, socket.data.quickMemberId ?? null, now));
+    }
+  }
+
+  quick.onTransition(quickBroadcast);
+
+  quick.onLaunch((lobby, launch) => {
+    for (const socket of io.sockets.sockets.values()) {
+      if (socket.data.quickCode !== lobby.code) continue;
+      socket.emit('quick:launch', launch);
+    }
+  });
+
+  quick.onClosed((code, reason) => {
+    for (const socket of io.sockets.sockets.values()) {
+      if (socket.data.quickCode !== code) continue;
+      socket.emit('quick:closed', { code, reason });
+      socket.data.quickCode = undefined;
+      socket.data.quickMemberId = undefined;
+    }
+  });
+
   io.on('connection', (socket: GameSocket) => {
     socket.data.isHost = false;
 
@@ -307,6 +367,20 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
       }
 
       const { player } = joinSession(state, parsed.data.playerName, parsed.data.playerToken);
+
+      /**
+       * The account, if the phone happens to have one, resolved after the fact.
+       *
+       * Not awaited, and not required: joining must stay instant and must keep
+       * working for the phones this game is built around, which carry no session
+       * at all. The login is only read when the game ends and the tokens are
+       * banked, which is minutes away.
+       */
+      void accountOf(app, socket)
+        .then((login) => {
+          if (login) player.account = login;
+        })
+        .catch(() => undefined);
 
       socket.data.code = state.code;
       socket.data.playerId = player.id;
@@ -1097,11 +1171,159 @@ export function registerRealtime(app: FastifyInstance, games: GameManager, cz: C
 
 
 
+    /* ------------------------------- quick match ------------------------------ */
+
+    /**
+     * Takes a place in a quick room, or is matched into one.
+     *
+     * The member id doubles as the token, which is enough here and deliberately
+     * not more: the worst a stolen lobby id buys is a vote in a room about to
+     * dissolve, and requiring an account would shut out exactly the phones this
+     * mode exists for.
+     */
+    socket.on('quick:join', (payload, ack) => {
+      const respond = responder<QuickJoinAck>(ack);
+      const parsed = quickJoinSchema.safeParse(payload);
+      if (!parsed.success) {
+        respond({ ok: false, error: 'Requête invalide' });
+        return;
+      }
+
+      const memberId = parsed.data.memberToken || randomUUID();
+
+      void quick
+        .join({ game: parsed.data.game, code: parsed.data.code, memberId, name: parsed.data.name })
+        .then((outcome) => {
+          if (!outcome.ok) {
+            respond({ ok: false, error: outcome.error });
+            return;
+          }
+
+          attachQuick(outcome.lobby.code, memberId);
+          respond({
+            ok: true,
+            code: outcome.lobby.code,
+            memberId,
+            memberToken: memberId,
+            view: toQuickView(outcome.lobby, outcome.specs, memberId, Date.now())
+          });
+
+          // Arrived after the room left: send them straight on rather than
+          // leaving them looking at a lobby that will never move again.
+          if (outcome.lobby.launch) {
+            socket.emit('quick:launch', {
+              game: outcome.lobby.game,
+              lobbyCode: outcome.lobby.code,
+              code: outcome.lobby.launch.code,
+              path: quickJoinPath(outcome.lobby.game, outcome.lobby.launch.code)
+            });
+          }
+        })
+        .catch((error: unknown) => {
+          app.log.error({ err: error }, 'quick join failed');
+          respond({ ok: false, error: 'Le serveur ne répond pas.' });
+        });
+    });
+
+    socket.on('quick:replay', (payload, ack) => {
+      const respond = responder<QuickJoinAck>(ack);
+      const parsed = quickReplaySchema.safeParse(payload);
+      if (!parsed.success) {
+        respond({ ok: false, error: 'Requête invalide' });
+        return;
+      }
+
+      const memberId = randomUUID();
+
+      void quick
+        .replay({
+          game: parsed.data.game,
+          gameCode: parsed.data.gameCode,
+          memberId,
+          name: parsed.data.name
+        })
+        .then((outcome) => {
+          if (!outcome.ok) {
+            respond({ ok: false, error: outcome.error });
+            return;
+          }
+
+          attachQuick(outcome.lobby.code, memberId);
+          respond({
+            ok: true,
+            code: outcome.lobby.code,
+            memberId,
+            memberToken: memberId,
+            view: toQuickView(outcome.lobby, outcome.specs, memberId, Date.now())
+          });
+        })
+        .catch((error: unknown) => {
+          app.log.error({ err: error }, 'quick replay failed');
+          respond({ ok: false, error: 'Le serveur ne répond pas.' });
+        });
+    });
+
+    socket.on('quick:ready', (payload) => {
+      const parsed = quickReadySchema.safeParse(payload);
+      const member = socket.data.quickMemberId;
+      if (!parsed.success || !member || socket.data.quickCode !== parsed.data.code) return;
+      quick.ready(parsed.data.code, member, parsed.data.ready);
+    });
+
+    socket.on('quick:vote', (payload) => {
+      const parsed = quickVoteSchema.safeParse(payload);
+      const member = socket.data.quickMemberId;
+      if (!parsed.success || !member || socket.data.quickCode !== parsed.data.code) return;
+      quick.vote(parsed.data.code, member, parsed.data.key, parsed.data.value);
+    });
+
+    socket.on('quick:beat', (payload) => {
+      const parsed = quickBeatSchema.safeParse(payload);
+      const member = socket.data.quickMemberId;
+      if (!parsed.success || !member || socket.data.quickCode !== parsed.data.code) return;
+      quick.beat(parsed.data.code, member);
+    });
+
+    socket.on('quick:leave', (payload) => {
+      const parsed = quickLeaveSchema.safeParse(payload);
+      const member = socket.data.quickMemberId;
+      if (!parsed.success || !member || socket.data.quickCode !== parsed.data.code) return;
+      quick.leave(parsed.data.code, member);
+      socket.data.quickCode = undefined;
+      socket.data.quickMemberId = undefined;
+    });
+
+    /** One room at a time: joining a second leaves the first. */
+    function attachQuick(code: string, memberId: string): void {
+      const previous = socket.data.quickCode;
+      if (previous && previous !== code && socket.data.quickMemberId) {
+        quick.leave(previous, socket.data.quickMemberId);
+      }
+      socket.data.quickCode = code;
+      socket.data.quickMemberId = memberId;
+    }
+
     socket.on('disconnect', () => {
       handleDisconnect(socket);
       czHandleDisconnect(socket);
       mafiaHandleDisconnect(socket);
+      quickHandleDisconnect(socket);
     });
+
+    /**
+     * A quick room forgets you the moment you go.
+     *
+     * The opposite of every other disconnect here, and for the opposite reason:
+     * elsewhere the seat holds a score and a role that must survive a phone
+     * locking. A lobby member holds one vote, and leaving it behind would raise
+     * the majority the people still present have to clear — a room of five that
+     * became three could no longer start at all.
+     */
+    function quickHandleDisconnect(current: GameSocket): void {
+      const { quickCode, quickMemberId } = current.data;
+      if (!quickCode || !quickMemberId) return;
+      quick.leave(quickCode, quickMemberId);
+    }
 
     /**
      * Same policy as everywhere: the seat survives, only its light goes out.

@@ -5,6 +5,7 @@ import { db } from '../db/index.js';
 import { gameResults } from '../db/schema.js';
 import { computeAwards } from '../game/awards.js';
 import type { SessionState } from '../game/session.js';
+import { quizCareerService, quizLedgerKey } from './quiz-career-service.js';
 
 /**
  * Finished games and what can be read back out of them.
@@ -113,6 +114,17 @@ export const resultsService = {
       players: JSON.stringify(players),
       awards: JSON.stringify(computeAwards(state))
     });
+
+    /**
+     * The wallet, credited from the same numbers and at the same moment.
+     *
+     * After the row rather than before it: the history is the permanent record
+     * and must not be lost to a wallet write failing, whereas a token nobody
+     * banked is a token, and the next game pays more.
+     */
+    for (const player of Object.values(state.players)) {
+      await quizCareerService.credit(quizLedgerKey(player), player.totalScore);
+    }
   },
 
   async list(limit: number): Promise<GameResultView[]> {
