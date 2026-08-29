@@ -19,9 +19,21 @@ WORKDIR /app
 
 # Dependency layer, cached until a manifest changes.
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
+# Every workspace manifest, so `pnpm install` provisions node_modules for all of
+# them. Listing only some of them installed nothing for the rest: `COPY packages`
+# below then dropped in sources with no dependencies beside them, and the build
+# died on `Cannot find type definition file for 'node'`. A new package under
+# `packages/` has to be added here too.
 COPY apps/back/package.json apps/back/
 COPY apps/front/package.json apps/front/
+COPY packages/chat-core/package.json packages/chat-core/
+COPY packages/coronaz-core/package.json packages/coronaz-core/
 COPY packages/game-core/package.json packages/game-core/
+COPY packages/i18n/package.json packages/i18n/
+COPY packages/lobby-core/package.json packages/lobby-core/
+COPY packages/mafia-core/package.json packages/mafia-core/
+COPY packages/presence-core/package.json packages/presence-core/
+
 # `prepare` wants game-core sources; the ignore-scripts install defers it.
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
