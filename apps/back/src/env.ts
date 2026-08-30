@@ -25,6 +25,28 @@ const portSuffix = z
     return trimmed ? `:${trimmed}` : '';
   });
 
+/**
+ * An optional setting where "" means absent.
+ *
+ * Docker Compose has no way to express "leave this variable unset". A line like
+ * `MAFIA_API_2_URL: ${MAFIA_API_2_URL:-}` injects an *empty string* into the
+ * container, and an empty string is not `undefined` — so `??` sails straight
+ * past it and hands the caller "".
+ *
+ * That is not hypothetical: it silently dropped a working Groq rung out of the
+ * live chain, because slot 2 inherited "" for its URL and key instead of slot
+ * one's, failed its own credential check and was filtered out at startup. The
+ * boot log said `api1 → api3 → api4 → ollama` and nothing anywhere said why.
+ *
+ * So the coercion belongs here, at the boundary, once — not at each of the
+ * dozen places that read one of these.
+ */
+const blankIsUnset = () =>
+  z
+    .string()
+    .optional()
+    .transform((value) => (value === '' ? undefined : value));
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -137,7 +159,7 @@ const envSchema = z.object({
    * what SSH is.
    */
   OLLAMA_URL: z.string().default('http://127.0.0.1:11434'),
-  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_API_KEY: blankIsUnset(),
 
   /**
    * An OpenAI-compatible endpoint and its key, for the `openai` rung.
@@ -148,7 +170,7 @@ const envSchema = z.object({
    * the fastest of them by a distance.
    */
   MAFIA_API_URL: z.string().default('https://api.groq.com/openai/v1'),
-  MAFIA_API_KEY: z.string().optional(),
+  MAFIA_API_KEY: blankIsUnset(),
   MAFIA_API_MODEL: z.string().default('openai/gpt-oss-120b'),
 
   /**
@@ -166,15 +188,15 @@ const envSchema = z.object({
    * provider cost three lines of config rather than nine — which is the common
    * case, because the useful axis is usually the model and not the vendor.
    */
-  MAFIA_API_2_URL: z.string().optional(),
-  MAFIA_API_2_KEY: z.string().optional(),
-  MAFIA_API_2_MODEL: z.string().optional(),
-  MAFIA_API_3_URL: z.string().optional(),
-  MAFIA_API_3_KEY: z.string().optional(),
-  MAFIA_API_3_MODEL: z.string().optional(),
-  MAFIA_API_4_URL: z.string().optional(),
-  MAFIA_API_4_KEY: z.string().optional(),
-  MAFIA_API_4_MODEL: z.string().optional(),
+  MAFIA_API_2_URL: blankIsUnset(),
+  MAFIA_API_2_KEY: blankIsUnset(),
+  MAFIA_API_2_MODEL: blankIsUnset(),
+  MAFIA_API_3_URL: blankIsUnset(),
+  MAFIA_API_3_KEY: blankIsUnset(),
+  MAFIA_API_3_MODEL: blankIsUnset(),
+  MAFIA_API_4_URL: blankIsUnset(),
+  MAFIA_API_4_KEY: blankIsUnset(),
+  MAFIA_API_4_MODEL: blankIsUnset(),
 
   /**
    * How long a rung sits out after it refuses.

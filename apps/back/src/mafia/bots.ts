@@ -131,10 +131,21 @@ function apiSlot(rung: ApiRung): { url: string; key: string; model: string } | n
     api4: { url: env.MAFIA_API_4_URL, key: env.MAFIA_API_4_KEY, model: env.MAFIA_API_4_MODEL }
   };
   const slot = slots[rung];
-  const url = slot.url ?? env.MAFIA_API_URL;
-  const key = slot.key ?? env.MAFIA_API_KEY;
+  // `||` rather than `??`, belt to the env layer's braces: a blank inherits.
+  const url = slot.url || env.MAFIA_API_URL;
+  const key = slot.key || env.MAFIA_API_KEY;
   if (!slot.model || !key) return null;
   return { url, key, model: slot.model };
+}
+
+/** The slot exactly as configured, for diagnostics that must not fill blanks in. */
+function apiSlotRaw(rung: ApiRung): { url?: string; key?: string; model?: string } {
+  return {
+    api1: { url: env.MAFIA_API_URL, key: env.MAFIA_API_KEY, model: env.MAFIA_API_MODEL },
+    api2: { url: env.MAFIA_API_2_URL, key: env.MAFIA_API_2_KEY, model: env.MAFIA_API_2_MODEL },
+    api3: { url: env.MAFIA_API_3_URL, key: env.MAFIA_API_3_KEY, model: env.MAFIA_API_3_MODEL },
+    api4: { url: env.MAFIA_API_4_URL, key: env.MAFIA_API_4_KEY, model: env.MAFIA_API_4_MODEL }
+  }[rung];
 }
 
 function isApiRung(rung: Rung): rung is ApiRung {
@@ -472,8 +483,26 @@ export class MafiaBotDriver {
      * like a working one that never gets picked.
      */
     this.chain = readChain(env.MAFIA_BOT_PROVIDER).filter((rung) => {
-      if (rung === 'anthropic') return !!env.ANTHROPIC_API_KEY;
-      if (isApiRung(rung)) return apiSlot(rung) !== null;
+      if (rung === 'anthropic') {
+        if (env.ANTHROPIC_API_KEY) return true;
+        this.log.warn({ rung }, 'mafia bots: rung asked for but has no API key — dropped from the chain');
+        return false;
+      }
+      if (isApiRung(rung)) {
+        if (apiSlot(rung) !== null) return true;
+        /**
+         * Named, loudly, because the silent version of this cost a working rung.
+         *
+         * A slot that is in `MAFIA_BOT_PROVIDER` was asked for on purpose; if it
+         * cannot be assembled the operator wants to know which of the two halves
+         * is missing, not to read a chain in the boot line and count the gaps.
+         */
+        this.log.warn(
+          { rung, hasModel: !!apiSlotRaw(rung).model, hasKey: !!(apiSlotRaw(rung).key || env.MAFIA_API_KEY) },
+          'mafia bots: rung asked for but incompletely configured — dropped from the chain'
+        );
+        return false;
+      }
       return true;
     });
 
