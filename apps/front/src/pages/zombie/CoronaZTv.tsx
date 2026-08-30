@@ -77,11 +77,11 @@ export default function CoronaZTv() {
           if (ack.view) applyView(ack.view);
           setOpenError(null);
         } else {
-          setOpenError(ack.error ?? 'Impossible d’ouvrir cette partie.');
+          setOpenError(ack.error ?? t(msg('cz.tv.openFailed')));
         }
       })
-      .catch(() => setOpenError('Le serveur ne répond pas.'));
-  }, [socket, connected, hostToken, code, applyView]);
+      .catch(() => setOpenError(t(msg('cz.play.serverQuiet'))));
+  }, [socket, connected, hostToken, code, applyView, t]);
 
   const remaining = useCountdown(view?.phaseEndsAt ?? null, serverNow);
   useTvSounds(view);
@@ -89,9 +89,9 @@ export default function CoronaZTv() {
   if (!hostToken) {
     return (
       <div className="jeu-screen jeu-center">
-        <p className="play-note">Cet écran ne connaît pas le jeton de cette partie.</p>
+        <p className="play-note">{t(msg('cz.tv.noToken'))}</p>
         <Button variant="secondary" onClick={() => void navigate('/coronaz')}>
-          Préparer une partie
+          {t(msg('cz.tv.prepare'))}
         </Button>
       </div>
     );
@@ -111,7 +111,7 @@ export default function CoronaZTv() {
   if (!view) {
     return (
       <div className="jeu-screen jeu-center">
-        <Loading label="Connexion à la partie…" />
+        <Loading label={t(msg('cz.tv.connecting'))} />
       </div>
     );
   }
@@ -274,7 +274,7 @@ export default function CoronaZTv() {
                   <span className="cz-ap tabular">
                     {view.phase === 'heroes' && hero.alive && !hero.escaped && !hero.forfeited
                       ? hero.ready
-                        ? 'prêt'
+                        ? t(msg('cz.tv.ready'))
                         : `${hero.ap} PA`
                       : ''}
                   </span>
@@ -345,17 +345,17 @@ export function CzEndScreen({
   return (
     <div className="cz-end">
       <p className={`cz-verdict ${view.phase === 'won' ? 'won' : 'lost'}`}>
-        {view.phase === 'won' ? 'SURVÉCU' : 'DÉVORÉS'}
+        {t(msg(view.phase === 'won' ? 'cz.tv.survived' : 'cz.tv.devoured'))}
       </p>
       {/* The seed is the rematch: same world, same dice, new decisions. */}
       <p className="play-note">
-        Tour {view.turn} · graine {view.seed} · rejouable à l’identique depuis la mise en place.
+        {t(msg('cz.tv.seed', { turn: view.turn, seed: view.seed }))}
       </p>
       {/* Why the numbers are what they are: the table's own handicap, and the
           survivors who refused their perks. */}
       {view.mutations.length > 0 && (
         <p className="play-note">
-          🧬 {view.mutations.length} mutation{view.mutations.length > 1 ? 's' : ''} · scores ×
+          {t(msg('cz.tv.mutations', { count: view.mutations.length }))}
           {view.mutationReward.toFixed(2)}
         </p>
       )}
@@ -368,7 +368,7 @@ export function CzEndScreen({
               {heroDef(score.heroId).emoji} {score.name}
               {!score.alive && ' 💀'}
               {score.escaped && ' 🚪'}
-              {score.forfeited && <span title="A quitté le raid en cours"> 🏳️</span>}
+              {score.forfeited && <span title={t(msg('cz.tv.forfeited'))}> 🏳️</span>}
               {score.bareHanded && <span title="Aucun atout choisi : +12 pts"> 🙌</span>}
             </span>
             <span className="score-value tabular">{score.score} pts</span>
@@ -406,7 +406,7 @@ export function CzEndScreen({
             reason an evening stops at three games rather than five. */}
         {onRematch && (
           <Button variant="primary" size="lg" onClick={onRematch}>
-            ↻ Rejouer
+            {t(msg('cz.tv.again'))}
           </Button>
         )}
         {onExit && (

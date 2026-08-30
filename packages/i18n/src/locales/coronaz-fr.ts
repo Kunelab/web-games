@@ -405,6 +405,23 @@ export const coronazFr: Catalogue = {
   'cz.quest.speed': 'Sortir vite',
 
   /* ---------------------------- le téléphone du survivant ------------------- */
+  'cz.play.yourName': 'Ton nom de survivant',
+  'cz.play.pickSurvivor': 'Choisis ton survivant',
+  'cz.play.pickSurvivorRations': 'Choisis ton survivant · 🥫 {count} rations',
+  'cz.play.botExpert': '+ Bot expert',
+  'cz.play.botNewbie': '+ Bot novice',
+  'cz.play.poor': ' · pauvre',
+  'cz.play.pickupKey': '🔑 Ramasser',
+  'cz.play.bagButton': '🎒 Sac',
+  'cz.play.attackWith': 'Attaquer avec',
+  'cz.play.hands': 'Mains',
+  'cz.play.leftHandSlot': 'main gauche',
+  'cz.play.rightHandSlot': 'main droite',
+  'cz.play.freeSlot': 'libre',
+  'cz.play.bagCount': 'Sac ({count}/5)',
+  'cz.play.bagEmpty': 'Vide. Fouillez.',
+  'cz.play.forfeit': '🏳️ Abandonner le raid',
+  'cz.play.forfeitSure': 'Abandonner pour de bon ?',
   'cz.play.serverQuiet': 'Le serveur ne répond pas.',
   'cz.play.connecting': 'Connexion…',
   'cz.play.waiting': 'En attente de la partie…',
@@ -489,6 +506,11 @@ export const coronazFr: Catalogue = {
 
   /* ---------------------------- choisir un survivant ------------------------ */
   'cz.hero.takenBy': '{name} — pris par {who}',
+  'cz.hero.youHave': ' · vous avez {count}',
+  'cz.hero.yours': 'Votre survivant.',
+  'cz.hero.pick': 'Choisir {name}',
+  'cz.hero.hp': '❤ {hp} PV',
+  'cz.hero.signaturePerks': 'Atouts signature',
   'cz.hero.unlockFor': 'Débloquer pour {cost} 🥫',
   'cz.hero.alreadyTaken': 'Déjà pris par {who}.'
 };

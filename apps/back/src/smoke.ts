@@ -984,7 +984,9 @@ check(
   shop.items.every((item) => item.game === 'coronaz'),
   shop.items
 );
-check('it names the currency', shop.currency.name === 'rations', shop.currency);
+// The currency name travels as a catalogue key now, not as a word: the shop is
+// read by an English browser as often as a French one.
+check('it names the currency', shop.currency.name === 'shop.currency.coronaz', shop.currency);
 
 const lockerAnon = await app.inject({ method: 'GET', url: '/api/locker/coronaz' });
 check('a locker needs a login', lockerAnon.statusCode === 401, lockerAnon.statusCode);

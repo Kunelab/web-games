@@ -299,6 +299,21 @@ export interface WinEntry {
   kind: WinKind;
 }
 
+/**
+ * One accusation, as it happened.
+ *
+ * `targetSlot` null is a withdrawal, which matters: a seat that put three votes
+ * on somebody and then took them all back is a story, and a log that only
+ * recorded the votes still standing at dusk would not contain it.
+ */
+export interface VoteNote {
+  day: number;
+  voterSlot: number;
+  targetSlot: number | null;
+  /** True for "hang nobody today", which has no target and is not a withdrawal. */
+  skip: boolean;
+}
+
 export interface MafiaState {
   code: string;
   hostToken: string;
@@ -313,6 +328,20 @@ export interface MafiaState {
   players: Record<string, MafiaPlayer>;
   /** Day accusations: voter id -> accused id, or `SKIP_VOTE`. */
   votes: Record<string, string>;
+  /**
+   * Every accusation of the game, in the order it was cast.
+   *
+   * Deliberately not the chat. An accusation used to post a system line, and a
+   * table of twenty-four revising their minds twice apiece wrote seventy lines
+   * an afternoon into a fixed-size ring — which meant the day phase quietly
+   * deleted its own record of who had died and what they turned out to be. So
+   * the trace lives here instead: its own list, its own budget, and no way for
+   * an afternoon of dithering to erase a death.
+   *
+   * Public information in full. Who is voting for whom is the one thing every
+   * player can already see on the roster; this is only the history of it.
+   */
+  voteLog: VoteNote[];
   trial: TrialState | null;
   trialsToday: number;
   /** Night submissions, by actor id. */
@@ -398,6 +427,7 @@ export function createMafiaGame(input: CreateMafiaInput): MafiaState {
     phaseEndsAt: null,
     players: {},
     votes: {},
+    voteLog: [],
     trial: null,
     trialsToday: 0,
     nightActions: {},

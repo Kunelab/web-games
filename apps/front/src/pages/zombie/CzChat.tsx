@@ -1,5 +1,8 @@
 import type { ChatMessage } from 'chat-core';
+import { msg } from 'i18n';
 import { useEffect, useRef, useState } from 'react';
+
+import { useT } from '../../i18n/locale-context';
 
 /**
  * The survivors' channel, as a drawer rather than a column.
@@ -22,6 +25,7 @@ export default function CzChat({
   /** Absent on the television: it shows the thread and cannot add to it. */
   onSend?: (text: string) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [seen, setSeen] = useState(0);
@@ -71,7 +75,7 @@ export default function CzChat({
         <div className="cz-chat">
           <div className="cz-chat-feed" ref={feed}>
             {messages.length === 0 ? (
-              <p className="cz-chat-empty">Personne n’a encore rien dit.</p>
+              <p className="cz-chat-empty">{t(msg('cz.chat.empty'))}</p>
             ) : (
               messages.map((message) => (
                 <p key={message.id} className={`cz-chat-line ${message.authorId === me ? 'mine' : ''}`}>
@@ -92,7 +96,7 @@ export default function CzChat({
               <input
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder="Dire quelque chose…"
+                placeholder={t(msg('cz.chat.placeholder'))}
                 maxLength={400}
                 aria-label="Message"
               />

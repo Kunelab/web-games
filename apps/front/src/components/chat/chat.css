@@ -61,6 +61,25 @@
   font-size: 0.85rem;
 }
 
+/*
+ * The seat number, in front of the name.
+ *
+ * A monospaced fixed-width chip so a column of them lines up: the whole point
+ * is that you can scan down the log for "16" without reading any names, which
+ * a proportional digit sitting inside the name would not give you.
+ */
+.chat-slot {
+  display: inline-block;
+  min-width: 1.6em;
+  margin-right: 5px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--chat-slot-bg, rgb(255 255 255 / 0.08));
+  color: var(--chat-slot-fg, #b9b6c4);
+  font: 600 0.8rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: center;
+}
+
 .chat-author {
   font-weight: 700;
   margin-right: 6px;
