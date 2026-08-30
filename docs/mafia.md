@@ -13,10 +13,26 @@
 > : manager + timers, bots LLM, persistance `MafiaSessions`, portefeuille
 > `MafiaCareers`), front (`apps/front/src/pages/mafia` : setup, siège joueur,
 > carte iso SVG 24 parcelles sans skins, `components/chat/ChatPanel` réutilisable).
-> Bots : `MAFIA_BOT_PROVIDER=ollama` (défaut, `qwen3.5:4b` local, sortie
-> contrainte par schéma JSON — même philosophie que le design deity-game :
-> le LLM choisit une direction, le moteur déterministe valide et exécute),
-> `anthropic` (Haiku), ou `scripted` (silencieux, aléatoire légal, aucun réseau).
+> Bots : `MAFIA_BOT_PROVIDER` est une *chaîne* de cerveaux essayés dans
+> l'ordre, par exemple `openai,ollama` — une API gratuite tant qu'elle
+> répond, la machine locale sinon, et le cerveau du simulateur quand aucun
+> des deux ne répond. Chaque barreau tombe au suivant sur une erreur ou un
+> quota, et le dernier barreau est toujours le cerveau joué (`sim/policies`),
+> qui est un vrai joueur : la table ne se tait jamais.
+>
+> - `openai` : n'importe quel point d'entrée compatible OpenAI —
+>   `MAFIA_API_URL` (défaut Groq) + `MAFIA_API_KEY` + `MAFIA_API_MODEL`.
+>   Couvre Groq, Cerebras, OpenRouter, Together, un vLLM maison.
+> - `anthropic` : `ANTHROPIC_API_KEY`.
+> - `ollama` : `OLLAMA_URL`, qui n'a pas besoin d'être local — un tunnel
+>   `ssh -N -L 11434:127.0.0.1:11434 debian` suffit à faire tourner le modèle
+>   sur l'autre machine. Le tag configuré (`MAFIA_BOT_MODEL`) est une
+>   *préférence* : le pilote demande à Ollama ce qui est réellement installé et
+>   prend le meilleur petit modèle de conversation présent (Qwen d'abord).
+> - `scripted` : n'appelle rien.
+>
+> Le LLM choisit une direction, le moteur déterministe valide et exécute —
+> même philosophie que le design deity-game.
 > Simulation headless : `pnpm --filter back mafia:sim`.
 > **v3 (voir en bas)** : l'interface du siège est une *liste de joueurs* avec
 > l'action sur la ligne de sa cible, la ville n'est plus que du décor, la télé

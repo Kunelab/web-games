@@ -1,10 +1,12 @@
 import { defaultSessionConfig, type SessionConfig } from 'game-core';
+import { msg } from 'i18n';
 import { useState } from 'react';
 import QRCode from 'react-qr-code';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { api, ApiError } from '../api/client';
 import { useAsync } from '../hooks/useAsync';
+import { useT } from '../i18n/locale-context';
 import { joinUrl } from '../tools/api-url';
 import { Badge, Button, Field, Input, Loading, Switch } from '../ui';
 import { PublicSwitch } from '../ui/PublicSwitch';
@@ -20,6 +22,7 @@ export default function Launch() {
   const { id } = useParams<{ id: string }>();
   const playlistId = Number(id);
   const navigate = useNavigate();
+  const t = useT();
 
   const playlist = useAsync(() => api.getPlaylist(playlistId), [playlistId]);
 
@@ -42,7 +45,7 @@ export default function Launch() {
       sessionStorage.setItem(`kune.host.${session.code}`, session.hostToken);
       setStarted(session);
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : 'Le lancement a échoué.');
+      setError(cause instanceof ApiError ? cause.message : t(msg('launch.failed')));
     } finally {
       setStarting(false);
     }
@@ -53,9 +56,9 @@ export default function Launch() {
     return (
       <>
         <Link to="/playlists" className="backlink">
-          ← Playlists
+          {t(msg('ple.back'))}
         </Link>
-        <p className="field-error">{playlist.error ?? 'Playlist introuvable.'}</p>
+        <p className="field-error">{playlist.error ?? t(msg('launch.notFound'))}</p>
       </>
     );
   }
@@ -69,12 +72,8 @@ export default function Launch() {
       <>
         <div className="page-head">
           <div>
-            <h1 className="page-title">Prêt à jouer</h1>
-            <p className="page-sub">
-              {config.oral
-                ? 'Ouvrez l’écran de jeu sur la télé et lancez le premier tour.'
-                : 'Les joueurs scannent, puis vous lancez le premier tour.'}
-            </p>
+            <h1 className="page-title">{t(msg('launch.ready'))}</h1>
+            <p className="page-sub">{t(msg(config.oral ? 'launch.readyOral' : 'launch.readyPhones'))}</p>
           </div>
         </div>
 
@@ -92,12 +91,12 @@ export default function Launch() {
             {started.skipped.length > 0 && (
               <div className="editor-section">
                 <h2 className="editor-section-title">
-                  Médias écartés <Badge tone="warn">{started.skipped.length}</Badge>
+                  {t(msg('launch.skipped'))} <Badge tone="warn">{started.skipped.length}</Badge>
                 </h2>
                 <ul className="stack-2" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {started.skipped.map((entry) => (
                     <li key={entry.title} className="field-hint">
-                      <strong>{entry.title}</strong> — il manque {entry.missing.join(', ')}
+                      <strong>{entry.title}</strong> {t(msg('launch.missing', { fields: entry.missing.join(', ') }))}
                     </li>
                   ))}
                 </ul>
@@ -105,14 +104,14 @@ export default function Launch() {
             )}
 
             <Button variant="primary" size="lg" onClick={() => void navigate(`/partie/${started.code}`)}>
-              Ouvrir l’écran de jeu
+              {t(msg('launch.openScreen'))}
             </Button>
 
             {/* One device does both: the stage on top, your answers underneath.
                 Oral mode already IS the no-phones mode, so it needs no twin. */}
             {!config.oral && (
               <Button variant="secondary" size="lg" onClick={() => void navigate(`/partie/${started.code}?solo=1`)}>
-                Jouer en solo sur cet appareil
+                {t(msg('launch.solo'))}
               </Button>
             )}
           </div>
@@ -130,49 +129,52 @@ export default function Launch() {
   return (
     <>
       <Link to={`/playlists/${playlistId}`} className="backlink">
-        ← {playlist.data.name ?? 'Playlist'}
+        ← {playlist.data.name ?? t(msg('launch.backPlaylist'))}
       </Link>
 
       <div className="page-head">
         <div>
-          <h1 className="page-title">Lancer « {playlist.data.name ?? 'Playlist'} »</h1>
+          <h1 className="page-title">
+            {t(msg('launch.of', { name: playlist.data.name ?? t(msg('launch.backPlaylist')) }))}
+          </h1>
           <p className="page-sub">
-            {ready} média{ready === 1 ? '' : 's'} jouable{ready === 1 ? '' : 's'}
-            {playlist.data.notReadyCount > 0 && ` · ${playlist.data.notReadyCount} écarté(s)`}
+            {t(msg('launch.playable', { count: ready }))}
+            {playlist.data.notReadyCount > 0 &&
+              t(msg('launch.skippedMeta', { count: playlist.data.notReadyCount }))}
           </p>
         </div>
       </div>
 
       <div className="launch-layout">
         <div className="editor-section">
-          <h2 className="editor-section-title">Options de la partie</h2>
+          <h2 className="editor-section-title">{t(msg('launch.options'))}</h2>
 
           <PublicSwitch
-            what="cette partie"
+            what={t(msg('launch.thisGame'))}
             value={config.public}
             onChange={(checked) => setConfig({ ...config, public: checked })}
           />
 
           <Switch
-            label="Ordre aléatoire"
+            label={t(msg('launch.shuffle'))}
             checked={config.shuffle}
             onCheckedChange={(checked) => setConfig({ ...config, shuffle: checked, chronological: false })}
           />
           <Switch
-            label="Ordre chronologique"
-            hint="Selon la date de chaque média."
+            label={t(msg('launch.chronological'))}
+            hint={t(msg('launch.chronological.hint'))}
             checked={config.chronological}
             onCheckedChange={(checked) => setConfig({ ...config, chronological: checked, shuffle: false })}
           />
           <Switch
-            label="Enchaîner automatiquement"
-            hint="Sinon, vous avancez manuellement après chaque révélation."
+            label={t(msg('launch.autoAdvance'))}
+            hint={t(msg('launch.autoAdvance.hint'))}
             checked={config.autoAdvance}
             onCheckedChange={(checked) => setConfig({ ...config, autoAdvance: checked })}
           />
           <Switch
-            label="Sans téléphones, à l’oral"
-            hint="Seule la télé affiche quelque chose, les réponses se disent à voix haute et rien n’est compté. C’est aussi le mode pour essayer une playlist seul."
+            label={t(msg('launch.oral'))}
+            hint={t(msg('launch.oral.hint'))}
             checked={config.oral}
             onCheckedChange={(checked) =>
               setConfig({
@@ -191,8 +193,8 @@ export default function Launch() {
           {!config.oral && (
             <>
               <Switch
-                label="Points de combo"
-                hint="Gagner plusieurs manches d’affilée multiplie les points : ×1,1, ×1,2… jusqu’à ×2."
+                label={t(msg('launch.combo'))}
+                hint={t(msg('launch.combo.hint'))}
                 checked={config.scoring.combo.enabled}
                 onCheckedChange={(checked) =>
                   setConfig({
@@ -202,8 +204,8 @@ export default function Launch() {
                 }
               />
               <Switch
-                label="Points de remontée"
-                hint="Le dernier tiers, s’il est vraiment décroché, marque jusqu’à ×1,5 sur ce qu’il trouve."
+                label={t(msg('launch.comeback'))}
+                hint={t(msg('launch.comeback.hint'))}
                 checked={config.scoring.comeback.enabled}
                 onCheckedChange={(checked) =>
                   setConfig({
@@ -216,7 +218,7 @@ export default function Launch() {
                 }
               />
 
-              <Field label="Essais par réponse" hint="Nombre de mauvaises réponses avant qu’un champ se bloque.">
+              <Field label={t(msg('launch.attempts'))} hint={t(msg('launch.attempts.hint'))}>
                 {({ id: fieldId, describedBy }) => (
                   <Input
                     id={fieldId}
@@ -237,41 +239,23 @@ export default function Launch() {
           {error && <p className="field-error">{error}</p>}
 
           <Button variant="primary" size="lg" busy={starting} disabled={ready === 0} onClick={() => void start()}>
-            Créer la partie
+            {t(msg('launch.create'))}
           </Button>
         </div>
 
         {config.oral ? (
           <div className="editor-section" style={{ maxWidth: '22rem' }}>
-            <h2 className="editor-section-title">Comment ça se joue</h2>
-            <p className="field-hint">
-              La télé montre le média, la salle répond à voix haute, vous montrez la réponse quand tout le monde s’est
-              prononcé. Rien n’est chronométré et rien n’est compté.
-            </p>
-            <p className="field-hint">
-              La partie démarre même s’il n’y a personne, ce qui en fait le moyen le plus rapide d’écouter une playlist
-              du début à la fin pour vérifier qu’elle tient debout.
-            </p>
-            <p className="field-hint">
-              Un téléphone peut quand même rejoindre avec le code si vous voulez tester l’écran joueur.
-            </p>
+            <h2 className="editor-section-title">{t(msg('launch.howOral'))}</h2>
+            <p className="field-hint">{t(msg('launch.howOral.1'))}</p>
+            <p className="field-hint">{t(msg('launch.howOral.2'))}</p>
+            <p className="field-hint">{t(msg('launch.howOral.3'))}</p>
           </div>
         ) : (
           <div className="editor-section" style={{ maxWidth: '22rem' }}>
-            <h2 className="editor-section-title">Comment se calcule le score</h2>
-            <p className="field-hint">
-              Chaque réponse est une course à part : le premier à trouver le titre marque le maximum sur ce champ, même
-              si quelqu’un d’autre a trouvé l’artiste avant lui.
-            </p>
-            <p className="field-hint">
-              Trois choses entrent dans le calcul : la place obtenue sur la réponse, qui compte le plus ; le temps qu’il
-              restait au chrono ; et le temps par rapport aux autres joueurs qui ont trouvé, ce qui récompense celui qui
-              savait quand la question était difficile pour tout le monde.
-            </p>
-            <p className="field-hint">
-              Le retard réseau est compensé : c’est le moment où le joueur a appuyé qui est retenu, pas celui où son
-              message est arrivé. Les points ont des décimales, c’est normal.
-            </p>
+            <h2 className="editor-section-title">{t(msg('launch.howScore'))}</h2>
+            <p className="field-hint">{t(msg('launch.howScore.1'))}</p>
+            <p className="field-hint">{t(msg('launch.howScore.2'))}</p>
+            <p className="field-hint">{t(msg('launch.howScore.3'))}</p>
           </div>
         )}
       </div>

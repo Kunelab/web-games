@@ -1,4 +1,14 @@
 import type { Catalogue } from '../index.js';
+import { rolesEn } from './roles-en.js';
+import { atelierEn } from './atelier-en.js';
+import { coronazEn } from './coronaz-en.js';
+import { lobbyEn } from './lobby-en.js';
+import { notesEn } from './notes-en.js';
+import { playEn } from './play-en.js';
+import { quizEn } from './quiz-en.js';
+import { screenEn } from './screen-en.js';
+import { shopEn } from './shop-en.js';
+import { siteEn } from './site-en.js';
 
 /**
  * English: the reference catalogue and the fallback for every other language.
@@ -12,6 +22,17 @@ import type { Catalogue } from '../index.js';
  * A translator reads it top to bottom and sees an evening happen.
  */
 export const en: Catalogue = {
+  ...rolesEn,
+  ...atelierEn,
+  ...coronazEn,
+  ...lobbyEn,
+  ...notesEn,
+  ...playEn,
+  ...quizEn,
+  ...screenEn,
+  ...shopEn,
+  ...siteEn,
+
   /* ------------------------------- the clock ------------------------------- */
   'mafia.day.header': '— Day {day} —',
   'mafia.game.start': 'The game begins. Welcome to town — get to know each other, night falls quickly.',
@@ -34,6 +55,7 @@ export const en: Catalogue = {
   'mafia.trial.secret': 'The exceptional court voted by secret ballot: no name leaves this room.',
   'mafia.trial.spared': '{name} is spared.',
   'mafia.trial.nobody': 'nobody',
+  'mafia.vote.skipped': 'The town would rather hang nobody today. Night falls.',
 
   'mafia.pause.begun': 'The clock stops: the table is waiting for {names}.',
   'mafia.pause.resumed': 'Everybody is back. Play continues.',

@@ -1,5 +1,6 @@
 import type { ChatMessage } from 'chat-core';
 import type { ClockPongPayload } from 'game-core';
+import { msg, type Msg } from 'i18n';
 import type { MafiaClientToServer, MafiaReward, MafiaServerToClient, MafiaView } from 'mafia-core';
 import { useCallback, useEffect, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
@@ -31,7 +32,8 @@ export interface MafiaConnection {
   /** view.chat plus every message pushed since the last broadcast. */
   messages: ChatMessage[];
   rewards: MafiaReward[] | null;
-  error: string | null;
+  /** A key, like everything else the server says; the screen renders it. */
+  error: Msg | null;
   serverNow: () => number;
   applyView: (next: MafiaView) => void;
 }
@@ -42,7 +44,7 @@ export function useMafiaSocket(): MafiaConnection {
   const [view, setView] = useState<MafiaView | null>(null);
   const [extra, setExtra] = useState<ChatMessage[]>([]);
   const [rewards, setRewards] = useState<MafiaReward[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Msg | null>(null);
   const { serverNow, synchronise } = useServerClock();
 
   const applyView = useCallback((next: MafiaView) => {
@@ -63,7 +65,7 @@ export function useMafiaSocket(): MafiaConnection {
       synchronise(current);
     });
     current.on('disconnect', () => setConnected(false));
-    current.on('connect_error', () => setError('Connexion au serveur impossible.'));
+    current.on('connect_error', () => setError(msg('net.unreachable')));
     current.on('mafia:state', applyView);
     current.on('mafia:message', (message) => setExtra((currentExtra) => [...currentExtra, message]));
     current.on('mafia:rewards', (next) => setRewards(next));

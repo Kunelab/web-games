@@ -15,8 +15,15 @@ import type { LobbyGame } from 'lobby-core';
 
 export interface GameEntry {
   id: LobbyGame;
+  /**
+   * The game's own name — the same word in every language.
+   *
+   * "Mafia" and "CoronaZ" are proper nouns and "Quiz" reads as one in both
+   * shipped languages, so they stay here rather than going through the
+   * catalogue. The tagline underneath them does not, and does.
+   */
   name: string;
-  /** One line, for the dropdown and the menu header. */
+  /** Catalogue key for the one line under the name: `site.game.<id>.tagline`. */
   tagline: string;
   /** The game's own menu: create, join, learn, leave. */
   path: string;
@@ -33,7 +40,7 @@ export const GAMES: GameEntry[] = [
   {
     id: 'quiz',
     name: 'Quiz',
-    tagline: 'Blind test, questions, estimations, panels — à faire deviner entre amis.',
+    tagline: 'site.game.quiz.tagline',
     path: '/quiz',
     createPath: '/quiz/creer',
     guidePath: '/quiz/regles',
@@ -43,7 +50,7 @@ export const GAMES: GameEntry[] = [
   {
     id: 'coronaz',
     name: 'CoronaZ',
-    tagline: 'Survie coopérative contre la horde, façon jeu de plateau.',
+    tagline: 'site.game.coronaz.tagline',
     path: '/coronaz',
     createPath: '/coronaz/nouveau',
     guidePath: '/coronaz/guide',
@@ -53,7 +60,7 @@ export const GAMES: GameEntry[] = [
   {
     id: 'mafia',
     name: 'Mafia',
-    tagline: 'Une ville, des loups, et personne qui dit la vérité.',
+    tagline: 'site.game.mafia.tagline',
     path: '/mafia',
     createPath: '/mafia/nouveau',
     guidePath: '/mafia/guide',

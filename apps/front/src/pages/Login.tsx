@@ -1,8 +1,10 @@
+import { msg } from 'i18n';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
+import { useT } from '../i18n/locale-context';
 import { Button, Field, Input } from '../ui';
 import './home.css';
 
@@ -10,6 +12,7 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { setUser } = useAuth();
+  const t = useT();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -31,9 +34,7 @@ export default function Login() {
       void navigate(from, { replace: true });
     } catch (cause) {
       setError(
-        cause instanceof ApiError && cause.status === 400
-          ? 'Pseudo ou mot de passe incorrect.'
-          : 'La connexion a échoué.'
+        t(msg(cause instanceof ApiError && cause.status === 400 ? 'auth.badCredentials' : 'auth.signInFailed'))
       );
     } finally {
       setBusy(false);
@@ -42,10 +43,10 @@ export default function Login() {
 
   return (
     <div className="auth-page">
-      <h1 className="page-title">Connexion</h1>
+      <h1 className="page-title">{t(msg('auth.signIn'))}</h1>
 
       <form onSubmit={(event) => void submit(event)}>
-        <Field label="Pseudo">
+        <Field label={t(msg('auth.username'))}>
           {({ id }) => (
             <Input
               id={id}
@@ -56,7 +57,7 @@ export default function Login() {
           )}
         </Field>
 
-        <Field label="Mot de passe" error={error ?? undefined}>
+        <Field label={t(msg('auth.password'))} error={error ?? undefined}>
           {({ id, describedBy, invalid }) => (
             <Input
               id={id}
@@ -71,15 +72,15 @@ export default function Login() {
         </Field>
 
         <Button type="submit" variant="primary" busy={busy} block disabled={!username || !password}>
-          Se connecter
+          {t(msg('auth.doSignIn'))}
         </Button>
       </form>
 
       <p className="auth-alt">
-        Pas de compte ? <Link to="/inscription">S’inscrire</Link>
+        {t(msg('auth.noAccount'))} <Link to="/inscription">{t(msg('auth.signUp'))}</Link>
       </p>
       <p className="auth-alt">
-        Vous venez jouer ? <Link to="/rejoindre">Rejoindre une partie</Link>
+        {t(msg('auth.justPlaying'))} <Link to="/rejoindre">{t(msg('auth.joinGame'))}</Link>
       </p>
     </div>
   );

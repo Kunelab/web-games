@@ -17,12 +17,13 @@ import { LOBBY_GAMES, type LobbyGame } from './state.js';
 export type ShopKind = 'skin';
 
 export interface ShopItem {
-  /** Globally unique across games, so an id alone identifies a purchase. */
+  /**
+   * Globally unique across games, so an id alone identifies a purchase — and,
+   * since the catalogue keys are derived from it, so is the item's name.
+   */
   id: string;
   game: LobbyGame;
   kind: ShopKind;
-  name: string;
-  description: string;
   /** In that game's own currency. Charged server-side; the client only displays it. */
   price: number;
   /**
@@ -36,30 +37,25 @@ export interface ShopItem {
   emoji: string;
 }
 
+/**
+ * A game's wallet: an emoji, and the keys that name it and say how it fills.
+ *
+ * Keys rather than words for the same reason the quick lobby's options are:
+ * this package is imported by a browser that renders three games' shops and
+ * knows none of their engines, so the phone resolves the words.
+ */
 export interface Currency {
-  /** Plural, lowercase: it is read inside a sentence. */
+  /** Catalogue key. Plural, lowercase: it is read inside a sentence. */
   name: string;
   emoji: string;
-  /** How it is earned, for the shop's one line of explanation. */
+  /** Catalogue key: how it is earned, for the shop's one line of explanation. */
   earnedBy: string;
 }
 
 export const CURRENCIES: Record<LobbyGame, Currency> = {
-  quiz: {
-    name: 'jetons',
-    emoji: '🎟️',
-    earnedBy: 'Un jeton par point marqué, à la fin de chaque partie.'
-  },
-  coronaz: {
-    name: 'rations',
-    emoji: '🥫',
-    earnedBy: 'Ramassées à chaque raid, davantage si vous en revenez.'
-  },
-  mafia: {
-    name: 'points',
-    emoji: '🎭',
-    earnedBy: 'Marqués en jouant votre rôle, gagnés ou perdus.'
-  }
+  quiz: { name: 'shop.currency.quiz', emoji: '🎟️', earnedBy: 'shop.currency.quiz.earned' },
+  coronaz: { name: 'shop.currency.coronaz', emoji: '🥫', earnedBy: 'shop.currency.coronaz.earned' },
+  mafia: { name: 'shop.currency.mafia', emoji: '🎭', earnedBy: 'shop.currency.mafia.earned' }
 };
 
 const ITEMS: ShopItem[] = [
@@ -68,8 +64,6 @@ const ITEMS: ShopItem[] = [
     id: 'quiz-vinyle',
     game: 'quiz',
     kind: 'skin',
-    name: 'Vinyle',
-    description: 'Un 33 tours rayé en guise de portrait. Le classique.',
     price: 300,
     slot: 'avatar',
     emoji: '💿'
@@ -78,8 +72,6 @@ const ITEMS: ShopItem[] = [
     id: 'quiz-neon',
     game: 'quiz',
     kind: 'skin',
-    name: 'Néon',
-    description: 'Votre nom au tube fluo, sur le tableau des scores.',
     price: 700,
     slot: 'avatar',
     emoji: '🌈'
@@ -88,8 +80,6 @@ const ITEMS: ShopItem[] = [
     id: 'quiz-couronne',
     game: 'quiz',
     kind: 'skin',
-    name: 'Couronne',
-    description: 'Pour qui a déjà gagné assez souvent pour se le permettre.',
     price: 1200,
     slot: 'avatar',
     emoji: '👑'
@@ -100,8 +90,6 @@ const ITEMS: ShopItem[] = [
     id: 'cz-pompier',
     game: 'coronaz',
     kind: 'skin',
-    name: 'Tenue de pompier',
-    description: 'Ignifugée, réfléchissante, et strictement décorative.',
     price: 150,
     slot: 'avatar',
     emoji: '🧯'
@@ -110,8 +98,6 @@ const ITEMS: ShopItem[] = [
     id: 'cz-hazmat',
     game: 'coronaz',
     kind: 'skin',
-    name: 'Combinaison NRBC',
-    description: 'Étanche à tout sauf aux morsures.',
     price: 300,
     slot: 'avatar',
     emoji: '☣️'
@@ -120,8 +106,6 @@ const ITEMS: ShopItem[] = [
     id: 'cz-milice',
     game: 'coronaz',
     kind: 'skin',
-    name: 'Milice',
-    description: 'Treillis dépareillé, brassard peint à la main.',
     price: 450,
     slot: 'avatar',
     emoji: '🎖️'
@@ -132,8 +116,6 @@ const ITEMS: ShopItem[] = [
     id: 'mafia-fedora',
     game: 'mafia',
     kind: 'skin',
-    name: 'Feutre et cravate',
-    description: 'On ne prouve rien avec un chapeau.',
     price: 200,
     slot: 'avatar',
     emoji: '🎩'
@@ -142,8 +124,6 @@ const ITEMS: ShopItem[] = [
     id: 'mafia-loup',
     game: 'mafia',
     kind: 'skin',
-    name: 'Masque de loup',
-    description: 'Porté par la ville comme par la meute. C’est l’idée.',
     price: 500,
     slot: 'avatar',
     emoji: '🐺'
@@ -152,8 +132,6 @@ const ITEMS: ShopItem[] = [
     id: 'mafia-veuve',
     game: 'mafia',
     kind: 'skin',
-    name: 'Voile de deuil',
-    description: 'Pour qui compte les morts avant tout le monde.',
     price: 800,
     slot: 'avatar',
     emoji: '🕯️'

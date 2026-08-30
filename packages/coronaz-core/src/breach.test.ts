@@ -76,7 +76,7 @@ describe('breaking through a wall', () => {
     const before = shortestPath(state.board, from.id, into.id)?.length ?? Infinity;
 
     const result = applyHeroAction(state, hero.playerId, { type: 'breach', roomId: into.id });
-    assert.equal(result.ok, true, result.error ?? 'breach refused');
+    assert.equal(result.ok, true, typeof result.error === 'string' ? result.error : 'breach refused');
 
     /**
      * The assertion that matters: the adjacency and the routes are both cached

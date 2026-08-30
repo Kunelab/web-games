@@ -1,4 +1,5 @@
-import { FACTION_LABELS, type MafiaPublicPlayer } from 'mafia-core';
+import type { MafiaPublicPlayer } from 'mafia-core';
+import { msg, type Msg } from 'i18n';
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 
@@ -49,7 +50,7 @@ export default function MafiaTv() {
   const { socket, connected, view, messages, error, serverNow } = useMafiaSocket();
   const t = useT();
 
-  const [claimError, setClaimError] = useState<string | null>(null);
+  const [claimError, setClaimError] = useState<Msg | null>(null);
   /** Off means "reveal nothing". Remembered per table so a reload keeps the choice. */
   const [spoilers, setSpoilers] = useState(() => localStorage.getItem(`mafia:tv:spoilers:${code}`) === 'on');
   const shellRef = useRef<HTMLDivElement>(null);
@@ -58,7 +59,7 @@ export default function MafiaTv() {
   useEffect(() => {
     if (!socket || !connected) return;
     socket.emit('mafia:spectate', { code }, (ack) => {
-      if (!ack.ok) setClaimError(ack.error ?? 'Impossible de rejoindre cette table');
+      if (!ack.ok) setClaimError(ack.error ?? msg('mafia.tv.cannotJoin'));
     });
   }, [socket, connected, code]);
 
@@ -76,8 +77,8 @@ export default function MafiaTv() {
   if (claimError) {
     return (
       <div className="mz-tv-empty">
-        <h1>Table {code}</h1>
-        <p>{claimError}</p>
+        <h1>{t(msg('mafia.ui.table', { code }))}</h1>
+        <p>{t(claimError)}</p>
       </div>
     );
   }
@@ -90,14 +91,17 @@ export default function MafiaTv() {
   /** What a dead row is allowed to say here. */
   function epitaph(player: MafiaPublicPlayer): { text: string; className: string } | null {
     if (player.alive) return null;
-    if (!spoilers) return { text: 'Mort', className: 'mz-fac--hidden' };
+    if (!spoilers) return { text: t(msg('mafia.tv.deadShort')), className: 'mz-fac--hidden' };
     if (player.roleName) {
-      return { text: player.roleName, className: FACTION_HINT[player.faction ?? 'neutral'] ?? 'mz-fac--neutral' };
+      return { text: t(player.roleName), className: FACTION_HINT[player.faction ?? 'neutral'] ?? 'mz-fac--neutral' };
     }
     if (player.faction) {
-      return { text: FACTION_LABELS[player.faction], className: FACTION_HINT[player.faction] ?? 'mz-fac--neutral' };
+      return {
+        text: t(msg(`mafia.faction.${player.faction}`)),
+        className: FACTION_HINT[player.faction] ?? 'mz-fac--neutral'
+      };
     }
-    return { text: 'Corps méconnaissable', className: 'mz-fac--hidden' };
+    return { text: t(msg('mafia.tv.unrecognisable')), className: 'mz-fac--hidden' };
   }
 
   /**
@@ -121,7 +125,7 @@ export default function MafiaTv() {
           // `msg` is dropped along with the text: a veiled line must not still be
           // carrying the key that would render the thing being veiled.
           message.reveals
-            ? { ...message, msg: undefined, text: '⸻ un secret a été dit ici ⸻', veiled: true }
+            ? { ...message, msg: undefined, text: t(msg('mafia.tv.veiled')), veiled: true }
             : message
         );
 
@@ -137,7 +141,7 @@ export default function MafiaTv() {
       {pause.paused && (
         <PauseOverlay
           waitingFor={pause.waitingFor.map((seat) => ({
-            label: `${seat.name} (maison ${seat.slot})`,
+            label: t(msg('mafia.ui.seatLabel', { name: seat.name, slot: seat.slot })),
             id: seat.slot,
             awayMs: seat.awayMs
           }))}
@@ -147,7 +151,7 @@ export default function MafiaTv() {
           vote={
             pause.vote
               ? {
-                  label: `${pause.vote.name} (maison ${pause.vote.slot})`,
+                  label: t(msg('mafia.ui.seatLabel', { name: pause.vote.name, slot: pause.vote.slot })),
                   closesAt: pause.vote.closesAt,
                   yes: pause.vote.yes,
                   no: pause.vote.no,
@@ -163,45 +167,45 @@ export default function MafiaTv() {
       )}
       <header className="mz-tv-bar">
         <span className="mz-tv-phase">
-          {view.phase === 'lobby' && 'Salle d’attente'}
-          {view.phase === 'day' && `☀️ Jour ${view.day}`}
-          {view.phase === 'night' && `🌙 Nuit ${view.day}`}
-          {view.phase === 'ended' && 'Partie terminée'}
+          {view.phase === 'lobby' && t(msg('mafia.ui.phase.lobby'))}
+          {view.phase === 'day' && t(msg('mafia.ui.phase.day', { day: view.day }))}
+          {view.phase === 'night' && t(msg('mafia.ui.phase.night', { day: view.day }))}
+          {view.phase === 'ended' && t(msg('mafia.ui.phase.ended'))}
         </span>
-        {view.stage === 'defense' && <span className="mz-tv-stage">Défense</span>}
-        {view.stage === 'judgement' && <span className="mz-tv-stage">Jugement</span>}
-        {view.trial && <span className="mz-tv-trial">{view.trial.name} à la barre</span>}
+        {view.stage === 'defense' && <span className="mz-tv-stage">{t(msg('mafia.ui.stage.defense'))}</span>}
+        {view.stage === 'judgement' && <span className="mz-tv-stage">{t(msg('mafia.ui.stage.judgement'))}</span>}
+        {view.trial && <span className="mz-tv-trial">{t(msg('mafia.tv.onStand', { name: view.trial.name }))}</span>}
 
         <span className="mz-tv-spacer" />
 
-        {view.phase === 'lobby' && <span className="mz-tv-code">Code&nbsp;{code}</span>}
-        <span className="mz-tv-alive">{view.players.filter((player) => player.alive).length} en vie</span>
+        {view.phase === 'lobby' && <span className="mz-tv-code">{t(msg('mafia.tv.code', { code }))}</span>}
+        <span className="mz-tv-alive">
+          {t(msg('mafia.ui.alive', { count: view.players.filter((player) => player.alive).length }))}
+        </span>
         {view.phaseEndsAt !== null && (
           <span className={remaining <= 10 ? 'mz-tv-timer mz-tv-timer--urgent' : 'mz-tv-timer'}>{remaining}s</span>
         )}
 
         <button type="button" className="mz-tv-btn" onClick={() => setSpoilers((on) => !on)}>
-          {spoilers ? '🙈 Masquer les rôles' : '👁️ Révéler les rôles'}
+          {t(msg(spoilers ? 'mafia.tv.hideRoles' : 'mafia.tv.showRoles'))}
         </button>
-        <button type="button" className="mz-tv-btn" onClick={toggleFullscreen}>
+        <button type="button" className="mz-tv-btn" onClick={toggleFullscreen} title={t(msg('mafia.tv.fullscreen'))}>
           ⛶
         </button>
       </header>
 
-      {error && <p className="mz-tv-error">{error}</p>}
+      {error && <p className="mz-tv-error">{t(error)}</p>}
 
       <div className="mz-tv-body">
         <div className="mz-tv-stagearea">
           <MafiaTown players={view.players} mySlot={null} night={isNight} onTrial={view.trial !== null} />
           {view.phase === 'lobby' && (
             <p className="mz-tv-invite">
-              Rejoignez la table sur <strong>{joinUrl}</strong>
+              {t(msg('mafia.tv.joinAt'))} <strong>{joinUrl}</strong>
             </p>
           )}
           {!spoilers && (
-            <p className="mz-tv-note">
-              Mode sans spoiler : cet écran ne montre aucun rôle. Les identités restent sur les téléphones.
-            </p>
+            <p className="mz-tv-note">{t(msg('mafia.tv.noSpoilers'))}</p>
           )}
         </div>
 

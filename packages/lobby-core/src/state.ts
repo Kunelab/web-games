@@ -22,9 +22,19 @@ export function isLobbyGame(value: string): value is LobbyGame {
 
 /* ------------------------------------------------------------------ options */
 
+/**
+ * One setting a room may vote for.
+ *
+ * `label` is a catalogue key, not a sentence: this package is imported by a
+ * browser that renders a lobby for three games without importing any of their
+ * engines, so the words have to be resolved on the phone that knows who is
+ * reading. `text` is the exception, for a choice whose name is somebody's own
+ * content — a published quiz title is not a thing to translate.
+ */
 export interface QuickOptionChoice {
   value: string;
   label: string;
+  text?: string;
 }
 
 /**
@@ -37,6 +47,7 @@ export interface QuickOptionChoice {
  */
 export interface QuickOptionSpec {
   key: string;
+  /** Catalogue keys, like `QuickOptionChoice.label`. */
   label: string;
   hint?: string;
   choices: QuickOptionChoice[];

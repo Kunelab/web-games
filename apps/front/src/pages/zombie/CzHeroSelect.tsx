@@ -1,3 +1,4 @@
+import { msg } from 'i18n';
 import {
   HERO_GLOBAL_PERKS,
   HEROES,
@@ -15,6 +16,7 @@ import { useState } from 'react';
 import { heroHue, heroPortrait, itemSprite } from './czAssets';
 import { cx } from '../../ui/cx';
 import { Button } from '../../ui';
+import { useT } from '../../i18n/locale-context';
 
 /**
  * The draft screen: pick a survivor, read what they do, then build them.
@@ -54,6 +56,7 @@ export function CzHeroSelect({
   onUnlock: (heroId: string) => void;
   onLoadout: (perks: string[]) => void;
 }) {
+  const t = useT();
   /** What the panel is describing: hover wins, then your pick, then the first. */
   const [preview, setPreview] = useState<string | null>(null);
   const shown = preview ?? mine ?? HEROES[0]?.id ?? 'charles';
@@ -110,7 +113,7 @@ export function CzHeroSelect({
           </span>
           <div>
             <h3 className="cz-dossier-name">{hero.name}</h3>
-            <p className="cz-dossier-blurb">{hero.blurb}</p>
+            <p className="cz-dossier-blurb">{t(msg(hero.blurb))}</p>
             <p className="cz-dossier-stats">
               <span>❤ {hero.hp} PV</span>
               <FavouriteWeapon biome={biome} role={hero.favoriteWeapon} />
@@ -149,7 +152,7 @@ export function CzHeroSelect({
                 const perk = loadoutPerkDef(id);
                 return (
                   <li key={id}>
-                    {perk.emoji} {perk.label}
+                    {perk.emoji} {t(msg(perk.label))}
                   </li>
                 );
               })}
@@ -178,11 +181,15 @@ export function HeroPortrait({ heroId, emoji }: { heroId: string; emoji: string 
  * role is the character's, the actual gun belongs to the biome.
  */
 function FavouriteWeapon({ biome, role }: { biome: string; role: ItemRole }) {
+  const t = useT();
   const def = itemFor(biome === 'random' ? 'modern' : biome, role);
   const stats = weaponStats(def, def.tier);
   const art = itemSprite(def.id);
   return (
-    <span className="cz-favourite" title={`Arme fétiche (${roleDef(role).label}) : +1 dé avec ${def.name}`}>
+    <span
+      className="cz-favourite"
+      title={t(msg('cz.favourite', { role: msg(roleDef(role).label), item: msg(def.name) }))}
+    >
       {art ? <img className="cz-item-sprite" src={art} alt="" /> : def.emoji} {def.name}
       {stats && (
         <span className="cz-favourite-stats">
@@ -209,6 +216,7 @@ function PerkPicker({
   loadout: readonly string[];
   onChange: (perks: string[]) => void;
 }) {
+  const t = useT();
   const signaturePool = heroDef(heroId).personalPerks as readonly string[];
   const signature = loadout.find((id) => signaturePool.includes(id)) ?? null;
   const globals = loadout.filter((id) => !signaturePool.includes(id));
@@ -227,7 +235,7 @@ function PerkPicker({
               className={`cz-perk ${picked ? 'picked' : ''}`}
               onClick={() => onChange([...(picked ? [] : [id]), ...globals])}
             >
-              {perk.emoji} {perk.label}
+              {perk.emoji} {t(msg(perk.label))}
             </button>
           );
         })}
@@ -252,7 +260,7 @@ function PerkPicker({
                 ])
               }
             >
-              {perk.emoji} {perk.label}
+              {perk.emoji} {t(msg(perk.label))}
             </button>
           );
         })}

@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react';
+import { msg } from 'i18n';
 import { Link } from 'react-router';
 
 import type { GameEntry } from '../../app/games';
 import { useAuth } from '../../hooks/useAuth';
+import { useT } from '../../i18n/locale-context';
 import './menu.css';
 
 /**
@@ -21,6 +22,7 @@ import './menu.css';
 
 export interface MenuTile {
   to: string;
+  /** Catalogue keys, resolved here: a tile list is data, not prose. */
   label: string;
   hint: string;
   emoji: string;
@@ -34,13 +36,14 @@ export interface MenuTile {
 
 export interface GameMenuProps {
   game: GameEntry;
-  /** Two or three lines of what this game is, above the tiles. */
-  lede: ReactNode;
+  /** Key for the two or three lines of what this game is, above the tiles. */
+  lede: string;
   tiles: MenuTile[];
 }
 
 export default function GameMenu({ game, lede, tiles }: GameMenuProps) {
   const { user } = useAuth();
+  const t = useT();
 
   return (
     <div className="menu" style={{ '--game-accent': game.accent } as React.CSSProperties}>
@@ -50,11 +53,11 @@ export default function GameMenu({ game, lede, tiles }: GameMenuProps) {
         </span>
         <div>
           <h1 className="menu-title">{game.name}</h1>
-          <p className="menu-lede">{lede}</p>
+          <p className="menu-lede">{t(msg(lede))}</p>
         </div>
       </header>
 
-      <nav className="menu-grid" aria-label={`Menu ${game.name}`}>
+      <nav className="menu-grid" aria-label={t(msg('site.menu.aria', { game: game.name }))}>
         {tiles.map((tile) => {
           const locked = Boolean(tile.requiresAccount) && !user;
 
@@ -64,8 +67,8 @@ export default function GameMenu({ game, lede, tiles }: GameMenuProps) {
                 <span className="menu-tile-emoji" aria-hidden="true">
                   {tile.emoji}
                 </span>
-                <strong>{tile.label}</strong>
-                <span className="menu-tile-hint">Il faut un compte — se connecter</span>
+                <strong>{t(msg(tile.label))}</strong>
+                <span className="menu-tile-hint">{t(msg('site.menu.needsAccount'))}</span>
               </Link>
             );
           }
@@ -81,15 +84,15 @@ export default function GameMenu({ game, lede, tiles }: GameMenuProps) {
               <span className="menu-tile-emoji" aria-hidden="true">
                 {tile.emoji}
               </span>
-              <strong>{tile.label}</strong>
-              <span className="menu-tile-hint">{tile.hint}</span>
+              <strong>{t(msg(tile.label))}</strong>
+              <span className="menu-tile-hint">{t(msg(tile.hint))}</span>
             </Link>
           );
         })}
       </nav>
 
       <Link to="/" className="menu-back">
-        ← Retour au menu principal
+        {t(msg('site.menu.back'))}
       </Link>
     </div>
   );

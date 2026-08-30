@@ -107,8 +107,8 @@ function setback(rng: RngState, lot: Rect, width: number, height: number): Rect 
  */
 const quartier: LayoutDef = {
   id: 'quartier',
-  name: 'Quartier',
-  blurb: 'Rues qui se croisent, immeubles et commerces entre elles.',
+  name: 'coronaz.layout.quartier.name',
+  blurb: 'coronaz.layout.quartier.blurb',
   plan: (rng, width, height) => {
     const outer: Rect = { x: 0, y: 0, w: width, h: height };
     const verticalCount = width >= 22 ? 2 : 1;
@@ -157,8 +157,8 @@ const quartier: LayoutDef = {
  */
 const residence: LayoutDef = {
   id: 'residence',
-  name: 'Lotissement',
-  blurb: 'Une route, des pavillons détachés, beaucoup d’extérieur.',
+  name: 'coronaz.layout.residence.name',
+  blurb: 'coronaz.layout.residence.blurb',
   plan: (rng, width, height) => {
     const plots: Plot[] = [];
     const horizontalRoad = height >= width * 0.6 ? chance(rng, 0.5) : true;
@@ -234,8 +234,8 @@ const residence: LayoutDef = {
  */
 const complexe: LayoutDef = {
   id: 'complexe',
-  name: 'Complexe',
-  blurb: 'Des ailes reliées par des couloirs : laboratoire, bunker, abri. Presque tout en intérieur.',
+  name: 'coronaz.layout.complexe.name',
+  blurb: 'coronaz.layout.complexe.blurb',
   plan: (rng, width, height) => {
     const plots: Plot[] = [];
 
@@ -317,8 +317,8 @@ const complexe: LayoutDef = {
  */
 const etablissement: LayoutDef = {
   id: 'etablissement',
-  name: 'Établissement',
-  blurb: 'Une rue, une grande salle, des sanitaires et l’arrière-boutique.',
+  name: 'coronaz.layout.etablissement.name',
+  blurb: 'coronaz.layout.etablissement.blurb',
   plan: (rng, width, height) => {
     const streetDepth = chance(rng, 0.5) ? 2 : 3;
     const frontAtTop = chance(rng, 0.5);
@@ -396,8 +396,8 @@ const etablissement: LayoutDef = {
  */
 const ville: LayoutDef = {
   id: 'ville',
-  name: 'Ville',
-  blurb: 'Une avenue, ses trottoirs, une place, un commissariat et un hôpital.',
+  name: 'coronaz.layout.ville.name',
+  blurb: 'coronaz.layout.ville.blurb',
   plan: (rng, width, height) => {
     const plots: Plot[] = [];
     /** Along x when the board is wider than tall, so the road is always the long axis. */

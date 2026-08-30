@@ -1,22 +1,25 @@
 /**
- * French face of each award key the server can hand out. Unknown keys still
- * render — a new server-side award degrades to a generic medal, not a crash.
+ * The face of each award key the server can hand out.
+ *
+ * An emoji and a catalogue key. Unknown keys still render — a new server-side
+ * award degrades to a generic medal with its own id for a name, not a crash,
+ * and `render` shows the raw key rather than an empty span.
  */
-export const AWARD_META: Record<string, { emoji: string; title: string }> = {
-  fastest: { emoji: '⚡', title: 'L’éclair' },
-  workhorse: { emoji: '🧱', title: 'Le stakhanoviste' },
-  sniper: { emoji: '🎯', title: 'Le sniper' },
-  scattergun: { emoji: '🌪️', title: 'La mitraillette' },
-  streak: { emoji: '🔥', title: 'La série' },
+export const AWARD_EMOJI: Record<string, string> = {
+  fastest: '⚡',
+  workhorse: '🧱',
+  sniper: '🎯',
+  scattergun: '🌪️',
+  streak: '🔥',
 
   /* CoronaZ: same shape, same ceremony, so the history page needs no branch. */
-  butcher: { emoji: '🪓', title: 'Le boucher' },
-  locksmith: { emoji: '🔑', title: 'Le serrurier' },
-  looter: { emoji: '🎒', title: 'Le pillard' },
-  untouchable: { emoji: '🛡️', title: 'L’increvable' },
-  magnet: { emoji: '🧲', title: 'L’aimant à morsures' }
+  butcher: '🪓',
+  locksmith: '🔑',
+  looter: '🎒',
+  untouchable: '🛡️',
+  magnet: '🧲'
 };
 
-export function awardMeta(key: string): { emoji: string; title: string } {
-  return AWARD_META[key] ?? { emoji: '🏅', title: key };
+export function awardMeta(key: string): { emoji: string; titleKey: string } {
+  return { emoji: AWARD_EMOJI[key] ?? '🏅', titleKey: `award.${key}` };
 }

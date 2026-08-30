@@ -1,7 +1,9 @@
+import { msg } from 'i18n';
 import type { LobbyGame } from 'lobby-core';
 import { useNavigate } from 'react-router';
 
 import { gameEntry } from '../app/games';
+import { useT } from '../i18n/locale-context';
 import { Button } from './index';
 
 /**
@@ -37,6 +39,7 @@ export interface QuickEndProps {
 
 export function QuickEnd({ code, fallbackGame }: QuickEndProps) {
   const navigate = useNavigate();
+  const t = useT();
   const origin = quickOrigin(code);
   const entry = gameEntry(origin ?? fallbackGame);
 
@@ -48,12 +51,12 @@ export function QuickEnd({ code, fallbackGame }: QuickEndProps) {
           size="lg"
           onClick={() => void navigate(`/partie-rapide/${origin}?revanche=${code}`)}
         >
-          Rejouer
+          {t(msg('quickEnd.again'))}
         </Button>
       )}
 
       <Button variant="secondary" size="lg" onClick={() => void navigate(entry.path)}>
-        Retour au menu {entry.name}
+        {t(msg('quickEnd.back', { game: entry.name }))}
       </Button>
     </div>
   );

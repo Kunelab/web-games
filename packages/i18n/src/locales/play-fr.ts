@@ -1,0 +1,115 @@
+import type { Catalogue } from '../index.js';
+
+/**
+ * Un quiz en train de se jouer : le téléphone dans la main, l’écran face à la
+ * salle, et la cérémonie de fin. Les originaux.
+ */
+export const playFr: Catalogue = {
+  /* ------------------------------- le téléphone ----------------------------- */
+  'play.connecting': 'Connexion…',
+  'play.waitingForGame': 'En attente de la partie…',
+  'play.game': 'Partie {code}',
+  'play.yourNickname': 'Ton pseudo',
+  'play.join': 'Rejoindre',
+  'play.joinFailed': 'Impossible de rejoindre.',
+  'play.serverQuiet': 'Le serveur ne répond pas.',
+  'play.defaultName': 'Joueur',
+  'play.waitingForStart': 'En attente du lancement.',
+  'play.playerCount': '{count} joueur(s)',
+  'play.finished': 'Terminé',
+
+  'play.answer': 'Réponse',
+  'play.pointsThisRound': '+{points} pts ce tour',
+  'play.combo': 'combo ×{factor}',
+  'play.comeback': 'remontée ×{factor}',
+  'play.streak': '{count} manches gagnées d’affilée',
+  'play.memorise': 'Mémorisez',
+  'play.allPlayed': 'Tout est joué. En attente du prochain tour.',
+  'play.found': 'Trouvé',
+  'play.notFound': 'Non',
+  'play.notFoundLeft': 'Non, {count} essai(s) restant(s)',
+  'play.gotIt': 'trouvé',
+  'play.noTriesLeft': 'Plus d’essais',
+  'play.noTriesThisRound': 'Plus d’essais pour ce tour.',
+  'play.yourAnswer': 'Ta réponse',
+  'play.send': 'Envoyer',
+  'play.seeChoices': 'Voir les choix (moins de points)',
+  'play.blindBonus': ' (+{bonus} à l’aveugle)',
+  'play.points': '{points} pts',
+
+  'play.answerInAnyOrder': 'Répondez dans l’ordre que vous voulez',
+  'play.recallWhatYouSaw': 'Citez ce que vous avez retenu',
+  'play.oneItemThenEnter': 'Un élément, puis Entrée',
+  'play.confirm': 'Valider',
+  'play.allFound': 'Tout trouvé.',
+
+  'play.yourEstimate': 'Ton estimation',
+  'play.fixEstimate': 'Corriger ton estimation',
+  'play.fix': 'Corriger',
+  'play.estimateRefused': 'Impossible d’envoyer ce nombre.',
+  'play.estimateCommitted': 'Ton estimation : ',
+  'play.estimateEditable': ' · modifiable jusqu’à la fin du chrono',
+  'play.exact': 'exact !',
+
+  /* --------------------------- l’écran face à la salle ---------------------- */
+  'host.noToken':
+    'Cet écran ne connaît pas le jeton de cette partie. Relancez la playlist pour en créer une nouvelle.',
+  'host.myPlaylists': 'Mes playlists',
+  'host.openFailed': 'Impossible d’ouvrir cette partie.',
+  'host.connectingToGame': 'Connexion à la partie…',
+  'host.end': 'Terminer',
+  'host.oral': 'À l’oral',
+  'host.oralPrompt': 'Personne n’a besoin de téléphone.',
+  'host.oralNote':
+    'Les réponses se disent à voix haute. C’est vous qui décidez quand les montrer et quand passer.',
+  'host.start': 'Commencer',
+  'host.joinWithCode': 'Rejoindre avec ce code',
+  'host.remove': 'Retirer {name}',
+  'host.answersToFind': '{count} réponses à trouver',
+  'host.memorising': 'Mémorisation en cours',
+  'host.yourTurn': 'À vous. Montrez la réponse quand la salle a dit la sienne.',
+  'host.closeAnswers': 'Clore les réponses',
+  'host.showAnswer': 'Montrer la réponse',
+  'host.next': 'Suivant',
+  'host.skip': 'Passer',
+  'host.playlistDone': 'Playlist finie.',
+  'host.backToPlaylists': 'Retour aux playlists',
+  'host.finalStandings': 'Classement final',
+
+  /* ---------------------- ce qu’une bonne soirée rapporte ------------------- */
+  'award.fastest': 'L’éclair',
+  'award.workhorse': 'Le stakhanoviste',
+  'award.sniper': 'Le sniper',
+  'award.scattergun': 'La mitraillette',
+  'award.streak': 'La série',
+  'award.butcher': 'Le boucher',
+  'award.locksmith': 'Le serrurier',
+  'award.looter': 'Le pillard',
+  'award.untouchable': 'L’increvable',
+  'award.magnet': 'L’aimant à morsures',
+
+  'badge.first-game': 'Novice',
+  'badge.first-game.hint': 'A joué sa première partie',
+  'badge.regular': 'Habitué',
+  'badge.regular.hint': '10 parties jouées',
+  'badge.pillar': 'Pilier de canapé',
+  'badge.pillar.hint': '50 parties jouées',
+  'badge.first-win': 'Vainqueur',
+  'badge.first-win.hint': 'Première victoire',
+  'badge.lightning': 'Réflexes féroces',
+  'badge.lightning.hint': 'Bonne réponse en moins d’1,5 s',
+  'badge.streak-3': 'Enchaîneur',
+  'badge.streak-3.hint': '3 manches gagnées d’affilée',
+  'badge.hundred-right': 'Centurion',
+  'badge.hundred-right.hint': '100 bonnes réponses',
+  'badge.decorated': 'Décoré',
+  'badge.decorated.hint': '10 distinctions de fin de partie',
+  'badge.five-wins': 'Roi du salon',
+  'badge.five-wins.hint': '5 victoires',
+  'badge.encyclopedia': 'Encyclopédie',
+  'badge.encyclopedia.hint': '500 bonnes réponses',
+  'badge.living-room-king': 'Légende',
+  'badge.living-room-king.hint': '20 victoires'
+};
+
+export default playFr;

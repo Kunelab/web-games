@@ -67,13 +67,31 @@ const envSchema = z.object({
   GOOGLE_API_KEY: z.string().optional(),
 
   /**
-   * Brains for the Mafia bots. 'ollama' talks to a local model over HTTP
-   * (free, private, and a 4B model is plenty for table talk); 'anthropic'
-   * uses the API with ANTHROPIC_API_KEY; 'scripted' never calls a model.
-   * Whatever the setting, an unreachable brain degrades per-call to the
-   * scripted one, so a table never stalls on an LLM.
+   * Brains for the Mafia bots, in the order they are tried.
+   *
+   * A comma-separated chain rather than one name: `openai,ollama` means "a free
+   * API while it will have us, the box under the desk when it will not, and the
+   * simulator's own brain when neither answers". Every rung falls through to the
+   * next on a rate limit or an error, and the last fall is always to the played
+   * brain — which is a real player, not a stub, so a table never stalls and
+   * never goes quiet.
+   *
+   * Recognised rungs:
+   *   `openai`    — any OpenAI-compatible endpoint. That is most of the free
+   *                 tiers going (Groq, Cerebras, OpenRouter, a vLLM you host),
+   *                 so one client covers them all: point `MAFIA_API_URL` at it
+   *                 and give it `MAFIA_API_KEY`.
+   *   `anthropic` — the Claude API, with `ANTHROPIC_API_KEY`.
+   *   `ollama`    — a local daemon at `OLLAMA_URL`. That URL does not have to be
+   *                 local: an SSH tunnel to a Debian box running a tiny model is
+   *                 just a different host here, and nothing else changes.
+   *   `scripted`  — go straight to the played brain and call nothing.
+   *
+   * Order is preference, not fallback quality: put the fastest good answer
+   * first. A live table would rather have a 70B on somebody else's hardware
+   * than a 1B on its own, right up until the free tier says no.
    */
-  MAFIA_BOT_PROVIDER: z.enum(['ollama', 'anthropic', 'scripted']).default('ollama'),
+  MAFIA_BOT_PROVIDER: z.string().default('ollama'),
   /**
    * How much thinking a table can afford.
    *
@@ -96,10 +114,53 @@ const envSchema = z.object({
    * fallback quietly caught it, and the table filled with mute scripted bots that
    * looked exactly like working ones.
    */
-  MAFIA_BOT_MODEL: z.string().default('qwen3.5:4b'),
+  /**
+   * A tag that exists.
+   *
+   * The default used to be `qwen3.5:4b`, which is not a model Ollama ships:
+   * the family is `qwen3`, and `3.5` was never a tag anybody could pull. So a
+   * machine with Ollama running and Qwen pulled still 404ed on every single
+   * call, the per-call fallback swallowed it, and the table filled with the
+   * silent scripted bots — which is exactly what a machine with no Ollama at
+   * all looked like, and why the two were impossible to tell apart.
+   *
+   * It is a preference rather than a requirement now in any case: the driver
+   * asks Ollama what is actually installed and takes the smallest model on the
+   * box when this one is not there.
+   */
+  MAFIA_BOT_MODEL: z.string().default('qwen3:4b'),
   MAFIA_BOT_MODEL_ANTHROPIC: z.string().default('claude-haiku-4-5-20251001'),
+  /**
+   * Where the local daemon lives.
+   *
+   * Not necessarily this machine. `ssh -N -L 11434:127.0.0.1:11434 debian-box`
+   * and the default value already points at the other box — which is the whole
+   * of "run the tiny model on the Debian machine", and needs no code that knows
+   * what SSH is.
+   */
   OLLAMA_URL: z.string().default('http://127.0.0.1:11434'),
-  ANTHROPIC_API_KEY: z.string().optional()
+  ANTHROPIC_API_KEY: z.string().optional(),
+
+  /**
+   * An OpenAI-compatible endpoint and its key, for the `openai` rung.
+   *
+   * Compatible is the point: Groq, Cerebras, OpenRouter, Together and a locally
+   * hosted vLLM all speak `/chat/completions`, so the free tier of the week is a
+   * URL change rather than a new client. Defaults to Groq, whose free tier is
+   * the fastest of them by a distance.
+   */
+  MAFIA_API_URL: z.string().default('https://api.groq.com/openai/v1'),
+  MAFIA_API_KEY: z.string().optional(),
+  MAFIA_API_MODEL: z.string().default('llama-3.3-70b-versatile'),
+
+  /**
+   * How long a rung sits out after it refuses.
+   *
+   * A free tier that says 429 will keep saying it, and asking again on the next
+   * bot turn spends a whole table's day phase discovering that. One refusal
+   * benches the rung for this long and the chain moves down.
+   */
+  MAFIA_BOT_COOLDOWN_MS: z.coerce.number().int().min(1000).max(600_000).default(60_000)
 });
 
 const parsed = envSchema.safeParse(process.env);

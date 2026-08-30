@@ -1,4 +1,5 @@
 import { createChat, type ChatState } from 'chat-core';
+import { msg, type Msg } from 'i18n';
 import { createPresence, markPresent, type PresenceState, type Roster } from 'presence-core';
 
 import type { GameConfig } from './config.js';
@@ -195,7 +196,8 @@ export interface CzObjective {
   target: number;
   progress: number;
   done: boolean;
-  label: string;
+  /** What the quest asks for, as a key: the phone renders it. */
+  label: Msg;
   /** Pays score, blocks nothing. */
   optional?: boolean;
 }
@@ -210,7 +212,8 @@ export interface GmUpgrades {
 
 export interface LogEntry {
   turn: number;
-  text: string;
+  /** Prose, or a key for the lines that have been localised. See `log`. */
+  text: string | Msg;
   /**
    * Written about something the survivors could not see when it happened.
    *
@@ -416,13 +419,20 @@ function rollObjectives(state: CzState): void {
   const templates: { kind: CzObjective['kind']; make: () => CzObjective }[] = [
     {
       kind: 'boss',
-      make: () => ({ id: 'boss', kind: 'boss', target: 1, progress: 0, done: false, label: 'Abattre un boss' })
+      make: () => ({ id: 'boss', kind: 'boss', target: 1, progress: 0, done: false, label: msg('coronaz.goal.boss') })
     },
     {
       kind: 'kills',
       make: () => {
         const target = 6 + randInt(state.rng, 5) + state.config.reinforcement * 2;
-        return { id: 'kills', kind: 'kills', target, progress: 0, done: false, label: `Éliminer ${target} zombies` };
+        return {
+          id: 'kills',
+          kind: 'kills',
+          target,
+          progress: 0,
+          done: false,
+          label: msg('coronaz.goal.kills', { target })
+        };
       }
     },
     {
@@ -435,7 +445,7 @@ function rollObjectives(state: CzState): void {
           target,
           progress: 0,
           done: false,
-          label: `Récupérer ${target} fournitures`
+          label: msg('coronaz.goal.searches', { target })
         };
       }
     }
@@ -460,7 +470,7 @@ function rollObjectives(state: CzState): void {
           progress: 0,
           done: false,
           optional: true,
-          label: `Explorer ${target} salles`
+          label: msg('coronaz.goal.explore', { target })
         };
       }
     },
@@ -473,7 +483,7 @@ function rollObjectives(state: CzState): void {
         progress: 0,
         done: false,
         optional: true,
-        label: 'Mettre la main sur une pièce épique'
+        label: msg('coronaz.goal.treasure')
       })
     },
     {
@@ -485,7 +495,7 @@ function rollObjectives(state: CzState): void {
         progress: 0,
         done: false,
         optional: true,
-        label: 'Ne perdre personne'
+        label: msg('coronaz.goal.intact')
       })
     },
     {
@@ -499,7 +509,7 @@ function rollObjectives(state: CzState): void {
           progress: 0,
           done: false,
           optional: true,
-          label: `Sortir avant le tour ${target}`
+          label: msg('coronaz.goal.speed', { target })
         };
       }
     },
@@ -514,7 +524,7 @@ function rollObjectives(state: CzState): void {
           progress: 0,
           done: false,
           optional: true,
-          label: `Prime : ${target} victimes`
+          label: msg('coronaz.goal.bounty', { target })
         };
       }
     }
@@ -576,7 +586,7 @@ export function updateObjectives(state: CzState): void {
     // A 'speed' objective is judged when the raid ends, not while it runs.
     objective.done = objective.kind === 'speed' ? state.turn <= objective.target : objective.progress >= objective.target;
     if (objective.done && !wasDone) {
-      log(state, `Objectif rempli : ${objective.label}`);
+      log(state, msg('cz.log.objectiveDone', { label: objective.label }));
     }
   }
 }
@@ -1236,7 +1246,15 @@ export function updateExplored(state: CzState): void {
  * Colossus, whose whole ability is to surface in rooms nobody has explored: the
  * ambush was announced in writing the moment it was bought.
  */
-export function log(state: CzState, text: string, roomId?: string): void {
+/**
+ * One line of the raid's own account of itself.
+ *
+ * `text` is still prose for most of this file — the log is the last CoronaZ
+ * surface written in one language — but it accepts a `Msg` so the lines that
+ * *have* been keyed, like a finished objective, carry the key instead of a
+ * rendered sentence. The screens render either.
+ */
+export function log(state: CzState, text: string | Msg, roomId?: string): void {
   const hidden = roomId !== undefined && !visibleRooms(state).has(roomId);
   state.log.push(hidden ? { turn: state.turn, text, hidden } : { turn: state.turn, text });
   if (state.log.length > MAX_LOG) {

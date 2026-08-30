@@ -12,6 +12,10 @@ import type { LobbyGame, QuickOptionSpec } from './state.js';
  * The values are opaque strings on purpose. Turning `"cauchemar"` into a config is
  * the server's job, and keeping that mapping out of here is what lets the browser
  * render a lobby for a game whose engine it does not import.
+ *
+ * Every `label` below is a catalogue key for the same reason. A package that
+ * deliberately knows nothing about three engines should not be the place three
+ * games' settings are written out in one language.
  */
 
 /**
@@ -24,30 +28,30 @@ export const QUICK_PLAYLIST_KEY = 'playlist';
 const QUIZ_SPECS: QuickOptionSpec[] = [
   {
     key: QUICK_PLAYLIST_KEY,
-    label: 'Quiz',
-    hint: 'Parmi les quiz publiés par la maison.',
+    label: 'lobby.opt.playlist',
+    hint: 'lobby.opt.playlist.hint',
     choices: [],
     roll: true,
     fallback: ''
   },
   {
     key: 'length',
-    label: 'Longueur',
+    label: 'lobby.opt.length',
     choices: [
-      { value: 'court', label: 'Court — 8 manches' },
-      { value: 'normal', label: 'Normal — 15 manches' },
-      { value: 'long', label: 'Long — tout le quiz' }
+      { value: 'court', label: 'lobby.choice.length.court' },
+      { value: 'normal', label: 'lobby.choice.length.normal' },
+      { value: 'long', label: 'lobby.choice.length.long' }
     ],
     roll: false,
     fallback: 'normal'
   },
   {
     key: 'combo',
-    label: 'Points de combo',
-    hint: 'Enchaîner des manches gagnées multiplie les points.',
+    label: 'lobby.opt.combo',
+    hint: 'lobby.opt.combo.hint',
     choices: [
-      { value: 'on', label: 'Activés' },
-      { value: 'off', label: 'Désactivés' }
+      { value: 'on', label: 'lobby.choice.combo.on' },
+      { value: 'off', label: 'lobby.choice.combo.off' }
     ],
     roll: false,
     fallback: 'on'
@@ -57,35 +61,35 @@ const QUIZ_SPECS: QuickOptionSpec[] = [
 const CORONAZ_SPECS: QuickOptionSpec[] = [
   {
     key: 'scenario',
-    label: 'Scénario',
+    label: 'lobby.opt.scenario',
     choices: [
-      { value: 'escape', label: 'Évasion — trouver les clés et sortir' },
-      { value: 'purge', label: 'Purge — nettoyer le quartier' },
-      { value: 'survival', label: 'Survie — tenir le siège' }
+      { value: 'escape', label: 'lobby.choice.scenario.escape' },
+      { value: 'purge', label: 'lobby.choice.scenario.purge' },
+      { value: 'survival', label: 'lobby.choice.scenario.survival' }
     ],
     roll: true,
     fallback: 'escape'
   },
   {
     key: 'difficulty',
-    label: 'Difficulté',
+    label: 'lobby.opt.difficulty',
     choices: [
-      { value: 'facile', label: 'Facile' },
-      { value: 'normal', label: 'Normal' },
-      { value: 'difficile', label: 'Difficile' },
-      { value: 'cauchemar', label: 'Cauchemar' }
+      { value: 'facile', label: 'lobby.choice.difficulty.facile' },
+      { value: 'normal', label: 'lobby.choice.difficulty.normal' },
+      { value: 'difficile', label: 'lobby.choice.difficulty.difficile' },
+      { value: 'cauchemar', label: 'lobby.choice.difficulty.cauchemar' }
     ],
     roll: false,
     fallback: 'normal'
   },
   {
     key: 'biome',
-    label: 'Décor',
-    hint: 'Le biome décide aussi de l’arsenal et du bestiaire.',
+    label: 'lobby.opt.biome',
+    hint: 'lobby.opt.biome.hint',
     choices: [
-      { value: 'random', label: 'Au hasard' },
-      { value: 'modern', label: 'Moderne' },
-      { value: 'cyber', label: 'Cyber' }
+      { value: 'random', label: 'lobby.choice.biome.random' },
+      { value: 'modern', label: 'lobby.choice.biome.modern' },
+      { value: 'cyber', label: 'lobby.choice.biome.cyber' }
     ],
     roll: true,
     fallback: 'random'
@@ -95,32 +99,32 @@ const CORONAZ_SPECS: QuickOptionSpec[] = [
 const MAFIA_SPECS: QuickOptionSpec[] = [
   {
     key: 'setup',
-    label: 'Distribution',
+    label: 'lobby.opt.setup',
     choices: [
-      { value: 'auto', label: 'Automatique — équilibrée' },
-      { value: 'chaos', label: 'Chaos — rôles tirés au sort' }
+      { value: 'auto', label: 'lobby.choice.setup.auto' },
+      { value: 'chaos', label: 'lobby.choice.setup.chaos' }
     ],
     roll: false,
     fallback: 'auto'
   },
   {
     key: 'reveal',
-    label: 'À la mort',
+    label: 'lobby.opt.reveal',
     choices: [
-      { value: 'role', label: 'Rôle complet' },
-      { value: 'faction', label: 'Camp seulement' },
-      { value: 'none', label: 'Rien du tout' }
+      { value: 'role', label: 'lobby.choice.reveal.role' },
+      { value: 'faction', label: 'lobby.choice.reveal.faction' },
+      { value: 'none', label: 'lobby.choice.reveal.none' }
     ],
     roll: false,
     fallback: 'faction'
   },
   {
     key: 'pace',
-    label: 'Rythme',
+    label: 'lobby.opt.pace',
     choices: [
-      { value: 'rapide', label: 'Rapide — jour de 1 min 30' },
-      { value: 'normal', label: 'Normal — jour de 2 min' },
-      { value: 'posé', label: 'Posé — jour de 3 min' }
+      { value: 'rapide', label: 'lobby.choice.pace.rapide' },
+      { value: 'normal', label: 'lobby.choice.pace.normal' },
+      { value: 'posé', label: 'lobby.choice.pace.posed' }
     ],
     roll: false,
     fallback: 'normal'

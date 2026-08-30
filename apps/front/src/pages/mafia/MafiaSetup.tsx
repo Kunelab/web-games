@@ -1,4 +1,5 @@
-import { SETUPS, SLOT_TOKENS, roleDef, ROLES, type RoleId } from 'mafia-core';
+import { SETUPS, SLOT_TOKENS, ROLES } from 'mafia-core';
+import { msg } from 'i18n';
 import { useState } from 'react';
 import QRCode from 'react-qr-code';
 import { useNavigate } from 'react-router';
@@ -7,6 +8,7 @@ import { api } from '../../api/client';
 import { useAsync } from '../../hooks/useAsync';
 import { Button, Field, Input, Select } from '../../ui';
 import { PublicSwitch } from '../../ui/PublicSwitch';
+import { useT } from '../../i18n/locale-context';
 import './mafia.css';
 
 /**
@@ -16,16 +18,22 @@ import './mafia.css';
  * pockets the host token and sends the browser straight to a seat.
  */
 
+/**
+ * The clock and reveal options, as value/key pairs.
+ *
+ * Keys rather than words: a `<Select>` wants strings, so the words are resolved
+ * at render against the reader's own catalogue rather than baked in here.
+ */
 const DAY_CHOICES = [
-  { value: '90000', label: 'Jour : 1 min 30' },
-  { value: '120000', label: 'Jour : 2 min' },
-  { value: '180000', label: 'Jour : 3 min' }
+  { value: '90000', key: 'mafia.setup.day90' },
+  { value: '120000', key: 'mafia.setup.day120' },
+  { value: '180000', key: 'mafia.setup.day180' }
 ];
 
 const NIGHT_CHOICES = [
-  { value: '30000', label: 'Nuit : 30 s' },
-  { value: '45000', label: 'Nuit : 45 s' },
-  { value: '60000', label: 'Nuit : 1 min' }
+  { value: '30000', key: 'mafia.setup.night30' },
+  { value: '45000', key: 'mafia.setup.night45' },
+  { value: '60000', key: 'mafia.setup.night60' }
 ];
 
 /**
@@ -33,9 +41,9 @@ const NIGHT_CHOICES = [
  * camp keeps the game's shape while making a Coroner worth a seat.
  */
 const REVEAL_CHOICES = [
-  { value: 'role', label: 'À la mort : rôle complet' },
-  { value: 'faction', label: 'À la mort : camp seulement' },
-  { value: 'none', label: 'À la mort : rien du tout' }
+  { value: 'role', key: 'mafia.setup.reveal.role' },
+  { value: 'faction', key: 'mafia.setup.reveal.faction' },
+  { value: 'none', key: 'mafia.setup.reveal.none' }
 ];
 
 type SetupChoice =
@@ -44,30 +52,30 @@ type SetupChoice =
   | { mode: 'preset'; presetId: string }
   | { mode: 'custom'; slots: string[] };
 
-/** Human label for a slot token: role name, or the category in French. */
-function tokenLabel(token: string): string {
-  if (token in ROLES) return roleDef(token as RoleId).name;
-  const labels: Record<string, string> = {
-    'town-core': 'Ville (base)',
-    'town-investigative': 'Ville (enquête)',
-    'town-protective': 'Ville (protection)',
-    'town-killing': 'Ville (armée)',
-    'town-power': 'Ville (pouvoir)',
-    'town-random': 'Ville (hasard)',
-    'mafia-support': 'Mafia (soutien)',
-    'mafia-deception': 'Mafia (tromperie)',
-    'mafia-random': 'Mafia (hasard)',
-    'neutral-benign': 'Neutre (bénin)',
-    'neutral-evil': 'Neutre (maléfique)',
-    'neutral-killing': 'Neutre (tueur)',
-    'neutral-random': 'Neutre (hasard)',
-    any: 'N’importe quoi'
-  };
-  return labels[token] ?? token;
+/**
+ * The catalogue key that names a slot: the role, or the category.
+ *
+ * This used to be a second, French-only table of category names living beside
+ * the one in `roles.ts` — two lists of the same thing, drifting apart, neither
+ * translated. Both are keys now, and the seat screen's role list renders the
+ * identical ones.
+ */
+function tokenKey(token: string): string {
+  return token in ROLES ? `mafia.role.${token}.name` : `mafia.slot.${token}`;
+}
+
+/** `<Select>` wants words; the tables above hold keys. */
+function useOptionLabels(t: (key: string) => string) {
+  return (choices: { value: string; key: string }[]) =>
+    choices.map((choice) => ({ value: choice.value, label: t(choice.key) }));
 }
 
 export default function MafiaSetup() {
   const navigate = useNavigate();
+  const t = useT();
+  const tk = (key: string, params?: Record<string, string | number>) => t(msg(key, params));
+  const tokenLabel = (token: string) => tk(tokenKey(token));
+  const labelled = useOptionLabels(tk);
   const [dayMs, setDayMs] = useState('120000');
   const [nightMs, setNightMs] = useState('45000');
   const [revealOnDeath, setRevealOnDeath] = useState('role');
@@ -97,7 +105,7 @@ export default function MafiaSetup() {
       sessionStorage.setItem(`mafia:host:${session.code}`, session.hostToken);
       setCreated(session);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Création impossible');
+      setError(caught instanceof Error ? caught.message : tk('mafia.setup.createFailed'));
     } finally {
       setBusy(false);
     }
@@ -110,7 +118,7 @@ export default function MafiaSetup() {
       await api.mafiaSaveTemplate(draftName.trim(), draftSlots);
       templates.reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Sauvegarde impossible');
+      setError(caught instanceof Error ? caught.message : tk('mafia.setup.saveFailed'));
     }
   }
 
@@ -124,26 +132,27 @@ export default function MafiaSetup() {
 
   const choiceLabel =
     choice.mode === 'auto'
-      ? 'Équilibré automatique'
+      ? tk('mafia.setup.auto.name')
       : choice.mode === 'chaos'
-        ? '🎲 Chaos total'
+        ? tk('mafia.setup.chaos.name')
         : choice.mode === 'preset'
-          ? (SETUPS.find((setup) => setup.id === choice.presetId)?.name ?? choice.presetId)
-          : `Personnalisé (${choice.slots.length} sièges)`;
+          ? tk(`mafia.setup.preset.${choice.presetId}.name`)
+          : tk('mafia.setup.custom', { count: choice.slots.length });
 
   return (
     <div className="stack-4">
-      <h1 className="page-title">Mafia</h1>
-      <p className="page-sub">
-        Jusqu’à 24 joueurs autour de la place du village. La ville cherche ses tueurs ; les tueurs jurent qu’ils sont
-        innocents. Gratuit, et pour toujours.
-      </p>
+      <h1 className="page-title">{tk('mafia.ui.title')}</h1>
+      <p className="page-sub">{tk('mafia.setup.pitch')}</p>
 
       {mine.data && mine.data.length > 0 && !created && (
         <section className="mz-mine">
           {mine.data.map((table) => (
             <Button key={table.code} variant="ghost" onClick={() => reattach(table.code, table.hostToken)}>
-              Reprendre la table {table.code} ({table.players} joueurs, {table.phase})
+              {tk('mafia.setup.resume', {
+                code: table.code,
+                players: table.players,
+                phase: tk(`mafia.ui.phaseName.${table.phase}`)
+              })}
             </Button>
           ))}
         </section>
@@ -152,21 +161,25 @@ export default function MafiaSetup() {
       {!created ? (
         <>
           <section className="mz-setup-form">
-            <Field label="Rythme des journées">
-              {({ id }) => <Select id={id} value={dayMs} onValueChange={setDayMs} options={DAY_CHOICES} />}
+            <Field label={tk('mafia.setup.dayPace')}>
+              {({ id }) => <Select id={id} value={dayMs} onValueChange={setDayMs} options={labelled(DAY_CHOICES)} />}
             </Field>
-            <Field label="Rythme des nuits">
-              {({ id }) => <Select id={id} value={nightMs} onValueChange={setNightMs} options={NIGHT_CHOICES} />}
-            </Field>
-            <Field label="Révélation des rôles">
+            <Field label={tk('mafia.setup.nightPace')}>
               {({ id }) => (
-                <Select id={id} value={revealOnDeath} onValueChange={setRevealOnDeath} options={REVEAL_CHOICES} />
+                <Select id={id} value={nightMs} onValueChange={setNightMs} options={labelled(NIGHT_CHOICES)} />
               )}
             </Field>
-            <p className="mz-hint">
-              Un corps nettoyé par le Nettoyeur reste anonyme dans tous les cas, et un visage emprunté ne trompe que les
-              enquêteurs — la dépouille dit toujours ce que le joueur était vraiment.
-            </p>
+            <Field label={tk('mafia.setup.revealLabel')}>
+              {({ id }) => (
+                <Select
+                  id={id}
+                  value={revealOnDeath}
+                  onValueChange={setRevealOnDeath}
+                  options={labelled(REVEAL_CHOICES)}
+                />
+              )}
+            </Field>
+            <p className="mz-hint">{tk('mafia.setup.revealHint')}</p>
           </section>
 
           {/* ------------------------------ setups ------------------------------ */}
@@ -177,14 +190,14 @@ export default function MafiaSetup() {
                 className={tab === 'proposes' ? 'mz-tab mz-tab--active' : 'mz-tab'}
                 onClick={() => setTab('proposes')}
               >
-                Modèles proposés
+                {tk('mafia.setup.tab.proposed')}
               </button>
               <button
                 type="button"
                 className={tab === 'miens' ? 'mz-tab mz-tab--active' : 'mz-tab'}
                 onClick={() => setTab('miens')}
               >
-                Mes modèles ({templates.data?.length ?? 0}/10)
+                {tk('mafia.setup.tab.mine', { count: templates.data?.length ?? 0 })}
               </button>
             </div>
 
@@ -195,8 +208,8 @@ export default function MafiaSetup() {
                   className={choice.mode === 'auto' ? 'mz-template mz-template--active' : 'mz-template'}
                   onClick={() => setChoice({ mode: 'auto' })}
                 >
-                  <strong>Équilibré automatique</strong>
-                  <span>Le serveur compose une table équilibrée selon le nombre de joueurs.</span>
+                  <strong>{tk('mafia.setup.auto.name')}</strong>
+                  <span>{tk('mafia.setup.auto.desc')}</span>
                 </button>
                 {SETUPS.map((setup) => (
                   <button
@@ -209,8 +222,8 @@ export default function MafiaSetup() {
                     }
                     onClick={() => setChoice({ mode: 'preset', presetId: setup.id })}
                   >
-                    <strong>{setup.name}</strong>
-                    <span>{setup.description}</span>
+                    <strong>{tk(`mafia.setup.preset.${setup.id}.name`)}</strong>
+                    <span>{tk(`mafia.setup.preset.${setup.id}.desc`)}</span>
                   </button>
                 ))}
                 <button
@@ -218,8 +231,8 @@ export default function MafiaSetup() {
                   className={choice.mode === 'chaos' ? 'mz-template mz-template--active' : 'mz-template'}
                   onClick={() => setChoice({ mode: 'chaos' })}
                 >
-                  <strong>🎲 Chaos total</strong>
-                  <span>Chaque siège tire un rôle au hasard. Aucune promesse, aucun regret.</span>
+                  <strong>{tk('mafia.setup.chaos.name')}</strong>
+                  <span>{tk('mafia.setup.chaos.desc')}</span>
                 </button>
               </div>
             )}
@@ -239,8 +252,12 @@ export default function MafiaSetup() {
                     >
                       <strong>{template.name}</strong>
                       <span>
-                        {template.slots.length} sièges — {template.slots.slice(0, 5).map(tokenLabel).join(', ')}
-                        {template.slots.length > 5 ? '…' : ''}
+                        {tk('mafia.setup.seatsSummary', {
+                          count: template.slots.length,
+                          roles:
+                            template.slots.slice(0, 5).map(tokenLabel).join(', ') +
+                            (template.slots.length > 5 ? '…' : '')
+                        })}
                       </span>
                     </button>
                     <Button
@@ -263,24 +280,24 @@ export default function MafiaSetup() {
                         key={`${token}-${index}`}
                         type="button"
                         className="mz-chip"
-                        title="Retirer"
+                        title={tk('mafia.setup.remove')}
                         onClick={() => setDraftSlots((slots) => slots.filter((_, i) => i !== index))}
                       >
                         {tokenLabel(token)} ✕
                       </button>
                     ))}
-                    {draftSlots.length === 0 && <span className="mz-hint">Ajoutez des sièges ci-dessous.</span>}
+                    {draftSlots.length === 0 && <span className="mz-hint">{tk('mafia.setup.emptyDraft')}</span>}
                   </div>
                   <Select
                     value=""
-                    placeholder={`Ajouter un siège (${draftSlots.length}/24)`}
+                    placeholder={tk('mafia.setup.addSeat', { count: draftSlots.length })}
                     onValueChange={(token) => {
                       if (draftSlots.length < 24) setDraftSlots((slots) => [...slots, token]);
                     }}
                     options={SLOT_TOKENS.map((token) => ({ value: token, label: tokenLabel(token) }))}
                   />
                   <div className="mz-template-actions">
-                    <Field label="Nom du modèle">
+                    <Field label={tk('mafia.setup.templateName')}>
                       {({ id }) => (
                         <Input
                           id={id}
@@ -291,13 +308,13 @@ export default function MafiaSetup() {
                       )}
                     </Field>
                     <Button variant="ghost" onClick={() => void saveDraft()} disabled={!draftName.trim() || draftSlots.length < 4}>
-                      💾 Sauvegarder
+                      {tk('mafia.setup.save')}
                     </Button>
                     <Button
                       onClick={() => setChoice({ mode: 'custom', slots: draftSlots })}
                       disabled={draftSlots.length < 4}
                     >
-                      Utiliser ce modèle
+                      {tk('mafia.setup.useTemplate')}
                     </Button>
                   </div>
                 </div>
@@ -306,26 +323,24 @@ export default function MafiaSetup() {
           </section>
 
           <section className="mz-setup-form">
-            <PublicSwitch what="cette table" value={isPublic} onChange={setIsPublic} />
+            <PublicSwitch what={tk('mafia.setup.thisTable')} value={isPublic} onChange={setIsPublic} />
             <p className="mz-hint">
-              Distribution choisie : <strong>{choiceLabel}</strong>
+              {tk('mafia.setup.chosen')} <strong>{choiceLabel}</strong>
             </p>
             <Button onClick={() => void create()} busy={busy}>
-              Ouvrir une table
+              {tk('mafia.setup.open')}
             </Button>
             {error && <p className="mz-error">{error}</p>}
           </section>
         </>
       ) : (
         <section className="mz-created">
-          <p>
-            Table <strong>{created.code}</strong> ouverte. Les joueurs rejoignent avec ce code ou ce QR :
-          </p>
+          <p>{tk('mafia.setup.created', { code: created.code })}</p>
           <div className="mz-qr">
             <QRCode value={joinUrl} size={140} />
           </div>
           <p className="mz-join-url">{joinUrl}</p>
-          <Button onClick={() => void navigate(`/mafia/rejoindre/${created.code}`)}>Prendre place à ma table</Button>
+          <Button onClick={() => void navigate(`/mafia/rejoindre/${created.code}`)}>{tk('mafia.setup.goSit')}</Button>
 
           {/**
            * The television, offered and never assumed.
@@ -338,15 +353,14 @@ export default function MafiaSetup() {
            */}
           <div className="mz-tv-offer">
             <p className="mz-hint">
-              <strong>Dans la même pièce ?</strong> Ouvrez la ville en grand sur une télé ou un PC. Cet écran ne joue
-              pas, ne prend pas de siège, et démarre sans révéler aucun rôle.
+              <strong>{tk('mafia.setup.tvTitle')}</strong> {tk('mafia.setup.tvPitch')}
             </p>
             <div className="mz-qr">
               <QRCode value={tvUrl} size={110} />
             </div>
             <p className="mz-join-url">{tvUrl}</p>
             <Button variant="ghost" onClick={() => window.open(tvUrl, '_blank', 'noopener')}>
-              📺 Ouvrir l’écran de la ville
+              {tk('mafia.setup.openTv')}
             </Button>
           </div>
         </section>

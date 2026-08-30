@@ -38,7 +38,7 @@ export interface BuildingProgram {
 export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
   {
     id: 'house',
-    name: 'Maison',
+    name: 'coronaz.room.house.name',
     rooms: [
       { program: 'living', count: [1, 1], wants: 'big' },
       { program: 'kitchen', count: [1, 1] },
@@ -50,7 +50,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
   },
   {
     id: 'flats',
-    name: 'Immeuble',
+    name: 'coronaz.room.flats.name',
     rooms: [
       { program: 'corridor', count: [1, 2], wants: 'hub' },
       { program: 'storage', count: [0, 1], wants: 'dead-end' }
@@ -67,7 +67,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
   },
   {
     id: 'offices',
-    name: 'Bureaux',
+    name: 'coronaz.room.offices.name',
     rooms: [
       { program: 'lobby', count: [1, 1], wants: 'big' },
       { program: 'corridor', count: [1, 2], wants: 'hub' },
@@ -80,7 +80,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
   },
   {
     id: 'club',
-    name: 'Boîte de nuit',
+    name: 'coronaz.room.club.name',
     rooms: [
       { program: 'hall', count: [1, 1], wants: 'big' },
       { program: 'bar', count: [1, 1] },
@@ -93,7 +93,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
   },
   {
     id: 'facility',
-    name: 'Complexe',
+    name: 'coronaz.room.facility.name',
     rooms: [
       { program: 'corridor', count: [2, 3], wants: 'hub' },
       { program: 'lab', count: [2, 3], wants: 'big' },
@@ -108,7 +108,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
   },
   {
     id: 'shop',
-    name: 'Commerce',
+    name: 'coronaz.room.shop.name',
     rooms: [
       { program: 'hall', count: [1, 1], wants: 'big' },
       { program: 'storage', count: [1, 2], wants: 'dead-end' },
@@ -131,7 +131,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
    */
   {
     id: 'firestation',
-    name: 'Caserne de pompiers',
+    name: 'coronaz.room.firestation.name',
     rooms: [
       { program: 'hall', count: [1, 1], wants: 'big' },
       { program: 'workshop', count: [1, 2] },
@@ -145,7 +145,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
   },
   {
     id: 'school',
-    name: 'École',
+    name: 'coronaz.room.school.name',
     rooms: [
       { program: 'reception', count: [1, 1], wants: 'hub' },
       { program: 'corridor', count: [2, 3], wants: 'hub' },
@@ -160,7 +160,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
   },
   {
     id: 'supermarket',
-    name: 'Supermarché',
+    name: 'coronaz.room.supermarket.name',
     rooms: [
       { program: 'hall', count: [1, 2], wants: 'big' },
       { program: 'storage', count: [2, 3], wants: 'dead-end' },
@@ -173,7 +173,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
   },
   {
     id: 'church',
-    name: 'Église',
+    name: 'coronaz.room.church.name',
     rooms: [
       { program: 'hall', count: [1, 1], wants: 'big' },
       { program: 'archive', count: [1, 1], wants: 'dead-end' },
@@ -195,7 +195,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
    */
   {
     id: 'quarters',
-    name: 'Quartiers',
+    name: 'coronaz.room.quarters.name',
     rooms: [
       { program: 'dorm', count: [2, 3], wants: 'big' },
       { program: 'canteen', count: [1, 1] },
@@ -216,7 +216,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
    */
   {
     id: 'spine',
-    name: 'Couloir',
+    name: 'coronaz.room.spine.name',
     rooms: [{ program: 'corridor', count: [1, 1], wants: 'hub' }],
     grain: 2
   },
@@ -231,7 +231,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
    */
   {
     id: 'police',
-    name: 'Commissariat',
+    name: 'coronaz.room.police.name',
     rooms: [
       { program: 'reception', count: [1, 1], wants: 'hub' },
       { program: 'corridor', count: [1, 2], wants: 'hub' },
@@ -246,7 +246,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
   },
   {
     id: 'hospital',
-    name: 'Hôpital',
+    name: 'coronaz.room.hospital.name',
     rooms: [
       { program: 'reception', count: [1, 1], wants: 'hub' },
       { program: 'corridor', count: [2, 3], wants: 'hub' },
@@ -261,7 +261,7 @@ export const BUILDING_PROGRAMS: readonly BuildingProgram[] = [
   },
   {
     id: 'workshop',
-    name: 'Atelier',
+    name: 'coronaz.room.workshop.name',
     rooms: [
       { program: 'workshop', count: [1, 2], wants: 'big' },
       { program: 'storage', count: [1, 2] },
@@ -668,40 +668,41 @@ export function floorFor(rng: RngState, program: RoomProgram): FloorKind {
 }
 
 /** Human-readable, for the log and the game master's screen. */
+/** A catalogue key per program, for the log and the game master's screen. */
 export const PROGRAM_LABELS: Record<RoomProgram, string> = {
-  living: 'séjour',
-  kitchen: 'cuisine',
-  bath: 'salle d’eau',
-  bedroom: 'chambre',
-  office: 'bureau',
-  archive: 'archives',
-  lab: 'laboratoire',
-  server: 'serveurs',
-  workshop: 'atelier',
-  storage: 'réserve',
-  lobby: 'hall d’entrée',
-  corridor: 'couloir',
-  hall: 'grande salle',
-  bar: 'bar',
-  restroom: 'sanitaires',
-  backstage: 'loges',
-  dorm: 'dortoir',
-  canteen: 'cantine',
-  reception: 'accueil',
-  ward: 'chambres',
-  surgery: 'bloc opératoire',
-  pharmacy: 'pharmacie',
-  morgue: 'morgue',
-  cell: 'cellule',
-  evidence: 'salle des scellés',
-  armoury: 'armurerie',
-  street: 'rue',
-  crossing: 'carrefour',
-  sidewalk: 'trottoir',
-  square: 'place',
-  park: 'parc',
-  alley: 'ruelle',
-  yard: 'cour',
-  parking: 'parking',
-  dock: 'quai'
+  living: 'coronaz.program.living',
+  kitchen: 'coronaz.program.kitchen',
+  bath: 'coronaz.program.bath',
+  bedroom: 'coronaz.program.bedroom',
+  office: 'coronaz.program.office',
+  archive: 'coronaz.program.archive',
+  lab: 'coronaz.program.lab',
+  server: 'coronaz.program.server',
+  workshop: 'coronaz.program.workshop',
+  storage: 'coronaz.program.storage',
+  lobby: 'coronaz.program.lobby',
+  corridor: 'coronaz.program.corridor',
+  hall: 'coronaz.program.hall',
+  bar: 'coronaz.program.bar',
+  restroom: 'coronaz.program.restroom',
+  backstage: 'coronaz.program.backstage',
+  dorm: 'coronaz.program.dorm',
+  canteen: 'coronaz.program.canteen',
+  reception: 'coronaz.program.reception',
+  ward: 'coronaz.program.ward',
+  surgery: 'coronaz.program.surgery',
+  pharmacy: 'coronaz.program.pharmacy',
+  morgue: 'coronaz.program.morgue',
+  cell: 'coronaz.program.cell',
+  evidence: 'coronaz.program.evidence',
+  armoury: 'coronaz.program.armoury',
+  street: 'coronaz.program.street',
+  crossing: 'coronaz.program.crossing',
+  sidewalk: 'coronaz.program.sidewalk',
+  square: 'coronaz.program.square',
+  park: 'coronaz.program.park',
+  alley: 'coronaz.program.alley',
+  yard: 'coronaz.program.yard',
+  parking: 'coronaz.program.parking',
+  dock: 'coronaz.program.dock'
 };

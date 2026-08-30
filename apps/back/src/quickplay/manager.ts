@@ -1,6 +1,7 @@
 import { randomInt, randomUUID } from 'node:crypto';
 
 import { generateJoinCode } from 'game-core';
+import { msg, type Msg } from 'i18n';
 import {
   QUICK_PLAYLIST_KEY,
   armQuickCountdown,
@@ -73,7 +74,7 @@ const REPLAY_WINDOW_MS = 15 * 60 * 1000;
 
 export type QuickTransitionListener = (lobby: QuickLobby, specs: QuickOptionSpec[]) => void;
 export type QuickLaunchListener = (lobby: QuickLobby, launch: QuickLaunch) => void;
-export type QuickClosedListener = (code: string, reason: string) => void;
+export type QuickClosedListener = (code: string, reason: Msg) => void;
 
 export interface QuickJoinInput {
   game: LobbyGame;
@@ -83,7 +84,9 @@ export interface QuickJoinInput {
   name: string;
 }
 
-export type QuickJoinOutcome = { ok: true; lobby: QuickLobby; specs: QuickOptionSpec[] } | { ok: false; error: string };
+export type QuickJoinOutcome =
+  | { ok: true; lobby: QuickLobby; specs: QuickOptionSpec[] }
+  | { ok: false; error: Msg };
 
 /** A game started by a quick room, waiting for its players to arrive. */
 interface Boarding {
@@ -165,7 +168,7 @@ export class QuickplayManager {
         game: lobby.game,
         code: lobby.code,
         title: this.headline(lobby, settings),
-        detail: lobby.fromGameCode ? 'Revanche — les joueurs de la partie précédente arrivent' : null,
+        detail: lobby.fromGameCode ? msg('lobby.card.rematch') : null,
         host: null,
         players: Object.keys(lobby.members).length,
         maxPlayers: lobby.maxPlayers,
@@ -177,22 +180,29 @@ export class QuickplayManager {
     return cards.sort((left, right) => right.players - left.players || left.createdAt - right.createdAt);
   }
 
-  /** The one line that says what this room is about to play. */
-  private headline(lobby: QuickLobby, settings: Record<string, string>): string {
+  /**
+   * The one line that says what this room is about to play.
+   *
+   * A key, except for the quiz — where the thing being played is a playlist
+   * somebody named, and a name is not a thing to translate. `QuickOptionChoice`
+   * carries both, which is exactly what that split is for.
+   */
+  private headline(lobby: QuickLobby, settings: Record<string, string>): string | Msg {
     const specs = this.specs(lobby.code);
-    const label = (key: string): string => {
+    const chosen = (key: string) => {
       const spec = specs.find((candidate) => candidate.key === key);
-      const value = settings[key];
-      return spec?.choices.find((choice) => choice.value === value)?.label ?? '';
+      return spec?.choices.find((choice) => choice.value === settings[key]);
     };
 
     switch (lobby.game) {
-      case 'quiz':
-        return label(QUICK_PLAYLIST_KEY) || 'Quiz surprise';
+      case 'quiz': {
+        const playlist = chosen(QUICK_PLAYLIST_KEY);
+        return playlist?.text ?? msg('lobby.card.quizSurprise');
+      }
       case 'coronaz':
-        return label('scenario') || 'Raid';
+        return msg(chosen('scenario')?.label ?? 'lobby.card.raid');
       case 'mafia':
-        return label('setup') || 'Table';
+        return msg(chosen('setup')?.label ?? 'lobby.card.table');
     }
   }
 
@@ -204,7 +214,7 @@ export class QuickplayManager {
     let lobby = input.code ? this.lobbies.get(input.code) : this.findOpen(input.game);
 
     if (input.code && !lobby) {
-      return { ok: false, error: 'Ce salon n’existe plus.' };
+      return { ok: false, error: msg('quick.gone') };
     }
 
     /**
@@ -216,7 +226,7 @@ export class QuickplayManager {
       if (lobby.launch) {
         return { ok: true, lobby, specs: this.specs(lobby.code) };
       }
-      return { ok: false, error: 'Ce salon est fermé.' };
+      return { ok: false, error: msg('quick.closed') };
     }
 
     lobby ??= await this.open(input.game, null);
@@ -224,7 +234,7 @@ export class QuickplayManager {
     const result = joinQuickLobby(lobby, { id: input.memberId, name: input.name, now });
 
     if (!result.ok) {
-      return { ok: false, error: result.error === 'full' ? 'Ce salon est complet.' : 'Ce salon est fermé.' };
+      return { ok: false, error: msg(result.error === 'full' ? 'quick.full' : 'quick.closed') };
     }
 
     this.emptiedAt.delete(lobby.code);
@@ -251,7 +261,7 @@ export class QuickplayManager {
   }): Promise<QuickJoinOutcome> {
     const origin = this.played.get(input.gameCode);
     if (!origin || origin.game !== input.game) {
-      return { ok: false, error: 'Cette partie n’était pas une partie rapide.' };
+      return { ok: false, error: msg('quick.notQuick') };
     }
 
     const existingCode = this.successors.get(input.gameCode);
@@ -367,7 +377,9 @@ export class QuickplayManager {
     if (spec) {
       spec.choices = playlists.slice(0, 40).map((playlist) => ({
         value: String(playlist.id),
-        label: playlist.name ?? `Quiz ${playlist.id}`
+        // A published quiz keeps its author's name, so it travels as text.
+        label: 'lobby.card.quizSurprise',
+        text: playlist.name ?? `Quiz ${playlist.id}`
       }));
       spec.fallback = spec.choices[0]?.value ?? '';
     }
@@ -453,11 +465,11 @@ export class QuickplayManager {
       } else if (!empty) {
         this.emptiedAt.delete(lobby.code);
       } else if (emptiedAt !== undefined && now - emptiedAt > EMPTY_GRACE_MS) {
-        this.close(lobby.code, 'Salon vide');
+        this.close(lobby.code, msg('quick.roomEmpty'));
       }
 
       if (lobby.phase === 'launched' && now - lobby.lastActivityAt > LAUNCHED_LINGER_MS) {
-        this.close(lobby.code, 'Partie lancée');
+        this.close(lobby.code, msg('quick.launched'));
       }
     }
 
@@ -481,7 +493,7 @@ export class QuickplayManager {
     }
   }
 
-  private close(code: string, reason: string): void {
+  private close(code: string, reason: Msg): void {
     const lobby = this.lobbies.get(code);
     if (lobby) lobby.phase = 'closed';
     this.lobbies.delete(code);

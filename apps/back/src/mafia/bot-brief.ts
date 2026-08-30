@@ -1,6 +1,6 @@
 import {
-  ACTION_LABELS,
-  FACTION_LABELS,
+  ACTION,
+  FACTION,
   claimerWeight,
   contradicted,
   trustOf,
@@ -219,7 +219,7 @@ export function brief(view: MafiaView, board: PublicInfo, mind: BotMind, task: s
   );
   if (me.role)
     lines.push(
-      `You: ${me.role.name}, ${FACTION_LABELS[me.role.faction]} side${me.charges !== null ? `, ${me.charges} use(s) left` : ''}.`
+      `You: ${say(locale)(me.role.name)}, ${say(locale)(FACTION(me.role.faction))} side${me.charges !== null ? `, ${me.charges} use(s) left` : ''}.`
     );
   if (me.teammates && me.teammates.length > 0) {
     lines.push(`With you: ${me.teammates.map((mate) => `${mate.slot} ${mate.name}`).join(', ')}.`);
@@ -244,7 +244,7 @@ export function brief(view: MafiaView, board: PublicInfo, mind: BotMind, task: s
   const hot = heatmap(view, board, hotRows);
   if (hot.length > 0) lines.push(`What matters:\n${hot.join('\n')}`);
   else lines.push('Nobody stands out yet.');
-  const news = me.notifications.slice(-2);
+  const news = me.notifications.slice(-2).map((note) => say(locale)(note));
   if (news.length > 0) lines.push(`You know: ${news.join(' / ')}`);
   if (view.trial) lines.push(`ON TRIAL: ${view.trial.slot}. ${view.trial.name}.`);
 
@@ -329,12 +329,14 @@ export function dossier(
   lines.push(`— Thinking round ${round}/${rounds} —`);
   lines.push(`Day ${view.day}, phase ${view.phase}${view.stage ? ` (${view.stage})` : ''}.`);
   if (me.role) {
-    lines.push(`Your secret role: ${me.role.name} (${FACTION_LABELS[me.role.faction]} side). ${me.role.description}`);
+    lines.push(
+      `Your secret role: ${say(locale)(me.role.name)} (${say(locale)(FACTION(me.role.faction))} side). ${say(locale)(me.role.description)}`
+    );
   }
   if (me.charges !== null) lines.push(`Uses left: ${me.charges}.`);
   if (me.teammates && me.teammates.length > 0) {
     lines.push(
-      `Your allies: ${me.teammates.map((mate) => `${mate.slot}. ${mate.name} (${mate.roleName})`).join(', ')}.`
+      `Your allies: ${me.teammates.map((mate) => `${mate.slot}. ${mate.name} (${say(locale)(mate.roleName)})`).join(', ')}.`
     );
   }
   if (me.obsessionSlot !== null) lines.push(`Your obsession: get house ${me.obsessionSlot} hanged.`);
@@ -342,7 +344,7 @@ export function dossier(
     `The houses: ${view.players
       .map((player) => {
         const bits = [`${player.slot}. ${player.name}`];
-        if (!player.alive) bits.push(`DEAD${player.roleName ? ` (${player.roleName})` : ''}`);
+        if (!player.alive) bits.push(`DEAD${player.roleName ? ` (${say(locale)(player.roleName)})` : ''}`);
         if (player.onTrial) bits.push('ON TRIAL');
         if (player.votesAgainst > 0) bits.push(`${player.votesAgainst} votes against`);
         if (player.votedSlot !== null) bits.push(`accuses ${player.votedSlot}`);
@@ -385,7 +387,14 @@ export function dossier(
         .join(' ; ')}`
     );
   }
-  if (me.notifications.length > 0) lines.push(`Your private information:\n${me.notifications.slice(-8).join('\n')}`);
+  if (me.notifications.length > 0) {
+    lines.push(
+      `Your private information:\n${me.notifications
+        .slice(-8)
+        .map((note) => say(locale)(note))
+        .join('\n')}`
+    );
+  }
   /**
    * The slow tempo reads the whole conversation, and reads it last.
    *
@@ -412,9 +421,14 @@ export function dossier(
   return lines.join('\n');
 }
 
-/** The verb this bot's power goes by, for the night prompt. */
-
-export function actionVerb(view: MafiaView): string | null {
+/**
+  * The verb this bot's power goes by, for the night prompt.
+  *
+  * In the table's *spoken* language, not the server's: the bot will name this
+  * power out loud in a shared channel, and a bot claiming « Sonder » at an
+  * English table is a bot the table cannot answer.
+  */
+export function actionVerb(view: MafiaView, locale: Locale): string | null {
   const action = view.me?.action;
-  return action ? ACTION_LABELS[action.type] : null;
+  return action ? say(locale)(ACTION(action.type)) : null;
 }

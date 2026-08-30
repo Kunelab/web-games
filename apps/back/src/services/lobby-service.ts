@@ -1,4 +1,4 @@
-import { SCENARIO_LABELS } from 'coronaz-core';
+import { msg } from 'i18n';
 import type { LobbyCard, LobbyGame } from 'lobby-core';
 
 import type { GameManager } from '../game/manager.js';
@@ -21,12 +21,13 @@ import type { CzManager } from '../zombie/manager.js';
  * the list, and its code remains the only way in.
  */
 
-const MAFIA_SETUP_LABELS: Record<string, string> = {
-  auto: 'Distribution équilibrée',
-  chaos: 'Distribution chaotique',
-  census: 'Distribution au recensement',
-  preset: 'Distribution proposée',
-  custom: 'Distribution maison'
+/** Every card line is a key: the board is read by phones in two languages. */
+const MAFIA_SETUP_KEYS: Record<string, string> = {
+  auto: 'lobby.card.setup.auto',
+  chaos: 'lobby.card.setup.chaos',
+  census: 'lobby.card.setup.census',
+  preset: 'lobby.card.setup.preset',
+  custom: 'lobby.card.setup.custom'
 };
 
 export function createLobbyService(managers: {
@@ -36,12 +37,12 @@ export function createLobbyService(managers: {
   quick: QuickplayManager;
 }) {
   /** Logins are looked up once per board rather than once per row. */
-  async function logins(ids: (number | null)[]): Promise<Map<number, string>> {
+  async function logins(ids: (number | null)[]): Promise<Map<number, string | null>> {
     const unique = [...new Set(ids.filter((id): id is number => id !== null))];
     const entries = await Promise.all(
       unique.map(async (id) => {
         const user = await userService.getById(id);
-        return [id, user?.login ?? 'Quelqu’un'] as const;
+        return [id, user?.login ?? null] as const;
       })
     );
     return new Map(entries);
@@ -61,7 +62,7 @@ export function createLobbyService(managers: {
             game: 'quiz',
             code: state.code,
             title: state.playlistName,
-            detail: `${state.order.length} manche${state.order.length === 1 ? '' : 's'}`,
+            detail: msg('lobby.card.rounds', { count: state.order.length }),
             host: null,
             players: Object.keys(state.players).length,
             maxPlayers: null,
@@ -78,8 +79,8 @@ export function createLobbyService(managers: {
           rows.push({ hostId: state.hostUserId, card: {
             game: 'coronaz',
             code: state.code,
-            title: SCENARIO_LABELS[state.config.scenario]?.name ?? 'Raid',
-            detail: state.config.mode === 'gm' ? 'Horde tenue par un joueur' : 'Horde tenue par la machine',
+            title: msg(`coronaz.scenario.${state.config.scenario}.name`),
+            detail: msg(state.config.mode === 'gm' ? 'lobby.card.hordeGm' : 'lobby.card.hordeAi'),
             host: null,
             players: Object.keys(state.heroes).length,
             maxPlayers: 5,
@@ -96,8 +97,8 @@ export function createLobbyService(managers: {
           rows.push({ hostId: state.hostUserId, card: {
             game: 'mafia',
             code: state.code,
-            title: MAFIA_SETUP_LABELS[state.config.setup.mode] ?? 'Table',
-            detail: `Jour de ${Math.round(state.config.dayMs / 60_000)} min`,
+            title: msg(MAFIA_SETUP_KEYS[state.config.setup.mode] ?? 'lobby.card.table'),
+            detail: msg('lobby.card.dayLength', { minutes: Math.round(state.config.dayMs / 60_000) }),
             host: null,
             players: Object.keys(state.players).length,
             maxPlayers: state.config.maxPlayers,

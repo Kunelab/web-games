@@ -1,3 +1,4 @@
+import { msg } from 'i18n';
 import {
   BARE_HANDS,
   eventDef,
@@ -25,6 +26,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 
 import CzChat from './CzChat';
+import { useT } from '../../i18n/locale-context';
+import { czLine } from './czLine';
 import { czPerkMeta } from '../../app/czMeta';
 import { useCountdown } from '../../hooks/useGameSocket';
 import { PauseOverlay } from '../../components/presence/PauseOverlay';
@@ -338,6 +341,7 @@ function LobbyScreen({
   account: string | null;
   onCareer: (next: { rations: number; unlockedHeroes: string[] }) => void;
 }) {
+  const t = useT();
   const mine = view.heroes.find((hero) => hero.playerId === myId);
   const takenBy = new Map(view.heroes.map((hero) => [hero.heroId, hero.name]));
   const myPerks = mine?.perks ?? [];
@@ -396,7 +400,7 @@ function LobbyScreen({
                   )
                 }
               >
-                {mutation.emoji} {mutation.name} · {mutation.blurb}{' '}
+                {mutation.emoji} {t(msg(mutation.name))} · {t(msg(mutation.blurb))}{' '}
                 <span className="cz-mutation-reward">+{Math.round(mutation.reward * 100)}% de score</span>
               </button>
             );
@@ -413,7 +417,7 @@ function LobbyScreen({
               const meta = czPerkMeta(perk);
               return (
                 <span className="play-note" key={perk}>
-                  {meta.emoji} {meta.label}
+                  {meta.emoji} {t(msg(meta.labelKey))}
                 </span>
               );
             })}
@@ -471,6 +475,7 @@ function PlayScreen({
   say: (text: string) => void;
   error: string | null;
 }) {
+  const t = useT();
   const remaining = useCountdown(view.phaseEndsAt, serverNow);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [loot, setLoot] = useState<ItemInstance | null>(null);
@@ -563,12 +568,12 @@ function PlayScreen({
       [right, 1]
     ] as const) {
       if (item && itemDef(item.def).weapon) {
-        options.push({ label: itemDef(item.def).name, hand, rarity: item.rarity });
+        options.push({ label: t(msg(itemDef(item.def).name)), hand, rarity: item.rarity });
       }
     }
     if (left && right && left.def === right.def && itemDef(left.def).weapon?.akimbo) {
       options.push({
-        label: `${itemDef(left.def).name} ×2 (akimbo)`,
+        label: `${t(msg(itemDef(left.def).name))} ×2 (akimbo)`,
         hand: 2,
         // A pair fires at the worse gun's quality, and says so.
         rarity: Math.min(left.rarity, right.rarity) as Rarity
@@ -624,7 +629,7 @@ function PlayScreen({
 
       {/* The one job still open, always in sight — keys included, which is what a
           player on a phone actually needs to know. */}
-      {czNextGoal(view) && <p className="play-note">▹ {czNextGoal(view)?.label}</p>}
+      {czNextGoal(view) && <p className="play-note">▹ {t(czNextGoal(view)!.label)}</p>}
 
       {/* What is happening to the district, if anything. Loud, because it lasts one
           turn and a rule nobody notices is a rule that reads as a bug. */}
@@ -720,7 +725,7 @@ function PlayScreen({
               .slice(-4)
               .reverse()
               .map((entry, index) => (
-                <li key={`${entry.turn}-${index}`}>{entry.text}</li>
+                <li key={`${entry.turn}-${index}`}>{czLine(entry.text, t)}</li>
               ))}
           </ul>
         )}
@@ -729,9 +734,9 @@ function PlayScreen({
           <div className={`cz-loot-toast r${loot.rarity}`} style={rarityVars(loot.rarity)}>
             <span className="cz-loot-face">
               <ItemFace item={loot} big />
-              {itemDef(loot.def).name}
+              {t(msg(itemDef(loot.def).name))}
               <span className="cz-rarity" style={{ color: RARITY_META[loot.rarity].color }}>
-                {RARITY_META[loot.rarity].label}
+                {t(msg(RARITY_META[loot.rarity].label))}
               </span>
             </span>
             <ItemStats item={loot} compact />
@@ -795,6 +800,7 @@ function InventorySheet({
   inventory: NonNullable<CzView['me']>;
   act: (action: HeroAction) => void;
 }) {
+  const t = useT();
   const [selected, setSelected] = useState<ItemInstance | null>(null);
   const [quitAsked, setQuitAsked] = useState(false);
 
@@ -827,9 +833,9 @@ function InventorySheet({
       {selected && (
         <>
           <span className="cz-slot-label">
-            {itemDef(selected.def).name}
+            {t(msg(itemDef(selected.def).name))}
             <span className="cz-rarity" style={{ color: RARITY_META[selected.rarity].color }}>
-              {RARITY_META[selected.rarity].label}
+              {t(msg(RARITY_META[selected.rarity].label))}
             </span>
           </span>
           <ItemStats item={selected} />
@@ -947,11 +953,12 @@ function InventorySheet({
  * somebody looks like the horde being broken rather than an alarm going off.
  */
 export function CzEventBanner({ id }: { id: CzEventId }) {
+  const t = useT();
   const event = eventDef(id);
   if (!event) return null;
   return (
     <p className={`cz-event ${event.favours}`}>
-      <span aria-hidden="true">{event.emoji}</span> <strong>{event.name}</strong> · {event.blurb}
+      <span aria-hidden="true">{event.emoji}</span> <strong>{t(msg(event.name))}</strong> · {t(msg(event.blurb))}
     </p>
   );
 }
@@ -976,12 +983,13 @@ export function MuteButton() {
  * its rarity either way.
  */
 export function ItemFace({ item, big = false }: { item: ItemInstance; big?: boolean }) {
+  const t = useT();
   const sprite = itemSprite(item.def);
   return (
     <span
       className={`cz-art r${item.rarity} ${big ? 'big' : ''}`}
       style={rarityVars(item.rarity)}
-      title={RARITY_META[item.rarity].label}
+      title={t(msg(RARITY_META[item.rarity].label))}
     >
       {sprite ? (
         <img className="cz-item-sprite" src={sprite} alt="" />

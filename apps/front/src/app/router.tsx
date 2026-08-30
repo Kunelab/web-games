@@ -1,7 +1,9 @@
+import { msg } from 'i18n';
 import { lazy, Suspense, type ReactNode } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router';
 
 import { useAuth } from '../hooks/useAuth';
+import { useT } from '../i18n/locale-context';
 import { Loading } from '../ui';
 import { AtelierShell, JeuShell } from './shells';
 
@@ -274,10 +276,11 @@ const router = createBrowserRouter([
 ]);
 
 function NotFound() {
+  const t = useT();
   return (
     <div className="stack-4">
-      <h1 className="page-title">Page introuvable</h1>
-      <p className="page-sub">Ce lien ne mène à rien. Le menu en haut ramène en terrain connu.</p>
+      <h1 className="page-title">{t(msg('site.notFound.title'))}</h1>
+      <p className="page-sub">{t(msg('site.notFound.lede'))}</p>
     </div>
   );
 }

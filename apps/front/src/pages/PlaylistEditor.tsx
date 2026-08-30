@@ -1,3 +1,4 @@
+import { msg } from 'i18n';
 import {
   DndContext,
   KeyboardSensor,
@@ -14,7 +15,8 @@ import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 
 import { api, type MediaItem, type Playlist } from '../api/client';
-import { kindColor, kindLabel } from '../app/kinds';
+import { useT } from '../i18n/locale-context';
+import { kindColor, kindKey } from '../app/kinds';
 import { useAsync } from '../hooks/useAsync';
 import { Badge, Button, Chip, Field, IconButton, Input, Loading, Switch } from '../ui';
 import './library.css';
@@ -28,6 +30,7 @@ import './playlists.css';
  * building while choosing what to add.
  */
 export default function PlaylistEditor() {
+  const t = useT();
   const { id } = useParams<{ id: string }>();
   const playlistId = Number(id);
 
@@ -40,9 +43,9 @@ export default function PlaylistEditor() {
     return (
       <>
         <Link to="/playlists" className="backlink">
-          ← Playlists
+          {t(msg('ple.back'))}
         </Link>
-        <p className="field-error">{playlist.error ?? 'Playlist introuvable.'}</p>
+        <p className="field-error">{playlist.error ?? t(msg('launch.notFound'))}</p>
       </>
     );
   }
@@ -69,6 +72,7 @@ interface EditorProps {
 }
 
 function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
+  const t = useT();
   const playlistId = playlist.id;
 
   const [name, setName] = useState(playlist.name ?? '');
@@ -130,7 +134,11 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   async function save() {
     setSaving(true);
     try {
-      await api.updatePlaylist(playlistId, { name: name.trim() || 'Sans nom', public: isPublic, mediaIds: order });
+      await api.updatePlaylist(playlistId, {
+        name: name.trim() || t(msg('pl.untitled')),
+        public: isPublic,
+        mediaIds: order
+      });
       setDirty(false);
       onSaved();
     } finally {
@@ -144,12 +152,12 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   return (
     <>
       <Link to="/playlists" className="backlink">
-        ← Playlists
+        {t(msg('ple.back'))}
       </Link>
 
       <div className="page-head">
         <div style={{ flex: 1, minWidth: '14rem' }}>
-          <Field label="Nom de la playlist">
+          <Field label={t(msg('ple.name'))}>
             {({ id: fieldId }) => (
               <Input
                 id={fieldId}
@@ -165,19 +173,19 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
         <div className="page-actions">
           <Link to={`/playlists/${playlistId}/lancer`}>
             <Button variant="secondary" disabled={chosen.length - notReady === 0 || dirty}>
-              Lancer
+              {t(msg('ple.launch'))}
             </Button>
           </Link>
           <Button variant="primary" busy={saving} disabled={!dirty} onClick={() => void save()}>
-            {dirty ? 'Enregistrer' : 'Enregistré'}
+            {t(msg(dirty ? 'ple.save' : 'ple.saved'))}
           </Button>
         </div>
       </div>
 
       <div style={{ marginBottom: 'var(--space-5)', maxWidth: '32rem' }}>
         <Switch
-          label="Playlist publique"
-          hint="Visible par les autres comptes, modifiable seulement par vous."
+          label={t(msg('ple.public'))}
+          hint={t(msg('ple.publicHint'))}
           checked={isPublic}
           onCheckedChange={(checked) => {
             setIsPublic(checked);
@@ -189,14 +197,15 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
       <div className="pl-editor">
         <section className="pl-panel">
           <header className="pl-panel-head">
-            <h2 className="pl-panel-title">Dans la playlist</h2>
+            <h2 className="pl-panel-title">{t(msg('ple.inPlaylist'))}</h2>
             <span className="pl-panel-count">
-              {chosen.length} · {notReady > 0 ? `${notReady} à compléter` : 'toutes prêtes'}
+              {chosen.length} ·{' '}
+              {notReady > 0 ? t(msg('pl.toFinish', { count: notReady })) : t(msg('ple.allReady'))}
             </span>
           </header>
 
           {chosen.length === 0 ? (
-            <p className="pl-panel-empty">Ajoutez des médias depuis la bibliothèque à droite.</p>
+            <p className="pl-panel-empty">{t(msg('ple.addFromLibrary'))}</p>
           ) : (
             <DndContext
               sensors={sensors}
@@ -217,21 +226,21 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
 
         <section className="pl-panel">
           <header className="pl-panel-head">
-            <h2 className="pl-panel-title">Bibliothèque</h2>
-            <span className="pl-panel-count">{available.length} disponibles</span>
+            <h2 className="pl-panel-title">{t(msg('ple.library'))}</h2>
+            <span className="pl-panel-count">{t(msg('ple.available', { count: available.length }))}</span>
           </header>
 
           <div style={{ padding: 'var(--space-3) var(--space-4)' }} className="stack-3">
             <Input
               type="search"
               value={search}
-              placeholder="Rechercher…"
-              aria-label="Rechercher dans la bibliothèque"
+              placeholder={t(msg('ple.search'))}
+              aria-label={t(msg('ple.searchLabel'))}
               onChange={(event) => setSearch(event.target.value)}
             />
             <div className="filters">
               <Chip active={!kindFilter} onClick={() => setKindFilter('')}>
-                Tout
+                {t(msg('lib.all'))}
               </Chip>
               {kinds.map((kind) => (
                 <Chip
@@ -240,7 +249,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                   dotColor={kindColor(kind)}
                   onClick={() => setKindFilter(kindFilter === kind ? '' : kind)}
                 >
-                  {kindLabel(kind)}
+                  {t(msg(kindKey(kind)))}
                 </Chip>
               ))}
             </div>
@@ -252,13 +261,13 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
             <p className="pl-panel-empty">
               {library.length === 0 ? (
                 <>
-                  La bibliothèque est vide.{' '}
+                  {t(msg('ple.libraryEmpty'))}{' '}
                   <Link to="/bibliotheque/nouveau" className="link-quiet">
-                    Ajouter un média
+                    {t(msg('ple.addMedia'))}
                   </Link>
                 </>
               ) : (
-                'Tout est déjà dans la playlist, ou aucun résultat.'
+                t(msg('ple.nothingLeft'))
               )}
             </p>
           ) : (
@@ -270,12 +279,16 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                   <span className="pl-item-main">
                     <span className="pl-item-title">{item.title}</span>
                     <span className="pl-item-meta">
-                      {kindLabel(item.kind)}
+                      {t(msg(kindKey(item.kind)))}
                       {item.category ? ` · ${item.category}` : ''}
-                      {!item.readiness.ready && ' · à compléter'}
+                      {!item.readiness.ready && t(msg('ple.unfinishedMeta'))}
                     </span>
                   </span>
-                  <IconButton icon={<PlusIcon />} label={`Ajouter ${item.title}`} onClick={() => add(item.id)} />
+                  <IconButton
+                    icon={<PlusIcon />}
+                    label={t(msg('ple.add', { title: item.title }))}
+                    onClick={() => add(item.id)}
+                  />
                 </li>
               ))}
             </ul>
@@ -287,6 +300,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
 }
 
 function SortableRow({ item, index, onRemove }: { item: MediaItem; index: number; onRemove: () => void }) {
+  const t = useT();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
 
   return (
@@ -299,7 +313,7 @@ function SortableRow({ item, index, onRemove }: { item: MediaItem; index: number
       <button
         type="button"
         className="pl-handle"
-        aria-label={`Déplacer ${item.title}, position ${index + 1}`}
+        aria-label={t(msg('ple.move', { title: item.title, position: index + 1 }))}
         {...attributes}
         {...listeners}
       >
@@ -311,13 +325,13 @@ function SortableRow({ item, index, onRemove }: { item: MediaItem; index: number
           {index + 1}. {item.title}
         </span>
         <span className="pl-item-meta">
-          {kindLabel(item.kind)}
+          {t(msg(kindKey(item.kind)))}
           {item.category ? ` · ${item.category}` : ''}
         </span>
       </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-        {!item.readiness.ready && <Badge tone="warn">à compléter</Badge>}
-        <IconButton icon={<MinusIcon />} label={`Retirer ${item.title}`} onClick={onRemove} />
+        {!item.readiness.ready && <Badge tone="warn">{t(msg('lib.unfinished'))}</Badge>}
+        <IconButton icon={<MinusIcon />} label={t(msg('ple.remove', { title: item.title }))} onClick={onRemove} />
       </span>
     </li>
   );

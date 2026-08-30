@@ -87,7 +87,7 @@ describe('a room runs dry', () => {
 
     const refused = applyHeroAction(state, hero.playerId, { type: 'search' });
     assert.equal(refused.ok, false);
-    assert.match(refused.error ?? '', /vidée/i);
+    assert.match(typeof refused.error === 'string' ? refused.error : '', /vidée/i);
     assert.equal(hero.ap, 2, 'a refused action must not cost a point');
     assert.equal(hero.bag.length, 1, 'nor hand out an item');
   });

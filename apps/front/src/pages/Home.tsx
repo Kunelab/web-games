@@ -1,7 +1,9 @@
+import { msg } from 'i18n';
 import { Link } from 'react-router';
 
 import { GAMES } from '../app/games';
 import { useAuth } from '../hooks/useAuth';
+import { useT } from '../i18n/locale-context';
 import { Button } from '../ui';
 import './home.css';
 
@@ -19,31 +21,29 @@ import './home.css';
  */
 export default function Home() {
   const { user } = useAuth();
+  const t = useT();
 
   return (
     <div className="home">
       <section className="home-hero">
-        <h1 className="home-title">Trois jeux, un salon, des téléphones.</h1>
-        <p className="home-lede">
-          Un quiz à faire deviner, un quartier à évacuer, une ville qui cherche ses tueurs. Chacun sur son téléphone,
-          la partie sur la télé quand il y en a une.
-        </p>
+        <h1 className="home-title">{t(msg('site.home.title'))}</h1>
+        <p className="home-lede">{t(msg('site.home.lede'))}</p>
         <div className="page-actions">
           <Link to="/rejoindre">
             <Button variant="primary" size="lg">
-              Rejoindre une partie
+              {t(msg('site.home.join'))}
             </Button>
           </Link>
           {user ? (
             <Link to="/bibliotheque">
               <Button variant="secondary" size="lg">
-                Bibliothèque
+                {t(msg('site.home.library'))}
               </Button>
             </Link>
           ) : (
             <Link to="/connexion">
               <Button variant="secondary" size="lg">
-                Se connecter
+                {t(msg('site.home.signIn'))}
               </Button>
             </Link>
           )}
@@ -57,8 +57,8 @@ export default function Home() {
               {game.emoji}
             </span>
             <h2 style={{ color: game.accent }}>{game.name}</h2>
-            <p>{game.tagline}</p>
-            <span className="home-game-go">Ouvrir le menu →</span>
+            <p>{t(msg(game.tagline))}</p>
+            <span className="home-game-go">{t(msg('site.home.open'))}</span>
           </Link>
         ))}
       </section>

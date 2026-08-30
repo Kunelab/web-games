@@ -1,10 +1,12 @@
+import { msg } from 'i18n';
 import { Link } from 'react-router';
 
 import { api, type Playlist } from '../../api/client';
 import { gameEntry } from '../../app/games';
-import { kindColor, kindLabel } from '../../app/kinds';
+import { kindColor, kindKey } from '../../app/kinds';
 import { useAuth } from '../../hooks/useAuth';
 import { useAsync } from '../../hooks/useAsync';
+import { useT } from '../../i18n/locale-context';
 import { Badge, Button, EmptyState, Loading } from '../../ui';
 import './menu.css';
 
@@ -19,6 +21,7 @@ import './menu.css';
 export default function QuizCreate() {
   const entry = gameEntry('quiz');
   const { user } = useAuth();
+  const t = useT();
   const playlists = useAsync(() => api.listPlaylists(), []);
 
   if (playlists.loading) return <Loading />;
@@ -34,33 +37,26 @@ export default function QuizCreate() {
           🎬
         </span>
         <div>
-          <h1 className="menu-title">Créer un salon</h1>
-          <p className="menu-lede">
-            Choisissez le quiz à jouer. L’écran suivant règle la partie — ordre, chrono, points — et décide si le salon
-            est public ou privé.
-          </p>
+          <h1 className="menu-title">{t(msg('quiz.create.title'))}</h1>
+          <p className="menu-lede">{t(msg('quiz.create.lede'))}</p>
         </div>
       </header>
 
       <Shelf
-        title="Mes quiz"
-        empty="Vous n’avez pas encore de quiz. Un quiz est un groupe de questions."
+        title={t(msg('quiz.create.mine'))}
+        empty={t(msg('quiz.create.mineEmpty'))}
         action={
           <Link to="/playlists">
-            <Button variant="secondary">Créer un quiz</Button>
+            <Button variant="secondary">{t(msg('quiz.create.makeOne'))}</Button>
           </Link>
         }
         playlists={mine}
       />
 
-      <Shelf
-        title="Quiz publics"
-        empty="Personne n’a encore publié de quiz."
-        playlists={published}
-      />
+      <Shelf title={t(msg('quiz.create.public'))} empty={t(msg('quiz.create.publicEmpty'))} playlists={published} />
 
       <Link to={entry.path} className="menu-back">
-        ← Retour au menu Quiz
+        {t(msg('quiz.guide.back'))}
       </Link>
     </div>
   );
@@ -77,6 +73,7 @@ function Shelf({
   action?: React.ReactNode;
   playlists: Playlist[];
 }) {
+  const t = useT();
   return (
     <section className="guide-section">
       <h2>{title}</h2>
@@ -93,19 +90,21 @@ function Shelf({
                 to={`/playlists/${playlist.id}/lancer`}
                 className={`menu-tile ${ready === 0 ? 'locked' : ''}`}
               >
-                <strong>{playlist.name ?? 'Sans titre'}</strong>
+                <strong>{playlist.name ?? t(msg('quiz.create.untitled'))}</strong>
                 <span className="menu-tile-hint">
-                  {ready} question{ready === 1 ? '' : 's'} jouable{ready === 1 ? '' : 's'}
-                  {playlist.owner?.login && playlist.public && ` · par ${playlist.owner.login}`}
+                  {t(msg('quiz.create.playable', { count: ready }))}
+                  {playlist.owner?.login &&
+                    playlist.public &&
+                    ` ${t(msg('quiz.create.by', { login: playlist.owner.login }))}`}
                 </span>
                 <span className="qp-choices">
                   {Object.entries(playlist.kindCounts).map(([kind, count]) => (
                     <span key={kind} className="guide-stats" style={{ color: kindColor(kind) }}>
-                      {kindLabel(kind)} × {count}
+                      {t(msg(kindKey(kind)))} × {count}
                     </span>
                   ))}
                 </span>
-                {playlist.public && <Badge tone="ok">Public</Badge>}
+                {playlist.public && <Badge tone="ok">{t(msg('quiz.create.publicBadge'))}</Badge>}
               </Link>
             );
           })}

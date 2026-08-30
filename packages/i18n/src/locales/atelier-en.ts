@@ -1,0 +1,181 @@
+import type { Catalogue } from '../index.js';
+
+/**
+ * The workshop, in English: the library of things to guess, the playlists that
+ * arrange them, the launch screen, and the history every finished evening leaves
+ * behind.
+ *
+ * Nothing an author *wrote* is in here — a media's title, a playlist's name, a
+ * category — because those are their words. What is here is the furniture around
+ * them.
+ */
+export const atelierEn: Catalogue = {
+  /* -------------------------------- the library ----------------------------- */
+  'lib.title': 'Library',
+  'lib.loading': 'Loading…',
+  'lib.count': '{count} media',
+  'lib.countUnfinished': '{count} media · {unfinished} to finish',
+  'lib.importYoutube': 'Import a YouTube playlist',
+  'lib.newMedia': 'New media',
+  'lib.search': 'Search for a title…',
+  'lib.searchLabel': 'Search',
+  'lib.all': 'All',
+  'lib.noResults': 'No results',
+  'lib.empty': 'The library is empty',
+  'lib.clearFilters': 'Clear the filters',
+  'lib.addFirst': 'Add a first media',
+  'lib.noMatch': 'No media matches that search.',
+  'lib.whatIsMedia':
+    'A media is a thing to be guessed: a clip, a question, a picture. Playlists then put them together.',
+  'lib.unfinished': 'to finish',
+  'lib.duplicate': 'Duplicate {title}',
+  'lib.delete': 'Delete {title}',
+  'lib.deleteTitle': 'Delete this media?',
+  'lib.cancel': 'Cancel',
+  'lib.confirmDelete': 'Delete',
+  'lib.checkingUsage': 'Checking which playlists use it…',
+  'lib.usedNowhere': 'This media is in no playlist.',
+  'lib.willBeRemoved': 'It will be removed from {count} playlist(s).',
+  'lib.import.title': 'Import a YouTube playlist',
+  'lib.import.desc':
+    'Every video becomes a blind test. The title and the artist are guessed from the video title, so read them over afterwards.',
+  'lib.import.close': 'Close',
+  'lib.import.run': 'Import',
+  'lib.import.reference': 'Playlist link or id',
+  'lib.import.playlistLabel': 'YouTube playlist',
+  'lib.import.category': 'Category to apply (optional)',
+  'lib.import.categoryLabel': 'Category',
+  'lib.import.done': '{count} media imported.',
+  'lib.import.doneUnfinished': '{count} media imported, {unfinished} of them to finish.',
+  'lib.import.failed': 'The import failed.',
+
+  /* ------------------------------- the playlists ---------------------------- */
+  'pl.title': 'Playlists',
+  'pl.lede': 'A playlist becomes a game. Players join with a code.',
+  'pl.new': 'New playlist',
+  'pl.defaultName': 'New playlist',
+  'pl.live': 'Game in progress:',
+  'pl.liveWaiting': ' (waiting for players)',
+  'pl.resume': 'Resume',
+  'pl.none': 'No playlist',
+  'pl.createFirst': 'Create the first one',
+  'pl.whatIsPlaylist': 'A playlist gathers media in the order they will be played.',
+  'pl.publicOnes': 'Public playlists',
+  'pl.newDialog': 'New playlist',
+  'pl.cancel': 'Cancel',
+  'pl.create': 'Create',
+  'pl.name': 'Name',
+  'pl.namePlaceholder': 'Saturday night',
+  'pl.deleteTitle': 'Delete this playlist?',
+  'pl.deleteDesc': '{name} — the media it holds are not deleted.',
+  'pl.delete': 'Delete',
+  'pl.untitled': 'Untitled',
+  'pl.duplicate': 'Duplicate {name}',
+  'pl.deleteOne': 'Delete {name}',
+  'pl.emptyMeta': 'Empty',
+  'pl.mediaCount': '{count} media',
+  'pl.publicMeta': ' · public',
+  'pl.toFinish': '{count} to finish',
+  'pl.ready': 'ready',
+  'pl.launch': 'Launch',
+  'pl.copiedPartly':
+    '“{name}” was copied, but {count} media belong to their author and could not be taken along.',
+
+  /* -------------------------------- the history ----------------------------- */
+  'hist.title': 'History',
+  'hist.lede': 'The games played, and what everybody took from them.',
+  'hist.none': 'No game on record',
+  'hist.noneNote': 'Finished games will appear here, with their podium and their honours.',
+  'hist.honours': 'Honours',
+  'hist.player': 'Player',
+  'hist.games': 'Games',
+  'hist.wins': 'Wins',
+  'hist.totalPoints': 'Points scored',
+  'hist.bestScore': 'Best score',
+  'hist.awards': 'Distinctions',
+  'hist.badges': 'Achievements',
+  'hist.cz': 'CoronaZ · honours and records',
+  'hist.survivor': 'Survivor',
+  'hist.raids': 'Raids',
+  'hist.kills': 'Kills',
+  'hist.bosses': 'Bosses',
+  'hist.trophies': 'Trophies',
+  'hist.kuneAccount': 'Kune account',
+  'hist.gamesSection': 'Games',
+  'hist.rounds': '{count} rounds · code {code}',
+  'hist.fastestWin': 'Fastest winning raid · {scenario}',
+  'hist.turns': '{count} turns',
+  'hist.pts': '{points} pts',
+
+  /* ------------------------------ the launch screen ------------------------- */
+  'launch.notFound': 'Playlist not found.',
+  'launch.title': 'Open a room',
+  'launch.thisGame': 'this game',
+
+  /* --------------------------- arranging one playlist ----------------------- */
+  'ple.back': '← Playlists',
+  'ple.name': 'Playlist name',
+  'ple.launch': 'Launch',
+  'ple.save': 'Save',
+  'ple.saved': 'Saved',
+  'ple.public': 'Public playlist',
+  'ple.publicHint': 'Visible to other accounts, editable only by you.',
+  'ple.inPlaylist': 'In the playlist',
+  'ple.allReady': 'all ready',
+  'ple.addFromLibrary': 'Add media from the library on the right.',
+  'ple.library': 'Library',
+  'ple.available': '{count} available',
+  'ple.search': 'Search…',
+  'ple.searchLabel': 'Search the library',
+  'ple.libraryEmpty': 'The library is empty.',
+  'ple.addMedia': 'Add a media',
+  'ple.nothingLeft': 'Everything is already in the playlist, or nothing matched.',
+  'ple.unfinishedMeta': ' · to finish',
+  'ple.add': 'Add {title}',
+  'ple.move': 'Move {title}, position {position}',
+  'ple.remove': 'Remove {title}',
+  /* ------------------------- opening a room from a playlist ----------------- */
+  'launch.failed': 'The launch failed.',
+  'launch.backPlaylist': 'Playlist',
+  'launch.of': 'Launch “{name}”',
+  'launch.playable': '{count} playable media',
+  'launch.skippedMeta': ' · {count} left out',
+  'launch.ready': 'Ready to play',
+  'launch.readyOral': 'Open the game screen on the TV and start the first round.',
+  'launch.readyPhones': 'The players scan, then you start the first round.',
+  'launch.skipped': 'Media left out',
+  'launch.missing': '— missing {fields}',
+  'launch.openScreen': 'Open the game screen',
+  'launch.solo': 'Play solo on this device',
+  'launch.options': 'Game options',
+  'launch.shuffle': 'Random order',
+  'launch.chronological': 'Chronological order',
+  'launch.chronological.hint': 'By each media’s date.',
+  'launch.autoAdvance': 'Advance automatically',
+  'launch.autoAdvance.hint': 'Otherwise you move on by hand after every reveal.',
+  'launch.oral': 'No phones, out loud',
+  'launch.oral.hint':
+    'Only the TV shows anything, answers are said out loud and nothing is scored. It is also the mode for trying a playlist out alone.',
+  'launch.combo': 'Combo points',
+  'launch.combo.hint': 'Winning several rounds in a row multiplies the points: ×1.1, ×1.2… up to ×2.',
+  'launch.comeback': 'Catch-up points',
+  'launch.comeback.hint': 'The bottom third, if it is genuinely adrift, scores up to ×1.5 on what it finds.',
+  'launch.attempts': 'Tries per answer',
+  'launch.attempts.hint': 'How many wrong answers before a field locks.',
+  'launch.create': 'Create the game',
+  'launch.howOral': 'How it is played',
+  'launch.howOral.1':
+    'The TV shows the media, the room answers out loud, and you show the answer once everybody has had their say. Nothing is timed and nothing is scored.',
+  'launch.howOral.2':
+    'The game starts even with nobody in it, which makes it the quickest way to listen to a playlist end to end and check that it holds up.',
+  'launch.howOral.3': 'A phone can still join with the code if you want to test the player screen.',
+  'launch.howScore': 'How the score works',
+  'launch.howScore.1':
+    'Every answer is its own race: the first to find the title takes the maximum on that field, even if somebody else found the artist before them.',
+  'launch.howScore.2':
+    'Three things go into the total: the place taken on the answer, which counts for most; the time left on the clock; and the time against the other players who found it, which rewards whoever knew when the question was hard for everyone.',
+  'launch.howScore.3':
+    'Network lag is compensated: what counts is the moment the player pressed, not when their message arrived. Points have decimals, and that is normal.'
+};
+
+export default atelierEn;

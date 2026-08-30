@@ -1,9 +1,11 @@
+import { msg } from 'i18n';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { api, type MediaItem } from '../api/client';
-import { kindColor, kindLabel } from '../app/kinds';
+import { kindColor, kindKey } from '../app/kinds';
 import { useAsync } from '../hooks/useAsync';
+import { useLocale } from '../i18n/locale-context';
 import { Badge, Button, Chip, CopyIcon, Dialog, EmptyState, IconButton, Input, Loading, Tag } from '../ui';
 import './library.css';
 
@@ -17,6 +19,7 @@ import './library.css';
 export default function Library() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
+  const { t, locale } = useLocale();
 
   const kind = params.get('type') ?? '';
   const search = params.get('q') ?? '';
@@ -97,19 +100,21 @@ export default function Library() {
     <>
       <div className="page-head">
         <div>
-          <h1 className="page-title">Bibliothèque</h1>
+          <h1 className="page-title">{t(msg('lib.title'))}</h1>
           <p className="page-sub">
             {media.loading
-              ? 'Chargement…'
-              : `${items.length} média${items.length === 1 ? '' : 's'}${notReady > 0 ? ` · ${notReady} à compléter` : ''}`}
+              ? t(msg('lib.loading'))
+              : notReady > 0
+                ? t(msg('lib.countUnfinished', { count: items.length, unfinished: notReady }))
+                : t(msg('lib.count', { count: items.length }))}
           </p>
         </div>
         <div className="page-actions">
           <Button variant="secondary" onClick={() => setImportOpen(true)}>
-            Importer une playlist YouTube
+            {t(msg('lib.importYoutube'))}
           </Button>
           <Button variant="primary" onClick={() => void navigate('/bibliotheque/nouveau')}>
-            Nouveau média
+            {t(msg('lib.newMedia'))}
           </Button>
         </div>
       </div>
@@ -125,8 +130,8 @@ export default function Library() {
           <Input
             type="search"
             value={searchDraft}
-            placeholder="Rechercher un titre…"
-            aria-label="Rechercher"
+            placeholder={t(msg('lib.search'))}
+            aria-label={t(msg('lib.searchLabel'))}
             onChange={(event) => {
               setSearchDraft(event.target.value);
               if (event.target.value === '') setParam('q', '');
@@ -136,7 +141,7 @@ export default function Library() {
 
         <div className="filters">
           <Chip active={!kind} onClick={() => setParam('type', '')}>
-            Tout
+            {t(msg('lib.all'))}
           </Chip>
           {(kinds.data ?? []).map((descriptor) => (
             <Chip
@@ -145,7 +150,7 @@ export default function Library() {
               dotColor={kindColor(descriptor.id)}
               onClick={() => setParam('type', kind === descriptor.id ? '' : descriptor.id)}
             >
-              {descriptor.label.fr}
+              {descriptor.label[locale] ?? descriptor.label.en}
               {counts[descriptor.id] ? ` ${counts[descriptor.id]}` : ''}
             </Chip>
           ))}
@@ -157,7 +162,7 @@ export default function Library() {
 
       {!media.loading && items.length === 0 && (
         <EmptyState
-          title={search || kind ? 'Aucun résultat' : 'La bibliothèque est vide'}
+          title={t(msg(search || kind ? 'lib.noResults' : 'lib.empty'))}
           action={
             search || kind ? (
               <Button
@@ -167,19 +172,17 @@ export default function Library() {
                   setParams(new URLSearchParams(), { replace: true });
                 }}
               >
-                Effacer les filtres
+                {t(msg('lib.clearFilters'))}
               </Button>
             ) : (
               <Button variant="primary" onClick={() => void navigate('/bibliotheque/nouveau')}>
-                Ajouter un premier média
+                {t(msg('lib.addFirst'))}
               </Button>
             )
           }
         >
           <p>
-            {search || kind
-              ? 'Aucun média ne correspond à cette recherche.'
-              : 'Un média est une chose à faire deviner : un extrait, une question, une image. Les playlists en assemblent ensuite.'}
+            {t(msg(search || kind ? 'lib.noMatch' : 'lib.whatIsMedia'))}
           </p>
         </EmptyState>
       )}
@@ -193,7 +196,7 @@ export default function Library() {
               <Link to={`/bibliotheque/${item.id}`} className="media-main">
                 <span className="media-title">{item.title}</span>
                 <span className="media-meta">
-                  {kindLabel(item.kind)}
+                  {t(msg(kindKey(item.kind)))}
                   {item.category ? ` · ${item.category}` : ''}
                   {item.date ? ` · ${item.date.slice(0, 4)}` : ''}
                 </span>
@@ -210,21 +213,32 @@ export default function Library() {
               <span className="media-state">
                 {item.readiness.ready ? (
                   <span className="tabular media-points">
-                    {item.answers.reduce((total, answer) => total + answer.points + answer.directBonus, 0)} pts
+                    {t(
+                      msg('play.points', {
+                        points: item.answers.reduce(
+                          (total, answer) => total + answer.points + answer.directBonus,
+                          0
+                        )
+                      })
+                    )}
                   </span>
                 ) : (
-                  <Badge tone="warn">à compléter</Badge>
+                  <Badge tone="warn">{t(msg('lib.unfinished'))}</Badge>
                 )}
               </span>
 
               <IconButton
                 icon={<CopyIcon />}
-                label={`Dupliquer ${item.title}`}
+                label={t(msg('lib.duplicate', { title: item.title }))}
                 disabled={duplicating !== null}
                 onClick={() => void duplicate(item)}
               />
 
-              <IconButton icon={<TrashIcon />} label={`Supprimer ${item.title}`} onClick={() => void askDelete(item)} />
+              <IconButton
+                icon={<TrashIcon />}
+                label={t(msg('lib.delete', { title: item.title }))}
+                onClick={() => void askDelete(item)}
+              />
             </li>
           ))}
         </ul>
@@ -233,15 +247,15 @@ export default function Library() {
       <Dialog
         open={pendingDelete !== null}
         onOpenChange={(open) => !open && setPendingDelete(null)}
-        title="Supprimer ce média ?"
+        title={t(msg('lib.deleteTitle'))}
         description={pendingDelete?.title}
         actions={
           <>
             <Button variant="ghost" onClick={() => setPendingDelete(null)}>
-              Annuler
+              {t(msg('lib.cancel'))}
             </Button>
             <Button variant="danger" busy={deleting} onClick={() => void confirmDelete()}>
-              Supprimer
+              {t(msg('lib.confirmDelete'))}
             </Button>
           </>
         }
@@ -250,10 +264,10 @@ export default function Library() {
             dialog that informs and one that is clicked through reflexively. */}
         <p className="dialog-desc">
           {usage === null
-            ? 'Vérification des playlists concernées…'
+            ? t(msg('lib.checkingUsage'))
             : usage === 0
-              ? "Ce média n'est utilisé dans aucune playlist."
-              : `Il sera retiré de ${usage} playlist${usage === 1 ? '' : 's'}.`}
+              ? t(msg('lib.usedNowhere'))
+              : t(msg('lib.willBeRemoved', { count: usage }))}
         </p>
       </Dialog>
 
@@ -278,6 +292,7 @@ function ImportDialog({
   onOpenChange: (open: boolean) => void;
   onImported: () => void;
 }) {
+  const t = useLocale().t;
   const [reference, setReference] = useState('');
   const [category, setCategory] = useState('');
   const [busy, setBusy] = useState(false);
@@ -291,12 +306,13 @@ function ImportDialog({
     try {
       const outcome = await api.youtubeImport(reference, category || undefined);
       setResult(
-        `${outcome.imported} média${outcome.imported === 1 ? '' : 's'} importé${outcome.imported === 1 ? '' : 's'}` +
-          (outcome.notReady > 0 ? `, dont ${outcome.notReady} à compléter.` : '.')
+        outcome.notReady > 0
+          ? t(msg('lib.import.doneUnfinished', { count: outcome.imported, unfinished: outcome.notReady }))
+          : t(msg('lib.import.done', { count: outcome.imported }))
       );
       onImported();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "L'import a échoué.");
+      setError(cause instanceof Error ? cause.message : t(msg('lib.import.failed')));
     } finally {
       setBusy(false);
     }
@@ -306,15 +322,15 @@ function ImportDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Importer une playlist YouTube"
-      description="Chaque vidéo devient un blind test. Le titre et l’artiste sont devinés à partir du titre de la vidéo, donc à relire ensuite."
+      title={t(msg('lib.import.title'))}
+      description={t(msg('lib.import.desc'))}
       actions={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Fermer
+            {t(msg('lib.import.close'))}
           </Button>
           <Button variant="primary" busy={busy} disabled={!reference.trim()} onClick={() => void run()}>
-            Importer
+            {t(msg('lib.import.run'))}
           </Button>
         </>
       }
@@ -322,14 +338,14 @@ function ImportDialog({
       <div className="stack-4">
         <Input
           value={reference}
-          placeholder="Lien de la playlist ou identifiant"
-          aria-label="Playlist YouTube"
+          placeholder={t(msg('lib.import.reference'))}
+          aria-label={t(msg('lib.import.playlistLabel'))}
           onChange={(event) => setReference(event.target.value)}
         />
         <Input
           value={category}
-          placeholder="Catégorie à appliquer (optionnel)"
-          aria-label="Catégorie"
+          placeholder={t(msg('lib.import.category'))}
+          aria-label={t(msg('lib.import.categoryLabel'))}
           onChange={(event) => setCategory(event.target.value)}
         />
         {result && <p className="field-hint">{result}</p>}

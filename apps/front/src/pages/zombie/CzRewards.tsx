@@ -1,6 +1,8 @@
 import { gmClassDef, heroDef, type CzRaidReward } from 'coronaz-core';
+import { msg } from 'i18n';
 
 import { czPerkMeta, czTrophyMeta } from '../../app/czMeta';
+import { useT } from '../../i18n/locale-context';
 
 /**
  * The payoff screen: what the raid just bought you.
@@ -22,6 +24,7 @@ import { czPerkMeta, czTrophyMeta } from '../../app/czMeta';
  * private.
  */
 export function CzRewards({ rewards, meId }: { rewards: CzRaidReward[]; meId: string | null }) {
+  const t = useT();
   if (rewards.length === 0) return null;
 
   // Yours first: on a phone the fold is three rows down.
@@ -29,13 +32,17 @@ export function CzRewards({ rewards, meId }: { rewards: CzRaidReward[]; meId: st
 
   return (
     <section className="cz-rewards">
-      <h2 className="cz-rewards-title">Carrière</h2>
+      <h2 className="cz-rewards-title">{t(msg('cz.rewards.career'))}</h2>
       {ordered.map((reward) => (
         <article key={reward.playerId} className={`cz-reward ${reward.playerId === meId ? 'mine' : ''}`}>
           <header className="cz-reward-head">
             <span className="cz-reward-name">{reward.name}</span>
             <span className="cz-reward-rations tabular">
-              +{reward.rationsGained} 🥫<span className="cz-reward-total"> · {reward.rations} en réserve</span>
+              +{reward.rationsGained} 🥫
+              <span className="cz-reward-total">
+                {' '}
+                · {t(msg('cz.rewards.inStock', { count: reward.rations }))}
+              </span>
             </span>
           </header>
 
@@ -46,7 +53,7 @@ export function CzRewards({ rewards, meId }: { rewards: CzRaidReward[]; meId: st
                 const meta = czTrophyMeta(key);
                 return (
                   <li key={key}>
-                    <span aria-hidden="true">{meta.emoji}</span> <strong>{meta.title}</strong>
+                    <span aria-hidden="true">{meta.emoji}</span> <strong>{t(msg(meta.titleKey))}</strong>
                   </li>
                 );
               })}
@@ -59,7 +66,7 @@ export function CzRewards({ rewards, meId }: { rewards: CzRaidReward[]; meId: st
                 const meta = czPerkMeta(perk);
                 return (
                   <li key={perk}>
-                    <span aria-hidden="true">{meta.emoji}</span> {meta.label}
+                    <span aria-hidden="true">{meta.emoji}</span> {t(msg(meta.labelKey))}
                   </li>
                 );
               })}
@@ -70,7 +77,7 @@ export function CzRewards({ rewards, meId }: { rewards: CzRaidReward[]; meId: st
               reappear every raid until it was bought and stop being news. */}
           {reward.affordable.length > 0 && (
             <p className="cz-reward-unlock">
-              🔓 Débloquable :{' '}
+              🔓 {t(msg('cz.rewards.unlockable'))}{' '}
               {reward.affordable
                 .map((entry) => {
                   // A hero id on the survivors' track, a horde class on the other:
@@ -91,8 +98,10 @@ export function CzRewards({ rewards, meId }: { rewards: CzRaidReward[]; meId: st
                 return (
                   <li key={next.key} className={next.moved ? 'moved' : ''}>
                     <span className="cz-next-label">
-                      <span aria-hidden="true">{meta.emoji}</span> {meta.title}
-                      {next.perk && <span className="cz-next-perk"> → {czPerkMeta(next.perk).label}</span>}
+                      <span aria-hidden="true">{meta.emoji}</span> {t(msg(meta.titleKey))}
+                      {next.perk && (
+                        <span className="cz-next-perk"> → {t(msg(czPerkMeta(next.perk).labelKey))}</span>
+                      )}
                     </span>
                     <span className="cz-next-bar" aria-hidden="true">
                       <span className="cz-next-fill" style={{ width: `${pct.toFixed(1)}%` }} />

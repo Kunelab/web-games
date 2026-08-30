@@ -1,8 +1,10 @@
+import { msg } from 'i18n';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
+import { useT } from '../i18n/locale-context';
 import { Button, Field, Input } from '../ui';
 import './home.css';
 
@@ -12,6 +14,7 @@ const MIN_PASSWORD_LENGTH = 8;
 export default function Register() {
   const navigate = useNavigate();
   const { setUser } = useAuth();
+  const t = useT();
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -25,7 +28,7 @@ export default function Register() {
     // Checked here as well as on the server, because the server's answer to a
     // schema violation is a generic "Invalid request" that names no field.
     if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(`Le mot de passe doit faire au moins ${MIN_PASSWORD_LENGTH} caractères.`);
+      setError(t(msg('auth.passwordTooShort', { count: MIN_PASSWORD_LENGTH })));
       return;
     }
 
@@ -39,10 +42,10 @@ export default function Register() {
     } catch (cause) {
       setError(
         cause instanceof ApiError && cause.status === 409
-          ? 'Ce pseudo est déjà pris.'
+          ? t(msg('auth.nameTaken'))
           : cause instanceof ApiError
             ? cause.message
-            : "L'inscription a échoué."
+            : t(msg('auth.signUpFailed'))
       );
     } finally {
       setBusy(false);
@@ -51,10 +54,10 @@ export default function Register() {
 
   return (
     <div className="auth-page">
-      <h1 className="page-title">S’inscrire</h1>
+      <h1 className="page-title">{t(msg('auth.signUp'))}</h1>
 
       <form onSubmit={(event) => void submit(event)}>
-        <Field label="Pseudo">
+        <Field label={t(msg('auth.username'))}>
           {({ id }) => (
             <Input
               id={id}
@@ -65,7 +68,7 @@ export default function Register() {
           )}
         </Field>
 
-        <Field label="Email">
+        <Field label={t(msg('auth.email'))}>
           {({ id }) => (
             <Input
               id={id}
@@ -77,7 +80,11 @@ export default function Register() {
           )}
         </Field>
 
-        <Field label="Mot de passe" hint={`${MIN_PASSWORD_LENGTH} caractères minimum`} error={error ?? undefined}>
+        <Field
+          label={t(msg('auth.password'))}
+          hint={t(msg('auth.passwordHint', { count: MIN_PASSWORD_LENGTH }))}
+          error={error ?? undefined}
+        >
           {({ id, describedBy, invalid }) => (
             <Input
               id={id}
@@ -96,12 +103,12 @@ export default function Register() {
         </Field>
 
         <Button type="submit" variant="primary" busy={busy} block disabled={!username || !password || !email}>
-          Créer le compte
+          {t(msg('auth.createAccount'))}
         </Button>
       </form>
 
       <p className="auth-alt">
-        Déjà un compte ? <Link to="/connexion">Se connecter</Link>
+        {t(msg('auth.haveAccount'))} <Link to="/connexion">{t(msg('auth.doSignIn'))}</Link>
       </p>
     </div>
   );

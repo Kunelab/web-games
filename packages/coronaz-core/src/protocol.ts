@@ -1,3 +1,4 @@
+import type { Msg } from 'i18n';
 import type { ChatMessage } from 'chat-core';
 import { z } from 'zod';
 
@@ -187,7 +188,8 @@ export interface CzView {
     target: number;
     progress: number;
     done: boolean;
-    label: string;
+    /** A catalogue key; the screen renders it. See CzObjective. */
+    label: Msg;
     /** Pays score, gates nothing. */
     optional?: boolean;
   }[];

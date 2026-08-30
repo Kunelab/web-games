@@ -1,4 +1,14 @@
 import type { Catalogue } from '../index.js';
+import { rolesFr } from './roles-fr.js';
+import { atelierFr } from './atelier-fr.js';
+import { coronazFr } from './coronaz-fr.js';
+import { lobbyFr } from './lobby-fr.js';
+import { notesFr } from './notes-fr.js';
+import { playFr } from './play-fr.js';
+import { quizFr } from './quiz-fr.js';
+import { screenFr } from './screen-fr.js';
+import { shopFr } from './shop-fr.js';
+import { siteFr } from './site-fr.js';
 
 /**
  * French. The language the game was written in, so these are the originals
@@ -8,6 +18,17 @@ import type { Catalogue } from '../index.js';
  * Kept key-for-key with `en`; the catalogue test fails on any drift.
  */
 export const fr: Catalogue = {
+  ...rolesFr,
+  ...atelierFr,
+  ...coronazFr,
+  ...lobbyFr,
+  ...notesFr,
+  ...playFr,
+  ...quizFr,
+  ...screenFr,
+  ...shopFr,
+  ...siteFr,
+
   /* ------------------------------- the clock ------------------------------- */
   'mafia.day.header': '— Jour {day} —',
   'mafia.game.start':
@@ -33,6 +54,7 @@ export const fr: Catalogue = {
     'Le tribunal d’exception a voté à bulletin secret : aucun nom ne sortira de cette salle.',
   'mafia.trial.spared': '{name} est épargné.',
   'mafia.trial.nobody': 'personne',
+  'mafia.vote.skipped': 'La ville préfère ne pendre personne aujourd’hui. La nuit tombe.',
 
   'mafia.pause.begun': 'Le temps s’arrête : la table attend {names}.',
   'mafia.pause.resumed': 'Tout le monde est revenu. La partie reprend.',

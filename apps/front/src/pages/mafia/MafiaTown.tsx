@@ -75,17 +75,26 @@ export interface MafiaTownProps {
   onTrial: boolean;
   /** Skin hook. Colours only for now; house and villager art swap in later. */
   theme?: TownTheme;
+  /**
+   * How much board to fit in the frame. 1 is the town filling it; 1.5 pulls the
+   * camera back by half, which is what a twenty-four house ring needs before the
+   * names on the roster and the houses on the hill line up in one glance.
+   */
+  zoom?: number;
 }
 
-export function MafiaTown({ players, mySlot, night, onTrial, theme = 'village' }: MafiaTownProps) {
+export function MafiaTown({ players, mySlot, night, onTrial, theme = 'village', zoom = 1 }: MafiaTownProps) {
   const bySlot = new Map(players.map((player) => [player.slot, player]));
   const centre = project((GRID - 1) / 2, (GRID - 1) / 2);
 
-  const pad = 58;
+  // The camera pulls back by padding the box rather than scaling the drawing:
+  // strokes and text keep their own weight that way, which is the whole reason
+  // the scenery is an SVG.
+  const pad = 58 * zoom;
   const corners = [project(0, 0), project(GRID - 1, 0), project(GRID - 1, GRID - 1), project(0, GRID - 1)];
   const minX = Math.min(...corners.map((corner) => corner.x)) - pad;
   const maxX = Math.max(...corners.map((corner) => corner.x)) + pad;
-  const minY = Math.min(...corners.map((corner) => corner.y)) - pad - 12;
+  const minY = Math.min(...corners.map((corner) => corner.y)) - pad - 12 * zoom;
   const maxY = Math.max(...corners.map((corner) => corner.y)) + pad;
 
   return (

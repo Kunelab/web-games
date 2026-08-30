@@ -1,16 +1,19 @@
+import { msg } from 'i18n';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { api, type Playlist } from '../api/client';
-import { kindColor, kindLabel } from '../app/kinds';
+import { kindColor, kindKey } from '../app/kinds';
 import { useAsync } from '../hooks/useAsync';
 import { useAuth } from '../hooks/useAuth';
+import { useT } from '../i18n/locale-context';
 import { Badge, Button, CopyIcon, Dialog, EmptyState, Field, IconButton, Input, Loading, Tag } from '../ui';
 import './playlists.css';
 
 export default function Playlists() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const t = useT();
   const playlists = useAsync(() => api.listPlaylists(), []);
   /**
    * Games this account is hosting right now. The host token normally lives in
@@ -36,7 +39,7 @@ export default function Playlists() {
   async function create() {
     setBusy(true);
     try {
-      const created = await api.createPlaylist({ name: newName.trim() || 'Nouvelle playlist' });
+      const created = await api.createPlaylist({ name: newName.trim() || t(msg('pl.defaultName')) });
       setCreating(false);
       setNewName('');
       void navigate(`/playlists/${created.id}`);
@@ -68,10 +71,7 @@ export default function Playlists() {
       if (copy.dropped > 0) {
         // Staying put: navigating away would replace the explanation with an
         // apparently empty playlist, which is the confusing half of what happened.
-        setNotice(
-          `« ${copy.name ?? ''} » a été copiée, mais ${copy.dropped} média${copy.dropped === 1 ? '' : 's'} ` +
-            `appartiennent à leur auteur et n’ont pas pu être repris.`
-        );
+        setNotice(t(msg('pl.copiedPartly', { name: copy.name ?? '', count: copy.dropped })));
         playlists.reload();
         return;
       }
@@ -89,12 +89,12 @@ export default function Playlists() {
     <>
       <div className="page-head">
         <div>
-          <h1 className="page-title">Playlists</h1>
-          <p className="page-sub">Une playlist devient une partie. Les joueurs rejoignent avec un code.</p>
+          <h1 className="page-title">{t(msg('pl.title'))}</h1>
+          <p className="page-sub">{t(msg('pl.lede'))}</p>
         </div>
         <div className="page-actions">
           <Button variant="primary" onClick={() => setCreating(true)}>
-            Nouvelle playlist
+            {t(msg('pl.new'))}
           </Button>
         </div>
       </div>
@@ -108,11 +108,11 @@ export default function Playlists() {
           {(liveSessions.data ?? []).map((session) => (
             <div className="live-banner-row" key={session.code}>
               <span>
-                Partie en cours : <strong className="tabular">{session.code}</strong> · {session.playlistName}
-                {session.phase === 'lobby' && ' (en attente de joueurs)'}
+                {t(msg('pl.live'))} <strong className="tabular">{session.code}</strong> · {session.playlistName}
+                {session.phase === 'lobby' && t(msg('pl.liveWaiting'))}
               </span>
               <Button variant="secondary" size="sm" onClick={() => resume(session)}>
-                Reprendre
+                {t(msg('pl.resume'))}
               </Button>
             </div>
           ))}
@@ -121,14 +121,14 @@ export default function Playlists() {
 
       {!playlists.loading && mine.length === 0 && shared.length === 0 && (
         <EmptyState
-          title="Aucune playlist"
+          title={t(msg('pl.none'))}
           action={
             <Button variant="primary" onClick={() => setCreating(true)}>
-              Créer la première
+              {t(msg('pl.createFirst'))}
             </Button>
           }
         >
-          <p>Une playlist rassemble des médias dans l’ordre où ils seront joués.</p>
+          <p>{t(msg('pl.whatIsPlaylist'))}</p>
         </EmptyState>
       )}
 
@@ -143,7 +143,7 @@ export default function Playlists() {
 
       {shared.length > 0 && (
         <>
-          <h2 className="section-title">Playlists publiques</h2>
+          <h2 className="section-title">{t(msg('pl.publicOnes'))}</h2>
           {/* Copyable but not deletable: someone else's playlist is a starting
               point you can take, not one you can remove. */}
           <PlaylistGrid
@@ -157,24 +157,24 @@ export default function Playlists() {
       <Dialog
         open={creating}
         onOpenChange={setCreating}
-        title="Nouvelle playlist"
+        title={t(msg('pl.newDialog'))}
         actions={
           <>
             <Button variant="ghost" onClick={() => setCreating(false)}>
-              Annuler
+              {t(msg('pl.cancel'))}
             </Button>
             <Button variant="primary" busy={busy} onClick={() => void create()}>
-              Créer
+              {t(msg('pl.create'))}
             </Button>
           </>
         }
       >
-        <Field label="Nom">
+        <Field label={t(msg('pl.name'))}>
           {({ id }) => (
             <Input
               id={id}
               value={newName}
-              placeholder="Soirée du samedi"
+              placeholder={t(msg('pl.namePlaceholder'))}
               onChange={(event) => setNewName(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
@@ -190,15 +190,15 @@ export default function Playlists() {
       <Dialog
         open={pendingDelete !== null}
         onOpenChange={(open) => !open && setPendingDelete(null)}
-        title="Supprimer cette playlist ?"
-        description={`${pendingDelete?.name ?? ''} — les médias qu’elle contient ne sont pas supprimés.`}
+        title={t(msg('pl.deleteTitle'))}
+        description={t(msg('pl.deleteDesc', { name: pendingDelete?.name ?? '' }))}
         actions={
           <>
             <Button variant="ghost" onClick={() => setPendingDelete(null)}>
-              Annuler
+              {t(msg('pl.cancel'))}
             </Button>
             <Button variant="danger" onClick={() => void confirmDelete()}>
-              Supprimer
+              {t(msg('pl.delete'))}
             </Button>
           </>
         }
@@ -218,6 +218,7 @@ function PlaylistGrid({
   onDuplicate: (playlist: Playlist) => void;
   onDelete?: (playlist: Playlist) => void;
 }) {
+  const t = useT();
   return (
     <ul className="playlist-grid">
       {playlists.map((playlist) => {
@@ -227,19 +228,19 @@ function PlaylistGrid({
           <li className="playlist-card" key={playlist.id}>
             <div className="playlist-card-head">
               <Link to={`/playlists/${playlist.id}`} className="playlist-name">
-                {playlist.name ?? 'Sans nom'}
+                {playlist.name ?? t(msg('pl.untitled'))}
               </Link>
               <span className="playlist-card-actions">
                 <IconButton
                   icon={<CopyIcon />}
-                  label={`Dupliquer ${playlist.name ?? ''}`}
+                  label={t(msg('pl.duplicate', { name: playlist.name ?? '' }))}
                   disabled={duplicating !== null}
                   onClick={() => onDuplicate(playlist)}
                 />
                 {onDelete && (
                   <IconButton
                     icon={<TrashIcon />}
-                    label={`Supprimer ${playlist.name ?? ''}`}
+                    label={t(msg('pl.deleteOne', { name: playlist.name ?? '' }))}
                     onClick={() => onDelete(playlist)}
                   />
                 )}
@@ -248,17 +249,17 @@ function PlaylistGrid({
 
             <p className="playlist-meta">
               {playlist.items.length === 0
-                ? 'Vide'
-                : `${playlist.items.length} média${playlist.items.length === 1 ? '' : 's'}`}
+                ? t(msg('pl.emptyMeta'))
+                : t(msg('pl.mediaCount', { count: playlist.items.length }))}
               {playlist.owner && ` · ${playlist.owner.login ?? ''}`}
-              {playlist.public && ' · publique'}
+              {playlist.public && t(msg('pl.publicMeta'))}
             </p>
 
             {Object.keys(playlist.kindCounts).length > 0 && (
               <div className="playlist-kinds">
                 {Object.entries(playlist.kindCounts).map(([kind, count]) => (
                   <Tag key={kind} dotColor={kindColor(kind)}>
-                    {kindLabel(kind)} {count}
+                    {t(msg(kindKey(kind)))} {count}
                   </Tag>
                 ))}
               </div>
@@ -266,16 +267,16 @@ function PlaylistGrid({
 
             <div className="playlist-card-foot">
               {playlist.notReadyCount > 0 ? (
-                <Badge tone="warn">{playlist.notReadyCount} à compléter</Badge>
+                <Badge tone="warn">{t(msg('pl.toFinish', { count: playlist.notReadyCount }))}</Badge>
               ) : playlist.items.length > 0 ? (
-                <Badge tone="ok">prête</Badge>
+                <Badge tone="ok">{t(msg('pl.ready'))}</Badge>
               ) : (
                 <span />
               )}
 
               <Link to={`/playlists/${playlist.id}/lancer`}>
                 <Button variant="primary" size="sm" disabled={playable === 0}>
-                  Lancer
+                  {t(msg('pl.launch'))}
                 </Button>
               </Link>
             </div>
