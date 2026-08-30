@@ -28,10 +28,88 @@ services:
       REGISTRATION_OPEN: ${REGISTRATION_OPEN:-true}
       # Optional: enables the YouTube lookup and playlist import.
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      #
+      # Which brains the Mafia bots try, in order. See apps/back/src/env.ts.
+      # Every rung falls through to the next on an error or a rate limit, and
+      # the last fall is always to the simulator's own player — so leaving all
+      # of this unset gives a table that works, just one that never surprises
+      # you. The default here points at the sibling container below rather than
+      # at localhost, because inside a container localhost is the container.
+      MAFIA_BOT_PROVIDER: ${MAFIA_BOT_PROVIDER:-ollama}
+      MAFIA_BOT_TEMPO: ${MAFIA_BOT_TEMPO:-live}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      MAFIA_BOT_MODEL: ${MAFIA_BOT_MODEL:-qwen3.5:4b}
+      # Up to four OpenAI-compatible endpoints, tried in the order the chain
+      # names them. Slots 2-4 inherit slot 1's URL and key, so three free models
+      # on one provider is three lines. See docs/llm.md.
+      MAFIA_API_URL: ${MAFIA_API_URL:-https://api.groq.com/openai/v1}
+      MAFIA_API_KEY: ${MAFIA_API_KEY:-}
+      MAFIA_API_MODEL: ${MAFIA_API_MODEL:-openai/gpt-oss-120b}
+      MAFIA_API_2_URL: ${MAFIA_API_2_URL:-}
+      MAFIA_API_2_KEY: ${MAFIA_API_2_KEY:-}
+      MAFIA_API_2_MODEL: ${MAFIA_API_2_MODEL:-}
+      MAFIA_API_3_URL: ${MAFIA_API_3_URL:-}
+      MAFIA_API_3_KEY: ${MAFIA_API_3_KEY:-}
+      MAFIA_API_3_MODEL: ${MAFIA_API_3_MODEL:-}
+      MAFIA_API_4_URL: ${MAFIA_API_4_URL:-}
+      MAFIA_API_4_KEY: ${MAFIA_API_4_KEY:-}
+      MAFIA_API_4_MODEL: ${MAFIA_API_4_MODEL:-}
+      # How long a refusing rung sits out, and how long one bot turn may spend
+      # walking the chain before the played brain takes it. See docs/llm.md.
+      MAFIA_BOT_COOLDOWN_MS: ${MAFIA_BOT_COOLDOWN_MS:-60000}
+      MAFIA_BOT_TURN_MS: ${MAFIA_BOT_TURN_MS:-25000}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       # Accounts, media, playlists, game history. Everything worth keeping.
       - web-games-data:/data
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # The local brain, off by default.
+  #
+  # Behind a profile because it is genuinely optional: the games work without
+  # it, and pulling it costs a couple of gigabytes of image and a few more of
+  # weights. Turn it on for a deployment by putting
+  #
+  #     COMPOSE_PROFILES=llm
+  #
+  # in the .env file next to this one, then `docker compose up -d` as usual —
+  # no extra -f flags, no second command to remember.
+  #
+  # It publishes no port. The API talks to it over the compose network by name,
+  # which is why OLLAMA_URL above says `ollama` and not `127.0.0.1`: a model
+  # daemon with no authentication of any kind has no business being reachable
+  # from the LAN, and this way it simply is not.
+  #
+  # No GPU section, deliberately. The box this was written for is a mini PC
+  # with integrated graphics, so this runs on the CPU, and the model size in
+  # MAFIA_BOT_MODEL is chosen for that — see docs/llm.md.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ['llm']
+    # Loopback only, and only so the host can drive it: `ollama pull`, a curl to
+    # check it is alive. The API does not use this address — it talks over the
+    # compose network — and nothing outside the machine can reach it.
+    ports:
+      - '127.0.0.1:11434:11434'
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      # A model per request would thrash a machine with no VRAM to spill into.
+      # One resident model, one request at a time through it, and the driver's
+      # own in-flight cap does the rest.
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-2}
+      OLLAMA_MAX_LOADED_MODELS: '1'
+      # Kept warm: a table asks for a decision every few seconds, and paying the
+      # load cost again between phases is most of what makes a bot feel absent.
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+    # Leaves the machine some room to serve the actual website. The mini PC has
+    # sixteen threads; this takes half and no more.
+    cpus: ${OLLAMA_CPUS:-8}
+    mem_limit: ${OLLAMA_MEMORY:-8g}
+    restart: unless-stopped
+
 volumes:
   web-games-data:
+  # Model weights: several gigabytes that nobody wants to download twice.
+  ollama-models:

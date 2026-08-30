@@ -5,6 +5,7 @@ import {
   slotPool,
   type Faction,
   type MafiaChannelKind,
+  type MafiaView,
   type MafiaPublicPlayer,
   type MafiaViewMe,
   type RoleId,
@@ -154,13 +155,21 @@ export default function MafiaPlayer() {
   const [joinError, setJoinError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [jailMode, setJailMode] = useState(false);
-  const [willOpen, setWillOpen] = useState(false);
   const [will, setWill] = useState('');
   const [whisperTo, setWhisperTo] = useState<number | null>(null);
   const [whisperText, setWhisperText] = useState('');
 
   /** Which floating panel is open. One at a time: they overlap the same board. */
   const [panel, setPanel] = useState<'none' | 'wills' | 'me'>('none');
+  /**
+   * Which half of the wills panel is open.
+   *
+   * The two are the same document seen from either side of dying — the one
+   * you are still writing, and the ones that have already been read out — so
+   * they belong behind one icon rather than in two places at opposite ends of
+   * the screen, which is where the editor used to live.
+   */
+  const [willTab, setWillTab] = useState<'mine' | 'dead'>('mine');
   /** A role-list line (or your own card) opened for a closer read. */
   const [reading, setReading] = useState<SlotToken | null>(null);
   /** Mobile only: the roster and the chat share the bottom half. */
@@ -525,24 +534,104 @@ export default function MafiaPlayer() {
         >
           {me.role ? roleIcon(me.role.id) : '❔'}
         </button>
+        {/*
+          The day's second exit, up here with the rest of what you can do.
+
+          It was a full-width button under the roster, which is the part of the
+          screen you scroll past — and a vote you have to go looking for is a
+          vote nobody casts. The tally rides on it so the room can see the
+          option gathering weight without anybody opening anything.
+        */}
+        {canVote && me.alive && (
+          <button
+            type="button"
+            className={cx('mz-corner-btn', me.votedSkip && 'mz-corner-btn--on')}
+            aria-pressed={me.votedSkip}
+            title={
+              me.votedSkip
+                ? tk('mafia.ui.skipTally', { count: view.skipVotes, needed: view.voteThreshold })
+                : tk('mafia.ui.skipIcon')
+            }
+            onClick={() => socket?.emit('mafia:vote', { targetSlot: me.votedSkip ? null : 'skip' }, fail)}
+          >
+            ⏭️
+            {view.skipVotes > 0 && <span className="mz-corner-tally">{view.skipVotes}</span>}
+          </button>
+        )}
       </div>
 
       {panel === 'wills' && (
         <FloatingPanel title={tk('mafia.ui.willsTitle')} onClose={() => setPanel('none')} className="mz-panel--wills">
-          <section className="mz-will-entry mz-will-entry--mine">
-            <h4>{tk('mafia.ui.willsMine')}</h4>
-            <p>{sealed || tk('mafia.ui.willsMineEmpty')}</p>
-          </section>
-          {wills.length === 0 && <p className="mz-muted">{tk('mafia.ui.willsEmpty')}</p>}
-          {wills.map((player) => (
-            <section key={player.slot} className="mz-will-entry">
-              <h4>
-                {player.slot}. {player.name}
-                {player.roleName && <span className={`mz-fac mz-fac--${player.faction ?? 'hidden'}`}> · {t(player.roleName)}</span>}
-              </h4>
-              <p className={player.lastWill ? undefined : 'mz-muted'}>{player.lastWill ?? tk('mafia.ui.willsNone')}</p>
-            </section>
-          ))}
+          <div className="mz-will-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={willTab === 'mine'}
+              className={cx('mz-will-tab', willTab === 'mine' && 'mz-will-tab--on')}
+              onClick={() => setWillTab('mine')}
+            >
+              {tk('mafia.ui.willsTabMine')}
+              {sealed ? ' ✓' : ''}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={willTab === 'dead'}
+              className={cx('mz-will-tab', willTab === 'dead' && 'mz-will-tab--on')}
+              onClick={() => setWillTab('dead')}
+            >
+              {tk('mafia.ui.willsTabDead', { count: wills.length })}
+            </button>
+          </div>
+
+          {willTab === 'mine' ? (
+            me.alive ? (
+              /* Written here, where it is read: the editor and the archive are
+                 the same object at two different moments. */
+              <div className="mz-will">
+                <label className="mz-will-label" htmlFor="mz-will-text">
+                  {tk('mafia.ui.willLabel')}
+                </label>
+                <textarea
+                  id="mz-will-text"
+                  value={will}
+                  onChange={(event) => setWill(event.target.value)}
+                  maxLength={400}
+                  rows={5}
+                />
+                <div className="mz-row-actions">
+                  <Button onClick={() => socket?.emit('mafia:will', { text: will }, fail)}>
+                    {tk('mafia.ui.seal')}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setWill(sealed)}>
+                    {tk('mafia.ui.cancel')}
+                  </Button>
+                  {sealed && <span className="mz-muted">{tk('mafia.ui.willsSealed')}</span>}
+                </div>
+              </div>
+            ) : (
+              <section className="mz-will-entry mz-will-entry--mine">
+                <p className={sealed ? undefined : 'mz-muted'}>{sealed || tk('mafia.ui.willsMineEmpty')}</p>
+              </section>
+            )
+          ) : (
+            <>
+              {wills.length === 0 && <p className="mz-muted">{tk('mafia.ui.willsEmpty')}</p>}
+              {wills.map((player) => (
+                <section key={player.slot} className="mz-will-entry">
+                  <h4>
+                    {player.slot}. {player.name}
+                    {player.roleName && (
+                      <span className={`mz-fac mz-fac--${player.faction ?? 'hidden'}`}> · {t(player.roleName)}</span>
+                    )}
+                  </h4>
+                  <p className={player.lastWill ? undefined : 'mz-muted'}>
+                    {player.lastWill ?? tk('mafia.ui.willsNone')}
+                  </p>
+                </section>
+              ))}
+            </>
+          )}
         </FloatingPanel>
       )}
 
@@ -583,6 +672,59 @@ export default function MafiaPlayer() {
             </div>
           )}
         </FloatingPanel>
+      )}
+
+      {/* ------------------------------- results -------------------------------- */}
+      {/*
+        The masks coming off, in the middle of the screen.
+
+        This used to be a panel at the bottom of the roster column, which is the
+        one place on the board nobody is looking when a game ends — you had to
+        scroll a sidebar past twenty-four names to find out who had won, and the
+        button back to the lobby was below that again. It is the last beat of the
+        evening and the only thing on screen that matters at that moment, so it
+        takes the middle and covers the town.
+      */}
+      {view.phase === 'ended' && view.results && (
+        <section className="mz-endcard" role="dialog" aria-label={tk('mafia.ui.results')}>
+          <h2>{tk('mafia.ui.results')}</h2>
+          <div className="mz-results-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">{tk('mafia.ui.col.seat')}</th>
+                  <th scope="col">{tk('mafia.ui.col.player')}</th>
+                  <th scope="col">{tk('mafia.ui.col.role')}</th>
+                  <th scope="col">{tk('mafia.ui.col.outcome')}</th>
+                  <th scope="col">{tk('mafia.ui.col.points')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {view.results.map((row) => (
+                  <tr key={row.slot} className={row.winner ? 'mz-winner' : ''}>
+                    <td>{row.slot}</td>
+                    <td>
+                      {row.name}
+                      {row.isBot ? ' 🤖' : ''}
+                    </td>
+                    <td>{t(row.roleName)}</td>
+                    <td>{row.winner ? `🏆 ${row.winReason ? t(row.winReason) : ''}` : '—'}</td>
+                    <td className="mz-num">+{row.points}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {rewards && (
+            <p className="mz-role-note">
+              {rewards
+                .filter((reward) => reward.total !== null)
+                .map((reward) => tk('mafia.ui.totalPoints', { name: reward.name, total: reward.total ?? 0 }))
+                .join(' · ') || tk('mafia.ui.signInToKeep')}
+            </p>
+          )}
+          <QuickEnd code={code} fallbackGame="mafia" />
+        </section>
       )}
 
       {/* ----------------------------- the role list ---------------------------- */}
@@ -726,6 +868,17 @@ export default function MafiaPlayer() {
                           <span className="mz-flag mz-flag--away" title={tk('mafia.ui.away')}> ⚪</span>
                         )}
                         {isMe && <span className="mz-seat-you">{tk('mafia.ui.you')}</span>}
+                        {/*
+                          And what you are, on the row that says it is you.
+
+                          Your own role was behind an icon in the corner, which
+                          meant the one identity you are never in doubt about was
+                          the only one not written down anywhere you look. It is
+                          not a leak: it is your card, on your line.
+                        */}
+                        {isMe && me.role && (
+                          <span className={`mz-fac mz-fac--${me.role.faction}`}> · {t(me.role.name)}</span>
+                        )}
                         {/* Wobbling, not waited on: a mark, never an overlay. */}
                         {view.presence.waitingFor.every((seat) => seat.slot !== player.slot) &&
                           view.presence.recovering.some((seat) => seat.slot === player.slot) && (
@@ -751,8 +904,20 @@ export default function MafiaPlayer() {
                                   ? tk(`mafia.faction.${player.faction}`)
                                   : tk('mafia.ui.unknownIdentity')}
                             </span>
+                            {/*
+                              Day or night, because they are different deaths.
+                              A body found at dawn was killed in the dark; only a
+                              hanging happens in daylight, and reading "killed by
+                              the Serial Killer, day 2" about a corpse the town
+                              woke up to is simply the wrong fact.
+                            */}
                             {player.death &&
-                              ` · ${t(msg('mafia.roster.diedOn', { cause: player.death.cause, day: player.death.day }))}`}
+                              ` · ${t(
+                                msg(
+                                  player.death.phase === 'night' ? 'mafia.roster.diedAtNight' : 'mafia.roster.diedOn',
+                                  { cause: player.death.cause, day: player.death.day }
+                                )
+                              )}`}
                             {!player.death && view.phase === 'ended' && ` · ${tk('mafia.ui.survived')}`}
                           </>
                         )}
@@ -854,19 +1019,6 @@ export default function MafiaPlayer() {
                  * as an accusation, aimed at nobody, and it carries on the same
                  * majority.
                  */}
-                {canVote && me.alive && (
-                  <Button
-                    variant={me.votedSkip ? undefined : 'ghost'}
-                    onClick={() =>
-                      socket?.emit('mafia:vote', { targetSlot: me.votedSkip ? null : 'skip' }, fail)
-                    }
-                  >
-                    {me.votedSkip
-                      ? `✓ ${tk('mafia.ui.skipTally', { count: view.skipVotes, needed: view.voteThreshold })}`
-                      : `⏭️ ${tk('mafia.ui.skip')}${view.skipVotes > 0 ? ` (${view.skipVotes}/${view.voteThreshold})` : ''}`}
-                  </Button>
-                )}
-
                 {inDiscussion && me.alive && me.role?.id === 'jailor' && (
                   <Button variant="ghost" onClick={() => setJailMode((mode) => !mode)}>
                     {jailMode
@@ -883,43 +1035,7 @@ export default function MafiaPlayer() {
                   </Button>
                 )}
 
-                {me.alive && (
-                  <Button variant="ghost" onClick={() => setWillOpen((open) => !open)}>
-                    {tk('mafia.ui.will')}
-                    {sealed ? ' ✓' : ''}
-                  </Button>
-                )}
               </div>
-
-              {willOpen && me.alive && (
-                <div className="mz-will">
-                  <label className="mz-will-label" htmlFor="mz-will-text">
-                    {tk('mafia.ui.willLabel')}
-                  </label>
-                  <textarea
-                    id="mz-will-text"
-                    value={will}
-                    onChange={(event) => setWill(event.target.value)}
-                    maxLength={400}
-                    rows={3}
-                  />
-                  <div className="mz-row-actions">
-                    <Button
-                      onClick={() =>
-                        socket?.emit('mafia:will', { text: will }, (ack) => {
-                          fail(ack);
-                          if (ack.ok) setWillOpen(false);
-                        })
-                      }
-                    >
-                      {tk('mafia.ui.seal')}
-                    </Button>
-                    <Button variant="ghost" onClick={() => { setWill(sealed); setWillOpen(false); }}>
-                      {tk('mafia.ui.cancel')}
-                    </Button>
-                  </div>
-                </div>
-              )}
 
               {whisperTo !== null && (
                 <div className="mz-whisper">
@@ -960,48 +1076,6 @@ export default function MafiaPlayer() {
             </section>
           )}
 
-          {/* ------------------------------ results ----------------------------- */}
-          {view.phase === 'ended' && view.results && (
-            <section className="mz-panel mz-results">
-              <h2>{tk('mafia.ui.results')}</h2>
-              <div className="mz-results-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th scope="col">{tk('mafia.ui.col.seat')}</th>
-                      <th scope="col">{tk('mafia.ui.col.player')}</th>
-                      <th scope="col">{tk('mafia.ui.col.role')}</th>
-                      <th scope="col">{tk('mafia.ui.col.outcome')}</th>
-                      <th scope="col">{tk('mafia.ui.col.points')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {view.results.map((row) => (
-                      <tr key={row.slot} className={row.winner ? 'mz-winner' : ''}>
-                        <td>{row.slot}</td>
-                        <td>
-                          {row.name}
-                          {row.isBot ? ' 🤖' : ''}
-                        </td>
-                        <td>{t(row.roleName)}</td>
-                        <td>{row.winner ? `🏆 ${row.winReason ? t(row.winReason) : ''}` : '—'}</td>
-                        <td className="mz-num">+{row.points}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {rewards && (
-                <p className="mz-role-note">
-                  {rewards
-                    .filter((reward) => reward.total !== null)
-                    .map((reward) => tk('mafia.ui.totalPoints', { name: reward.name, total: reward.total ?? 0 }))
-                    .join(' · ') || tk('mafia.ui.signInToKeep')}
-                </p>
-              )}
-              <QuickEnd code={code} fallbackGame="mafia" />
-            </section>
-          )}
         </div>
 
         {/* -------------------------------- chat -------------------------------- */}
@@ -1015,10 +1089,73 @@ export default function MafiaPlayer() {
               canWrite: channel.canWrite
             }))}
             onSend={(channel, text) => socket?.emit('mafia:chat', { channel, text }, fail)}
+            authorTag={(name) => {
+              const seat = view.players.find((player) => player.name === name);
+              return seat ? String(seat.slot) : null;
+            }}
+            /*
+              The afternoon's paper trail, beside the conversation it belongs to.
+
+              Accusations are deliberately not posted into the square — a table
+              of two dozen revising twice apiece wrote seventy lines a day into a
+              fixed ring, which is how a day phase used to delete the morning's
+              death announcements. This is the same information with its own
+              budget: who moved, when, and who took it back.
+            */
+            extraTabs={[
+              {
+                id: '@votes',
+                label: tk('mafia.ui.votesTab'),
+                render: () => <VoteTrail view={view} t={t} />
+              }
+            ]}
           />
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Who accused whom, in the order it happened.
+ *
+ * Grouped by day and read oldest-first, like the conversation it sits beside —
+ * an argument is a sequence, and a list sorted by anything other than time
+ * stops being one. A withdrawal gets its own line rather than deleting the
+ * accusation it undoes: a seat that piled on and then quietly stepped off is
+ * one of the most readable tells in the game, and a log that only kept the
+ * final tally would erase exactly that.
+ */
+function VoteTrail({ view, t }: { view: MafiaView; t: (message: Msg) => string }) {
+  const trail = view.voteLog;
+  if (trail.length === 0) return <p className="chat-line chat-line--system">{t(msg('mafia.ui.votesEmpty'))}</p>;
+
+  const days = [...new Set(trail.map((note) => note.day))];
+  return (
+    <>
+      {days.map((day) => (
+        <div key={day} className="mz-trail-day">
+          <p className="mz-trail-head">{t(msg('mafia.ui.votesDay', { day }))}</p>
+          {trail
+            .filter((note) => note.day === day)
+            .map((note, index) => (
+              <p key={`${day}-${index}`} className="chat-line mz-trail-line">
+                <span className="chat-slot">{note.voterSlot}</span>
+                {t(
+                  note.skip
+                    ? msg('mafia.ui.votesSkip', { voter: note.voter })
+                    : note.targetSlot === null
+                      ? msg('mafia.ui.votesWithdraw', { voter: note.voter })
+                      : msg('mafia.ui.votesAccuse', {
+                          voter: note.voter,
+                          target: `${note.targetSlot} ${note.target ?? ''}`.trim()
+                        })
+                )}
+              </p>
+            ))}
+        </div>
+      ))}
+    </>
   );
 }
 

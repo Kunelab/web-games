@@ -55,6 +55,7 @@ import '../play.css';
  * points go on the board, not on menus.
  */
 export default function CoronaZPlayer() {
+  const t = useT();
   const { code = '' } = useParams<{ code: string }>();
   const { socket, connected, view, rewards, error, serverNow, applyView } = useCzSocket();
 
@@ -103,12 +104,12 @@ export default function CoronaZPlayer() {
           setJoinError(ack.error ?? 'Impossible de rejoindre.');
         }
       } catch {
-        setJoinError('Le serveur ne répond pas.');
+        setJoinError(t(msg('cz.play.serverQuiet')));
       } finally {
         setBusy(false);
       }
     },
-    [socket, code, tokenKey, applyView]
+    [socket, code, tokenKey, applyView, t]
   );
 
   const autoJoined = useRef(false);
@@ -169,16 +170,16 @@ export default function CoronaZPlayer() {
       try {
         return (await socket.timeout(5000).emitWithAck('cz:action', action)) as CzActionAck;
       } catch {
-        return { ok: false, error: 'Le serveur ne répond pas' };
+        return { ok: false, error: t(msg('cz.play.serverQuiet')) };
       }
     },
-    [socket]
+    [socket, t]
   );
 
   if (!connected) {
     return (
       <div className="jeu-screen jeu-center">
-        <Loading label="Connexion…" />
+        <Loading label={t(msg('cz.play.connecting'))} />
       </div>
     );
   }
@@ -197,14 +198,14 @@ export default function CoronaZPlayer() {
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Ton nom de survivant"
+            placeholder={t(msg('cz.play.yourName'))}
             maxLength={24}
-            aria-label="Ton nom"
+            aria-label={t(msg('cz.play.yourName'))}
             autoFocus
           />
           {joinError && <p className="play-error">{joinError}</p>}
           <Button type="submit" variant="primary" size="lg" block busy={busy} disabled={!name.trim()}>
-            Rejoindre le raid
+            {t(msg('cz.play.join'))}
           </Button>
         </form>
       </div>
@@ -214,7 +215,7 @@ export default function CoronaZPlayer() {
   if (!view) {
     return (
       <div className="jeu-screen jeu-center">
-        <Loading label="En attente de la partie…" />
+        <Loading label={t(msg('cz.play.waiting'))} />
       </div>
     );
   }
@@ -267,7 +268,7 @@ export default function CoronaZPlayer() {
   if (!me) {
     return (
       <div className="jeu-screen jeu-center">
-        <p className="play-note">Vous n’êtes pas dans cette partie.</p>
+        <p className="play-note">{t(msg('cz.play.notInGame'))}</p>
       </div>
     );
   }
@@ -351,11 +352,16 @@ function LobbyScreen({
     <div className="jeu-screen cz-lobby">
       <header className="cz-lobby-head">
         <p className="play-label">
-          Choisis ton survivant{career ? ` · 🥫 ${career.rations} rations` : ''}
+          {career
+            ? t(msg('cz.play.pickSurvivorRations', { count: career.rations }))
+            : t(msg('cz.play.pickSurvivor'))}
           {/* Where the evening's score lands: the account when there is one. */}
-          {account ? <span className="cz-ledger"> 🔗 compte {account}</span> : <span className="cz-ledger"> 📱 ce pseudo</span>}
+          <span className="cz-ledger">
+            {' '}
+            {account ? t(msg('cz.play.account', { login: account })) : t(msg('cz.play.thisNickname'))}
+          </span>
         </p>
-        <span className="play-note">{view.heroes.length} survivant(s) · la partie commence quand la télé le dit</span>
+        <span className="play-note">{t(msg('cz.play.survivorCount', { count: view.heroes.length }))}</span>
       </header>
 
       <CzHeroSelect
@@ -378,7 +384,7 @@ function LobbyScreen({
           be eaten choose how hungry the horde is, and are paid for it. */}
       <section className="cz-mutations">
         <span className="cz-slot-label">
-          Mutations de la horde · récompense ×{view.mutationReward.toFixed(2)}
+          {t(msg('cz.play.mutations', { factor: view.mutationReward.toFixed(2) }))}
         </span>
         <div className="cz-perk-grid">
           {MUTATIONS.map((mutation) => {
@@ -435,23 +441,23 @@ function LobbyScreen({
                   size="sm"
                   onClick={() => socket?.emit('cz:addBot', { hostToken, skill: 'expert' }, () => undefined)}
                 >
-                  + Bot expert
+                  {t(msg('cz.play.botExpert'))}
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => socket?.emit('cz:addBot', { hostToken, skill: 'newbie' }, () => undefined)}
                 >
-                  + Bot novice
+                  {t(msg('cz.play.botNewbie'))}
                 </Button>
               </>
             )}
             <Button variant="primary" size="lg" onClick={() => socket?.emit('cz:start', { hostToken })}>
-              Lancer le raid
+              {t(msg('cz.play.start'))}
             </Button>
           </div>
         ) : (
-          <p className="play-note">La télé lance la partie quand tout le monde est là.</p>
+          <p className="play-note">{t(msg('cz.play.tvStarts'))}</p>
         )}
       </footer>
     </div>
@@ -622,7 +628,7 @@ function PlayScreen({
         <span className="play-label">{view.code}</span>
         <span className="player-timer tabular">{view.phaseEndsAt !== null ? remaining : ''}</span>
         <span className="player-score tabular">
-          {me.hp}❤ · {myTurn ? `${me.ap} PA` : view.phase === 'enemy' ? 'la horde…' : ''}
+          {me.hp}❤ · {myTurn ? `${me.ap} PA` : view.phase === 'enemy' ? t(msg('cz.play.hordePlaying')) : ''}
         </span>
         <MuteButton />
       </header>
@@ -651,22 +657,22 @@ function PlayScreen({
           learns that rooms differ at all. */}
       {room && (
         <p className="cz-room-line">
-          {PROGRAM_LABELS[room.program]}
-          {room.loot >= SHINY_LOOT && <span className="cz-room-rich"> ✨ bon butin</span>}
-          {room.loot <= -0.15 && <span className="cz-room-poor"> · pauvre</span>}
+          {t(msg(PROGRAM_LABELS[room.program]))}
+          {room.loot >= SHINY_LOOT && <span className="cz-room-rich"> {t(msg('cz.play.goodLoot'))}</span>}
+          {room.loot <= -0.15 && <span className="cz-room-poor">{t(msg('cz.play.poor'))}</span>}
           {/* How much of it is left. A room runs dry now, and a rule the player
               cannot see is a rule that reads as a bug: without this the third
               "Fouiller" of the turn just fails and nothing explains why. */}
           {room.finds > 0 ? (
-            <span className="cz-room-finds"> · {room.finds} à fouiller</span>
+            <span className="cz-room-finds">{t(msg('cz.play.toSearch', { count: room.finds }))}</span>
           ) : (
-            <span className="cz-room-poor"> · salle vidée</span>
+            <span className="cz-room-poor">{t(msg('cz.play.emptied'))}</span>
           )}
         </p>
       )}
 
-      {!me.alive && <p className="play-error">Vous êtes tombé. La partie continue sans vous.</p>}
-      {me.escaped && <p className="play-good">Vous êtes dehors. Regardez-les courir.</p>}
+      {!me.alive && <p className="play-error">{t(msg('cz.play.down'))}</p>}
+      {me.escaped && <p className="play-good">{t(msg('cz.play.out'))}</p>}
 
       <CzChat messages={view.chat} me={me.playerId} onSend={say} />
 
@@ -682,27 +688,28 @@ function PlayScreen({
               disabled={(me.ap <= 0 && !inventory?.freeSearchAvailable) || (room?.finds ?? 0) <= 0}
               onClick={() => void act({ type: 'search' })}
             >
-              Fouiller{inventory?.freeSearchAvailable ? ' 🆓' : ''}
+              {t(msg('cz.play.search'))}
+              {inventory?.freeSearchAvailable ? ' 🆓' : ''}
             </Button>
             {room?.hasKey && (
               <Button variant="primary" disabled={me.ap <= 0} onClick={() => void act({ type: 'pickupKey' })}>
-                🔑 Ramasser
+                {t(msg('cz.play.pickupKey'))}
               </Button>
             )}
             {room?.kind === 'exit' && (
               <Button variant="primary" disabled={me.ap <= 0} onClick={() => void act({ type: 'exit' })}>
-                🚪 Sortir
+                {t(msg('cz.play.exit'))}
               </Button>
             )}
             <Button variant="secondary" onClick={() => setBagOpen((open) => !open)}>
-              🎒 Sac
+              {t(msg('cz.play.bagButton'))}
             </Button>
             <Button
               variant={me.ready ? 'ghost' : 'secondary'}
               disabled={me.ready}
               onClick={() => void act({ type: 'ready' })}
             >
-              {me.ready ? 'Prêt ✓' : 'Prêt'}
+              {t(msg(me.ready ? 'cz.play.readyDone' : 'cz.play.ready'))}
             </Button>
             {/* Forfeit lives in the bag now, not here. Two taps was the right guard
                 and the wrong place: it sat in the grid next to "Prêt", the one
@@ -742,10 +749,10 @@ function PlayScreen({
             <ItemStats item={loot} compact />
             <span style={{ display: 'flex', gap: '0.5rem' }}>
               <Button variant="primary" size="sm" onClick={() => void quickEquip(loot)}>
-                Équiper
+                {t(msg('cz.play.equip'))}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setLoot(null)}>
-                Garder
+                {t(msg('cz.play.keep'))}
               </Button>
             </span>
           </div>
@@ -753,7 +760,7 @@ function PlayScreen({
 
         {attackTarget && (
           <div className="cz-sheet">
-            <span className="cz-slot-label">Attaquer avec</span>
+            <span className="cz-slot-label">{t(msg('cz.play.attackWith'))}</span>
             <div className="cz-actions">
               {attackOptions().map((option) => (
                 <Button
@@ -768,7 +775,7 @@ function PlayScreen({
                 </Button>
               ))}
               <Button variant="ghost" onClick={() => setAttackTarget(null)}>
-                Annuler
+                {t(msg('cz.play.cancel'))}
               </Button>
             </div>
           </div>
@@ -812,22 +819,22 @@ function InventorySheet({
 
   return (
     <div className="cz-sheet">
-      <span className="cz-slot-label">Mains</span>
+      <span className="cz-slot-label">{t(msg('cz.play.hands'))}</span>
       <div className="cz-items">
-        <ItemButton item={inventory.hands[0] ?? null} label="main gauche" onSelect={toggle} />
-        <ItemButton item={inventory.hands[1] ?? null} label="main droite" onSelect={toggle} />
+        <ItemButton item={inventory.hands[0] ?? null} label={t(msg('cz.play.leftHandSlot'))} onSelect={toggle} />
+        <ItemButton item={inventory.hands[1] ?? null} label={t(msg('cz.play.rightHandSlot'))} onSelect={toggle} />
       </div>
-      <span className="cz-slot-label">Équipement</span>
+      <span className="cz-slot-label">{t(msg('cz.play.gear'))}</span>
       <div className="cz-items">
-        <ItemButton item={inventory.gear[0] ?? null} label="libre" onSelect={toggle} />
-        <ItemButton item={inventory.gear[1] ?? null} label="libre" onSelect={toggle} />
+        <ItemButton item={inventory.gear[0] ?? null} label={t(msg('cz.play.freeSlot'))} onSelect={toggle} />
+        <ItemButton item={inventory.gear[1] ?? null} label={t(msg('cz.play.freeSlot'))} onSelect={toggle} />
       </div>
-      <span className="cz-slot-label">Sac ({inventory.bag.length}/5)</span>
+      <span className="cz-slot-label">{t(msg('cz.play.bagCount', { count: inventory.bag.length }))}</span>
       <div className="cz-items">
         {inventory.bag.map((item) => (
           <ItemButton key={item.uid} item={item} label="" onSelect={toggle} />
         ))}
-        {inventory.bag.length === 0 && <span className="play-note">Vide. Fouillez.</span>}
+        {inventory.bag.length === 0 && <span className="play-note">{t(msg('cz.play.bagEmpty'))}</span>}
       </div>
 
       {selected && (
@@ -839,7 +846,7 @@ function InventorySheet({
             </span>
           </span>
           <ItemStats item={selected} />
-          <span className="cz-slot-label">→ où ?</span>
+          <span className="cz-slot-label">{t(msg('cz.play.where'))}</span>
           <div className="cz-actions">
             {(itemDef(selected.def).gear?.heal || itemDef(selected.def).gear?.adrenaline) && (
               <Button
@@ -850,7 +857,7 @@ function InventorySheet({
                   setSelected(null);
                 }}
               >
-                {itemDef(selected.def).gear?.heal ? 'Se soigner (1 PA)' : 'S’injecter (gratuit)'}
+                {t(msg(itemDef(selected.def).gear?.heal ? 'cz.play.heal' : 'cz.play.inject'))}
               </Button>
             )}
             {itemDef(selected.def).kind === 'weapon' ? (
@@ -863,7 +870,7 @@ function InventorySheet({
                     setSelected(null);
                   }}
                 >
-                  Main G
+                  {t(msg('cz.play.leftHand'))}
                 </Button>
                 <Button
                   variant="secondary"
@@ -873,7 +880,7 @@ function InventorySheet({
                     setSelected(null);
                   }}
                 >
-                  Main D
+                  {t(msg('cz.play.rightHand'))}
                 </Button>
               </>
             ) : (
@@ -885,7 +892,7 @@ function InventorySheet({
                   setSelected(null);
                 }}
               >
-                Porter
+                {t(msg('cz.play.wear'))}
               </Button>
             )}
             <Button
@@ -896,7 +903,7 @@ function InventorySheet({
                 setSelected(null);
               }}
             >
-              Sac
+              {t(msg('cz.play.bag'))}
             </Button>
             {teammates.map((mate) => (
               <Button
@@ -919,13 +926,13 @@ function InventorySheet({
                 setSelected(null);
               }}
             >
-              Jeter
+              {t(msg('cz.play.drop'))}
             </Button>
           </div>
         </>
       )}
 
-      <Badge tone="ok">Tout ici est gratuit : aucune action dépensée.</Badge>
+      <Badge tone="ok">{t(msg('cz.play.allFree'))}</Badge>
 
       {/* Leaving the raid: two taps, and behind the bag rather than in the row of
           buttons pressed every turn. Still free, still instant, still not a death. */}
@@ -938,7 +945,7 @@ function InventorySheet({
             else setQuitAsked(true);
           }}
         >
-          {quitAsked ? 'Abandonner pour de bon ?' : '🏳️ Abandonner le raid'}
+          {t(msg(quitAsked ? 'cz.play.forfeitSure' : 'cz.play.forfeit'))}
         </Button>
       )}
     </div>

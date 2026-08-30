@@ -94,7 +94,11 @@ export function CzHeroSelect({
                 if (!owner || isMine) onPick(candidate.id);
               }}
               aria-label={candidate.name}
-              title={owner && !isMine ? `${candidate.name} — pris par ${owner}` : candidate.name}
+              title={
+                owner && !isMine
+                  ? t(msg('cz.hero.takenBy', { name: candidate.name, who: owner }))
+                  : candidate.name
+              }
             >
               <HeroPortrait heroId={candidate.id} emoji={candidate.emoji} />
               <span className="cz-face-name">{candidate.name}</span>
@@ -115,7 +119,7 @@ export function CzHeroSelect({
             <h3 className="cz-dossier-name">{hero.name}</h3>
             <p className="cz-dossier-blurb">{t(msg(hero.blurb))}</p>
             <p className="cz-dossier-stats">
-              <span>❤ {hero.hp} PV</span>
+              <span>{t(msg('cz.hero.hp', { hp: hero.hp }))}</span>
               <FavouriteWeapon biome={biome} role={hero.favoriteWeapon} />
             </p>
           </div>
@@ -128,16 +132,16 @@ export function CzHeroSelect({
             disabled={(rations ?? 0) < (hero.cost ?? 0)}
             onClick={() => onUnlock(hero.id)}
           >
-            Débloquer pour {hero.cost} 🥫
-            {rations !== null && ` · vous avez ${rations}`}
+            {t(msg('cz.hero.unlockFor', { cost: hero.cost ?? 0 }))}
+            {rations !== null && t(msg('cz.hero.youHave', { count: rations }))}
           </Button>
         ) : mine === hero.id ? (
-          <p className="cz-dossier-mine">Votre survivant.</p>
+          <p className="cz-dossier-mine">{t(msg('cz.hero.yours'))}</p>
         ) : takenBy.has(hero.id) ? (
-          <p className="play-note">Déjà pris par {takenBy.get(hero.id)}.</p>
+          <p className="play-note">{t(msg('cz.hero.alreadyTaken', { who: takenBy.get(hero.id) ?? '' }))}</p>
         ) : (
           <Button variant="primary" size="sm" onClick={() => onPick(hero.id)}>
-            Choisir {hero.name}
+            {t(msg('cz.hero.pick', { name: hero.name }))}
           </Button>
         )}
 
@@ -146,7 +150,7 @@ export function CzHeroSelect({
           <PerkPicker heroId={hero.id} loadout={loadout} onChange={onLoadout} />
         ) : (
           <div className="stack-2">
-            <span className="cz-slot-label">Atouts signature</span>
+            <span className="cz-slot-label">{t(msg('cz.hero.signaturePerks'))}</span>
             <ul className="cz-perk-preview">
               {hero.personalPerks.map((id) => {
                 const perk = loadoutPerkDef(id);
@@ -241,7 +245,7 @@ function PerkPicker({
         })}
       </div>
 
-      <span className="cz-slot-label">Atouts généraux ({globals.length}/2)</span>
+      <span className="cz-slot-label">{t(msg('cz.setup.globalPerks', { count: globals.length }))}</span>
       <div className="cz-perk-grid">
         {HERO_GLOBAL_PERKS.map((id) => {
           const perk = loadoutPerkDef(id);

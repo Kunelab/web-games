@@ -482,8 +482,8 @@ export function CzMap({
                   borderColor: RARITY_META[def.rarity].color
                 }}
                 title={`${t(msg(def.name))} (${t(msg(RARITY_META[def.rarity].label))}) · ${zombie.hp}/${zombie.maxHp} PV${
-                  zombie.bonusDmg > 0 ? ' · élite' : ''
-                }${aimable === false ? ' · hors de portée' : ''}${
+                  zombie.bonusDmg > 0 ? t(msg('cz.map.elite')) : ''
+                }${aimable === false ? t(msg('cz.map.outOfRange')) : ''}${
                   spentZombies?.has(zombie.id) ? ' · a fini son tour' : ''
                 }`}
                 disabled={!onZombieTap}
@@ -516,7 +516,7 @@ export function CzMap({
           <button type="button" onClick={() => zoomBy(1.2)} aria-label="Zoomer">
             +
           </button>
-          <button type="button" onClick={() => zoomBy(1 / 1.2)} aria-label="Dézoomer">
+          <button type="button" onClick={() => zoomBy(1 / 1.2)} aria-label={t(msg('cz.map.zoomOut'))}>
             −
           </button>
           <button
@@ -527,8 +527,8 @@ export function CzMap({
             title={
               cameraMode === 'auto'
                 ? following
-                  ? 'La caméra suit l’action — cliquez pour tout voir'
-                  : 'Tout voir, et rendre la main à la caméra'
+                  ? t(msg('cz.map.follow'))
+                  : t(msg('cz.map.seeAll'))
                 : 'Tout voir'
             }
           >
@@ -600,6 +600,7 @@ function CzMinimap({
   view: CzView;
   onJump: (world: Vec2) => void;
 }) {
+  const t = useT();
   const ref = useRef<HTMLCanvasElement | null>(null);
   const ratio = typeof window === 'undefined' ? 1 : Math.min(2, window.devicePixelRatio || 1);
   const bounds = boardBounds(view.width, view.height);
@@ -672,7 +673,7 @@ function CzMinimap({
           y: bounds.minY + (event.clientY - rect.top) / scale
         });
       }}
-      aria-label="Plan du bâtiment"
+      aria-label={t(msg('cz.map.plan'))}
     />
   );
 }

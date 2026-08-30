@@ -87,23 +87,23 @@ export default function CoronaZGm() {
           if (ack.view) applyView(ack.view);
           setOpenError(null);
         } else {
-          setOpenError(ack.error ?? 'Impossible d’ouvrir.');
+          setOpenError(ack.error ?? t(msg('cz.gm.openFailed')));
         }
       })
-      .catch(() => setOpenError('Le serveur ne répond pas.'));
-  }, [socket, connected, gmToken, code, applyView]);
+      .catch(() => setOpenError(t(msg('cz.play.serverQuiet'))));
+  }, [socket, connected, gmToken, code, applyView, t]);
 
   const send = useCallback(
     async (action: GmAction) => {
       if (!socket) return;
       try {
         const result = (await socket.timeout(5000).emitWithAck('cz:gmAction', action)) as CzActionAck;
-        setFeedback(result.ok ? null : (result.error ?? 'Impossible'));
+        setFeedback(result.ok ? null : (result.error ?? t(msg('cz.gm.openFailed'))));
       } catch {
-        setFeedback('Le serveur ne répond pas');
+        setFeedback(t(msg('cz.play.serverQuiet')));
       }
     },
-    [socket]
+    [socket, t]
   );
 
   const remaining = useCountdown(view?.phaseEndsAt ?? null, serverNow);
@@ -144,7 +144,7 @@ export default function CoronaZGm() {
   if (!gmToken || openError) {
     return (
       <div className="jeu-screen jeu-center">
-        <p className="play-note">{openError ?? 'Ce lien ne porte pas le jeton du maître du jeu.'}</p>
+        <p className="play-note">{openError ?? t(msg('cz.gm.noToken'))}</p>
       </div>
     );
   }
@@ -152,7 +152,7 @@ export default function CoronaZGm() {
   if (!view) {
     return (
       <div className="jeu-screen jeu-center">
-        <Loading label="Connexion…" />
+        <Loading label={t(msg('cz.play.connecting'))} />
       </div>
     );
   }
@@ -262,11 +262,13 @@ export default function CoronaZGm() {
             {/* How much of the horde still owes a turn: the number this screen was
                 missing. Without it the phase has no visible end. */}
             <span className={`cz-gm-queue tabular ${pending.length === 0 ? 'done' : ''}`}>
-              {pending.length === 0 ? '✓ horde jouée' : `🧟 ${pending.length} à jouer`}
+              {pending.length === 0
+                ? t(msg('cz.gm.hordePlayed'))
+                : t(msg('cz.gm.toPlay', { count: pending.length }))}
             </span>
           </>
         ) : (
-          <span className="play-note">Les survivants jouent…</span>
+          <span className="play-note">{t(msg('cz.gm.survivorsPlaying'))}</span>
         )}
       </header>
 
@@ -323,13 +325,13 @@ export default function CoronaZGm() {
                 ⏭ Suivant
               </Button>
               <Button variant="ghost" onClick={() => setSelected(null)}>
-                Déselectionner
+                {t(msg('cz.gm.deselect'))}
               </Button>
             </div>
             <p className="play-note">
               {selectedZombie.ap > 0
-                ? `Touchez une salle en surbrillance : jusqu’à ${selectedZombie.ap} d’un seul geste.`
-                : 'Cette créature a fini son tour.'}
+                ? t(msg('cz.gm.moveHint', { ap: selectedZombie.ap }))
+                : t(msg('cz.gm.spent'))}
             </p>
           </div>
         )}
@@ -338,8 +340,12 @@ export default function CoronaZGm() {
           <div className="cz-sheet">
             <span className="cz-slot-label">
               {/* The room's purpose reads better than its coordinates. */}
-              Renfort · {PROGRAM_LABELS[view.rooms.find((room) => room.id === spawnRoom)?.program ?? 'storage']} —
-              budget {view.gmBudget ?? 0}
+              {t(
+                msg('cz.gm.reinforcement', {
+                  room: msg(PROGRAM_LABELS[view.rooms.find((room) => room.id === spawnRoom)?.program ?? 'storage']),
+                  budget: view.gmBudget ?? 0
+                })
+              )}
             </span>
             <div className="cz-actions">
               {/* This world's bestiary, not every creature in the game. */}
@@ -353,31 +359,40 @@ export default function CoronaZGm() {
                     size="sm"
                     disabled={tooDear}
                     // Why it is grey, rather than leaving the phone to guess.
-                    title={tooDear ? `${def.name} coûte ${def.cost} : il manque ${def.cost - (view.gmBudget ?? 0)}` : def.name}
+                    title={
+                      tooDear
+                        ? t(
+                            msg('cz.gm.tooDear', {
+                              name: msg(def.name),
+                              cost: def.cost,
+                              missing: def.cost - (view.gmBudget ?? 0)
+                            })
+                          )
+                        : t(msg(def.name))
+                    }
                     onClick={() => {
                       void send({ type: 'gmSpawn', roomId: spawnRoom, def: def.id });
                       setSpawnRoom(null);
                     }}
                   >
-                    {sprite ? <img className="cz-spawn-face" src={sprite} alt="" /> : def.emoji} {def.name} ({def.cost})
+                    {sprite ? <img className="cz-spawn-face" src={sprite} alt="" /> : def.emoji} {t(msg(def.name))} (
+                    {def.cost})
                   </Button>
                 );
               })}
               <Button variant="ghost" size="sm" onClick={() => setSpawnRoom(null)}>
-                Annuler
+                {t(msg('cz.play.cancel'))}
               </Button>
             </div>
             <p className="play-note">
-              {affordable === 0
-                ? 'Rien d’abordable ce tour : le budget se reporte.'
-                : 'Les renforts n’agissent qu’à la prochaine phase.'}
+              {t(msg(affordable === 0 ? 'cz.gm.nothingAffordable' : 'cz.gm.nextPhase'))}
             </p>
           </div>
         )}
 
         {myPhase && view.gm && panel === 'upgrades' && (
           <div className="cz-sheet">
-            <span className="cz-slot-label">Évolutions de la horde · permanentes</span>
+            <span className="cz-slot-label">{t(msg('cz.gm.upgrades'))}</span>
             <div className="cz-actions">
               {(['hide', 'claws'] as const).map((key) => {
                 const upgrade = GM_UPGRADES[key];
@@ -438,11 +453,11 @@ export default function CoronaZGm() {
               variant={panel === 'upgrades' ? 'primary' : 'ghost'}
               onClick={() => setPanel(panel === 'upgrades' ? 'none' : 'upgrades')}
             >
-              ⚒️ Évolutions
+              {t(msg('cz.gm.upgradesTab'))}
             </Button>
           )}
           <Button variant={panel === 'log' ? 'primary' : 'ghost'} onClick={() => setPanel(panel === 'log' ? 'none' : 'log')}>
-            📜 Journal
+            {t(msg('cz.gm.logTab'))}
           </Button>
         </div>
 
@@ -459,7 +474,7 @@ export default function CoronaZGm() {
                 socket?.emit('cz:gmAuto', { gmToken });
               }}
             >
-              {handedOver ? '⏳ La horde se joue…' : `⏩ Laisser jouer (${pending.length})`}
+              {handedOver ? t(msg('cz.gm.handingOver')) : t(msg('cz.gm.letPlay', { count: pending.length }))}
             </Button>
             {/* Two taps, because a mistap here throws away the whole horde's turn —
                 and it used to be one tap, directly above the concede button. */}
@@ -470,7 +485,9 @@ export default function CoronaZGm() {
                 else setEndAsked(true);
               }}
             >
-              {endAsked && pending.length > 0 ? `Finir avec ${pending.length} en réserve ?` : 'Finir la phase'}
+              {endAsked && pending.length > 0
+                ? t(msg('cz.gm.endWithLeft', { count: pending.length }))
+                : t(msg('cz.gm.endPhase'))}
             </Button>
           </div>
         )}

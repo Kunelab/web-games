@@ -427,11 +427,13 @@ export function castVote(
 
   if (targetSlot === null) {
     delete state.votes[voterId];
+    noteVote(state, voter.slot, null, false);
     return { ok: true };
   }
 
   if (targetSlot === 'skip') {
     state.votes[voterId] = SKIP_VOTE;
+    noteVote(state, voter.slot, null, true);
     if (votesOn(state, SKIP_VOTE) >= voteThreshold(state)) {
       announce(state, M.voteSkipped(), now);
       beginNight(state, now);
@@ -444,6 +446,7 @@ export function castVote(
   if (target.playerId === voterId) return { ok: false, error: NO.notYourself() };
 
   state.votes[voterId] = target.playerId;
+  noteVote(state, voter.slot, target.slot, false);
 
   const needed = voteThreshold(state);
   const against = votesOn(state, target.playerId);
@@ -475,6 +478,27 @@ export function castVote(
     }
   }
   return { ok: true };
+}
+
+/**
+ * Files one accusation, and keeps the file from growing without limit.
+ *
+ * Six hundred entries is several long games' worth and a few kilobytes; past
+ * that the oldest go, on the same reasoning as the chat ring — except that this
+ * ring only ever contains votes, so a busy afternoon cannot push a death out of
+ * anything.
+ *
+ * A repeat of what this seat already said is dropped: a client that resends the
+ * same vote should not write a second line, and neither should a bot that
+ * reaffirms one.
+ */
+function noteVote(state: MafiaState, voterSlot: number, targetSlot: number | null, skip: boolean): void {
+  state.voteLog ??= [];
+  const last = [...state.voteLog].reverse().find((note) => note.voterSlot === voterSlot && note.day === state.day);
+  if (last && last.targetSlot === targetSlot && last.skip === skip) return;
+
+  state.voteLog.push({ day: state.day, voterSlot, targetSlot, skip });
+  if (state.voteLog.length > 600) state.voteLog.splice(0, state.voteLog.length - 600);
 }
 
 export function castBallot(

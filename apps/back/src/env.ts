@@ -77,10 +77,12 @@ const envSchema = z.object({
    * never goes quiet.
    *
    * Recognised rungs:
-   *   `openai`    — any OpenAI-compatible endpoint. That is most of the free
+   *   `api1`..`api4` — OpenAI-compatible endpoints. That is most of the free
    *                 tiers going (Groq, Cerebras, OpenRouter, a vLLM you host),
-   *                 so one client covers them all: point `MAFIA_API_URL` at it
-   *                 and give it `MAFIA_API_KEY`.
+   *                 so one client covers them all. `api1` reads MAFIA_API_URL /
+   *                 _KEY / _MODEL; `api2` reads MAFIA_API_2_*, and so on, with
+   *                 URL and key inherited from `api1` when left unset.
+   *                 `openai` is an old name for `api1` and still works.
    *   `anthropic` — the Claude API, with `ANTHROPIC_API_KEY`.
    *   `ollama`    — a local daemon at `OLLAMA_URL`. That URL does not have to be
    *                 local: an SSH tunnel to a Debian box running a tiny model is
@@ -115,20 +117,16 @@ const envSchema = z.object({
    * looked exactly like working ones.
    */
   /**
-   * A tag that exists.
+   * The local tag to prefer — a preference, not a requirement.
    *
-   * The default used to be `qwen3.5:4b`, which is not a model Ollama ships:
-   * the family is `qwen3`, and `3.5` was never a tag anybody could pull. So a
-   * machine with Ollama running and Qwen pulled still 404ed on every single
-   * call, the per-call fallback swallowed it, and the table filled with the
-   * silent scripted bots — which is exactly what a machine with no Ollama at
-   * all looked like, and why the two were impossible to tell apart.
-   *
-   * It is a preference rather than a requirement now in any case: the driver
-   * asks Ollama what is actually installed and takes the smallest model on the
-   * box when this one is not there.
+   * Which is the important part. A tag that is not pulled on this particular
+   * box used to 404 on every single call; the per-call fallback swallowed it,
+   * and the table filled with silent bots that looked exactly like a machine
+   * with no Ollama at all. The driver now asks Ollama what is actually
+   * installed and prefers this tag if it is there, the best small chat model
+   * present if it is not, and says which in the log either way.
    */
-  MAFIA_BOT_MODEL: z.string().default('qwen3:4b'),
+  MAFIA_BOT_MODEL: z.string().default('qwen3.5:4b'),
   MAFIA_BOT_MODEL_ANTHROPIC: z.string().default('claude-haiku-4-5-20251001'),
   /**
    * Where the local daemon lives.
@@ -151,7 +149,32 @@ const envSchema = z.object({
    */
   MAFIA_API_URL: z.string().default('https://api.groq.com/openai/v1'),
   MAFIA_API_KEY: z.string().optional(),
-  MAFIA_API_MODEL: z.string().default('llama-3.3-70b-versatile'),
+  MAFIA_API_MODEL: z.string().default('openai/gpt-oss-120b'),
+
+  /**
+   * Three more of the same, for the chain to walk.
+   *
+   * One slot was not enough, and the reason is specific to how free tiers
+   * actually behave: they do not fail by running out at the end of the day,
+   * they fail by answering 429 *right now* because somebody else is using the
+   * same shared pool. Measured against OpenRouter's free models, better than
+   * half of the calls to any single one came back 429 on the first try while a
+   * sibling model answered in a second and a half. A chain of one has nowhere
+   * to go when that happens; a chain of four barely notices.
+   *
+   * URL and key fall back to slot one, so three free models on the same
+   * provider cost three lines of config rather than nine — which is the common
+   * case, because the useful axis is usually the model and not the vendor.
+   */
+  MAFIA_API_2_URL: z.string().optional(),
+  MAFIA_API_2_KEY: z.string().optional(),
+  MAFIA_API_2_MODEL: z.string().optional(),
+  MAFIA_API_3_URL: z.string().optional(),
+  MAFIA_API_3_KEY: z.string().optional(),
+  MAFIA_API_3_MODEL: z.string().optional(),
+  MAFIA_API_4_URL: z.string().optional(),
+  MAFIA_API_4_KEY: z.string().optional(),
+  MAFIA_API_4_MODEL: z.string().optional(),
 
   /**
    * How long a rung sits out after it refuses.
@@ -160,7 +183,19 @@ const envSchema = z.object({
    * bot turn spends a whole table's day phase discovering that. One refusal
    * benches the rung for this long and the chain moves down.
    */
-  MAFIA_BOT_COOLDOWN_MS: z.coerce.number().int().min(1000).max(600_000).default(60_000)
+  MAFIA_BOT_COOLDOWN_MS: z.coerce.number().int().min(1000).max(600_000).default(60_000),
+
+  /**
+   * How long one bot's turn may spend walking the chain before it gives up.
+   *
+   * The walk is cheap when it fails — a rate-limited endpoint answers 429 in a
+   * couple of hundred milliseconds, so four dead APIs cost under two seconds
+   * between them. It is the *local* model at the bottom that is slow, and a
+   * turn that starts near the end of a phase must not still be thinking when
+   * the next one begins. Past this, the played brain takes the turn, which it
+   * does instantly and competently.
+   */
+  MAFIA_BOT_TURN_MS: z.coerce.number().int().min(1000).max(120_000).default(25_000)
 });
 
 const parsed = envSchema.safeParse(process.env);

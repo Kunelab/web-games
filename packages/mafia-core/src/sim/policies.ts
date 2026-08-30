@@ -724,7 +724,16 @@ export function decideDay(
      * stayed home, and `contradicted` will hang it if a lookout ever says
      * otherwise. That is the whole trap: the safe answer is the checkable one.
      */
-    const beingAsked = info.claims.some((claim) => claim.kind === 'question' && claim.targetSlot === self.slot);
+    /**
+     * Asked *today*. A question from three days ago is not a question any more,
+     * and answering one is how a seat ends up volunteering its night to a square
+     * that had stopped caring — the day filter here is the same one the
+     * `alreadyAnswered` check below already had, and its absence was the whole
+     * of "they self-claim for nothing".
+     */
+    const beingAsked = info.claims.some(
+      (claim) => claim.kind === 'question' && claim.targetSlot === self.slot && claim.day === info.day
+    );
     const alreadyAnswered = info.claims.some(
       (claim) => claim.kind === 'account' && claim.claimerSlot === self.slot && claim.day === info.day
     );

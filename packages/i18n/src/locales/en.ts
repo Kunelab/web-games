@@ -83,6 +83,7 @@ export const en: Catalogue = {
   'mafia.cult.chant': 'Strange hymns echoed in the night. The Cult grows…',
   'mafia.amnesiac.remembered': 'The Amnesiac remembered: they were the {role}, like {name}.',
 
+  'mafia.roster.diedAtNight': '{cause}, night {day}',
   'mafia.roster.diedOn': '{cause}, day {day}',
 
   /* ---------------------- how somebody died, and by whose hand --------------- */

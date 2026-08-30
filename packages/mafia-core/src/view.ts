@@ -192,6 +192,15 @@ export interface MafiaView {
    * is the secret. See `tableRoleList`.
    */
   roleList: SlotToken[];
+  /**
+   * Who accused whom, in order — the afternoon's paper trail.
+   *
+   * Names rather than ids, because it is rendered next to the chat and read the
+   * same way. Trimmed to the tail: a screen shows the last stretch of an
+   * argument, and the whole history of a nine-day game is not something anybody
+   * scrolls back through on a phone.
+   */
+  voteLog: { day: number; voter: string; voterSlot: number; target: string | null; targetSlot: number | null; skip: boolean }[];
   /** Weighted "hang nobody" votes, and the majority that would carry them. */
   skipVotes: number;
   voteThreshold: number;
@@ -446,6 +455,21 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
     minPlayers: state.config.minPlayers,
     players: publicPlayers,
     roleList: tableRoleList(state, players.length),
+    /**
+     * The paper trail, resolved to names and trimmed to what a panel shows.
+     *
+     * Older tables predate the field, hence the coalesce: a game saved before
+     * this existed reloads with an empty trail rather than crashing the
+     * projection.
+     */
+    voteLog: (state.voteLog ?? []).slice(-80).map((note) => ({
+      day: note.day,
+      voterSlot: note.voterSlot,
+      voter: players.find((player) => player.slot === note.voterSlot)?.name ?? String(note.voterSlot),
+      targetSlot: note.targetSlot,
+      target: players.find((player) => player.slot === note.targetSlot)?.name ?? null,
+      skip: note.skip
+    })),
     skipVotes: votesAgainst.get(SKIP_VOTE) ?? 0,
     voteThreshold: voteThreshold(state),
     trial: accused ? { slot: accused.slot, name: accused.name } : null,

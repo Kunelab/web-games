@@ -1,6 +1,7 @@
 import {
   ACTION,
   FACTION,
+  SLOT,
   claimerWeight,
   contradicted,
   trustOf,
@@ -204,6 +205,27 @@ function heatmap(view: MafiaView, board: PublicInfo, limit: number): string[] {
 }
 
 /**
+ * The table's role list, in the reader's language.
+ *
+ * `roleList` is `SlotToken`s, which are either a role or a category ("random
+ * town"), and both are things a player can see on their own screen — so both
+ * belong in a briefing. Counted rather than repeated, because "Mafioso ×3" is
+ * the shape of the game and "Mafioso, Mafioso, Mafioso" is three lines of
+ * nothing.
+ */
+function rolesInPlay(view: MafiaView, locale: Locale): string {
+  if (view.roleList.length === 0) return '';
+  const counts = new Map<string, number>();
+  for (const token of view.roleList) {
+    const label = say(locale)(SLOT(token));
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts]
+    .map(([label, count]) => (count > 1 ? `${label} x${count}` : label))
+    .join(', ');
+}
+
+/**
  * The fast briefing: a conclusion, not a transcript.
  *
  * Deliberately short. A 4B model given a wall of chat answers about the wall of
@@ -224,6 +246,18 @@ export function brief(view: MafiaView, board: PublicInfo, mind: BotMind, task: s
   if (me.teammates && me.teammates.length > 0) {
     lines.push(`With you: ${me.teammates.map((mate) => `${mate.slot} ${mate.name}`).join(', ')}.`);
   }
+
+  /**
+   * The roles that were dealt, which is public information and was missing.
+   *
+   * Without it a model bluffs whatever role it has heard of — a Veteran at a
+   * table with no Veteran in it, which is a claim the whole square can dismiss
+   * in one line and which makes the bot look like software rather than a liar.
+   * A bluff is only a bluff if it could have been true. The list is already on
+   * every player's screen, top right; this is the same list.
+   */
+  const dealt = rolesInPlay(view, locale);
+  if (dealt) lines.push(`Roles dealt in this game — nothing else exists here: ${dealt}`);
   /**
    * How much room the transcript gets, and why it is not a constant.
    *
@@ -295,9 +329,31 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
   }
 
   const humanSlots = new Set(view.players.filter((player) => !player.isBot).map((player) => player.name));
+  const slots = new Map(view.players.map((player) => [player.name, player.slot]));
+
+  /**
+   * Which room a line was said in, and why the model has to be told.
+   *
+   * `view.chat` is this seat's whole projection, so a mafioso's transcript
+   * already contained the family's private channel — mixed in with the square,
+   * unlabelled and indistinguishable. Two failures fell out of that: the model
+   * could not use the family channel as a *plan* (it read as more square talk),
+   * and it could repeat something from it out loud, which hands the town the
+   * game. Naming the room fixes both, and costs four characters a line.
+   */
+  const room = (channel: string): string => {
+    if (channel === 'day') return '';
+    if (channel === 'jail') return ' (in the cell, private)';
+    if (channel === 'dead') return ' (graveyard, the living cannot hear this)';
+    if (channel.startsWith('pm:')) return ' (whispered to you)';
+    return ' (YOUR SECRET CHANNEL — the town cannot see this, and must never learn what is in it)';
+  };
+
   const rendered = recent.map((message) => {
     const person = humanSlots.has(message.authorName) ? ' [HUMAN PLAYER]' : '';
-    return `${message.authorName}${person}: ${message.text}`;
+    const slot = slots.get(message.authorName);
+    const who = slot === undefined ? message.authorName : `${slot} ${message.authorName}`;
+    return `${who}${person}${room(message.channel)}: ${message.text}`;
   });
 
   if (rendered.length === 0) return 'Nobody has spoken yet.';
