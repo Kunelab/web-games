@@ -28,6 +28,7 @@ import {
 } from 'mafia-core';
 
 import { brief } from './bot-brief.js';
+import { mouthPrompt, mouthRules, type Intent } from './mouth.js';
 import { BotMinds } from './bot-mind.js';
 
 /**
@@ -135,11 +136,49 @@ const SCENARIOS: { scenario: string; players: number; humans: number; chat: numb
   { scenario: '5 humans, 24 seats', players: 24, humans: 5, chat: 40, ceiling: 950 }
 ];
 
+/**
+ * The mouth path, which is what a turn costs under `MAFIA_BOT_MIND=policy`.
+ *
+ * Measured separately because it is a different prompt entirely, not a smaller
+ * version of the briefing: the brain has already decided, and the model is told
+ * an intention rather than a board. If this ever approaches the deciding
+ * budgets, something has leaked into it that does not belong.
+ */
+function mouthTurn(): string {
+  const intent: Intent = {
+    act: 'accuse house 11 (Loki) and vote for them',
+    because: 'they swore they never left, and house 3 puts them on a doorstep',
+    mood: 'impulsive and combative, quick to accuse',
+    fallback: '11 does not add up. That is my vote.'
+  };
+  const recent = [
+    { slot: 11, name: 'Loki', text: 'I was home all night, nothing to report' },
+    { slot: 3, name: 'Aragorn', text: 'somebody went into 11 last night, I saw the door' },
+    { slot: 2, name: 'Wall-E', text: 'so who are we voting for then' },
+    { slot: 5, name: 'Galadriel', text: 'not me, I have been saying the same thing all game' }
+  ];
+  return `${mouthRules('en')}
+${mouthPrompt({ name: 'Kirby', slot: 7 }, intent, recent)}`;
+}
+
 export function measureBudget(): BudgetRow[] {
-  return SCENARIOS.map(({ scenario, players, humans, chat, ceiling }) => {
+  const deciding = SCENARIOS.map(({ scenario, players, humans, chat, ceiling }) => {
     const prompt = midGame(players, humans, chat);
     return { scenario, players, humans, prompt: tokens(prompt), ceiling, sections: breakdown(prompt) };
   });
+
+  const mouth = mouthTurn();
+  return [
+    ...deciding,
+    {
+      scenario: 'one turn through the mouth (policy mind)',
+      players: 15,
+      humans: 2,
+      prompt: tokens(mouth),
+      ceiling: 450,
+      sections: [{ head: 'rules + intent + four lines', tokens: tokens(mouth), lines: mouth.split('\n').length }]
+    }
+  ];
 }
 
 /* --------------------------------- the CLI -------------------------------- */
