@@ -484,12 +484,12 @@ export function CzMap({
                 title={`${t(msg(def.name))} (${t(msg(RARITY_META[def.rarity].label))}) · ${zombie.hp}/${zombie.maxHp} PV${
                   zombie.bonusDmg > 0 ? t(msg('cz.map.elite')) : ''
                 }${aimable === false ? t(msg('cz.map.outOfRange')) : ''}${
-                  spentZombies?.has(zombie.id) ? ' · a fini son tour' : ''
+                  spentZombies?.has(zombie.id) ? t(msg('cz.map.spentTurn')) : ''
                 }`}
                 disabled={!onZombieTap}
                 onClick={onZombieTap ? () => onZombieTap(zombie.id) : undefined}
               >
-                {art ? <img src={art} alt={def.name} /> : <span className="cz-token-face">{def.emoji}</span>}
+                {art ? <img src={art} alt={t(msg(def.name))} /> : <span className="cz-token-face">{def.emoji}</span>}
                 <span
                   className="cz-token-hp horde"
                   style={{ width: `${Math.max(6, (zombie.hp / zombie.maxHp) * 100)}%` }}
@@ -529,7 +529,7 @@ export function CzMap({
                 ? following
                   ? t(msg('cz.map.follow'))
                   : t(msg('cz.map.seeAll'))
-                : 'Tout voir'
+                : t(msg('cz.map.seeAllShort'))
             }
           >
             ⤢

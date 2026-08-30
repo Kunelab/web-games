@@ -462,10 +462,56 @@ describe('furnishing', () => {
 
     assert(cells.get('street'), 'no street was generated to measure');
     assert(per('street') < 0.4, 'a road is furnished like a room: ' + per('street').toFixed(2) + ' props a cell');
-    assert(per('living') > 1, 'a living room is bare: ' + per('living').toFixed(2) + ' props a cell');
+
+    /**
+     * The floor moved down deliberately, and this is the record of why.
+     *
+     * It used to be "more than one prop per cell", which pinned the density that
+     * play-testing then complained about: rooms too busy to find your own
+     * survivor in. What actually matters here has always been the *ratio* — a
+     * road must read as a road and a living room as a living room — so the
+     * absolute floor is now only a guard against furnishing nothing at all, and
+     * the assertion below it does the real work.
+     */
+    assert(per('living') > 0.5, 'a living room is bare: ' + per('living').toFixed(2) + ' props a cell');
     assert(
       per('living') > per('street') * 3,
       'a road (' + per('street').toFixed(2) + ') is furnished like a living room (' + per('living').toFixed(2) + ')'
+    );
+  });
+
+  /**
+   * A room people walk through is furnished like one.
+   *
+   * The specific complaint from the table was that junctions were the worst
+   * rooms on the board to look at: every prop in a four-way crossing stands in
+   * somebody's lane or hides something behind it. The rule is a multiplier on
+   * the room's own perimeter, so this compares the identical room twice — once
+   * sealed but for one door, once opened on every side.
+   */
+  it('empties a room that several others open onto', () => {
+    const view = board(LAYOUT_IDS[0], 99);
+    const room = view.rooms.find((entry) => entry.cells.length >= 2 && !entry.outdoor);
+    assert(room, 'no indoor room to measure');
+
+    const sealed = furnishZone([room], view.width, () => ({
+      north: true,
+      east: true,
+      south: true,
+      west: true
+    }));
+    const open = furnishZone([room], view.width, () => ({
+      north: false,
+      east: false,
+      south: false,
+      west: false
+    }));
+
+    const sealedProps = sealed.get(room.id)?.props.length ?? 0;
+    const openProps = open.get(room.id)?.props.length ?? 0;
+    assert(
+      openProps < sealedProps,
+      'a room open on every side is furnished like a sealed one: ' + openProps + ' against ' + sealedProps
     );
   });
 

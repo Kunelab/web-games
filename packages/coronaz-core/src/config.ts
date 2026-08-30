@@ -111,10 +111,18 @@ export const gameConfigSchema = z.object({
   /**
    * Seconds per hero phase, 0 for no clock. The pace dial: every hero spends
    * their AP inside this window, simultaneously.
+   *
+   * Tripled after play-testing, along with every preset and the ceiling. Thirty
+   * seconds is the right length for a turn somebody has already decided; it is
+   * nowhere near enough for one they are still reading. A hero phase is spent
+   * finding your survivor on the map, working out what is next to them, opening
+   * the bag, comparing two weapons you have not seen before and *then* acting —
+   * and the phase is simultaneous, so nobody gets to think while somebody else
+   * plays. The old numbers were paced for a table that already knew the game.
    */
-  heroPhaseSeconds: z.number().int().min(0).max(120).default(30),
+  heroPhaseSeconds: z.number().int().min(0).max(360).default(90),
   /** Seconds the game master gets, 0 for no clock. Ignored vs the AI. */
-  gmPhaseSeconds: z.number().int().min(0).max(120).default(45),
+  gmPhaseSeconds: z.number().int().min(0).max(360).default(135),
 
   /** Added to every hero's printed HP. Negative makes veterans sweat. */
   heroHpBonus: z.number().int().min(-2).max(3).default(0),
@@ -151,7 +159,7 @@ export const DIFFICULTY_PRESETS: Record<string, Partial<GameConfig>> = {
     heroHpBonus: 1,
     lootLuck: 1,
     escalation: 0.8,
-    heroPhaseSeconds: 45
+    heroPhaseSeconds: 135
   },
   normal: {
     startingZombies: 9,
@@ -160,7 +168,7 @@ export const DIFFICULTY_PRESETS: Record<string, Partial<GameConfig>> = {
     heroHpBonus: 0,
     lootLuck: 0,
     escalation: 1.1,
-    heroPhaseSeconds: 30
+    heroPhaseSeconds: 90
   },
   difficile: {
     startingZombies: 11,
@@ -168,7 +176,7 @@ export const DIFFICULTY_PRESETS: Record<string, Partial<GameConfig>> = {
     heroHpBonus: 0,
     lootLuck: 0,
     escalation: 2.2,
-    heroPhaseSeconds: 20
+    heroPhaseSeconds: 60
   },
   cauchemar: {
     startingZombies: 12,
@@ -176,7 +184,7 @@ export const DIFFICULTY_PRESETS: Record<string, Partial<GameConfig>> = {
     heroHpBonus: -1,
     lootLuck: -1,
     escalation: 2.5,
-    heroPhaseSeconds: 15
+    heroPhaseSeconds: 45
   },
   /**
    * Past lethal: the tier that exists because the roguelite perks exist. A fresh
@@ -190,7 +198,7 @@ export const DIFFICULTY_PRESETS: Record<string, Partial<GameConfig>> = {
     heroHpBonus: -2,
     lootLuck: -1,
     escalation: 3,
-    heroPhaseSeconds: 15
+    heroPhaseSeconds: 45
   }
 };
 

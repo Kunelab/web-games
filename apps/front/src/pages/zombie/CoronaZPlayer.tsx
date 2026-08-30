@@ -1,4 +1,4 @@
-import { msg } from 'i18n';
+import { msg, type Msg } from 'i18n';
 import {
   BARE_HANDS,
   eventDef,
@@ -101,7 +101,7 @@ export default function CoronaZPlayer() {
           setAccount(ack.account ?? null);
           setJoined(true);
         } else {
-          setJoinError(ack.error ?? 'Impossible de rejoindre.');
+          setJoinError(ack.error ?? t(msg('cz.play.joinFailed')));
         }
       } catch {
         setJoinError(t(msg('cz.play.serverQuiet')));
@@ -166,7 +166,7 @@ export default function CoronaZPlayer() {
 
   const send = useCallback(
     async (action: HeroAction): Promise<CzActionAck> => {
-      if (!socket) return { ok: false, error: 'Hors ligne' };
+      if (!socket) return { ok: false, error: t(msg('cz.play.offline')) };
       try {
         return (await socket.timeout(5000).emitWithAck('cz:action', action)) as CzActionAck;
       } catch {
@@ -537,19 +537,36 @@ function PlayScreen({
    * Both hands count, and the union is right: the tap picks the weapon afterwards,
    * so anything either hand can hit is something this tap can do.
    */
-  const inReach = new Set<string>();
+  /**
+   * Which rooms each hand can hit, kept apart rather than merged.
+   *
+   * The union is what the map wants — anything either hand reaches is a tap
+   * worth offering — but the attack sheet wants the opposite: it lists both
+   * weapons and has to say which of them can actually touch *this* creature.
+   * Merging first and asking later was why the sheet cheerfully offered a
+   * machete against something two rooms away and let the server refuse it.
+   */
+  const reachByHand = new Map<0 | 1, Set<string>>();
   if (myTurn && me.ap > 0 && room) {
     const ability = heroDef(me.heroId).ability;
-    const rooms = new Set<string>();
-    const held = [inventory?.hands[0] ?? null, inventory?.hands[1] ?? null].filter(
-      (item): item is ItemInstance => item !== null && itemDef(item.def).weapon !== undefined
-    );
-    // Bernard fights with what he was born with, so he always has a melee option.
-    const weapons = held.map((item) => weaponStats(itemDef(item.def), item.rarity));
-    if (weapons.length === 0 && ability === 'brawler') weapons.push(BARE_HANDS.weapon);
+    const held: [ItemInstance | null, ItemInstance | null] = [
+      inventory?.hands[0] ?? null,
+      inventory?.hands[1] ?? null
+    ];
 
-    for (const weapon of weapons) {
+    for (const hand of [0, 1] as const) {
+      const item = held[hand];
+      const def = item ? itemDef(item.def) : null;
+      // Bernard fights with what he was born with, so an empty hand still swings.
+      const weapon =
+        def?.weapon && item
+          ? weaponStats(def, item.rarity)
+          : !item && ability === 'brawler'
+            ? BARE_HANDS.weapon
+            : null;
       if (!weapon) continue;
+
+      const rooms = new Set<string>();
       if (weapon.melee) {
         rooms.add(room.id);
       } else {
@@ -557,24 +574,50 @@ function PlayScreen({
           rooms.add(id);
         }
       }
+      reachByHand.set(hand, rooms);
     }
+  }
+
+  const inReach = new Set<string>();
+  for (const rooms of reachByHand.values()) {
     for (const zombie of view.zombies) {
       if (rooms.has(zombie.roomId)) inReach.add(zombie.id);
     }
   }
 
   /** Weapon options for the tapped zombie; one option attacks without asking. */
-  const attackOptions = (): { label: string; hand: 0 | 1 | 2; rarity: Rarity }[] => {
+  /**
+   * Weapon options for a given creature; one usable option attacks without asking.
+   *
+   * Every weapon in hand is listed, including the ones that cannot reach — shown
+   * and disabled rather than hidden, because a sheet whose contents change as you
+   * tap around the board is a sheet nobody can learn. `why` is the same reason
+   * the engine would have given, so the answer arrives before the attempt rather
+   * than as a refusal afterwards.
+   */
+  const attackOptions = (
+    zombieId: string | null
+  ): { label: string; hand: 0 | 1 | 2; rarity: Rarity; usable: boolean; why: Msg | null }[] => {
     if (!inventory) return [];
-    const options: { label: string; hand: 0 | 1 | 2; rarity: Rarity }[] = [];
+    const target = zombieId ? view.zombies.find((zombie) => zombie.id === zombieId) : null;
     const [left, right] = inventory.hands;
 
+    const verdict = (hand: 0 | 1): { usable: boolean; why: Msg | null } => {
+      if (!target) return { usable: true, why: null };
+      const rooms = reachByHand.get(hand);
+      if (rooms?.has(target.roomId)) return { usable: true, why: null };
+      const item = hand === 0 ? left : right;
+      const melee = item ? weaponStats(itemDef(item.def), item.rarity)?.melee : true;
+      return { usable: false, why: msg(melee ? 'cz.play.tooFarMelee' : 'cz.play.noLineOfSight') };
+    };
+
+    const options: ReturnType<typeof attackOptions> = [];
     for (const [item, hand] of [
       [left, 0],
       [right, 1]
     ] as const) {
       if (item && itemDef(item.def).weapon) {
-        options.push({ label: t(msg(itemDef(item.def).name)), hand, rarity: item.rarity });
+        options.push({ label: t(msg(itemDef(item.def).name)), hand, rarity: item.rarity, ...verdict(hand) });
       }
     }
     if (left && right && left.def === right.def && itemDef(left.def).weapon?.akimbo) {
@@ -582,7 +625,8 @@ function PlayScreen({
         label: `${t(msg(itemDef(left.def).name))} ×2 (akimbo)`,
         hand: 2,
         // A pair fires at the worse gun's quality, and says so.
-        rarity: Math.min(left.rarity, right.rarity) as Rarity
+        rarity: Math.min(left.rarity, right.rarity) as Rarity,
+        ...verdict(0)
       });
     }
     return options;
@@ -593,16 +637,22 @@ function PlayScreen({
     // Out of points used to be a silent no-op, which reads exactly like a broken
     // button. Anything a tap cannot do, it should say.
     if (me.ap <= 0) {
-      setFeedback('Plus de PA ce tour');
+      setFeedback(t(msg('cz.play.noAp')));
       return;
     }
-    const options = attackOptions();
+    const options = attackOptions(zombieId);
     if (options.length === 0) {
-      setFeedback('Aucune arme en main');
+      setFeedback(t(msg('cz.play.noWeapon')));
       return;
     }
-    if (options.length === 1 && options[0]) {
-      await act({ type: 'attack', zombieId, hand: options[0].hand });
+    const usable = options.filter((option) => option.usable);
+    if (usable.length === 0) {
+      // Say the reason the engine would have given, without spending the trip.
+      setFeedback(t(options[0].why ?? msg('cz.play.noWeapon')));
+      return;
+    }
+    if (usable.length === 1 && usable[0]) {
+      await act({ type: 'attack', zombieId, hand: usable[0].hand });
       return;
     }
     setAttackTarget(zombieId);
@@ -762,10 +812,12 @@ function PlayScreen({
           <div className="cz-sheet">
             <span className="cz-slot-label">{t(msg('cz.play.attackWith'))}</span>
             <div className="cz-actions">
-              {attackOptions().map((option) => (
+              {attackOptions(attackTarget).map((option) => (
                 <Button
                   key={option.hand}
                   variant="primary"
+                  disabled={!option.usable}
+                  title={option.why ? t(option.why) : undefined}
                   onClick={() => {
                     void act({ type: 'attack', zombieId: attackTarget, hand: option.hand });
                     setAttackTarget(null);
@@ -972,12 +1024,13 @@ export function CzEventBanner({ id }: { id: CzEventId }) {
 
 /** The mute switch, shared by phone and TV headers. */
 export function MuteButton() {
+  const t = useT();
   const [muted, setMuted] = useState(isMuted());
   return (
     <button
       type="button"
       className="cz-mute"
-      aria-label={muted ? 'Activer le son' : 'Couper le son'}
+      aria-label={t(msg(muted ? 'cz.play.soundOn' : 'cz.play.soundOff'))}
       onClick={() => setMuted(toggleMute())}
     >
       {muted ? '🔇' : '🔊'}
@@ -1016,6 +1069,7 @@ function ItemButton({
   label: string;
   onSelect: (item: ItemInstance) => void;
 }) {
+  const t = useT();
   const def = item ? itemDef(item.def) : null;
   return (
     <button
@@ -1027,7 +1081,7 @@ function ItemButton({
     >
       {item && def ? (
         <>
-          <ItemFace item={item} /> {def.name}
+          <ItemFace item={item} /> {t(msg(def.name))}
           {def.weapon?.akimbo && (
             <span className="cz-akimbo" title="Akimbo">
               🙌

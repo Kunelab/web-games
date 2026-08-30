@@ -465,7 +465,7 @@ export default function CoronaZSetup() {
                 label={t(msg('cz.setup.heroTimer'))}
                 value={config.heroPhaseSeconds}
                 min={0}
-                max={120}
+                max={360}
                 onChange={(v) => set('heroPhaseSeconds', v)}
               />
               {config.mode === 'gm' && (
@@ -473,7 +473,7 @@ export default function CoronaZSetup() {
                   label={t(msg('cz.setup.gmTimer'))}
                   value={config.gmPhaseSeconds}
                   min={0}
-                  max={120}
+                  max={360}
                   onChange={(v) => set('gmPhaseSeconds', v)}
                 />
               )}
