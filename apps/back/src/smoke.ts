@@ -12,6 +12,7 @@ import { answerFieldSchema, blindtest, defaultSessionConfig, quiz, sessionConfig
 
 import { buildApp } from './app.js';
 import { measureBudget } from './mafia/budget.js';
+import { quizCareerService } from './services/quiz-career-service.js';
 import { closeDb } from './db/index.js';
 import { clearAssets, resolveAsset } from './game/assets.js';
 import {
@@ -815,6 +816,47 @@ section('estimation');
 
   const anonymousHistory = await app.inject({ method: 'GET', url: '/api/play/results' });
   check('history requires a login', anonymousHistory.statusCode === 401, anonymousHistory.statusCode);
+}
+
+/* -------------------- ending a game early still pays ---------------------- */
+section('a game ended early still banks its tokens');
+{
+  /**
+   * The other ending, and the one that used to throw everything away.
+   *
+   * A host who presses "Terminer" — the normal thing to do when everybody has
+   * had enough — goes through `destroy`, which deleted the session row without
+   * recording anything. The standings vanished and so did every token every
+   * player had just won. Only a game advanced past its final round ever paid.
+   */
+  const early = createSession({
+    playlistName: 'Ended early',
+    playlistId: null,
+    hostUserId: 1,
+    items: [quizItem],
+    config: defaultSessionConfig,
+    existingCodes: new Set()
+  });
+  const quitter = joinSession(early, 'Earlybird', undefined).player;
+  advance(early, () => quizItem);
+  early.players[quitter.id].totalScore = 42;
+
+  const before = (await quizCareerService.forName('Earlybird')).tokens;
+
+  // Exactly what the "Terminer" button does.
+  app.games.adopt(early);
+  await app.games.destroy(early.code);
+
+  const after = (await quizCareerService.forName('Earlybird')).tokens;
+  check('the wallet is credited when a game is ended early', after === before + 42, { before, after });
+
+  const banked = await app.inject({ method: 'GET', url: '/api/play/results', headers });
+  const rows = JSON.parse(banked.body) as { playlistName: string }[];
+  check(
+    'and the game reaches the history',
+    rows.some((row) => row.playlistName === 'Ended early'),
+    rows.map((row) => row.playlistName)
+  );
 }
 
 /* ------------------------------- oral mode -------------------------------- */
