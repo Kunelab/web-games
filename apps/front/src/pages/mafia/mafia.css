@@ -244,6 +244,12 @@
   margin: 0;
 }
 
+/* A corner button that is about to do something irreversible. */
+.mz-corner-btn--danger {
+  border-color: var(--bad, #c0392b);
+  background: color-mix(in srgb, var(--bad, #c0392b) 25%, var(--panel));
+}
+
 /* ------------------------------ the role list ------------------------------ */
 
 .mz-rolelist {

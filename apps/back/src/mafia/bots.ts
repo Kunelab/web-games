@@ -33,6 +33,7 @@ import { env } from '../env.js';
 import { say } from './say.js';
 import { actionVerb, brief, dossier } from './bot-brief.js';
 import { BotMinds } from './bot-mind.js';
+import { HEARD_FORMAT, HEARD_RULES, hearingPrompt, readHeard, unheard } from './ear.js';
 
 /**
  * The town's extras: LLM-driven players that fill the empty seats.
@@ -295,6 +296,40 @@ function claimableRoles(state: MafiaState): Set<string> {
   return pool.size > 0 ? pool : new Set(Object.keys(ROLES));
 }
 
+/**
+ * One question for a model: what it is, what to answer about, and the shape.
+ *
+ * Split out because deciding a turn is no longer the only thing this driver asks
+ * a model to do — the ear reads the square's human lines with a completely
+ * different prompt and a completely different shape, and it has every right to
+ * the same chain, the same benching and the same learned dialect. What varies is
+ * these four fields; everything else about talking to these endpoints is
+ * identical and now lives in one place.
+ */
+interface Ask {
+  /** The instructions. Kept byte-stable per kind of question, so it caches. */
+  system: string;
+  /** What to answer about. */
+  user: string;
+  /** JSON schema, for endpoints that honour one. */
+  format: Record<string, unknown>;
+  maxTokens: number;
+  temperature?: number;
+}
+
+/**
+ * The invariant instructions, memoised so they are the same string object — and
+ * more to the point the same bytes — on every call in a given language.
+ */
+const SYSTEM_CACHE = new Map<Locale, string>();
+function systemFor(tongue: Locale): string {
+  const cached = SYSTEM_CACHE.get(tongue);
+  if (cached) return cached;
+  const built = `${RULES}\n${SHAPE}\n${SPEAK[tongue]}`;
+  SYSTEM_CACHE.set(tongue, built);
+  return built;
+}
+
 /** A turn where the bot does and says nothing. */
 const EMPTY: Decision = { say: null, targetSlot: null, verdict: null, claim: null };
 
@@ -366,16 +401,6 @@ const DECIDE_PROPERTIES = {
   }
 } as const;
 
-const DECIDE_TOOL: Anthropic.Tool = {
-  name: 'decide',
-  description: 'Your decision for this turn. Every unused field stays null.',
-  input_schema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: DECIDE_PROPERTIES,
-    required: []
-  }
-};
 
 /** Ollama structured output: every key required, null when unused. */
 const DECIDE_FORMAT = {
@@ -451,6 +476,10 @@ export class MafiaBotDriver {
    * and the endpoint already knows the answer.
    */
   private readonly dialect = new Map<ApiRung, number>();
+  /** The last chat message this table's ear has taken notes on. */
+  private readonly heardUpTo = new Map<string, number>();
+  /** Tables with an ear call in flight, so a tick cannot start a second one. */
+  private readonly listening = new Set<string>();
   /**
    * Whether the local brain is actually there, and which tag it answers to.
    *
@@ -683,6 +712,8 @@ export class MafiaBotDriver {
     for (const timer of this.timers.get(code) ?? []) clearTimeout(timer);
     this.timers.delete(code);
     this.signatures.delete(code);
+    this.heardUpTo.delete(code);
+    this.listening.delete(code);
     this.minds.forget(code);
   }
 
@@ -730,6 +761,8 @@ export class MafiaBotDriver {
       Math.max(60, phaseMs * (from + Math.random() * (to - from)));
 
     if (state.phase === 'night') {
+      // The tail of the day, taken down before anybody acts on it.
+      this.later(code, 200, () => void this.listen(code));
       for (const bot of bots) {
         if (legalNightAction(state, bot.playerId)) {
           this.later(code, within(0.1, 0.6, state.config.nightMs), () => this.decide(code, bot.playerId, 'night'));
@@ -756,6 +789,22 @@ export class MafiaBotDriver {
         );
       });
       return;
+    }
+
+    /**
+     * The ear, listening to the square while it talks.
+     *
+     * Twice during the day rather than once at the end, because a claim filed
+     * after the vote closes is a claim nobody could act on — the point is that
+     * bots argue back *within the same afternoon*. And once more as the night
+     * falls, to catch whatever was said in the last stretch.
+     *
+     * Cheap enough to be unconditional: one call for the whole table, and it
+     * does nothing at all when no human has typed since it last looked.
+     */
+    if (state.stage === 'discussion') {
+      this.later(code, within(0.25, 0.35, state.config.dayMs), () => void this.listen(code));
+      this.later(code, within(0.6, 0.7, state.config.dayMs), () => void this.listen(code));
     }
 
     // Day.
@@ -825,6 +874,74 @@ export class MafiaBotDriver {
         if (bot.playerId === state.trial?.accusedId) continue;
         this.later(code, within(0.1, 0.6, state.config.judgementMs), () => this.decide(code, bot.playerId, 'judgement'));
       }
+    }
+  }
+
+  /**
+   * Takes down what the people at the table have said, and files it.
+   *
+   * The single most consequential thing a model does for this game, and the one
+   * job the deterministic brain cannot do at all: humans write sentences, and
+   * the board holds claims. Everything else a model is asked for here is a
+   * nicety on top of a bot that would have played fine without it.
+   *
+   * Silent about failure on purpose. If no rung answers, the claims simply are
+   * not filed and the table plays exactly as it did before this existed — which
+   * is a worse game, but a working one, and not something to interrupt an
+   * evening over.
+   */
+  private async listen(code: string): Promise<void> {
+    const state = this.hooks.get(code);
+    if (!state || this.listening.has(code)) return;
+
+    const since = this.heardUpTo.get(code) ?? 0;
+    const lines = unheard(state, since);
+    if (lines.length === 0) return;
+
+    this.listening.add(code);
+    try {
+      const answer = await this.askChain(
+        {
+          system: HEARD_RULES,
+          user: hearingPrompt(state, lines),
+          format: HEARD_FORMAT,
+          /**
+           * Generous on purpose, and measured.
+           *
+           * A reasoning model spends this budget before it writes anything, so
+           * 500 produced json_validate_failed with an empty generation on every
+           * single call — the request looked broken and was merely starved.
+           * Eight lines of French cost about 600 output tokens once it actually
+           * got as far as answering.
+           */
+          maxTokens: 1500,
+          // Note-taking, not conversation: the same lines should produce the
+          // same notes twice running.
+          temperature: 0.2
+        },
+        { code, task: 'listen', lines: lines.length }
+      );
+
+      // Whether or not anything answered, these lines have had their chance:
+      // re-reading them next tick would double-file every claim in them.
+      this.heardUpTo.set(code, lines[lines.length - 1].id);
+      if (!answer) return;
+
+      const fresh = this.hooks.get(code);
+      if (!fresh) return;
+
+      const filed = readHeard(fresh, answer, claimableRoles(fresh));
+      for (const claim of filed) {
+        this.minds.record(fresh, claim.claimerId, claim.kind, claim.targetSlot, {
+          ...(claim.claimedRole ? { claimedRole: claim.claimedRole } : {}),
+          ...(claim.account ? { account: claim.account } : {})
+        });
+      }
+      if (filed.length > 0) {
+        this.log.info({ code, lines: lines.length, filed: filed.length }, 'mafia bots: heard the table');
+      }
+    } finally {
+      this.listening.delete(code);
     }
   }
 
@@ -1014,18 +1131,37 @@ export class MafiaBotDriver {
     round: number,
     rounds: number
   ): Promise<Decision | null> {
+    return this.walk(
+      (rung) => this.llmDecision(state, botId, task, round, rounds, rung),
+      { botId, task }
+    );
+  }
+
+  /**
+   * Down the chain, for any question at all.
+   *
+   * `attempt` is the generic version of what the bot turn needed: try the first
+   * willing rung, and on a refusal bench it — which is what advances the chain,
+   * because `nextRung` then returns the one below without this loop needing to
+   * know the order — and try again. The ear uses the same walk with a completely
+   * different question in it.
+   */
+  private async walk<T>(
+    attempt: (rung: Rung) => Promise<T>,
+    context: Record<string, unknown>
+  ): Promise<T | null> {
     const deadline = Date.now() + env.MAFIA_BOT_TURN_MS;
 
-    for (let attempt = 0; attempt < this.chain.length; attempt++) {
+    for (let round = 0; round < this.chain.length; round++) {
       const rung = this.nextRung();
       if (rung === null) return null;
       if (Date.now() >= deadline) {
-        this.log.warn({ botId, task, rung }, 'mafia bots: turn ran out of time, playing the simulator brain');
+        this.log.warn({ ...context, rung }, 'mafia bots: ran out of time, falling back');
         return null;
       }
 
       try {
-        const decision = await this.llmDecision(state, botId, task, round, rounds, rung);
+        const decision = await attempt(rung);
         /**
          * Which brain actually answered, said once per rung.
          *
@@ -1048,6 +1184,17 @@ export class MafiaBotDriver {
     }
 
     return null;
+  }
+
+  /**
+   * Asks the chain one question and hands back whatever JSON came out.
+   *
+   * The public seam for everything that is not a bot turn. `null` means nothing
+   * answered, which every caller has to have a plan for — the whole design of
+   * this driver is that the game continues perfectly well when it does.
+   */
+  async askChain(request: Ask, context: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+    return this.walk((rung) => this.ask(rung, request), context);
   }
 
   private apply(state: MafiaState, botId: string, task: BotTask, channel: string, decision: Decision): void {
@@ -1854,12 +2001,22 @@ export class MafiaBotDriver {
         ? dossier(view, board, mind, taskLine(view, task, tongue), round, rounds, tongue)
         : brief(view, board, mind, taskLine(view, task, tongue), tongue);
 
-    const raw =
-      rung === 'ollama'
-        ? await this.ollamaDecision(persona, prompt, tongue)
-        : isApiRung(rung)
-          ? await this.openAiDecision(persona, prompt, tongue, rung)
-          : await this.anthropicDecision(persona, prompt, tongue);
+    /**
+     * The system message is the same bytes for every bot at every table in this
+     * language; everything that varies rides in the user half.
+     *
+     * That split is the whole of prompt caching. `persona` used to be glued onto
+     * the end of the system message, which made it unique per seat and threw
+     * away a 700-token cacheable prefix on every single call — and on the local
+     * model, where reading runs at 60 tok/s, those 700 tokens are twelve seconds
+     * of a bot sitting there before it starts to think.
+     */
+    const raw = await this.ask(rung, {
+      system: systemFor(tongue),
+      user: `${persona}\n\n${prompt}`,
+      format: DECIDE_FORMAT,
+      maxTokens: this.tempo === 'deliberate' ? 900 : 300
+    });
 
     return {
       say: typeof raw.say === 'string' && raw.say.trim() ? raw.say : null,
@@ -1897,11 +2054,18 @@ export class MafiaBotDriver {
    * now: the schema does the work where it is supported, and the words in
    * `SHAPE` carry an older daemon that would otherwise reject the request.
    */
-  private async ollamaDecision(persona: string, prompt: string, tongue: Locale): Promise<Record<string, unknown>> {
+  /** One question to one rung, whatever the question is. */
+  private async ask(rung: Rung, request: Ask): Promise<Record<string, unknown>> {
+    if (rung === 'ollama') return this.ollamaAsk(request);
+    if (isApiRung(rung)) return this.openAiAsk(request, rung);
+    return this.anthropicAsk(request);
+  }
+
+  private async ollamaAsk(request: Ask): Promise<Record<string, unknown>> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 45_000);
 
-    const ask = async (extras: Record<string, unknown>): Promise<Response> =>
+    const send = async (extras: Record<string, unknown>): Promise<Response> =>
       fetch(`${env.OLLAMA_URL}/api/chat`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -1910,10 +2074,10 @@ export class MafiaBotDriver {
           model: this.modelName('ollama'),
           stream: false,
           // No thinking to leave room for, so this only has to hold one answer.
-          options: { temperature: 0.8, num_predict: 400 },
+          options: { temperature: request.temperature ?? 0.8, num_predict: request.maxTokens + 100 },
           messages: [
-            { role: 'system', content: `${RULES}\n${SHAPE}\n${SPEAK[tongue]}\n${persona}` },
-            { role: 'user', content: prompt }
+            { role: 'system', content: request.system },
+            { role: 'user', content: request.user }
           ],
           ...extras
         })
@@ -1930,8 +2094,8 @@ export class MafiaBotDriver {
        * The shape is restated in words in the system prompt anyway, so the
        * bare request still produces a usable answer.
        */
-      let response = await ask({ format: DECIDE_FORMAT, think: false });
-      if (response.status === 400) response = await ask({});
+      let response = await send({ format: request.format, think: false });
+      if (response.status === 400) response = await send({});
       if (!response.ok) throw new Error(`ollama ${response.status}`);
 
       const payload = (await response.json()) as { message?: { content?: string } };
@@ -1954,28 +2118,23 @@ export class MafiaBotDriver {
    * these endpoints honour it, some ignore it, and `extractJson` copes with
    * either. Same reasoning as the local brain, for the same reason.
    */
-  private async openAiDecision(
-    persona: string,
-    prompt: string,
-    tongue: Locale,
-    rung: ApiRung
-  ): Promise<Record<string, unknown>> {
+  private async openAiAsk(request: Ask, rung: ApiRung): Promise<Record<string, unknown>> {
     const slot = apiSlot(rung);
     if (!slot) throw new RungError(`${rung} unconfigured`);
 
-    const ask = async (extras: Record<string, unknown>): Promise<Response> =>
+    const send = async (extras: Record<string, unknown>): Promise<Response> =>
       fetch(`${slot.url}/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${slot.key}` },
         signal: AbortSignal.timeout(20_000),
         body: JSON.stringify({
           model: slot.model,
-          temperature: 0.8,
-          max_tokens: this.tempo === 'deliberate' ? 900 : 300,
+          temperature: request.temperature ?? 0.8,
+          max_tokens: request.maxTokens,
           response_format: { type: 'json_object' },
           messages: [
-            { role: 'system', content: `${RULES}\n${SHAPE}\n${SPEAK[tongue]}\n${persona}` },
-            { role: 'user', content: prompt }
+            { role: 'system', content: request.system },
+            { role: 'user', content: request.user }
           ],
           ...extras
         })
@@ -1991,7 +2150,7 @@ export class MafiaBotDriver {
     const from = this.dialect.get(rung) ?? 0;
     let response: Response | null = null;
     for (let form = from; form < QUIET_FORMS.length; form++) {
-      response = await ask(QUIET_FORMS[form]);
+      response = await send(QUIET_FORMS[form]);
       if (response.status !== 400) {
         if (!this.dialect.has(rung)) {
           this.dialect.set(rung, form);
@@ -2018,25 +2177,17 @@ export class MafiaBotDriver {
     return extractJson(payload.choices?.[0]?.message?.content ?? '');
   }
 
-  private async anthropicDecision(persona: string, prompt: string, tongue: Locale): Promise<Record<string, unknown>> {
+  private async anthropicAsk(request: Ask): Promise<Record<string, unknown>> {
     if (!this.anthropic) return {};
     const response = await this.anthropic.messages.create({
       model: env.MAFIA_BOT_MODEL_ANTHROPIC,
-      // The deliberate tempo is allowed to reason before it answers.
-      max_tokens: this.tempo === 'deliberate' ? 900 : 300,
-      system: [
-        /**
-         * The rulebook is a stable prefix, so it is marked cacheable. Whether it
-         * is actually long enough to be cached depends on the model's minimum
-         * cacheable prefix — worth checking against current docs if the bots ever
-         * become a cost line, because below that minimum this marker is a no-op.
-         */
-        { type: 'text', text: RULES, cache_control: { type: 'ephemeral' } },
-        { type: 'text', text: `${SPEAK[tongue]}\n${persona}` }
-      ],
-      messages: [{ role: 'user', content: prompt }],
-      tools: [DECIDE_TOOL],
-      tool_choice: { type: 'tool', name: 'decide' }
+      max_tokens: request.maxTokens,
+      // The whole system message is stable per kind of question, so the cache
+      // marker goes on all of it rather than on a hand-picked prefix of it.
+      system: [{ type: 'text', text: request.system, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: request.user }],
+      tools: [{ name: 'answer', description: 'Your answer.', input_schema: request.format as never }],
+      tool_choice: { type: 'tool', name: 'answer' }
     });
     const toolUse = response.content.find((block): block is Anthropic.ToolUseBlock => block.type === 'tool_use');
     return (toolUse?.input ?? {}) as Record<string, unknown>;

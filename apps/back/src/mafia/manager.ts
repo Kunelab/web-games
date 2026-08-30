@@ -53,6 +53,19 @@ import { MafiaBotDriver } from './bots.js';
 
 const IDLE_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+/**
+ * How long a *finished* table is kept before it is let go.
+ *
+ * The idle timeout is six hours, which is the right answer for a table somebody
+ * might still come back to. A table whose game is over is not that: the masks
+ * are off, the standings have been read, and all it does for the rest of the
+ * day is hold memory and offer itself back to its host as resumable.
+ *
+ * Long enough that a phone reopening the results still finds them; short enough
+ * that a host playing two games in an evening is never offered the first one
+ * in the middle of the second.
+ */
+const FINISHED_GRACE_MS = 20 * 60 * 1000;
 
 /**
  * How long a chat line may sit unsaved.
@@ -556,9 +569,11 @@ export class MafiaManager {
 
   private async sweep(): Promise<void> {
     const cutoff = Date.now() - IDLE_TIMEOUT_MS;
+    const finished = Date.now() - FINISHED_GRACE_MS;
     for (const [code, state] of this.sessions) {
-      if (state.lastActivityAt < cutoff) {
-        this.log.info({ code }, 'sweeping idle Mafia table');
+      const over = state.phase === 'ended';
+      if (state.lastActivityAt < cutoff || (over && state.lastActivityAt < finished)) {
+        this.log.info({ code, over }, 'sweeping Mafia table');
         await this.destroy(code);
       }
     }

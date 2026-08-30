@@ -13,8 +13,9 @@ import {
 } from 'mafia-core';
 import { msg, type Msg } from 'i18n';
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { useParams } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 
+import { api } from '../../api/client';
 import { ChatPanel } from '../../components/chat/ChatPanel';
 import { PauseOverlay, RecoveringMark } from '../../components/presence/PauseOverlay';
 import { useHeartbeat } from '../../hooks/useHeartbeat';
@@ -170,6 +171,11 @@ export default function MafiaPlayer() {
    * the screen, which is where the editor used to live.
    */
   const [willTab, setWillTab] = useState<'mine' | 'dead'>('mine');
+  /**
+   * Closing a table is a two-press action, like every other irreversible one on
+   * this screen: it ends the evening for everybody sitting at it.
+   */
+  const [closeAsked, setCloseAsked] = useState(false);
   /** A role-list line (or your own card) opened for a closer read. */
   const [reading, setReading] = useState<SlotToken | null>(null);
   /** Mobile only: the roster and the chat share the bottom half. */
@@ -191,6 +197,7 @@ export default function MafiaPlayer() {
   /** The countdown every phone derives from the same server deadline. */
   const remaining = useCountdown(view?.phaseEndsAt ?? null, serverNow);
 
+  const navigate = useNavigate();
   const hostToken = sessionStorage.getItem(`mafia:host:${code}`);
 
   /**
@@ -542,6 +549,35 @@ export default function MafiaPlayer() {
           vote nobody casts. The tally rides on it so the room can see the
           option gathering weight without anybody opening anything.
         */}
+        {/*
+          The host's way out, at any point in the evening.
+
+          There has never been one. `mafiaEnd` existed on the API client and was
+          called from nowhere, so a table could only be left by abandoning it and
+          waiting six hours for the sweeper — which is also why finished games
+          piled up in the "resume" list. A host can end a game that has gone
+          wrong, or tidy up one that has finished, without leaving the table.
+        */}
+        {hostToken && (
+          <button
+            type="button"
+            className={cx('mz-corner-btn', closeAsked && 'mz-corner-btn--danger')}
+            title={closeAsked ? tk('mafia.ui.closeTableSure') : tk('mafia.ui.closeTable')}
+            onClick={() => {
+              if (!closeAsked) {
+                setCloseAsked(true);
+                return;
+              }
+              void api
+                .mafiaEnd(code)
+                .then(() => navigate('/mafia'))
+                .catch(() => setCloseAsked(false));
+            }}
+          >
+            {closeAsked ? '⚠️' : '🚪'}
+          </button>
+        )}
+
         {canVote && me.alive && (
           <button
             type="button"
