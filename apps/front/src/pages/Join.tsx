@@ -1,3 +1,4 @@
+import { msg, type Msg } from 'i18n';
 import { isLobbyGame, quickJoinPath, type LobbyCard, type LobbyGame } from 'lobby-core';
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -5,6 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { api, ApiError } from '../api/client';
 import { GAMES, gameEntry } from '../app/games';
 import { useAsync } from '../hooks/useAsync';
+import { useT } from '../i18n/locale-context';
 import { Button, Chip, Field, Input, Loading } from '../ui';
 import './play.css';
 
@@ -19,8 +21,21 @@ import './play.css';
  * Both halves are anonymous. Players have no accounts, and a board you must sign
  * in to read is a board nobody arrives at.
  */
+/**
+ * A card line is either the author's own words or a key the game chose.
+ *
+ * The board mixes both on purpose — a published quiz keeps the name somebody
+ * gave it, while "Balanced role list" is the game describing itself and belongs
+ * in the reader's language.
+ */
+function line(value: string | Msg | null, t: (message: Msg) => string): string {
+  if (value === null) return '';
+  return typeof value === 'string' ? value : t(value);
+}
+
 export default function Join() {
   const navigate = useNavigate();
+  const t = useT();
   const [search, setSearch] = useSearchParams();
 
   const filterParam = search.get('jeu');
@@ -60,14 +75,14 @@ export default function Join() {
         return;
       } catch (cause) {
         if (!(cause instanceof ApiError) || cause.status !== 404) {
-          setError('Vérification impossible.');
+          setError(t(msg('join.checkFailed')));
           setBusy(false);
           return;
         }
       }
     }
 
-    setError('Aucune partie avec ce code.');
+    setError(t(msg('join.noSuchGame')));
     setBusy(false);
   }
 
@@ -76,9 +91,9 @@ export default function Join() {
   return (
     <div className="jeu-screen join-page">
       <form className="join-form" onSubmit={(event) => void submit(event)}>
-        <h1 className="join-title">Rejoindre une partie</h1>
+        <h1 className="join-title">{t(msg('join.title'))}</h1>
 
-        <Field label="Code de la partie" error={error ?? undefined}>
+        <Field label={t(msg('join.code'))} error={error ?? undefined}>
           {({ id, describedBy, invalid }) => (
             <Input
               id={id}
@@ -99,16 +114,16 @@ export default function Join() {
         </Field>
 
         <Button type="submit" variant="primary" size="lg" block busy={busy} disabled={code.trim().length !== 5}>
-          Continuer
+          {t(msg('join.continue'))}
         </Button>
       </form>
 
       <section className="join-board">
         <div className="join-board-head">
-          <h2>Salons ouverts</h2>
+          <h2>{t(msg('join.openRooms'))}</h2>
           <div className="filters">
             <Chip active={filter === null} onClick={() => setSearch({})}>
-              Tous
+              {t(msg('join.all'))}
             </Chip>
             {GAMES.map((game) => (
               <Chip
@@ -126,9 +141,7 @@ export default function Join() {
         {board.loading ? (
           <Loading />
         ) : cards.length === 0 ? (
-          <p className="play-note">
-            Aucun salon public pour l’instant. Lancez-en un depuis le menu d’un jeu, ou démarrez une partie rapide.
-          </p>
+          <p className="play-note">{t(msg('join.empty'))}</p>
         ) : (
           <ul className="join-cards">
             {cards.map((card) => (
@@ -138,7 +151,7 @@ export default function Join() {
         )}
 
         <Button variant="ghost" onClick={() => board.reload()}>
-          Rafraîchir
+          {t(msg('join.refresh'))}
         </Button>
       </section>
     </div>
@@ -147,6 +160,7 @@ export default function Join() {
 
 function LobbyRow({ card }: { card: LobbyCard }) {
   const navigate = useNavigate();
+  const t = useT();
   const entry = gameEntry(card.game);
 
   /**
@@ -162,11 +176,15 @@ function LobbyRow({ card }: { card: LobbyCard }) {
       </span>
 
       <div className="join-card-body">
-        <strong>{card.title}</strong>
+        <strong>{line(card.title, t)}</strong>
         <span className="join-card-meta">
           {entry.name}
-          {card.quick ? ' · partie rapide' : card.host ? ` · chez ${card.host}` : ''}
-          {card.detail ? ` · ${card.detail}` : ''}
+          {card.quick
+            ? ` · ${t(msg('join.quickMatch'))}`
+            : card.host
+              ? ` · ${t(msg('join.hostedBy', { host: card.host }))}`
+              : ''}
+          {card.detail ? ` · ${t(card.detail)}` : ''}
         </span>
       </div>
 
@@ -176,7 +194,7 @@ function LobbyRow({ card }: { card: LobbyCard }) {
       </span>
 
       <Button variant="primary" size="sm" onClick={() => void navigate(target)}>
-        Rejoindre
+        {t(msg('join.enter'))}
       </Button>
     </li>
   );

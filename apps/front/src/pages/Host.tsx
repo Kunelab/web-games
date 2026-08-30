@@ -1,4 +1,5 @@
 import { toServerTime, type AnswerAck, type JoinAck } from 'game-core';
+import { msg } from 'i18n';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
@@ -6,6 +7,7 @@ import { api } from '../api/client';
 import { badgeMeta } from '../app/badges';
 import { useAuth } from '../hooks/useAuth';
 import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
+import { useLocale } from '../i18n/locale-context';
 import { RoundPanel } from './Player';
 import { joinUrl } from '../tools/api-url';
 import { Button, Loading } from '../ui';
@@ -28,6 +30,7 @@ export default function Host() {
   // Solo: this screen presents AND answers — no television, no second device.
   const solo = params.get('solo') === '1';
   const { socket, connected, session, error, serverNow } = useGameSocket();
+  const { t, locale } = useLocale();
 
   const [hostToken] = useState(() => sessionStorage.getItem(`kune.host.${code}`) ?? '');
   const [openError, setOpenError] = useState<string | null>(null);
@@ -46,15 +49,15 @@ export default function Host() {
         if (ack.ok) {
           setOpenError(null);
         } else {
-          setOpenError(ack.error ?? "Impossible d'ouvrir cette partie.");
+          setOpenError(ack.error ?? t(msg('host.openFailed')));
         }
       } catch {
-        setOpenError('Le serveur ne répond pas.');
+        setOpenError(t(msg('play.serverQuiet')));
       }
     }
 
     void open(socket);
-  }, [socket, connected, hostToken, code]);
+  }, [socket, connected, hostToken, code, t]);
 
   const round = session?.hostRound ?? null;
   const remaining = useCountdown(round?.phaseEndsAt ?? null, serverNow);
@@ -67,11 +70,9 @@ export default function Host() {
   if (!hostToken) {
     return (
       <div className="jeu-screen jeu-center">
-        <p className="play-note">
-          Cet écran ne connaît pas le jeton de cette partie. Relancez la playlist pour en créer une nouvelle.
-        </p>
+        <p className="play-note">{t(msg('host.noToken'))}</p>
         <Button variant="secondary" onClick={() => void navigate('/playlists')}>
-          Mes playlists
+          {t(msg('host.myPlaylists'))}
         </Button>
       </div>
     );
@@ -82,7 +83,7 @@ export default function Host() {
       <div className="jeu-screen jeu-center">
         <p className="play-note">{openError}</p>
         <Button variant="secondary" onClick={() => void navigate('/playlists')}>
-          Mes playlists
+          {t(msg('host.myPlaylists'))}
         </Button>
       </div>
     );
@@ -91,7 +92,7 @@ export default function Host() {
   if (!session) {
     return (
       <div className="jeu-screen jeu-center">
-        <Loading label="Connexion à la partie…" />
+        <Loading label={t(msg('host.connectingToGame'))} />
       </div>
     );
   }
@@ -103,7 +104,9 @@ export default function Host() {
       <header className="host-top">
         <span className="host-code">{code}</span>
         <span className="host-progress tabular">
-          {round ? `${round.index + 1} / ${round.total}` : `${session.players.length} joueur(s)`}
+          {round
+            ? `${round.index + 1} / ${round.total}`
+            : t(msg('play.playerCount', { count: session.players.length }))}
         </span>
         <Button
           variant="ghost"
@@ -112,21 +115,19 @@ export default function Host() {
             void api.endSession(code).finally(() => void navigate('/playlists'));
           }}
         >
-          Terminer
+          {t(msg('host.end'))}
         </Button>
       </header>
 
       {session.phase === 'lobby' && session.oral && (
         <div className="host-lobby">
           <div className="stack-4" style={{ alignItems: 'center', textAlign: 'center' }}>
-            <p className="play-label">À l’oral</p>
-            <p className="host-prompt">Personne n’a besoin de téléphone.</p>
-            <p className="play-note">
-              Les réponses se disent à voix haute. C’est vous qui décidez quand les montrer et quand passer.
-            </p>
+            <p className="play-label">{t(msg('host.oral'))}</p>
+            <p className="host-prompt">{t(msg('host.oralPrompt'))}</p>
+            <p className="play-note">{t(msg('host.oralNote'))}</p>
             {/* Nothing to wait for, so nothing disables this. */}
             <Button variant="primary" size="lg" onClick={() => socket?.emit('host:start', { hostToken })}>
-              Commencer
+              {t(msg('host.start'))}
             </Button>
           </div>
         </div>
@@ -135,27 +136,29 @@ export default function Host() {
       {session.phase === 'lobby' && !session.oral && (
         <div className="host-lobby">
           <div className="stack-4" style={{ alignItems: 'center' }}>
-            <p className="play-label">Rejoindre avec ce code</p>
+            <p className="play-label">{t(msg('host.joinWithCode'))}</p>
             <p className="host-bigcode">{code}</p>
             <p className="play-note">{url}</p>
           </div>
 
           <div className="stack-4" style={{ alignItems: 'center' }}>
-            <p className="play-label">{session.players.length} joueur(s)</p>
+            <p className="play-label">{t(msg('play.playerCount', { count: session.players.length }))}</p>
             <ul className="player-chips">
               {session.players.map((player) => (
                 <li key={player.id} className={player.connected ? '' : 'away'}>
                   {player.name}
                   {/* The title earned across past evenings: the cheap glory that
                       makes a returning nickname feel like a returning player. */}
-                  {player.title && <span className="chip-title">{badgeMeta(player.title).title}</span>}
+                  {player.title && (
+                    <span className="chip-title">{t(msg(badgeMeta(player.title).titleKey))}</span>
+                  )}
                   {/* Kicking exists for the misclick and the stray phone, so it lives
                       here in the lobby, not on the score strip mid-game. */}
                   <button
                     type="button"
                     className="chip-kick"
-                    aria-label={`Retirer ${player.name}`}
-                    title={`Retirer ${player.name}`}
+                    aria-label={t(msg('host.remove', { name: player.name }))}
+                    title={t(msg('host.remove', { name: player.name }))}
                     onClick={() => socket?.emit('host:kick', { hostToken, playerId: player.id })}
                   >
                     ×
@@ -169,7 +172,7 @@ export default function Host() {
               disabled={session.players.length === 0}
               onClick={() => socket?.emit('host:start', { hostToken })}
             >
-              Commencer
+              {t(msg('host.start'))}
             </Button>
           </div>
         </div>
@@ -186,7 +189,7 @@ export default function Host() {
                 {/* The picture stays up next to its answer: on a reveal round the
                     thing everyone was staring at is the point of the moment. */}
                 <HostMedia round={round} serverNow={serverNow} revealed />
-                <p className="play-label">Réponse</p>
+                <p className="play-label">{t(msg('play.answer'))}</p>
                 <p className="host-answer">{round.answers.map((answer) => answer.value).join(' · ')}</p>
                 {/* On an estimation the guesses ARE the reveal: the whole room wants
                     to see who said what and by how much they missed. */}
@@ -195,13 +198,13 @@ export default function Host() {
                     {session.reveal.guesses.map((guess, index) => (
                       <li key={guess.playerId} className={index === 0 ? 'closest' : undefined}>
                         <span className="score-name">{guess.name}</span>
-                        <span className="tabular">{guess.value.toLocaleString('fr-FR')}</span>
+                        <span className="tabular">{guess.value.toLocaleString(locale)}</span>
                         <span className="guess-delta">
                           {guess.delta === 0
-                            ? 'exact !'
+                            ? t(msg('play.exact'))
                             : guess.delta > 0
-                              ? `+${guess.delta.toLocaleString('fr-FR')}`
-                              : guess.delta.toLocaleString('fr-FR')}
+                              ? `+${guess.delta.toLocaleString(locale)}`
+                              : guess.delta.toLocaleString(locale)}
                         </span>
                       </li>
                     ))}
@@ -224,11 +227,11 @@ export default function Host() {
                 <p className="host-prompt">
                   {prompts.length > 0
                     ? prompts.join(' · ')
-                    : `${round.answers.length} réponse${round.answers.length > 1 ? 's' : ''} à trouver`}
+                    : t(msg('host.answersToFind', { count: round.answers.length }))}
                 </p>
-                {round.phase === 'study' && <p className="play-note">Mémorisation en cours</p>}
+                {round.phase === 'study' && <p className="play-note">{t(msg('host.memorising'))}</p>}
                 {session.oral && round.phase === 'answering' && (
-                  <p className="play-note">À vous. Montrez la réponse quand la salle a dit la sienne.</p>
+                  <p className="play-note">{t(msg('host.yourTurn'))}</p>
                 )}
               </div>
             )}
@@ -256,14 +259,14 @@ export default function Host() {
                   variant={session.oral ? 'primary' : 'secondary'}
                   onClick={() => socket?.emit('host:closeAnswers', { hostToken })}
                 >
-                  {session.oral ? 'Montrer la réponse' : 'Clore les réponses'}
+                  {t(msg(session.oral ? 'host.showAnswer' : 'host.closeAnswers'))}
                 </Button>
               )}
               <Button
                 variant={session.oral && round.phase === 'answering' ? 'ghost' : 'primary'}
                 onClick={() => socket?.emit('host:advance', { hostToken })}
               >
-                {round.phase === 'reveal' ? 'Suivant' : 'Passer'}
+                {t(msg(round.phase === 'reveal' ? 'host.next' : 'host.skip'))}
               </Button>
             </div>
           </div>
@@ -273,10 +276,10 @@ export default function Host() {
       {session.phase === 'finished' && session.oral && (
         <div className="host-lobby">
           <div className="stack-4" style={{ alignItems: 'center', textAlign: 'center' }}>
-            <p className="play-label">Terminé</p>
-            <p className="host-prompt">Playlist finie.</p>
+            <p className="play-label">{t(msg('play.finished'))}</p>
+            <p className="host-prompt">{t(msg('host.playlistDone'))}</p>
             <Button variant="secondary" onClick={() => void navigate('/playlists')}>
-              Retour aux playlists
+              {t(msg('host.backToPlaylists'))}
             </Button>
           </div>
         </div>
@@ -284,10 +287,10 @@ export default function Host() {
 
       {session.phase === 'finished' && !session.oral && (
         <div className="host-finished">
-          <p className="play-label">Classement final</p>
+          <p className="play-label">{t(msg('host.finalStandings'))}</p>
           <Ceremony players={session.players} awards={session.final?.awards ?? []} />
           <Button variant="secondary" onClick={() => void navigate('/playlists')}>
-            Retour aux playlists
+            {t(msg('host.backToPlaylists'))}
           </Button>
         </div>
       )}
@@ -306,6 +309,7 @@ export default function Host() {
 function SoloAnswers({ code }: { code: string }) {
   const { socket, connected, session, serverNow, clock } = useGameSocket();
   const { user } = useAuth();
+  const { locale } = useLocale();
   const [seated, setSeated] = useState(false);
 
   const tokenKey = `kune.player.${code}`;
@@ -346,6 +350,7 @@ function SoloAnswers({ code }: { code: string }) {
         serverNow={serverNow}
         offsetMs={clock.offsetMs}
         myId={myId}
+        locale={locale}
         hidePresentation
         onSubmit={async (fieldKey, value, direct) => {
           if (!socket || !session.round) return { ok: false };

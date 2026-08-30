@@ -37,41 +37,41 @@ export interface MutationDef {
 export const MUTATIONS: readonly MutationDef[] = [
   {
     id: 'thick',
-    name: 'Peau épaisse',
+    name: 'coronaz.mutation.thick.name',
     emoji: '🧱',
-    blurb: '+10 PV à toute la horde.',
+    blurb: 'coronaz.mutation.thick.blurb',
     hp: 10,
     reward: 0.15
   },
   {
     id: 'claws',
-    name: 'Griffes',
+    name: 'coronaz.mutation.claws.name',
     emoji: '🩸',
-    blurb: '+10 dégâts à toute la horde.',
+    blurb: 'coronaz.mutation.claws.blurb',
     damage: 10,
     reward: 0.2
   },
   {
     id: 'swift',
-    name: 'Nerfs à vif',
+    name: 'coronaz.mutation.swift.name',
     emoji: '⚡',
-    blurb: '+1 PA à toute la horde : elle arrive deux fois plus vite.',
+    blurb: 'coronaz.mutation.swift.blurb',
     ap: 1,
     reward: 0.3
   },
   {
     id: 'fertile',
-    name: 'Portée féconde',
+    name: 'coronaz.mutation.fertile.name',
     emoji: '🥚',
-    blurb: 'Les salles d’apparition crachent moitié plus souvent.',
+    blurb: 'coronaz.mutation.fertile.blurb',
     reinforcement: 1.5,
     reward: 0.25
   },
   {
     id: 'titans',
-    name: 'Titans',
+    name: 'coronaz.mutation.titans.name',
     emoji: '💀',
-    blurb: '+40 PV aux boss.',
+    blurb: 'coronaz.mutation.titans.blurb',
     bossHp: 40,
     reward: 0.15
   }

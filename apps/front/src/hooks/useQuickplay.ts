@@ -1,3 +1,4 @@
+import { msg, type Msg } from 'i18n';
 import type {
   LobbyGame,
   QuickClientToServer,
@@ -18,7 +19,8 @@ export interface QuickConnection {
   lobby: QuickLobbyView | null;
   /** Set once the room has started something; the screen then navigates. */
   launch: QuickLaunch | null;
-  error: string | null;
+  /** A catalogue key; the screen renders it. */
+  error: Msg | null;
   ready: (value: boolean) => void;
   vote: (key: string, value: string) => void;
   /** How many machine players the room should seat. Absolute, not a nudge. */
@@ -81,7 +83,7 @@ export function useQuickplay(options: QuickplayOptions): QuickConnection {
   const [connected, setConnected] = useState(false);
   const [lobby, setLobby] = useState<QuickLobbyView | null>(null);
   const [launch, setLaunch] = useState<QuickLaunch | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Msg | null>(null);
   const socketRef = useRef<QuickSocket | null>(null);
 
   useEffect(() => {
@@ -93,7 +95,7 @@ export function useQuickplay(options: QuickplayOptions): QuickConnection {
 
     function onAck(ack: QuickJoinAck) {
       if (!ack.ok) {
-        setError(ack.error ?? 'Ce salon est inaccessible.');
+        setError(ack.error ?? msg('quick.unreachable'));
         return;
       }
       setError(null);
@@ -127,7 +129,7 @@ export function useQuickplay(options: QuickplayOptions): QuickConnection {
     });
 
     socket.on('disconnect', () => setConnected(false));
-    socket.on('connect_error', () => setError('Connexion au serveur impossible.'));
+    socket.on('connect_error', () => setError(msg('net.unreachable')));
     socket.on('quick:state', (view) => setLobby(view));
     socket.on('quick:launch', (payload) => setLaunch(payload));
     socket.on('quick:closed', (payload) => {

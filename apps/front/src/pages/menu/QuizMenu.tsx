@@ -12,70 +12,70 @@ import GameMenu, { type MenuTile } from './GameMenu';
 const TILES: MenuTile[] = [
   {
     to: '/partie-rapide/quiz',
-    label: 'Partie rapide',
-    hint: 'Un quiz tiré au sort, des inconnus, aucun organisateur.',
+    label: 'site.tile.quick',
+    hint: 'site.tile.quick.quiz',
     emoji: '⚡',
     primary: true
   },
   {
     to: '/quiz/creer',
-    label: 'Créer un salon',
-    hint: 'Choisissez un quiz — le vôtre ou un quiz public — et ouvrez la partie.',
+    label: 'site.tile.createRoom',
+    hint: 'site.tile.createRoom.hint',
     emoji: '🎬',
     requiresAccount: true
   },
   {
     to: '/rejoindre?jeu=quiz',
-    label: 'Rejoindre un salon',
-    hint: 'Un code, ou la liste des salons publics ouverts.',
+    label: 'site.tile.joinRoom',
+    hint: 'site.tile.joinRoom.hint',
     emoji: '🔑'
   },
   {
     to: '/bibliotheque/nouveau',
-    label: 'Créer une question',
-    hint: 'Blind test, question, estimation, image à révéler, panel à mémoriser.',
+    label: 'site.tile.newQuestion',
+    hint: 'site.tile.newQuestion.hint',
     emoji: '✍️',
     requiresAccount: true
   },
   {
     to: '/playlists',
-    label: 'Créer un quiz',
-    hint: 'Un groupe de questions, jouable en une soirée. Publiable.',
+    label: 'site.tile.newQuiz',
+    hint: 'site.tile.newQuiz.hint',
     emoji: '📚',
     requiresAccount: true
   },
   {
     to: '/bibliotheque',
-    label: 'Ma bibliothèque',
-    hint: 'Retrouver et modifier les questions déjà écrites.',
+    label: 'site.tile.library',
+    hint: 'site.tile.library.hint',
     emoji: '🗂️',
     requiresAccount: true
   },
   {
     to: '/historique',
-    label: 'Historique et carrières',
-    hint: 'Les parties terminées et ce qu’elles ont laissé, tous jeux confondus.',
+    label: 'site.tile.history',
+    hint: 'site.tile.history.quiz',
     emoji: '🏆',
     requiresAccount: true
   },
   {
     to: '/quiz/boutique',
-    label: 'Boutique',
-    hint: 'Dépenser vos jetons en skins.',
+    label: 'site.tile.shop',
+    hint: 'site.tile.shop.quiz',
     emoji: '🎟️',
     requiresAccount: true
   },
   {
     to: '/quiz/equipement',
-    label: 'Équipement',
-    hint: 'Choisir ce que vous portez sur le tableau des scores.',
+    label: 'site.tile.locker',
+    hint: 'site.tile.locker.quiz',
     emoji: '🎽',
     requiresAccount: true
   },
   {
     to: '/quiz/regles',
-    label: 'Règles et types de questions',
-    hint: 'Comment se calcule le score, et ce que chaque type demande.',
+    label: 'site.tile.guide.quiz',
+    hint: 'site.tile.guide.quiz.hint',
     emoji: '📖'
   }
 ];
@@ -84,7 +84,7 @@ export default function QuizMenu() {
   return (
     <GameMenu
       game={gameEntry('quiz')}
-      lede="Un extrait, une image, une question — sur la télé ou sur votre téléphone. Le score récompense celui qui répond le premier, pas celui qui a la meilleure connexion."
+      lede="site.menu.quiz.lede"
       tiles={TILES}
     />
   );

@@ -1,7 +1,10 @@
-import { FACTION_LABELS, ROLES, type RoleDef } from 'mafia-core';
+import { msg } from 'i18n';
+import { ROLES, type RoleDef } from 'mafia-core';
 import { Link } from 'react-router';
 
 import { gameEntry } from '../../app/games';
+import { useT } from '../../i18n/locale-context';
+import { Prose } from '../../ui/Prose';
 import './menu.css';
 
 /**
@@ -17,6 +20,7 @@ const ORDER = ['town', 'mafia', 'triad', 'cult', 'neutral'] as const;
 
 export default function MafiaGuide() {
   const entry = gameEntry('mafia');
+  const t = useT();
   const byFaction = new Map<string, RoleDef[]>();
 
   for (const role of Object.values(ROLES)) {
@@ -32,43 +36,22 @@ export default function MafiaGuide() {
           {entry.emoji}
         </span>
         <div>
-          <h1 className="guide-title">Mafia — rôles et règles</h1>
-          <p className="guide-lede">
-            Une ville s’endort chaque nuit et se réveille avec un mort de moins. Quelqu’un autour de la table sait
-            pourquoi.
-          </p>
+          <h1 className="guide-title">{t(msg('mafia.guide.title'))}</h1>
+          <p className="guide-lede">{t(msg('mafia.guide.lede'))}</p>
         </div>
       </header>
 
       <section className="guide-section">
-        <h2>Le principe</h2>
-        <p className="guide-prose">
-          La ville est majoritaire mais aveugle : elle ne sait pas qui est qui. La mafia est minoritaire mais voit
-          clair — ses membres se connaissent, et tuent une fois par nuit. La ville gagne en pendant les derniers
-          coupables ; la mafia gagne le jour où elle égale la ville.
-        </p>
-        <p className="guide-prose">
-          Entre les deux vivent les <strong>neutres</strong>, qui ont chacun leur propre condition de victoire et
-          n’aident personne gratuitement.
-        </p>
+        <h2>{t(msg('mafia.guide.idea'))}</h2>
+        <Prose className="guide-prose" k="mafia.guide.idea.1" />
+        <Prose className="guide-prose" k="mafia.guide.idea.2" />
       </section>
 
       <section className="guide-section">
-        <h2>Un jour, une nuit</h2>
-        <p className="guide-prose">
-          <strong>Le jour</strong>, tout le monde parle et la ville met quelqu’un en accusation. L’accusé se défend,
-          puis la ville vote coupable ou non. Trois procès au plus par jour.
-        </p>
-        <p className="guide-prose">
-          <strong>La nuit</strong>, chaque rôle agit en silence : la mafia choisit sa victime, le docteur choisit qui
-          protéger, le shérif sonde quelqu’un. Tout se résout d’un coup, et au matin la ville découvre le résultat sans
-          savoir ce qui l’a produit.
-        </p>
-        <p className="guide-prose">
-          Ce qu’un cadavre révèle — son rôle complet, son camp seulement, ou rien du tout — est un réglage de la table.
-          Le réglage intermédiaire est le plus intéressant : il garde la forme du jeu tout en donnant du travail au
-          légiste.
-        </p>
+        <h2>{t(msg('mafia.guide.cycle'))}</h2>
+        <Prose className="guide-prose" k="mafia.guide.cycle.day" />
+        <Prose className="guide-prose" k="mafia.guide.cycle.night" />
+        <Prose className="guide-prose" k="mafia.guide.cycle.reveal" />
       </section>
 
       {ORDER.map((faction) => {
@@ -78,15 +61,16 @@ export default function MafiaGuide() {
         return (
           <section className="guide-section" key={faction}>
             <h2>
-              {FACTION_LABELS[faction]} <span className="guide-faction">{roles.length} rôles</span>
+              {t(msg(`mafia.faction.${faction}`))}{' '}
+              <span className="guide-faction">{t(msg('mafia.guide.roleCount', { count: roles.length }))}</span>
             </h2>
             <div className="guide-cards">
               {roles.map((role) => (
                 <article className="guide-card" key={role.id}>
                   <div>
-                    <div className="guide-card-name">{role.name}</div>
-                    <p className="guide-card-note">{role.description}</p>
-                    {role.unique && <p className="guide-card-note">Un seul par table.</p>}
+                    <div className="guide-card-name">{t(msg(`mafia.role.${role.id}.name`))}</div>
+                    <p className="guide-card-note">{t(msg(`mafia.role.${role.id}.desc`))}</p>
+                    {role.unique && <p className="guide-card-note">{t(msg('mafia.guide.unique'))}</p>}
                   </div>
                 </article>
               ))}
@@ -96,7 +80,7 @@ export default function MafiaGuide() {
       })}
 
       <Link to={entry.path} className="menu-back">
-        ← Retour au menu Mafia
+        {t(msg('mafia.guide.back'))}
       </Link>
     </div>
   );

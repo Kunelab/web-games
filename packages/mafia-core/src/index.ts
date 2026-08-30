@@ -1,3 +1,4 @@
+export { ACTION, BODY, CAUSE, FACTION, M, MafiaError, NO, refusalOf, ROLE, SLOT, type DeathSource } from './messages.js';
 export {
   ACTION_LABELS,
   BYSTANDER_ROLES,
@@ -33,6 +34,8 @@ export {
   pointsFor,
   rosterForSetup,
   seatPlayer,
+  SKIP_VOTE,
+  tableRoleList,
   spokenLocale,
   tablePresence,
   voteWeight,
@@ -59,6 +62,9 @@ export {
   isSlotToken,
   rollSetup,
   setupById,
+  slotFaction,
+  slotPool,
+  sortRoleList,
   type Setup,
   type SlotToken
 } from './setups.js';
@@ -88,12 +94,21 @@ export {
   startMafia,
   tickMafiaPresence,
   voteMafiaKick,
+  voteThreshold,
   whisperTo,
   type ActionOutcome,
   type LegalAction,
   type MafiaPresenceView
 } from './engine.js';
-export { toMafiaView, type MafiaPublicPlayer, type MafiaResultRow, type MafiaView, type MafiaViewer, type MafiaViewMe } from './view.js';
+export {
+  toMafiaView,
+  type MafiaChannelKind,
+  type MafiaPublicPlayer,
+  type MafiaResultRow,
+  type MafiaView,
+  type MafiaViewer,
+  type MafiaViewMe
+} from './view.js';
 export { toPublicInfo } from './observe.js';
 /**
  * The social model. Exported because the live bot driver and the headless bench
@@ -115,6 +130,10 @@ export {
 } from './social.js';
 export {
   claimerWeight,
+  decideBallot,
+  decideDay,
+  decideNightTarget,
+  type DayDecision,
   contradicted,
   DEFAULT_PROFILE,
   feelPressure,

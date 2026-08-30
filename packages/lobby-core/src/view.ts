@@ -1,3 +1,5 @@
+import type { Msg } from 'i18n';
+
 import {
   quickBotsAllowed,
   quickMaxBots,
@@ -29,12 +31,15 @@ export interface QuickMemberView {
 
 export interface QuickChoiceView {
   value: string;
+  /** A catalogue key; `text` overrides it for player-written names. */
   label: string;
+  text?: string;
   votes: number;
 }
 
 export interface QuickOptionView {
   key: string;
+  /** Catalogue keys, resolved by whoever is reading. */
   label: string;
   hint?: string;
   /** The value that would be used if the game started now. */
@@ -110,6 +115,7 @@ export function toQuickView(
       choices: spec.choices.map((choice) => ({
         value: choice.value,
         label: choice.label,
+        text: choice.text,
         votes: Object.values(lobby.members).filter((member) => member.votes[spec.key] === choice.value).length
       })),
       yours: (you !== null ? lobby.members[you]?.votes[spec.key] : undefined) ?? null
@@ -129,10 +135,16 @@ export function toQuickView(
 export interface LobbyCard {
   game: LobbyGame;
   code: string;
-  /** What is being played: the quiz's name, the scenario, the setup. */
-  title: string;
+  /**
+   * What is being played: the quiz's name, the scenario, the role list.
+   *
+   * A string when it is somebody's own words — a published quiz is called what
+   * its author called it in every language — and a `Msg` when the game names it
+   * itself. The board renders whichever it is handed.
+   */
+  title: string | Msg;
   /** A second line, when the game has one worth reading. */
-  detail: string | null;
+  detail: Msg | null;
   /** Who opened it, or null for a hostless quick match. */
   host: string | null;
   players: number;

@@ -1,10 +1,17 @@
 import Anthropic from '@anthropic-ai/sdk';
 import {
+  decideBallot,
+  decideDay,
+  decideNightTarget,
   legalNightAction,
+  playerFamily,
+  ROLE,
   ROLES,
+  SKIP_VOTE,
   spokenLocale,
   toMafiaView,
   type ActionOutcome,
+  type Claim,
   type ClaimKind,
   type MafiaState,
   type MafiaView,
@@ -14,7 +21,10 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import type { Locale } from 'i18n';
 
+import { msg } from 'i18n';
+
 import { env } from '../env.js';
+import { say } from './say.js';
 import { actionVerb, brief, dossier } from './bot-brief.js';
 import { BotMinds } from './bot-mind.js';
 
@@ -37,9 +47,17 @@ import { BotMinds } from './bot-mind.js';
 
 interface BotHooks {
   chat: (code: string, botId: string, channel: string, text: string) => ActionOutcome;
-  vote: (code: string, botId: string, targetSlot: number | null) => ActionOutcome;
+  vote: (code: string, botId: string, targetSlot: number | 'skip' | null) => ActionOutcome;
   ballot: (code: string, botId: string, verdict: 'guilty' | 'innocent' | 'abstain') => ActionOutcome;
   action: (code: string, botId: string, targetSlot: number | null) => ActionOutcome;
+  /** Jail a house, or put the sash on: the two things a day offers besides a vote. */
+  dayAction: (
+    code: string,
+    botId: string,
+    action: { type: 'jail'; targetSlot: number | null } | { type: 'reveal' }
+  ) => ActionOutcome;
+  /** What the town reads on the body. A bot that dies mute helps nobody. */
+  will: (code: string, botId: string, text: string) => ActionOutcome;
   get: (code: string) => MafiaState | undefined;
 }
 
@@ -51,7 +69,56 @@ interface Decision {
   verdict: 'guilty' | 'innocent' | 'abstain' | null;
   /** What this turn asserts publicly, for the claims board. Null = small talk. */
   claim: { kind: ClaimKind; slot: number | null; role: string | null; account?: 'home' | 'visited' } | null;
+  /** Jailor only: tonight's cell, chosen during the day. */
+  jailSlot?: number | null;
+  /** Mayor only: put the sash on today. */
+  revealMayor?: boolean;
 }
+
+/**
+ * One rung of the brain chain.
+ *
+ * `scripted` is not a rung so much as the floor: reaching it means calling
+ * nothing, which is what the played brain does anyway.
+ */
+type Rung = 'openai' | 'anthropic' | 'ollama' | 'scripted';
+
+const RUNGS: readonly Rung[] = ['openai', 'anthropic', 'ollama', 'scripted'];
+
+function readChain(raw: string): Rung[] {
+  const chain = raw
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter((part): part is Rung => (RUNGS as readonly string[]).includes(part));
+  // An empty or unrecognisable setting is a configuration mistake, not a
+  // reason to have no bots: the floor is always there.
+  return chain.length > 0 ? chain : ['scripted'];
+}
+
+/**
+ * Small chat models worth reaching for, best first.
+ *
+ * Ollama's list is whatever somebody happened to pull, and "smallest" alone
+ * picks an embedding model or a code-completion stub over a model that can hold
+ * a conversation. This is the preference order among *installed* tags: a recent
+ * Qwen first because that family is the one this prompt was tuned against, then
+ * the other small instruction-followers, and only then whatever else is there.
+ */
+const LOCAL_PREFERENCE = [
+  'qwen3.5',
+  'qwen3',
+  'qwen2.5',
+  'llama3.2',
+  'llama3.1',
+  'mistral',
+  'phi4',
+  'phi3',
+  'gemma3',
+  'gemma2'
+];
+
+/** How long a local-brain probe is trusted before it is asked again. */
+const PROBE_EVERY_MS = 3 * 60 * 1000;
 
 /** A turn where the bot does and says nothing. */
 const EMPTY: Decision = { say: null, targetSlot: null, verdict: null, claim: null };
@@ -168,7 +235,28 @@ export class MafiaBotDriver {
   private readonly timers = new Map<string, NodeJS.Timeout[]>();
   /** phase+day+stage last scheduled per table, so votes don't re-trigger planning. */
   private readonly signatures = new Map<string, string>();
-  private readonly provider: 'ollama' | 'anthropic' | 'scripted';
+  /** The rungs, in order, as configured. */
+  private readonly chain: Rung[];
+  /**
+   * A rung that refused, and the moment it may be asked again.
+   *
+   * A free tier that answers 429 will answer 429 to the next bot too, so one
+   * refusal benches the rung rather than costing every remaining seat its own
+   * round trip to find out.
+   */
+  private readonly benched = new Map<Rung, number>();
+  /**
+   * Whether the local brain is actually there, and which tag it answers to.
+   *
+   * `null` while the first probe is in flight, `false` once we know there is
+   * nothing listening. A machine with no Ollama on it used to fail one HTTP
+   * call per bot turn — every seat waiting out a connection refusal before
+   * falling back — so a table of eight bots spent its day phase timing out.
+   * Asked once, remembered, re-asked occasionally in case somebody starts the
+   * daemon mid-evening.
+   */
+  private localModel: string | null | false = null;
+  private probedAt = 0;
   private readonly tempo: 'live' | 'deliberate';
   private readonly anthropic: Anthropic | null;
   /** Desperation, agendas and the claims board, per table. */
@@ -180,21 +268,159 @@ export class MafiaBotDriver {
     private readonly log: FastifyBaseLogger,
     private readonly hooks: BotHooks
   ) {
-    this.provider =
-      env.MAFIA_BOT_PROVIDER === 'anthropic' && !env.ANTHROPIC_API_KEY ? 'scripted' : env.MAFIA_BOT_PROVIDER;
+    /**
+     * A rung with no credentials is not a rung.
+     *
+     * Dropped at startup rather than discovered per call, so the log line below
+     * is the truth about what this server can actually do — an `openai` rung
+     * with no key used to sit in the chain failing silently, which looks exactly
+     * like a working one that never gets picked.
+     */
+    this.chain = readChain(env.MAFIA_BOT_PROVIDER).filter((rung) => {
+      if (rung === 'anthropic') return !!env.ANTHROPIC_API_KEY;
+      if (rung === 'openai') return !!env.MAFIA_API_KEY;
+      return true;
+    });
+
     this.tempo = env.MAFIA_BOT_TEMPO;
-    this.anthropic =
-      this.provider === 'anthropic' && env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }) : null;
+    this.anthropic = env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }) : null;
+
     this.log.info(
-      { provider: this.provider, tempo: this.tempo, model: this.modelName() },
+      {
+        chain: this.chain.join(' → ') || 'scripted',
+        tempo: this.tempo,
+        api: env.MAFIA_API_MODEL,
+        local: env.MAFIA_BOT_MODEL
+      },
       'mafia bot driver ready'
     );
+
+    // Asked at once rather than on the first bot turn, so the log says which
+    // brain a table is about to get before anybody sits down at one.
+    if (this.chain.includes('ollama')) void this.probeLocal();
   }
 
-  /** Which model this provider actually calls, so a misconfiguration is audible. */
-  private modelName(): string {
-    if (this.provider === 'anthropic') return env.MAFIA_BOT_MODEL_ANTHROPIC;
-    if (this.provider === 'ollama') return env.MAFIA_BOT_MODEL;
+  /**
+   * The first rung willing to take a turn right now.
+   *
+   * Never blocks and never throws: the answer is read from what is already
+   * known — a benched rung is skipped until its cooldown expires, and a local
+   * daemon is skipped until a probe says it is there. `null` means the played
+   * brain, which is a perfectly good answer.
+   */
+  private nextRung(): Rung | null {
+    const now = Date.now();
+    for (const rung of this.chain) {
+      if (rung === 'scripted') return null;
+      if ((this.benched.get(rung) ?? 0) > now) continue;
+      if (rung === 'ollama') {
+        if (now - this.probedAt > PROBE_EVERY_MS) void this.probeLocal();
+        if (typeof this.localModel !== 'string') continue;
+      }
+      return rung;
+    }
+    return null;
+  }
+
+  /** Sits a rung down for a while, and says so once. */
+  private bench(rung: Rung, error: unknown): void {
+    const until = Date.now() + env.MAFIA_BOT_COOLDOWN_MS;
+    if ((this.benched.get(rung) ?? 0) < Date.now()) {
+      this.log.warn(
+        { rung, err: error, forMs: env.MAFIA_BOT_COOLDOWN_MS },
+        'mafia bots: brain refused, dropping to the next one in the chain'
+      );
+    }
+    this.benched.set(rung, until);
+  }
+
+  /**
+   * Is there a local model on this machine, and what is it called?
+   *
+   * Ollama lists what it has pulled, so the configured tag is a *preference*
+   * rather than a requirement: a mini PC that pulled `qwen3:1.7b` instead of
+   * the default should still get talking bots, and a machine with
+   * nothing pulled at all should fall through to the played brain instantly
+   * rather than discovering the fact eight times a minute.
+   *
+   * Re-probed every few minutes and never awaited on a decision path: a turn
+   * that arrives before the first answer plays the sim brain, which is exactly
+   * what it would have done anyway.
+   */
+  private async probeLocal(): Promise<void> {
+    this.probedAt = Date.now();
+    try {
+      const response = await fetch(`${env.OLLAMA_URL}/api/tags`, {
+        signal: AbortSignal.timeout(2000)
+      });
+      if (!response.ok) throw new Error(`ollama ${response.status}`);
+
+      const body = (await response.json()) as { models?: { name?: string; size?: number }[] };
+      const installed = (body.models ?? [])
+        .map((entry) => ({ name: entry.name ?? '', size: entry.size ?? Number.MAX_SAFE_INTEGER }))
+        .filter((entry) => entry.name.length > 0);
+
+      if (installed.length === 0) {
+        if (this.localModel !== false) this.log.info({}, "mafia bots: ollama is up but has no model pulled");
+        this.localModel = false;
+        return;
+      }
+
+      /**
+       * The configured tag if it is there; otherwise the best small chat model
+       * that is; otherwise the smallest thing on the box.
+       *
+       * "Smallest" alone was too blunt — it would happily pick an embedding
+       * model over a Qwen. So a known family wins first (see `LOCAL_PREFERENCE`,
+       * which leads with the Qwen line this prompt was tuned against), and
+       * within a family the smaller tag wins, because on a box with no GPU a
+       * seat that answers in four seconds is worth more to a live table than a
+       * cleverer one that answers in forty.
+       */
+      const wanted = env.MAFIA_BOT_MODEL;
+      const exact = installed.find(
+        (entry) => entry.name === wanted || entry.name.startsWith(`${wanted}:`) || `${entry.name}:latest` === wanted
+      );
+
+      const bySize = [...installed].sort((left, right) => left.size - right.size);
+      const preferred = LOCAL_PREFERENCE.flatMap((family) =>
+        bySize.filter((entry) => entry.name.toLowerCase().startsWith(family))
+      )[0];
+
+      const chosen = (exact ?? preferred ?? bySize[0]).name;
+
+      if (this.localModel !== chosen) {
+        this.log.info(
+          { model: chosen, wanted, installed: installed.length, fallback: !exact },
+          exact
+            ? 'mafia bots: local model ready'
+            : 'mafia bots: configured model is not pulled, using the smallest installed one'
+        );
+      }
+      this.localModel = chosen;
+    } catch {
+      if (this.localModel !== false) {
+        this.log.info(
+          { url: env.OLLAMA_URL },
+          'mafia bots: no local model reachable, playing the simulator brain'
+        );
+      }
+      this.localModel = false;
+    }
+  }
+
+  /**
+   * Whether an LLM turn is worth attempting right now.
+   *
+   * Never blocks: a stale probe is refreshed in the background and this answers
+   * from what it already knows. The played brain is a good enough answer that
+   * waiting for a better one is the wrong trade.
+   */
+  /** Which model a rung actually calls, so a misconfiguration is audible. */
+  private modelName(rung: Rung): string {
+    if (rung === 'anthropic') return env.MAFIA_BOT_MODEL_ANTHROPIC;
+    if (rung === 'openai') return env.MAFIA_API_MODEL;
+    if (rung === 'ollama') return typeof this.localModel === 'string' ? this.localModel : env.MAFIA_BOT_MODEL;
     return 'none';
   }
 
@@ -278,32 +504,35 @@ export class MafiaBotDriver {
       for (const bot of bots) {
         if (state.day === 1) {
           /**
-           * Barely anyone speaks on day one, because there is nothing to say.
+           * Every bot gets a first-day turn, and most of them spend it in silence.
            *
-           * A table where most bots greet the room is a table of chatbots: the
-           * first day has no information in it, so a real player types "glhf" or
-           * says nothing. One seat in six is about right for a room where two or
-           * three people bother.
+           * It is scheduled unconditionally because the turn does two things now:
+           * it may greet the room, and it *always* seals a will. Gating the whole
+           * turn on an 18% coin flip meant five bots in six died with nothing
+           * written on them, which quietly removed the town's best source of
+           * information about the night. Whether a seat actually says hello is
+           * still its own temperament's business — see the played brain.
            */
-          if (Math.random() < 0.18) {
-            this.later(code, within(0.05, 0.6, state.config.dayMs), () => this.decide(code, bot.playerId, 'greet'));
-          }
+          this.later(code, within(0.05, 0.6, state.config.dayMs), () => this.decide(code, bot.playerId, 'greet'));
           continue;
         }
+
         /**
-         * Two chances to speak per day, and neither is a certainty.
+         * One turn every bot takes, and one it might.
          *
-         * Lowered from 0.45/0.7: at those odds every bot spoke almost every day
-         * and the square became a wall of near-identical questions. Roughly one
-         * utterance per bot per day leaves room for the ones who actually have
-         * something — and the model is told that silence is the default anyway,
-         * so a scheduled turn often produces nothing.
+         * The first is guaranteed, because a day turn is where a bot *votes* —
+         * and when both turns were coin flips, roughly half the table never cast
+         * an accusation at all. That is most of why a wagon never formed and why
+         * a family never appeared to vote together: two mafiosi who each had a
+         * 30% chance of being asked rarely got asked on the same afternoon.
+         *
+         * The second is the one that makes a square feel busy, and it stays a
+         * chance: at two guaranteed turns apiece the chat becomes a wall of
+         * near-identical accusations.
          */
-        if (Math.random() < 0.3) {
-          this.later(code, within(0.05, 0.5, state.config.dayMs), () => this.decide(code, bot.playerId, 'day'));
-        }
+        this.later(code, within(0.05, 0.45, state.config.dayMs), () => this.decide(code, bot.playerId, 'day'));
         if (Math.random() < 0.4) {
-          this.later(code, within(0.15, 0.65, state.config.dayMs), () => this.decide(code, bot.playerId, 'day'));
+          this.later(code, within(0.5, 0.85, state.config.dayMs), () => this.decide(code, bot.playerId, 'day'));
         }
       }
       return;
@@ -354,7 +583,7 @@ export class MafiaBotDriver {
     const pool = task === 'defense' ? botIds.filter((id) => id === state.trial?.accusedId) : botIds;
     /** One bot's turn takes about this long end to end; rounds do not overlap. */
     // Measured with thinking disabled; see `ollamaDecision`.
-    const turnMs = this.provider === 'ollama' ? 1400 : 1200;
+    const turnMs = this.chain[0] === 'ollama' ? 1400 : 1200;
 
     for (let round = 1; round <= rounds; round++) {
       const order = [...pool].sort(() => Math.random() - 0.5);
@@ -389,12 +618,13 @@ export class MafiaBotDriver {
      * manufactures timeouts. The API tolerates more. The deliberate tempo asks
      * one bot at a time by construction, so its cap is one.
      */
-    const maxInFlight = this.tempo === 'deliberate' ? 1 : this.provider === 'ollama' ? 2 : 4;
-    if (this.provider !== 'scripted' && this.inFlight < maxInFlight) {
+    const rung = this.nextRung();
+    const maxInFlight = this.tempo === 'deliberate' ? 1 : rung === 'ollama' ? 2 : 4;
+    if (rung !== null && this.inFlight < maxInFlight) {
       this.inFlight++;
-      void this.llmDecision(state, botId, task, round, rounds)
+      void this.llmDecision(state, botId, task, round, rounds, rung)
         .catch((error: unknown) => {
-          this.log.warn({ err: error, code }, 'mafia bot LLM call failed, falling back to script');
+          this.bench(rung, error);
           return null;
         })
         .then((decision) => {
@@ -448,8 +678,33 @@ export class MafiaBotDriver {
       // Where it actually went, so tomorrow's account can be checked against it.
       this.minds.wentTo(state, botId, decision.targetSlot);
     }
-    if (task === 'day' && decision.targetSlot !== null) {
-      this.hooks.vote(code, botId, decision.targetSlot);
+    if (task === 'day') {
+      /**
+       * The two day powers, taken before the vote.
+       *
+       * A jailor bot never picked a prisoner and a mayor bot never revealed —
+       * both are day actions, and the old fallback only knew how to vote. The
+       * policy brain decides both; this is what carries them out.
+       */
+      if (decision.jailSlot !== undefined && decision.jailSlot !== null) {
+        this.hooks.dayAction(code, botId, { type: 'jail', targetSlot: decision.jailSlot });
+      }
+      if (decision.revealMayor) this.hooks.dayAction(code, botId, { type: 'reveal' });
+
+      if (decision.targetSlot !== null) {
+        this.hooks.vote(code, botId, decision.targetSlot);
+      } else if (state.day > 1 && Object.values(state.votes).includes(SKIP_VOTE)) {
+        /**
+         * A bot with nobody to accuse follows the room rather than abstaining.
+         *
+         * It only ever *joins* a skip somebody else started — never opens one —
+         * so the decision to end a day early stays a human one, but a table of
+         * mostly bots can still act on it. Before this, a lone player voting to
+         * hang nobody could not reach a majority against a dozen silent seats and
+         * the clock was the day's only exit after all.
+         */
+        this.hooks.vote(code, botId, 'skip');
+      }
     }
     if (task === 'judgement' && decision.verdict) {
       this.hooks.ballot(code, botId, decision.verdict);
@@ -486,40 +741,202 @@ export class MafiaBotDriver {
     });
   }
 
-  /* ---------------------------- scripted brain ---------------------------- */
+  /* ---------------------------- the played brain --------------------------- */
 
-  /** No key, no problem: legal, silent, random. Keeps offline tables playable. */
+  /**
+   * The bench's own player, seated at a live table.
+   *
+   * This used to be three lines of `Math.random()` under a comment that called
+   * itself "legal, silent, random", and it was the brain almost every live table
+   * actually got: the LLM path needs a model to answer, so a mini PC with no
+   * Ollama on it fell through to this on every single decision. The result was a
+   * table of bots that voted for strangers at random, never spoke, never claimed
+   * anything, never sealed a will, and — because each one rolled its own target —
+   * never voted together, mafia included.
+   *
+   * Meanwhile `sim/policies.ts` had a real one: trust, suspicion, desperation,
+   * masks, family coordination, the lot, measured over thousands of benched
+   * games. `mafia-core` even says out loud that the live driver and the bench
+   * "must reach for the same one" — and then the live driver reached for a coin
+   * flip. It reaches for the real one now.
+   *
+   * The model, when there is one, still plays on top of this: an LLM turn is
+   * about *how* a seat argues, and this is about what it actually knows.
+   */
   private scripted(state: MafiaState, botId: string, task: BotTask): Decision {
+    const self = state.players[botId];
+    const mind = this.minds.mind(state, botId);
     const view = toMafiaView(state, { kind: 'player', playerId: botId });
     const me = view.me;
-    if (!me) return EMPTY;
+    if (!self?.role || !mind || !me) return EMPTY;
+
+    const board = this.minds.board(state);
+    const rng = Math.random;
+    const allies = new Set((me.teammates ?? []).map((mate) => mate.slot));
 
     if (task === 'night') {
       const action = me.action;
-      if (!action) return EMPTY;
+      if (!action || me.jailed) return EMPTY;
       if (action.targets.length === 0) return { ...EMPTY, targetSlot: me.slot };
-      const pick = action.targets[Math.floor(Math.random() * action.targets.length)] ?? null;
-      // Half-hearted killers make dull nights; killers always fire.
-      const always = action.type === 'kill' || action.type === 'jail-execute';
-      return { ...EMPTY, targetSlot: always || Math.random() < 0.7 ? pick : null };
+      const slot = decideNightTarget(
+        self,
+        mind.brain,
+        board,
+        action.targets,
+        action.type,
+        allies,
+        me.intel,
+        rng
+      );
+      return { ...EMPTY, targetSlot: slot };
     }
 
     if (task === 'judgement') {
-      const accusedSlot = view.trial?.slot;
-      const mate = me.teammates?.some((teammate) => teammate.slot === accusedSlot);
-      if (mate) return { ...EMPTY, verdict: 'innocent' };
-      return { ...EMPTY, verdict: Math.random() < 0.5 ? 'guilty' : 'innocent' };
+      const accused = view.trial?.slot;
+      if (accused === undefined) return EMPTY;
+      return { ...EMPTY, verdict: decideBallot(self, mind.brain, board, accused, allies, rng) };
     }
 
-    if (task === 'day' && Math.random() < 0.35) {
-      const candidates = view.players.filter(
-        (player) => player.alive && player.slot !== me.slot && !me.teammates?.some((t) => t.slot === player.slot)
-      );
-      const pick = candidates[Math.floor(Math.random() * candidates.length)];
-      return { ...EMPTY, targetSlot: pick?.slot ?? null };
+    if (task === 'greet') {
+      /**
+       * Day one has nothing to deduce and everything to establish.
+       *
+       * A table where nobody says hello is a table where the first real
+       * sentence, on day two, arrives with no voice behind it — so the seats
+       * that are going to talk at all introduce themselves, and the quiet ones
+       * stay quiet, which is a personality rather than an absence.
+       */
+      this.sealWill(state, botId);
+      if (mind.brain.personality.claimRate < 0.3) return EMPTY;
+      return { ...EMPTY, say: this.greeting(state, botId) };
     }
 
-    return EMPTY;
+    if (task === 'defense') {
+      // On the stand, or watching one: the accused pleads, the room mutters.
+      const onTrial = view.trial?.slot === me.slot;
+      if (!onTrial && mind.brain.personality.claimRate < 0.45) return EMPTY;
+      return { ...EMPTY, say: this.defenceLine(state, botId, onTrial) };
+    }
+
+    /* ------------------------------- daylight ------------------------------- */
+
+    /**
+     * The faces this seat knows are guilty: its own family's.
+     *
+     * `decideDay` uses it to keep a mafioso from voting for a mafioso — which is
+     * the whole of "the mafia vote together", and exactly what the old random
+     * fallback could not do, because it picked a stranger out of a hat.
+     */
+    const family = playerFamily(self);
+    const evilKnown = new Set<number>();
+    if (family !== null) {
+      for (const player of Object.values(state.players)) {
+        if (player.playerId !== botId && player.alive && playerFamily(player) === family) {
+          evilKnown.add(player.slot);
+        }
+      }
+    }
+
+    const day = decideDay(self, mind.brain, board, allies, evilKnown, rng);
+
+    /**
+     * One claim becomes one sentence, and the sentence is the vote.
+     *
+     * `decideDay` already produces the whole social move — an accusation, a
+     * cover for an ally, a role claim, a lie about last night — as structured
+     * `Claim`s. All that was missing was somebody to say them out loud, which is
+     * why a table of these bots was silent while quietly playing a real game.
+     */
+    const spoken = day.publishes.find((claim) => claim.kind !== 'hint') ?? day.publishes[0] ?? null;
+
+    return {
+      say: spoken ? this.sentence(state, spoken) : null,
+      targetSlot: day.voteSlot,
+      verdict: null,
+      claim: spoken
+        ? {
+            kind: spoken.kind,
+            slot: spoken.targetSlot,
+            role: spoken.claimedRole ?? null,
+            ...(spoken.account ? { account: spoken.account } : {})
+          }
+        : null,
+      jailSlot: day.jailSlot,
+      revealMayor: day.revealMayor
+    };
+  }
+
+  /**
+   * A claim, said out loud in the table's own language.
+   *
+   * Keys rather than sentences, and the key is chosen by the *kind* of claim, so
+   * a bot arguing at an English table argues in English while the same seat at a
+   * French one does not. The house number is the whole address — bots name
+   * houses, not nicknames, because a nickname can be misheard and a number
+   * cannot.
+   */
+  private sentence(state: MafiaState, claim: Claim): string | null {
+    const t = say(spokenLocale(state));
+    const name = (slot: number) =>
+      Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
+
+    switch (claim.kind) {
+      case 'accuse':
+        return t(msg('mafia.bot.accuse', { slot: claim.targetSlot, name: name(claim.targetSlot) }));
+      case 'clear':
+        return t(msg('mafia.bot.clear', { slot: claim.targetSlot, name: name(claim.targetSlot) }));
+      case 'role-claim':
+        return claim.claimedRole
+          ? t(msg('mafia.bot.roleClaim', { role: ROLE.name(claim.claimedRole) }))
+          : null;
+      case 'account':
+        return claim.account === 'home'
+          ? t(msg('mafia.bot.stayedHome'))
+          : t(msg('mafia.bot.visited', { slot: claim.targetSlot }));
+      case 'question':
+        return t(msg('mafia.bot.question', { slot: claim.targetSlot }));
+      case 'sighting':
+        return t(msg('mafia.bot.sighting', { slot: claim.targetSlot }));
+      case 'taunt':
+        return t(msg('mafia.bot.taunt', { slot: claim.targetSlot }));
+      case 'hint':
+        return t(msg('mafia.bot.hint', { slot: claim.targetSlot }));
+    }
+  }
+
+  /**
+   * Seals a will on the first day, and only once.
+   *
+   * A dead bot used to say nothing at all, which quietly removed a whole channel
+   * of information from any table with bots in it: a corpse's will is how the
+   * town learns what a dead investigator knew. Written once, early, because a
+   * player who waits for the right moment to write one usually dies first.
+   */
+  private sealWill(state: MafiaState, botId: string): void {
+    const self = state.players[botId];
+    if (!self?.role || self.lastWill) return;
+
+    const t = say(spokenLocale(state));
+    const flavour = t(msg(`mafia.bot.will.${1 + (hashCode(botId) % 3)}`));
+    // A town role signs its will; an evil one does not hand the square a rope.
+    const openness = this.minds.mind(state, botId)?.brain.personality.claimRate ?? 0;
+    const signed = ROLES[self.role].faction === 'town' && openness > 0.5;
+    const text = signed ? `${t(msg('mafia.bot.will.role', { role: ROLE.name(self.role) }))} ${flavour}` : flavour;
+    this.hooks.will(state.code, botId, text);
+  }
+
+  /** Hello, from a seat that intends to be heard later. */
+  private greeting(state: MafiaState, botId: string): string {
+    const t = say(spokenLocale(state));
+    const slot = state.players[botId]?.slot ?? 0;
+    return t(msg(`mafia.bot.hello.${1 + (hashCode(botId) % 4)}`, { slot }));
+  }
+
+  /** Two seconds at the stand, or from the bench beside it. */
+  private defenceLine(state: MafiaState, botId: string, onTrial: boolean): string {
+    const t = say(spokenLocale(state));
+    const variant = 1 + (hashCode(botId) % 3);
+    return t(msg(onTrial ? `mafia.bot.plead.${variant}` : `mafia.bot.watch.${variant}`));
   }
 
   /* ------------------------------ LLM brain ------------------------------ */
@@ -529,7 +946,8 @@ export class MafiaBotDriver {
     botId: string,
     task: BotTask,
     round: number,
-    rounds: number
+    rounds: number,
+    rung: Rung
   ): Promise<Decision> {
     const view = toMafiaView(state, { kind: 'player', playerId: botId });
     const me = view.me;
@@ -556,13 +974,15 @@ export class MafiaBotDriver {
      */
     const prompt =
       this.tempo === 'deliberate'
-        ? dossier(view, board, mind, taskLine(view, task), round, rounds, tongue)
-        : brief(view, board, mind, taskLine(view, task), tongue);
+        ? dossier(view, board, mind, taskLine(view, task, tongue), round, rounds, tongue)
+        : brief(view, board, mind, taskLine(view, task, tongue), tongue);
 
     const raw =
-      this.provider === 'ollama'
+      rung === 'ollama'
         ? await this.ollamaDecision(persona, prompt, tongue)
-        : await this.anthropicDecision(persona, prompt, tongue);
+        : rung === 'openai'
+          ? await this.openAiDecision(persona, prompt, tongue)
+          : await this.anthropicDecision(persona, prompt, tongue);
 
     return {
       say: typeof raw.say === 'string' && raw.say.trim() ? raw.say : null,
@@ -599,30 +1019,83 @@ export class MafiaBotDriver {
   private async ollamaDecision(persona: string, prompt: string, tongue: Locale): Promise<Record<string, unknown>> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 45_000);
-    try {
-      const response = await fetch(`${env.OLLAMA_URL}/api/chat`, {
+
+    const ask = async (extras: Record<string, unknown>): Promise<Response> =>
+      fetch(`${env.OLLAMA_URL}/api/chat`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         signal: controller.signal,
         body: JSON.stringify({
-          model: env.MAFIA_BOT_MODEL,
+          model: this.modelName('ollama'),
           stream: false,
-          format: DECIDE_FORMAT,
-          think: false,
           // No thinking to leave room for, so this only has to hold one answer.
           options: { temperature: 0.8, num_predict: 400 },
           messages: [
             { role: 'system', content: `${RULES}\n${SHAPE}\n${SPEAK[tongue]}\n${persona}` },
             { role: 'user', content: prompt }
-          ]
+          ],
+          ...extras
         })
       });
+
+    try {
+      /**
+       * Asked twice at most, and the second time asks for less.
+       *
+       * `think` and `format` are both recent additions, and an Ollama that
+       * predates either rejects the whole request rather than ignoring the key
+       * it does not know — which failed every call on an otherwise perfectly
+       * good local install, indistinguishably from having no Ollama at all.
+       * The shape is restated in words in the system prompt anyway, so the
+       * bare request still produces a usable answer.
+       */
+      let response = await ask({ format: DECIDE_FORMAT, think: false });
+      if (response.status === 400) response = await ask({});
       if (!response.ok) throw new Error(`ollama ${response.status}`);
+
       const payload = (await response.json()) as { message?: { content?: string } };
       return extractJson(payload.message?.content ?? '');
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  /**
+   * Anything that speaks `/chat/completions`.
+   *
+   * One client for Groq, Cerebras, OpenRouter, Together and a vLLM you host
+   * yourself, because they all agreed on the same shape years ago. The free
+   * tiers differ only in how soon they say 429 — which the chain handles by
+   * benching the rung and moving down, rather than by knowing anything about
+   * any particular one of them.
+   *
+   * `response_format: json_object` is asked for and not relied on: some of
+   * these endpoints honour it, some ignore it, and `extractJson` copes with
+   * either. Same reasoning as the local brain, for the same reason.
+   */
+  private async openAiDecision(persona: string, prompt: string, tongue: Locale): Promise<Record<string, unknown>> {
+    const response = await fetch(`${env.MAFIA_API_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${env.MAFIA_API_KEY ?? ''}`
+      },
+      signal: AbortSignal.timeout(20_000),
+      body: JSON.stringify({
+        model: env.MAFIA_API_MODEL,
+        temperature: 0.8,
+        max_tokens: this.tempo === 'deliberate' ? 900 : 300,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: `${RULES}\n${SHAPE}\n${SPEAK[tongue]}\n${persona}` },
+          { role: 'user', content: prompt }
+        ]
+      })
+    });
+
+    if (!response.ok) throw new Error(`api ${response.status}`);
+    const payload = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+    return extractJson(payload.choices?.[0]?.message?.content ?? '');
   }
 
   private async anthropicDecision(persona: string, prompt: string, tongue: Locale): Promise<Record<string, unknown>> {
@@ -658,7 +1131,7 @@ export class MafiaBotDriver {
  * house — a Veteran told 'Cibles possibles : toi-même' with no number would
  * sometimes answer null and simply never go on alert.
  */
-function taskLine(view: MafiaView, task: BotTask): string {
+function taskLine(view: MafiaView, task: BotTask, tongue: Locale): string {
   const me = view.me!;
   switch (task) {
     case 'greet':
@@ -707,8 +1180,8 @@ function taskLine(view: MafiaView, task: BotTask): string {
        * everything else keeps the option of holding back.
        */
       return me.action.type === 'kill' || me.action.type === 'rampage' || me.action.type === 'jail-execute'
-        ? `Night. You are the killer. Power: ${actionVerb(view) ?? me.action.type}. Possible houses: ${me.action.targets.join(', ')}. You MUST pick one — set targetSlot. Passing is not an option.`
-        : `Night. Power: ${actionVerb(view) ?? me.action.type}. Possible houses: ${me.action.targets.join(', ')}. Choose targetSlot, or null to hold back.`;
+        ? `Night. You are the killer. Power: ${actionVerb(view, tongue) ?? me.action.type}. Possible houses: ${me.action.targets.join(', ')}. You MUST pick one — set targetSlot. Passing is not an option.`
+        : `Night. Power: ${actionVerb(view, tongue) ?? me.action.type}. Possible houses: ${me.action.targets.join(', ')}. Choose targetSlot, or null to hold back.`;
     default:
       return '';
   }

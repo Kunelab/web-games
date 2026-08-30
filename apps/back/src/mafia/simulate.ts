@@ -191,7 +191,7 @@ function report(final: NonNullable<ReturnType<typeof manager.get>>): void {
   console.log(`terminé au jour ${final.day} en ${seconds}s (${tempo}/${provider})`);
 
   for (const winner of final.winners) {
-    console.log(`  🏆 ${final.players[winner.playerId]?.name}: ${winner.reason}`);
+    console.log(`  🏆 ${final.players[winner.playerId]?.name}: ${t(winner.reason)}`);
   }
 
   console.log('\nles masques :');

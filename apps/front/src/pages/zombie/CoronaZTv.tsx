@@ -1,3 +1,4 @@
+import { msg } from 'i18n';
 import { heroDef, LAYOUTS, SCENARIO_LABELS, type CzJoinAck, type CzRaidReward, type CzView } from 'coronaz-core';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
@@ -9,6 +10,8 @@ import { useCzSocket } from '../../hooks/useCzSocket';
 import { buzzerOrigin } from '../../tools/api-url';
 import { Button, Loading } from '../../ui';
 import { awardMeta } from '../../app/awards';
+import { useT } from '../../i18n/locale-context';
+import { czLine } from './czLine';
 import { CzEventBanner, MuteButton } from './CoronaZPlayer';
 import { czGoals } from './czGoals';
 import { CzMap } from './CzMap';
@@ -50,6 +53,7 @@ function useTvSounds(view: ReturnType<typeof useCzSocket>['view']) {
  * the clock, the objective, everyone's health, and the log of what just bit whom.
  */
 export default function CoronaZTv() {
+  const t = useT();
   const { code = '' } = useParams<{ code: string }>();
   const navigate = useNavigate();
   const { socket, connected, view, rewards, error, serverNow, applyView } = useCzSocket();
@@ -150,7 +154,7 @@ export default function CoronaZTv() {
       <header className="host-top">
         <span className="host-code">{view.code}</span>
         <span className="host-progress tabular">
-          Tour {view.turn} · {SCENARIO_LABELS[view.scenario].name}
+          Tour {view.turn} · {t(msg(SCENARIO_LABELS[view.scenario].name))}
           {/* Which world this is: the same scenario plays differently in a
               suburb and in a bunker, so the room should know which it got. */}
           {' · '}
@@ -219,7 +223,7 @@ export default function CoronaZTv() {
               </div>
             )}
 
-            <p className="cz-goal">{SCENARIO_LABELS[view.scenario].goal}</p>
+            <p className="cz-goal">{t(msg(SCENARIO_LABELS[view.scenario].goal))}</p>
             <p className="play-note">Graine du monde : {view.seed}</p>
             <Button
               variant="primary"
@@ -253,7 +257,7 @@ export default function CoronaZTv() {
             <ul className="cz-objectives">
               {czGoals(view).map((goal) => (
                 <li key={goal.key} className={`${goal.done ? 'done' : ''} ${goal.primary ? 'primary' : ''}`}>
-                  {goal.done ? '✔' : '▹'} {goal.label}
+                  {goal.done ? '✔' : '▹'} {t(goal.label)}
                 </li>
               ))}
             </ul>
@@ -280,7 +284,7 @@ export default function CoronaZTv() {
 
             <ul className="cz-log">
               {[...view.log].reverse().map((entry, index) => (
-                <li key={`${entry.turn}-${index}`}>{entry.text}</li>
+                <li key={`${entry.turn}-${index}`}>{czLine(entry.text, t)}</li>
               ))}
             </ul>
 
@@ -337,6 +341,7 @@ export function CzEndScreen({
   /** Present on the device that created the raid: one tap back into another. */
   onRematch?: () => void;
 }) {
+  const t = useT();
   return (
     <div className="cz-end">
       <p className={`cz-verdict ${view.phase === 'won' ? 'won' : 'lost'}`}>
@@ -380,7 +385,7 @@ export function CzEndScreen({
                 <span className="award-emoji" aria-hidden="true">
                   {meta.emoji}
                 </span>
-                <span className="award-title">{meta.title}</span>
+                <span className="award-title">{t(msg(meta.titleKey))}</span>
                 <span className="award-holder">{award.playerName}</span>
                 <span className="award-value">{award.value}</span>
               </li>

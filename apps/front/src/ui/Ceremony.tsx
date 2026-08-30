@@ -1,7 +1,9 @@
 import type { FinalAward, PlayerView } from 'game-core';
+import { msg } from 'i18n';
 
 import { awardMeta } from '../app/awards';
 import { badgeMeta } from '../app/badges';
+import { useT } from '../i18n/locale-context';
 
 /**
  * The final ceremony: a podium, the distinctions, then everyone else.
@@ -11,6 +13,7 @@ import { badgeMeta } from '../app/badges';
  * last. Ties share a rank upstream, so two players can stand on the same step.
  */
 export function Ceremony({ players, awards }: { players: PlayerView[]; awards: FinalAward[] }) {
+  const t = useT();
   // Already sorted by rank; the visual order is 2nd, 1st, 3rd.
   const [first, second, third] = players;
   const steps = [second, first, third].filter((player) => player !== undefined);
@@ -24,8 +27,10 @@ export function Ceremony({ players, awards }: { players: PlayerView[]; awards: F
           return (
             <div key={player.id} className={`podium-step podium-rank-${rank}`}>
               <span className="podium-name">{player.name}</span>
-              {player.title && <span className="podium-title">{badgeMeta(player.title).title}</span>}
-              <span className="podium-score tabular">{player.score} pts</span>
+              {player.title && (
+                <span className="podium-title">{t(msg(badgeMeta(player.title).titleKey))}</span>
+              )}
+              <span className="podium-score tabular">{t(msg('play.points', { points: player.score }))}</span>
               <div className="podium-block">
                 <span className="podium-rank tabular">{player.rank}</span>
               </div>
@@ -43,7 +48,7 @@ export function Ceremony({ players, awards }: { players: PlayerView[]; awards: F
                 <span className="award-emoji" aria-hidden="true">
                   {meta.emoji}
                 </span>
-                <span className="award-title">{meta.title}</span>
+                <span className="award-title">{t(msg(meta.titleKey))}</span>
                 <span className="award-holder">{award.playerName}</span>
                 <span className="award-value">{award.value}</span>
               </li>

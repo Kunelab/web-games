@@ -1,3 +1,4 @@
+import { msg } from 'i18n';
 import { isLobbyGame, type LobbyGame } from 'lobby-core';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
@@ -5,6 +6,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { gameEntry } from '../app/games';
 import { useCountdown, useServerClock } from '../hooks/useServerClock';
 import { rememberNickname, storedNickname, useQuickplay } from '../hooks/useQuickplay';
+import { useT } from '../i18n/locale-context';
 import { Button, Field, Input, Loading } from '../ui';
 import './quickplay.css';
 
@@ -25,6 +27,7 @@ export default function Quickplay() {
   const params = useParams<{ game: string }>();
   const [search] = useSearchParams();
   const navigate = useNavigate();
+  const t = useT();
 
   const game: LobbyGame = params.game && isLobbyGame(params.game) ? params.game : 'quiz';
   const entry = gameEntry(game);
@@ -76,10 +79,10 @@ export default function Quickplay() {
             setName(trimmed);
           }}
         >
-          <h1 className="join-title">Partie rapide — {entry.name}</h1>
-          <p className="qp-lede">{entry.tagline}</p>
+          <h1 className="join-title">{t(msg('quick.title', { game: entry.name }))}</h1>
+          <p className="qp-lede">{t(msg(entry.tagline))}</p>
 
-          <Field label="Votre nom">
+          <Field label={t(msg('quick.yourName'))}>
             {({ id }) => (
               <Input
                 id={id}
@@ -93,7 +96,7 @@ export default function Quickplay() {
           </Field>
 
           <Button type="submit" variant="primary" size="lg" block disabled={!draft.trim()}>
-            Chercher une partie
+            {t(msg('quick.findGame'))}
           </Button>
         </form>
       </div>
@@ -103,16 +106,16 @@ export default function Quickplay() {
   if (error && !lobby) {
     return (
       <div className="jeu-screen jeu-center">
-        <p className="play-note">{error}</p>
+        <p className="play-note">{t(error)}</p>
         <Button variant="secondary" onClick={() => void navigate(entry.path)}>
-          Retour au menu {entry.name}
+          {t(msg('quick.backTo', { game: entry.name }))}
         </Button>
       </div>
     );
   }
 
   if (!lobby) {
-    return <Loading label={connected ? 'Recherche d’un salon…' : 'Connexion…'} />;
+    return <Loading label={t(msg(connected ? 'quick.searching' : 'quick.connecting'))} />;
   }
 
   const you = lobby.members.find((member) => member.id === lobby.you);
@@ -123,22 +126,20 @@ export default function Quickplay() {
       <header className="qp-head">
         <div>
           <h1 className="qp-title">
-            <span aria-hidden="true">{entry.emoji}</span> Partie rapide — {entry.name}
+            <span aria-hidden="true">{entry.emoji}</span> {t(msg('quick.title', { game: entry.name }))}
           </h1>
           <p className="qp-lede">
-            {lobby.fromGameCode
-              ? 'Revanche : les joueurs de la partie précédente arrivent, et la place est ouverte à d’autres.'
-              : 'Personne n’organise. Les réglages sont tirés au sort, la table les change en votant.'}
+            {t(msg(lobby.fromGameCode ? 'quick.lede.rematch' : 'quick.lede.fresh'))}
           </p>
         </div>
-        <span className="qp-code" title="Le code de ce salon">
+        <span className="qp-code" title={t(msg('quick.roomCode'))}>
           {lobby.code}
         </span>
       </header>
 
       <section className="qp-panel">
         <h2 className="qp-panel-title">
-          Joueurs{' '}
+          {t(msg('quick.players'))}{' '}
           <span className="qp-count">
             {lobby.members.length + lobby.bots}/{lobby.maxPlayers}
           </span>
@@ -151,7 +152,7 @@ export default function Quickplay() {
               </span>
               <span className="qp-member-name">
                 {member.name}
-                {member.id === lobby.you && <em> — vous</em>}
+                {member.id === lobby.you && <em> {t(msg('quick.you'))}</em>}
               </span>
             </li>
           ))}
@@ -160,7 +161,7 @@ export default function Quickplay() {
         {lobby.botsAllowed && (
           <div className="qp-bots">
             <div className="qp-bots-head">
-              <strong>Bots</strong>
+              <strong>{t(msg('quick.bots'))}</strong>
               <span className="qp-count">{lobby.bots}</span>
             </div>
 
@@ -171,7 +172,7 @@ export default function Quickplay() {
                     <span className="qp-member-dot" aria-hidden="true">
                       🤖
                     </span>
-                    <span className="qp-member-name">Bot {index + 1}</span>
+                    <span className="qp-member-name">{t(msg('quick.bot', { number: index + 1 }))}</span>
                   </li>
                 ))}
               </ul>
@@ -183,7 +184,7 @@ export default function Quickplay() {
                 className="qp-bot-step"
                 onClick={() => setBots(lobby.bots - 1)}
                 disabled={!connected || lobby.bots === 0}
-                aria-label="Un bot de moins"
+                aria-label={t(msg('quick.oneFewerBot'))}
               >
                 −
               </button>
@@ -192,7 +193,7 @@ export default function Quickplay() {
                 className="qp-bot-step"
                 onClick={() => setBots(lobby.bots + 1)}
                 disabled={!connected || lobby.bots >= lobby.maxBots}
-                aria-label="Un bot de plus"
+                aria-label={t(msg('quick.oneMoreBot'))}
               >
                 +
               </button>
@@ -203,41 +204,41 @@ export default function Quickplay() {
                   onClick={() => setBots(lobby.minPlayers - lobby.members.length)}
                   disabled={!connected}
                 >
-                  Compléter la table
+                  {t(msg('quick.fillTable'))}
                 </button>
               )}
             </div>
 
-            <p className="qp-hint">
-              Ils prennent leur place au lancement, et rendent leur siège dès qu’une personne arrive.
-            </p>
+            <p className="qp-hint">{t(msg('quick.botsHint'))}</p>
           </div>
         )}
 
         {lobby.members.length + lobby.bots < lobby.minPlayers && (
           <p className="qp-hint">
-            Il faut au moins {lobby.minPlayers} joueur{lobby.minPlayers > 1 ? 's' : ''} pour lancer
-            {lobby.botsAllowed ? ', bots compris' : ''}. En attente…
+            {t(
+              msg('quick.needMore', {
+                count: lobby.minPlayers,
+                bots: lobby.botsAllowed ? msg('quick.needMore.withBots') : ''
+              })
+            )}
           </p>
         )}
       </section>
 
       <section className="qp-panel">
-        <h2 className="qp-panel-title">Réglages</h2>
-        <p className="qp-hint">
-          Chacun vote, le choix majoritaire l’emporte. En cas d’égalité, le tirage au sort du départ est conservé.
-        </p>
+        <h2 className="qp-panel-title">{t(msg('quick.settings'))}</h2>
+        <p className="qp-hint">{t(msg('quick.settingsHint'))}</p>
 
         {lobby.options.map((option) => (
           <div className="qp-option" key={option.key}>
             <div className="qp-option-head">
-              <strong>{option.label}</strong>
-              <span className="qp-option-value">{labelOf(option.choices, option.value)}</span>
+              <strong>{t(msg(option.label))}</strong>
+              <span className="qp-option-value">{choiceLabel(option.choices, option.value, t)}</span>
             </div>
-            {option.hint && <p className="qp-hint">{option.hint}</p>}
+            {option.hint && <p className="qp-hint">{t(msg(option.hint))}</p>}
 
             {option.choices.length === 0 ? (
-              <p className="qp-hint">Rien de publié pour l’instant.</p>
+              <p className="qp-hint">{t(msg('quick.nothingPublished'))}</p>
             ) : (
               <div className="qp-choices">
                 {option.choices.map((choice) => (
@@ -249,7 +250,7 @@ export default function Quickplay() {
                     }`}
                     onClick={() => vote(option.key, choice.value)}
                   >
-                    <span>{choice.label}</span>
+                    <span>{choice.text ?? t(msg(choice.label))}</span>
                     {choice.votes > 0 && <span className="qp-votes">{choice.votes}</span>}
                   </button>
                 ))}
@@ -264,15 +265,12 @@ export default function Quickplay() {
           <strong>
             {lobby.ready} / {lobby.needed}
           </strong>
-          <span>
-            {' '}
-            prêt{lobby.ready > 1 ? 's' : ''} — il en faut {lobby.needed}
-          </span>
+          <span> {t(msg('quick.tally', { needed: lobby.needed }))}</span>
         </div>
 
         {counting ? (
           <p className="qp-countdown" role="status">
-            Départ dans {startsIn} s
+            {t(msg('quick.startsIn', { seconds: startsIn }))}
           </p>
         ) : null}
 
@@ -282,17 +280,24 @@ export default function Quickplay() {
           onClick={() => ready(!you?.ready)}
           disabled={!connected}
         >
-          {you?.ready ? 'Retirer mon vote' : 'Je suis prêt'}
+          {t(msg(you?.ready ? 'quick.unready' : 'quick.ready'))}
         </Button>
 
         <Button variant="ghost" onClick={() => void navigate(entry.path)}>
-          Quitter
+          {t(msg('quick.leave'))}
         </Button>
       </footer>
     </div>
   );
 }
 
-function labelOf(choices: { value: string; label: string }[], value: string): string {
-  return choices.find((choice) => choice.value === value)?.label ?? '—';
+/** The winning choice, in words: player-written text if it has any, else its key. */
+function choiceLabel(
+  choices: { value: string; label: string; text?: string }[],
+  value: string,
+  t: (message: ReturnType<typeof msg>) => string
+): string {
+  const choice = choices.find((candidate) => candidate.value === value);
+  if (!choice) return '—';
+  return choice.text ?? t(msg(choice.label));
 }

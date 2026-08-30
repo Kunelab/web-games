@@ -92,6 +92,116 @@ describe('mafia engine', () => {
     assert.equal(vote.ok, false);
   });
 
+  /**
+   * Day one has no corpse, no claim and no rope. Its clock is its own setting
+   * rather than a fraction of the ordinary day, which is what it used to be —
+   * 60% of two minutes is still seventy-two seconds of "hi".
+   */
+  it('gives the first day its own, much shorter clock', () => {
+    const state = createMafiaGame({ code: 'GAME2', hostToken: 'h', hostUserId: null, now: 0 });
+    for (let i = 0; i < 6; i++) {
+      const id = freshId();
+      if (i === 0) joinMafia(state, 'Max', `t${id}`, id);
+      else addMafiaBot(state, `t${id}`, id, () => 0);
+    }
+    startMafia(state, 1000, lcg(7));
+
+    assert.equal(state.day, 1);
+    assert.equal(state.phaseEndsAt, 1000 + state.config.firstDayMs);
+    assert.ok(state.config.firstDayMs < state.config.dayMs, 'the greeting day is the short one');
+  });
+
+  /**
+   * The day's second exit. Before it existed a town with nothing left to say
+   * could only wait for the clock, so a quiet afternoon was two minutes of
+   * silence with a countdown on it.
+   */
+  it('ends the day early when a majority votes to hang nobody', () => {
+    const state = table(['citizen', 'citizen', 'citizen', 'citizen', 'godfather', 'mafioso']);
+
+    // Three of six is short of the four-vote majority: the day holds.
+    for (const slot of [1, 2, 3]) {
+      assert.equal(castVote(state, bySlot(state, slot).playerId, 'skip', 2000).ok, true);
+    }
+    assert.equal(state.phase, 'day');
+
+    // The fourth carries it, and night falls on the spot.
+    castVote(state, bySlot(state, 4).playerId, 'skip', 2100);
+    assert.equal(state.phase, 'night');
+    assert.ok(said(state).includes('ne pendre personne'));
+  });
+
+  it('treats a skip as one position among the accusations, not a second one', () => {
+    const state = table(['citizen', 'citizen', 'citizen', 'citizen', 'godfather', 'mafioso']);
+    const voter = bySlot(state, 1);
+
+    castVote(state, voter.playerId, 'skip', 2000);
+    let view = toMafiaView(state, { kind: 'player', playerId: voter.playerId });
+    assert.equal(view.me?.votedSkip, true);
+    assert.equal(view.me?.voteTargetSlot, null);
+    assert.equal(view.skipVotes, 1);
+
+    // Accusing somebody replaces the skip rather than sitting beside it.
+    castVote(state, voter.playerId, 5, 2100);
+    view = toMafiaView(state, { kind: 'player', playerId: voter.playerId });
+    assert.equal(view.me?.votedSkip, false);
+    assert.equal(view.me?.voteTargetSlot, 5);
+    assert.equal(view.skipVotes, 0);
+  });
+
+  /**
+   * The published role list says what the table *promised*, never what it dealt.
+   * A preset shows its category slots; the automatic roster is deterministic in
+   * the seat count, so it can be shown role for role.
+   */
+  it('publishes the slots a setup promised, not the roles it rolled', () => {
+    const state = table(['citizen', 'citizen', 'citizen', 'citizen', 'godfather', 'mafioso']);
+    state.config.setup = { mode: 'preset', presetId: 'classique-15' };
+
+    const list = toMafiaView(state, { kind: 'host' }).roleList;
+    assert.equal(list.length, Object.keys(state.players).length, 'one line per seat');
+    assert.ok(list.includes('town-core'), 'a category stays a category');
+    assert.ok(!list.includes('citizen'), 'and never leaks what it rolled');
+    assert.ok(list.indexOf('sheriff') < list.indexOf('town-core'), 'exact roles read before their categories');
+  });
+
+  /**
+   * The end of a game opens every door, and a door onto an empty room is not a
+   * reveal — it is a statement about the setup made by a screen with no business
+   * making it.
+   */
+  it('opens every room that was used at the end, and no others', () => {
+    const state = table(['citizen', 'citizen', 'sheriff', 'doctor', 'godfather', 'mafioso']);
+    const town = bySlot(state, 1);
+    const boss = bySlot(state, 5);
+
+    // The family talks; the triad and the lodge were never dealt.
+    state.phase = 'night';
+    sayInChat(state, boss.playerId, 'mafia', 'la maison 1, cette nuit', 5);
+    state.phase = 'ended';
+
+    const tabs = (id: string) =>
+      toMafiaView(state, { kind: 'player', playerId: id }).me?.channels.map((channel) => channel.id) ?? [];
+
+    assert.ok(tabs(town.playerId).includes('day'), 'the square is always there');
+    assert.ok(tabs(town.playerId).includes('mafia'), 'and the family room, now that it is over');
+    assert.ok(!tabs(town.playerId).includes('triad'), 'but not a triad that never sat down');
+    assert.ok(!tabs(town.playerId).includes('mason'), 'nor a lodge nobody was in');
+  });
+
+  /** The masks come off on the roster, not only in the results table. */
+  it('names every survivor once the game is over', () => {
+    const state = table(['citizen', 'citizen', 'sheriff', 'doctor', 'godfather', 'mafioso']);
+    const town = bySlot(state, 1);
+
+    let mine = toMafiaView(state, { kind: 'player', playerId: town.playerId }).players.find((p) => p.slot === 5)!;
+    assert.equal(mine.roleName, null, 'a living godfather keeps his face during the game');
+
+    state.phase = 'ended';
+    mine = toMafiaView(state, { kind: 'player', playerId: town.playerId }).players.find((p) => p.slot === 5)!;
+    assert.equal(t(mine.roleName!), 'Parrain', 'and loses it at the end');
+  });
+
   it('runs accusation, trial and lynch, and a lynched jester wins', () => {
     const state = table(['jester', 'sheriff', 'doctor', 'citizen', 'godfather', 'mafioso']);
     const jester = bySlot(state, 1);
@@ -139,7 +249,7 @@ describe('mafia engine', () => {
     assert.equal(state.phase, 'day');
     assert.equal(citizen.alive, true, 'doctor saved the citizen');
     // The godfather is detection immune: reads innocent.
-    assert.ok(sheriff.notifications.some((n) => n.includes('n’a rien de suspect')));
+    assert.ok(sheriff.notifications.some((note) => t(note).includes('n’a rien de suspect')));
   });
 
   it('framing flips the sheriff result', () => {
@@ -148,7 +258,7 @@ describe('mafia engine', () => {
     setNightAction(state, bySlot(state, 3).playerId, 2); // frame the citizen
     setNightAction(state, bySlot(state, 1).playerId, 2); // sheriff checks the citizen
     advanceMafia(state, 1, lcg(1));
-    assert.ok(bySlot(state, 1).notifications.some((n) => n.includes('SUSPECT')));
+    assert.ok(bySlot(state, 1).notifications.some((note) => t(note).includes('SUSPECT')));
   });
 
   it('jail blocks and protects; execution kills the prisoner', () => {
@@ -383,8 +493,8 @@ describe('mafia engine', () => {
      * every other seat that wins alone banked the points and never the tally.
      * The structured entry above is the one source of that truth.
      */
-    const reason = state.winners.find((w) => w.playerId === witch.playerId)?.reason ?? '';
-    assert.ok(!reason.includes('gagne seul'));
+    const win = state.winners.find((winner) => winner.playerId === witch.playerId);
+    assert.ok(!(win && t(win.reason).includes('gagne seul')));
   });
 
   it('counts a revealed mayor the same way on the phone as in the threshold', () => {
@@ -417,9 +527,12 @@ describe('mafia engine', () => {
       [3]
     );
 
-    // Serialize the whole town view of a non-mafia player: the word 'godfather'
-    // must not appear anywhere in it while its owner breathes.
-    const raw = JSON.stringify(sheriffView);
+    // Serialize what the town view says about *people*: the word 'godfather'
+    // must not appear anywhere in it while its owner breathes. The published role
+    // list is deliberately excluded — it names the roles in play, which is the
+    // one place that word is supposed to appear, and never says whose seat holds
+    // one.
+    const raw = JSON.stringify({ players: sheriffView.players, me: sheriffView.me, chat: sheriffView.chat });
     assert.ok(!raw.includes('godfather'));
   });
 
@@ -557,7 +670,7 @@ describe('mafia engine', () => {
 
   it('reveals the whole role when the table asks for it', () => {
     const { said, row } = lynchUnder('role');
-    assert.equal(row.roleName, 'Parrain');
+    assert.equal(t(row.roleName!), 'Parrain');
     assert.equal(row.faction, 'mafia');
     assert.ok(said.includes('Parrain'));
   });
@@ -592,7 +705,7 @@ describe('mafia engine', () => {
 
     assert.equal(state.phase, 'ended');
     const row = toMafiaView(state, { kind: 'host' }).players.find((player) => player.slot === 4)!;
-    assert.equal(row.roleName, 'Parrain', 'the masks come off regardless');
+    assert.equal(t(row.roleName!), 'Parrain', 'the masks come off regardless');
     assert.equal(row.faction, 'mafia');
   });
 
@@ -613,7 +726,7 @@ describe('mafia engine', () => {
 
     assert.equal(disguiser.alive, false);
     const row = toMafiaView(state, { kind: 'host' }).players.find((player) => player.slot === 1)!;
-    assert.equal(row.roleName, 'Imposteur', 'the undertaker is not fooled');
+    assert.equal(t(row.roleName!), 'Imposteur', 'the undertaker is not fooled');
     assert.equal(row.faction, 'mafia');
   });
 

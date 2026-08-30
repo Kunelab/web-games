@@ -46,44 +46,44 @@ export interface CzEventDef {
 export const CZ_EVENTS: readonly CzEventDef[] = [
   {
     id: 'siren',
-    name: 'Sirène',
+    name: 'coronaz.event.siren.name',
     emoji: '📢',
-    blurb: 'Une alarme hurle quelque part : la horde se détourne vers elle.',
+    blurb: 'coronaz.event.siren.blurb',
     favours: 'horde'
   },
   {
     id: 'drop',
-    name: 'Largage',
+    name: 'coronaz.event.drop.name',
     emoji: '📦',
-    blurb: 'Une caisse tombe du ciel. Quelqu’un devrait aller voir.',
+    blurb: 'coronaz.event.drop.blurb',
     favours: 'heroes'
   },
   {
     id: 'swarm',
-    name: 'Nuée',
+    name: 'coronaz.event.swarm.name',
     emoji: '🐝',
-    blurb: 'Les salles d’apparition crachent deux fois ce tour.',
+    blurb: 'coronaz.event.swarm.blurb',
     favours: 'horde'
   },
   {
     id: 'calm',
-    name: 'Accalmie',
+    name: 'coronaz.event.calm.name',
     emoji: '🌙',
-    blurb: 'Rien ne vient, ce tour-ci. Profitez-en.',
+    blurb: 'coronaz.event.calm.blurb',
     favours: 'heroes'
   },
   {
     id: 'blackout',
-    name: 'Coupure',
+    name: 'coronaz.event.blackout.name',
     emoji: '🔌',
-    blurb: 'Le quartier s’éteint : on ne voit plus que la salle où l’on se tient.',
+    blurb: 'coronaz.event.blackout.blurb',
     favours: 'horde'
   },
   {
     id: 'flare',
-    name: 'Fusée éclairante',
+    name: 'coronaz.event.flare.name',
     emoji: '🎆',
-    blurb: 'Tout le quartier est éclairé, le temps d’un tour.',
+    blurb: 'coronaz.event.flare.blurb',
     favours: 'heroes'
   }
 ];

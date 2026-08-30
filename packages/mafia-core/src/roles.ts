@@ -209,34 +209,43 @@ export interface RoleDef {
   soloKiller?: boolean;
   /** One-line pitch shown on the role card. */
   description: string;
-  /** What the investigator sees: roles sharing a trade share a line. */
+  /** What the investigator sees, as a trade id: `mafia.trade.<id>`. */
   investigated: string;
 }
 
-/* Investigator trade lines, shared across trades so results stay ambiguous. */
+/**
+ * The Investigator's answer sheet, as trade *ids*.
+ *
+ * Roles sharing a trade share a line, which is the whole mechanic: an ambiguous
+ * result is the information, so two roles must read identically rather than
+ * merely similarly. That is also why these are ids and not sentences — the words
+ * live in one catalogue entry per trade (`mafia.trade.*`), so a translator
+ * physically cannot give the Doctor and the Witch Doctor two different phrasings
+ * of "well-kept hands" and quietly break the bluff.
+ */
 const L = {
-  quiet: 'ne semble pas cacher grand-chose',
-  snoop: 'fouine dans la vie des autres',
-  watcher: 'observe les allées et venues',
-  healer: 'a des mains soignées',
-  rough: 'a des mains calleuses',
-  night: 'travaille la nuit',
-  powder: 'sent la poudre',
-  keys: 'porte un trousseau de clés',
-  hands: 'serre beaucoup de mains',
-  ink: 'a les doigts tachés d’encre',
-  laugh: 'rit tout seul',
-  blade: 'affûte quelque chose',
-  gas: 'sent l’essence',
-  herbs: 'a des herbes étranges',
-  wheel: 'a les mains sur un volant',
-  chalk: 'a de la craie sur les manches',
-  paint: 'sent le maquillage',
-  wires: 'a des fils de cuivre plein les poches',
-  bottle: 'transporte de petites fioles',
-  rope: 'a de la corde neuve',
-  charm: 'a un parfum entêtant',
-  dirt: 'a de la terre sous les ongles'
+  quiet: 'quiet',
+  snoop: 'snoop',
+  watcher: 'watcher',
+  healer: 'healer',
+  rough: 'rough',
+  night: 'night',
+  powder: 'powder',
+  keys: 'keys',
+  hands: 'hands',
+  ink: 'ink',
+  laugh: 'laugh',
+  blade: 'blade',
+  gas: 'gas',
+  herbs: 'herbs',
+  wheel: 'wheel',
+  chalk: 'chalk',
+  paint: 'paint',
+  wires: 'wires',
+  bottle: 'bottle',
+  rope: 'rope',
+  charm: 'charm',
+  dirt: 'dirt'
 } as const;
 
 const def = (role: RoleDef): RoleDef => role;

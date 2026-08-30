@@ -1,0 +1,175 @@
+import type { Catalogue } from '../index.js';
+
+/**
+ * Getting in, and the room with nobody in charge: the sign-in pages, the join
+ * board, the quick lobby and the three dials each game lets a room argue about.
+ *
+ * The dials are the interesting part. A quick lobby is rendered by a browser that
+ * imports none of the three engines, so its options travel as opaque values with
+ * a label attached — and that label used to be a French sentence written inside
+ * `lobby-core`. It is a key now, resolved on the phone, which is the only place
+ * that knows who is reading.
+ */
+export const lobbyEn: Catalogue = {
+  /* ------------------------------- signing in ------------------------------- */
+  'auth.signIn': 'Sign in',
+  'auth.signUp': 'Sign up',
+  'auth.username': 'Username',
+  'auth.email': 'Email',
+  'auth.password': 'Password',
+  'auth.passwordHint': '{count} characters minimum',
+  'auth.doSignIn': 'Sign in',
+  'auth.createAccount': 'Create the account',
+  'auth.badCredentials': 'Wrong username or password.',
+  'auth.signInFailed': 'Sign-in failed.',
+  'auth.nameTaken': 'That username is taken.',
+  'auth.signUpFailed': 'Sign-up failed.',
+  'auth.passwordTooShort': 'The password must be at least {count} characters.',
+  'auth.noAccount': 'No account yet?',
+  'auth.haveAccount': 'Already have an account?',
+  'auth.justPlaying': 'Here to play?',
+  'auth.joinGame': 'Join a game',
+
+  /* ------------------------------- your account ----------------------------- */
+  'account.title': 'My account',
+  'account.signedInAs': 'Signed in as {login}.',
+  'account.appearance': 'Appearance',
+  'account.theme.dark': '🌙 Dark',
+  'account.theme.dark.hint': 'The house, the way it has always been.',
+  'account.theme.light': '☀️ Light',
+  'account.theme.light.hint': 'For putting an evening together in broad daylight.',
+  'account.theme.system': '💻 System',
+  'account.theme.system.hint': 'Whatever your machine says, and it follows.',
+  'account.systemNow':
+    'Currently: {mode}. The game screens stay dark either way — they are built to be read from four metres.',
+  'account.systemNow.light': 'light',
+  'account.systemNow.dark': 'dark',
+  'account.language': 'Language',
+  'account.changePassword': 'Change your password',
+  'account.currentPassword': 'Current password',
+  'account.newPassword': 'New password',
+  'account.repeatPassword': 'Repeat the new password',
+  'account.tooShort': 'At least 8 characters.',
+  'account.mismatch': 'Those two do not match.',
+  'account.wrongCurrent': 'Wrong current password.',
+  'account.tooManyTries': 'Too many attempts. Try again in a few minutes.',
+  'account.changeFailed': 'The change failed.',
+  'account.doChange': 'Change the password',
+  'account.changed': 'Password changed. Other devices signed into this account will have to sign in again.',
+  'account.forgot': 'Forgotten your password? There is no automatic reset yet —',
+  'account.askForHelp': 'ask for help',
+
+  /* -------------------------------- the way in ------------------------------ */
+  'join.title': 'Join a game',
+  'join.code': 'Game code',
+  'join.continue': 'Continue',
+  'join.checkFailed': 'Could not check that.',
+  'join.noSuchGame': 'No game with that code.',
+  'join.openRooms': 'Open rooms',
+  'join.all': 'All',
+  'join.empty': 'No public room right now. Open one from a game’s menu, or start a quick match.',
+  'join.refresh': 'Refresh',
+  'join.quickMatch': 'quick match',
+  'join.hostedBy': 'at {host}’s',
+  'join.enter': 'Join',
+
+  /* ------------------------------ the quick lobby --------------------------- */
+  'quick.title': 'Quick match — {game}',
+  'quick.yourName': 'Your name',
+  'quick.findGame': 'Find a game',
+  'quick.searching': 'Looking for a room…',
+  'quick.connecting': 'Connecting…',
+  'quick.backTo': 'Back to the {game} menu',
+  'quick.roomCode': 'This room’s code',
+  'quick.lede.rematch': 'Rematch: the previous game’s players are on their way, and the room is open to others.',
+  'quick.lede.fresh': 'Nobody is in charge. The settings are rolled, and the table changes them by voting.',
+  'quick.players': 'Players',
+  'quick.you': '— you',
+  'quick.bots': 'Bots',
+  'quick.bot': 'Bot {number}',
+  'quick.oneFewerBot': 'One fewer bot',
+  'quick.oneMoreBot': 'One more bot',
+  'quick.fillTable': 'Fill the table',
+  'quick.botsHint': 'They take their seats at launch, and give one up the moment a person arrives.',
+  'quick.needMore': 'At least {count} players are needed to start{bots}. Waiting…',
+  'quick.needMore.withBots': ', bots included',
+  'quick.settings': 'Settings',
+  'quick.settingsHint':
+    'Everybody votes and the majority wins. On a tie, the roll from the start is kept.',
+  'quick.nothingPublished': 'Nothing published yet.',
+  'quick.tally': 'ready — {needed} needed',
+  'quick.startsIn': 'Starting in {seconds} s',
+  'quick.unready': 'Take my vote back',
+  'quick.ready': 'I’m ready',
+  'quick.leave': 'Leave',
+  'quick.unreachable': 'This room is out of reach.',
+  'quick.gone': 'This room no longer exists.',
+  'quick.closed': 'This room is closed.',
+  'quick.full': 'This room is full.',
+  'quick.notQuick': 'That game was not a quick match.',
+  'quick.serverQuiet': 'The server is not answering.',
+  'quick.badRequest': 'Invalid request.',
+  'quick.roomEmpty': 'The room emptied out.',
+  'quick.launched': 'The game has started.',
+
+  /* -------------------------- the dials a room may turn --------------------- */
+  'lobby.opt.playlist': 'Quiz',
+  'lobby.opt.playlist.hint': 'From the quizzes published by the house.',
+  'lobby.opt.length': 'Length',
+  'lobby.choice.length.court': 'Short — 8 rounds',
+  'lobby.choice.length.normal': 'Normal — 15 rounds',
+  'lobby.choice.length.long': 'Long — the whole quiz',
+  'lobby.opt.combo': 'Combo points',
+  'lobby.opt.combo.hint': 'Winning rounds back to back multiplies the points.',
+  'lobby.choice.combo.on': 'On',
+  'lobby.choice.combo.off': 'Off',
+
+  'lobby.opt.scenario': 'Scenario',
+  'lobby.choice.scenario.escape': 'Escape — find the keys and get out',
+  'lobby.choice.scenario.purge': 'Purge — clear the neighbourhood',
+  'lobby.choice.scenario.survival': 'Survival — hold the siege',
+  'lobby.opt.difficulty': 'Difficulty',
+  'lobby.choice.difficulty.facile': 'Easy',
+  'lobby.choice.difficulty.normal': 'Normal',
+  'lobby.choice.difficulty.difficile': 'Hard',
+  'lobby.choice.difficulty.cauchemar': 'Nightmare',
+  'lobby.opt.biome': 'Setting',
+  'lobby.opt.biome.hint': 'The biome decides the arsenal and the bestiary too.',
+  'lobby.choice.biome.random': 'At random',
+  'lobby.choice.biome.modern': 'Modern',
+  'lobby.choice.biome.cyber': 'Cyber',
+
+  'lobby.opt.setup': 'Role list',
+  'lobby.choice.setup.auto': 'Automatic — balanced',
+  'lobby.choice.setup.chaos': 'Chaos — roles rolled at random',
+  'lobby.opt.reveal': 'On death',
+  'lobby.choice.reveal.role': 'The whole role',
+  'lobby.choice.reveal.faction': 'The camp only',
+  'lobby.choice.reveal.none': 'Nothing at all',
+  'lobby.opt.pace': 'Pace',
+  'lobby.choice.pace.rapide': 'Fast — a 1 min 30 day',
+  'lobby.choice.pace.normal': 'Normal — a 2 min day',
+  'lobby.choice.pace.posed': 'Unhurried — a 3 min day',
+
+  /* ------------------------------- the join board --------------------------- */
+  'lobby.card.quizSurprise': 'Surprise quiz',
+  'lobby.card.raid': 'Raid',
+  'lobby.card.table': 'Table',
+  'lobby.card.rounds': '{count} rounds',
+  'lobby.card.hordeAi': 'Horde run by the machine',
+  'lobby.card.hordeGm': 'Horde run by a player',
+  'lobby.card.dayLength': 'A {minutes} min day',
+  'lobby.card.setup.auto': 'Balanced role list',
+  'lobby.card.setup.chaos': 'Chaotic role list',
+  'lobby.card.setup.census': 'Census role list',
+  'lobby.card.setup.preset': 'A proposed role list',
+  'lobby.card.setup.custom': 'A homemade role list',
+  'lobby.card.someone': 'Somebody',
+  'lobby.card.rematch': 'Rematch — the previous game’s players are on their way',
+
+  /* ---------------------------- once the game is over ----------------------- */
+  'quickEnd.again': 'Play again',
+  'quickEnd.back': 'Back to the {game} menu'
+};
+
+export default lobbyEn;

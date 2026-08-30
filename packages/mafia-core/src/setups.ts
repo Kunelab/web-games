@@ -1,4 +1,4 @@
-import type { RoleId } from './roles.js';
+import type { Faction, RoleId } from './roles.js';
 import { ROLES, rolesOfFaction } from './roles.js';
 
 /**
@@ -61,6 +61,48 @@ export const SLOT_TOKENS: SlotToken[] = [
 
 export function isSlotToken(value: string): value is SlotToken {
   return (SLOT_TOKENS as string[]).includes(value);
+}
+
+/**
+ * Every role a category slot could roll, in order.
+ *
+ * Published so the role list can answer "what is a Random Town, actually?" the
+ * moment somebody taps one — which is the whole point of showing the list. An
+ * exact-role slot answers with itself.
+ */
+export function slotPool(token: SlotToken): RoleId[] {
+  return token in CATEGORY_POOLS ? CATEGORY_POOLS[token as Exclude<SlotToken, RoleId>] : [token as RoleId];
+}
+
+/**
+ * The camp a slot belongs to, or `null` when it could be anything.
+ *
+ * Used to group the published role list the way a player reads one — town, then
+ * the families, then the neutrals — and to colour each line. A category is
+ * judged by its pool: every pool here is single-camp except `any`, and `neutral-*`
+ * carries the Cultist, whose faction is `cult` but whose slot is a neutral one.
+ */
+export function slotFaction(token: SlotToken): Faction | null {
+  if (token in ROLES) return ROLES[token as RoleId].faction;
+  if (token === 'any') return null;
+  if (token.startsWith('town-')) return 'town';
+  if (token.startsWith('mafia-')) return 'mafia';
+  if (token.startsWith('triad-')) return 'triad';
+  return 'neutral';
+}
+
+/** Reading order for the published list: the town first, the knives last. */
+const CAMP_ORDER: Record<string, number> = { town: 0, mafia: 1, triad: 2, cult: 3, neutral: 4, unknown: 5 };
+
+export function sortRoleList(tokens: SlotToken[]): SlotToken[] {
+  return [...tokens].sort((a, b) => {
+    const camp = CAMP_ORDER[slotFaction(a) ?? 'unknown'] - CAMP_ORDER[slotFaction(b) ?? 'unknown'];
+    if (camp !== 0) return camp;
+    // Exact roles before the categories of the same camp: "Sheriff, Doctor,
+    // Random Town, Random Town" reads as a promise followed by a shrug.
+    const exact = Number(b in ROLES) - Number(a in ROLES);
+    return exact !== 0 ? exact : a.localeCompare(b);
+  });
 }
 
 export interface Setup {

@@ -1,3 +1,4 @@
+import { msg, type Msg } from 'i18n';
 import { createChat, post, type PostResult } from 'chat-core';
 import { resolveHeroAttack, resolveZombieAttack, weaponFor, type Hand } from './combat.js';
 import { archetypeOf, itemFor, zombieFor } from './content/registry.js';
@@ -121,7 +122,8 @@ function wallBetween(
 
 export interface ActionResult {
   ok: boolean;
-  error?: string;
+  /** Prose, or a key. Same transition as the log's. */
+  error?: string | Msg;
   /** Set by a successful search, so the phone can offer one-tap equipping. */
   loot?: ItemInstance;
   /** Attack feedback, so the phone can sound the hit and the kill. */
@@ -532,7 +534,7 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
       // The side quests gate the door: the exit opens for a team that did the job.
       if (state.config.scenario === 'escape' && !objectivesDone(state)) {
         const pending = state.objectives.find((objective) => !objective.done);
-        return { ok: false, error: `Objectif à finir d’abord : ${pending?.label ?? ''}` };
+        return { ok: false, error: msg('cz.refuse.objectiveFirst', { label: pending?.label ?? '' }) };
       }
       spend();
       hero.escaped = true;
@@ -606,7 +608,7 @@ function equip(hero: HeroState, uid: number, slot: Slot): ActionResult {
   if (!source) return { ok: false, error: 'Objet introuvable' };
   const def = itemDef(source.item.def);
 
-  const fail = (error: string): ActionResult => {
+  const fail = (error: string | Msg): ActionResult => {
     source.putBack(source.item);
     return { ok: false, error };
   };
@@ -1193,8 +1195,10 @@ export const RAID_CHANNEL = 'raid';
  */
 export function sayInRaid(state: CzState, playerId: string, text: string, now = Date.now()): PostResult {
   const hero = state.heroes[playerId];
-  if (!hero) return { ok: false, error: 'Vous n’êtes pas dans ce raid' };
-  if (hero.isBot) return { ok: false, error: 'Les bots ne parlent pas' };
+  // `reason` is what a localised caller branches on; the sentence is the fallback
+  // for the screens that still print what they are handed.
+  if (!hero) return { ok: false, error: 'Vous n’êtes pas dans ce raid', reason: 'empty' };
+  if (hero.isBot) return { ok: false, error: 'Les bots ne parlent pas', reason: 'empty' };
 
   state.chat ??= createChat();
   return post(state.chat, {
@@ -1259,8 +1263,8 @@ export const GM_UPGRADES: Record<
   'hide' | 'claws',
   { label: string; maxLevel: number; cost: (level: number) => number }
 > = {
-  hide: { label: 'Carapace (+1 PV aux renforts)', maxLevel: 3, cost: (level) => 8 + level * 4 },
-  claws: { label: 'Griffes (+1 dégât aux renforts)', maxLevel: 2, cost: (level) => 12 + level * 6 }
+  hide: { label: 'coronaz.upgrade.hide', maxLevel: 3, cost: (level) => 8 + level * 4 },
+  claws: { label: 'coronaz.upgrade.claws', maxLevel: 2, cost: (level) => 12 + level * 6 }
 };
 
 export const GM_ORDERS: Record<'rush', { label: string; cost: number }> = {

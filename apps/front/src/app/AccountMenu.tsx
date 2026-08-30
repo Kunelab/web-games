@@ -1,3 +1,4 @@
+import { msg } from 'i18n';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NavLink } from 'react-router';
@@ -18,12 +19,20 @@ import { useTheme, type ThemePreference } from '../hooks/useTheme';
  * games mount over the page.
  */
 
-const THEMES: { value: ThemePreference; label: string; emoji: string }[] = [
-  { value: 'dark', label: 'Sombre', emoji: '🌙' },
-  { value: 'light', label: 'Clair', emoji: '☀️' },
-  { value: 'system', label: 'Système', emoji: '💻' }
+/** The three theme settings, as catalogue keys. */
+const THEMES: { value: ThemePreference; key: string; emoji: string }[] = [
+  { value: 'dark', key: 'site.account.theme.dark', emoji: '🌙' },
+  { value: 'light', key: 'site.account.theme.light', emoji: '☀️' },
+  { value: 'system', key: 'site.account.theme.system', emoji: '💻' }
 ];
 
+/**
+ * Every language, written in itself.
+ *
+ * Not translated and never should be: somebody looking for their own language
+ * in a list is looking for the word they would use, not for the word the
+ * language they cannot read uses for it.
+ */
 const LANGUAGES = [
   { value: 'fr', label: 'Français' },
   { value: 'en', label: 'English' }
@@ -44,7 +53,7 @@ export default function AccountMenu({
   const panel = useRef<HTMLDivElement | null>(null);
 
   const { preference, setPreference } = useTheme();
-  const { locale, setLocale } = useLocale();
+  const { locale, setLocale, t } = useLocale();
 
   useEffect(() => {
     if (!open) return;
@@ -87,7 +96,7 @@ export default function AccountMenu({
       ref={panel}
       style={at ? { top: at.top, right: at.right } : { visibility: 'hidden' }}
     >
-      <p className="accountmenu-group">Thème</p>
+      <p className="accountmenu-group">{t(msg('site.account.theme'))}</p>
       <div className="accountmenu-choices">
         {THEMES.map((option) => (
           <button
@@ -98,12 +107,12 @@ export default function AccountMenu({
             className={`accountmenu-choice ${preference === option.value ? 'on' : ''}`}
             onClick={() => setPreference(option.value)}
           >
-            <span aria-hidden="true">{option.emoji}</span> {option.label}
+            <span aria-hidden="true">{option.emoji}</span> {t(msg(option.key))}
           </button>
         ))}
       </div>
 
-      <p className="accountmenu-group">Langue</p>
+      <p className="accountmenu-group">{t(msg('site.account.language'))}</p>
       <div className="accountmenu-choices">
         {LANGUAGES.map((option) => (
           <button
@@ -120,10 +129,10 @@ export default function AccountMenu({
       </div>
 
       <NavLink to="/compte" role="menuitem" className="accountmenu-item" onClick={() => setOpen(false)}>
-        ⚙️ Réglages
+        {t(msg('site.account.settings'))}
       </NavLink>
       <button type="button" role="menuitem" className="accountmenu-item" onClick={onLogout}>
-        🚪 Déconnexion
+        {t(msg('site.account.signOut'))}
       </button>
     </div>
   );

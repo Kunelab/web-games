@@ -1,6 +1,8 @@
 import type { ChatMessage } from 'chat-core';
+import { msg } from 'i18n';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
+import { cx } from '../../ui/cx';
 import { useT } from '../../i18n/locale-context';
 import './chat.css';
 
@@ -26,6 +28,8 @@ export interface ChatPanelProps {
   /** Grays the input regardless of channel permissions (e.g. dead, spectator). */
   disabled?: boolean;
   placeholder?: string;
+  /** Extra class on the root, for a game that wants its own shell (see mafia.css). */
+  className?: string;
 }
 
 /** Stable hue per author so a name keeps its color for the whole game. */
@@ -35,7 +39,7 @@ function authorHue(authorId: string): number {
   return hash % 360;
 }
 
-export function ChatPanel({ messages, channels, onSend, disabled = false, placeholder }: ChatPanelProps) {
+export function ChatPanel({ messages, channels, onSend, disabled = false, placeholder, className }: ChatPanelProps) {
   const t = useT();
   const [active, setActive] = useState(channels[0]?.id ?? 'day');
   const [draft, setDraft] = useState('');
@@ -72,7 +76,7 @@ export function ChatPanel({ messages, channels, onSend, disabled = false, placeh
   const canWrite = !disabled && !!activeChannel?.canWrite;
 
   return (
-    <section className="chat-panel">
+    <section className={cx('chat-panel', className)}>
       {channels.length > 1 && (
         <div className="chat-tabs" role="tablist">
           {channels.map((channel) => (
@@ -107,7 +111,7 @@ export function ChatPanel({ messages, channels, onSend, disabled = false, placeh
             </p>
           )
         )}
-        {visible.length === 0 && <p className="chat-line chat-line--system">Personne n’a encore parlé ici.</p>}
+        {visible.length === 0 && <p className="chat-line chat-line--system">{t(msg('chat.empty'))}</p>}
       </div>
 
       <form className="chat-compose" onSubmit={submit}>
@@ -116,11 +120,11 @@ export function ChatPanel({ messages, channels, onSend, disabled = false, placeh
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           maxLength={400}
-          placeholder={canWrite ? (placeholder ?? 'Votre message…') : 'Vous ne pouvez pas parler ici'}
+          placeholder={canWrite ? (placeholder ?? t(msg('chat.placeholder'))) : t(msg('chat.muted'))}
           disabled={!canWrite}
         />
         <button className="chat-send" type="submit" disabled={!canWrite || !draft.trim()}>
-          Envoyer
+          {t(msg('chat.send'))}
         </button>
       </form>
     </section>

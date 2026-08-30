@@ -1,3 +1,4 @@
+import type { Msg } from 'i18n';
 import { z } from 'zod';
 
 import { LOBBY_GAMES } from './state.js';
@@ -65,7 +66,8 @@ export const quickReplaySchema = z.object({
 
 export interface QuickJoinAck {
   ok: boolean;
-  error?: string;
+  /** A catalogue key, like every other refusal the house sends. */
+  error?: Msg;
   code?: string;
   memberId?: string;
   memberToken?: string;
@@ -98,7 +100,7 @@ export interface QuickClientToServer {
 export interface QuickServerToClient {
   'quick:state': (view: QuickLobbyView) => void;
   'quick:launch': (launch: QuickLaunch) => void;
-  'quick:closed': (payload: { code: string; reason: string }) => void;
+  'quick:closed': (payload: { code: string; reason: Msg }) => void;
 }
 
 /** Where a player of `game` goes once the room has started something. */

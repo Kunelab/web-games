@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 
-import { LOCALES, type Locale } from 'i18n';
+import { LOCALES, msg, type Locale } from 'i18n';
 
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
@@ -10,12 +10,14 @@ import { useLocale } from '../i18n/locale-context';
 import { Button, Field, Input } from '../ui';
 import './home.css';
 
+/** The theme settings, as catalogue keys — the page explains each one. */
 const THEMES: { value: ThemePreference; label: string; hint: string }[] = [
-  { value: 'dark', label: '🌙 Sombre', hint: 'La maison, telle qu’elle a toujours été.' },
-  { value: 'light', label: '☀️ Clair', hint: 'Pour préparer une soirée en plein jour.' },
-  { value: 'system', label: '💻 Système', hint: 'Ce que dit votre machine, et il suit.' }
+  { value: 'dark', label: 'account.theme.dark', hint: 'account.theme.dark.hint' },
+  { value: 'light', label: 'account.theme.light', hint: 'account.theme.light.hint' },
+  { value: 'system', label: 'account.theme.system', hint: 'account.theme.system.hint' }
 ];
 
+/** Each language in its own words; see AccountMenu for why these are not keys. */
 const LANGUAGE_NAMES: Record<Locale, string> = { fr: 'Français', en: 'English' };
 
 /**
@@ -32,7 +34,7 @@ const LANGUAGE_NAMES: Record<Locale, string> = { fr: 'Français', en: 'English' 
 export default function Account() {
   const { user } = useAuth();
   const { preference, theme, setPreference } = useTheme();
-  const { locale, setLocale } = useLocale();
+  const { locale, setLocale, t } = useLocale();
 
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -59,11 +61,11 @@ export default function Account() {
       setDone(true);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 400) {
-        setError('Mot de passe actuel incorrect.');
+        setError(t(msg('account.wrongCurrent')));
       } else if (cause instanceof ApiError && cause.status === 429) {
-        setError('Trop de tentatives. Réessayez dans quelques minutes.');
+        setError(t(msg('account.tooManyTries')));
       } else {
-        setError('La modification a échoué.');
+        setError(t(msg('account.changeFailed')));
       }
     } finally {
       setBusy(false);
@@ -72,10 +74,10 @@ export default function Account() {
 
   return (
     <div className="auth-page">
-      <h1 className="page-title">Mon compte</h1>
-      {user && <p className="auth-alt">Connecté en tant que {user.login}.</p>}
+      <h1 className="page-title">{t(msg('account.title'))}</h1>
+      {user && <p className="auth-alt">{t(msg('account.signedInAs', { login: user.login }))}</p>}
 
-      <h2 className="auth-section">Apparence</h2>
+      <h2 className="auth-section">{t(msg('account.appearance'))}</h2>
       <div className="settings-choices">
         {THEMES.map((option) => (
           <button
@@ -85,19 +87,22 @@ export default function Account() {
             aria-pressed={preference === option.value}
             onClick={() => setPreference(option.value)}
           >
-            <strong>{option.label}</strong>
-            <span>{option.hint}</span>
+            <strong>{t(msg(option.label))}</strong>
+            <span>{t(msg(option.hint))}</span>
           </button>
         ))}
       </div>
       {preference === 'system' && (
         <p className="auth-alt">
-          Actuellement : {theme === 'light' ? 'clair' : 'sombre'}. Les écrans de jeu restent sombres dans tous les cas —
-          ils sont conçus pour être lus à quatre mètres.
+          {t(
+            msg('account.systemNow', {
+              mode: msg(theme === 'light' ? 'account.systemNow.light' : 'account.systemNow.dark')
+            })
+          )}
         </p>
       )}
 
-      <h2 className="auth-section">Langue</h2>
+      <h2 className="auth-section">{t(msg('account.language'))}</h2>
       <div className="settings-choices">
         {LOCALES.map((value) => (
           <button
@@ -112,10 +117,10 @@ export default function Account() {
         ))}
       </div>
 
-      <h2 className="auth-section">Changer de mot de passe</h2>
+      <h2 className="auth-section">{t(msg('account.changePassword'))}</h2>
 
       <form onSubmit={(event) => void submit(event)}>
-        <Field label="Mot de passe actuel">
+        <Field label={t(msg('account.currentPassword'))}>
           {({ id }) => (
             <Input
               id={id}
@@ -127,7 +132,7 @@ export default function Account() {
           )}
         </Field>
 
-        <Field label="Nouveau mot de passe" error={tooShort ? 'Au moins 8 caractères.' : undefined}>
+        <Field label={t(msg('account.newPassword'))} error={tooShort ? t(msg('account.tooShort')) : undefined}>
           {({ id, describedBy, invalid }) => (
             <Input
               id={id}
@@ -142,8 +147,8 @@ export default function Account() {
         </Field>
 
         <Field
-          label="Répéter le nouveau mot de passe"
-          error={mismatch ? 'Les deux ne correspondent pas.' : (error ?? undefined)}
+          label={t(msg('account.repeatPassword'))}
+          error={mismatch ? t(msg('account.mismatch')) : (error ?? undefined)}
         >
           {({ id, describedBy, invalid }) => (
             <Input
@@ -159,19 +164,16 @@ export default function Account() {
         </Field>
 
         <Button type="submit" variant="primary" busy={busy} block disabled={!ready}>
-          Changer le mot de passe
+          {t(msg('account.doChange'))}
         </Button>
       </form>
 
       {done && (
-        <p className="auth-alt" role="status">
-          Mot de passe modifié. Les autres appareils connectés à ce compte devront se reconnecter.
-        </p>
+        <p className="auth-alt" role="status">{t(msg('account.changed'))}</p>
       )}
 
       <p className="auth-alt">
-        Mot de passe oublié ? Il n’y a pas encore de réinitialisation automatique —{' '}
-        <Link to="/">demandez de l’aide</Link>.
+        {t(msg('account.forgot'))} <Link to="/">{t(msg('account.askForHelp'))}</Link>.
       </p>
     </div>
   );

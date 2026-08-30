@@ -1,4 +1,4 @@
-import { post, systemPost, visibleTo, type ChatMessage } from 'chat-core';
+import { post, systemPost, visibleTo, type ChatMessage, type PostRefusal } from 'chat-core';
 import type { Msg } from 'i18n';
 import {
   castKickBallot,
@@ -17,7 +17,7 @@ import {
   type PresenceTick
 } from 'presence-core';
 
-import { BODY, CAUSE, M, type DeathSource } from './messages.js';
+import { BODY, CAUSE, M, MafiaError, NO, NOTE, type DeathSource } from './messages.js';
 
 import {
   BYSTANDER_ROLES,
@@ -40,6 +40,7 @@ import {
   playerFamily,
   pmChannel,
   seatPlayer,
+  SKIP_VOTE,
   tablePresence,
   voteWeight,
   waitedOnSeats,
@@ -56,9 +57,19 @@ import {
  * the whole engine replays deterministically under test.
  */
 
+/**
+ * What an action answers.
+ *
+ * The refusal is a **key**, not a sentence. It used to be a French string
+ * literal written at the point of refusal and put on screen verbatim, which meant
+ * an English reader pressing a button they were not allowed to press got told
+ * « Pas maintenant » — the one part of this game that had never been localised
+ * because it never travelled through the catalogue at all. See `NO` in
+ * messages.ts for the whole list.
+ */
 export interface ActionOutcome {
   ok: boolean;
-  error?: string;
+  error?: Msg;
 }
 
 /**
@@ -70,7 +81,7 @@ export interface ActionOutcome {
  * anything that changes the board: a vote, a ballot, a night order, a jailing.
  * Those would let the room act on an absence the pause exists to protect.
  */
-const PAUSED_REFUSAL: ActionOutcome = { ok: false, error: 'La partie est en pause' };
+const PAUSED_REFUSAL: ActionOutcome = { ok: false, error: NO.paused() };
 
 
 const POINTS: Record<PointEntry['reason'], number> = {
@@ -93,11 +104,7 @@ function addProtector(byHouse: Map<string, string[]>, houseId: string, protector
   byHouse.set(houseId, [...(byHouse.get(houseId) ?? []), protectorId]);
 }
 
-function capitalise(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-function notify(player: MafiaPlayer, text: string): void {
+function notify(player: MafiaPlayer, text: Msg): void {
   player.notifications.push(text);
   // The feed is private and unbounded otherwise; a phone needs the recent past only.
   if (player.notifications.length > 60) player.notifications.splice(0, player.notifications.length - 60);
@@ -146,7 +153,7 @@ export function joinMafia(
        * the table is back where it started with no way to say so.
        */
       if (tablePresence(state).kicked.includes(seated.playerId)) {
-        throw new Error('La table a continué sans vous');
+        throw new MafiaError(NO.tableMovedOn(), 'La table a continué sans vous');
       }
       seated.connected = true;
       // Reclaiming a seat proves somebody is at it; the beat contract starts
@@ -156,16 +163,16 @@ export function joinMafia(
     }
   }
 
-  if (state.phase !== 'lobby') throw new Error('La partie a déjà commencé');
+  if (state.phase !== 'lobby') throw new MafiaError(NO.alreadyStarted(), 'La partie a déjà commencé');
 
   const trimmed = name.trim().slice(0, 20);
-  if (!trimmed) throw new Error('Il faut un nom');
+  if (!trimmed) throw new MafiaError(NO.nameRequired(), 'Il faut un nom');
   if (Object.values(state.players).some((player) => player.name.toLowerCase() === trimmed.toLowerCase())) {
-    throw new Error('Ce nom est déjà pris');
+    throw new MafiaError(NO.nameTaken(), 'Ce nom est déjà pris');
   }
 
   const slot = nextFreeSlot(state);
-  if (slot === null) throw new Error('La table est pleine');
+  if (slot === null) throw new MafiaError(NO.tableFull(), 'La table est pleine');
 
   const player = seatPlayer({ playerId, token, name: trimmed, slot, isBot: false, account });
   state.players[playerId] = player;
@@ -179,9 +186,9 @@ export function addMafiaBot(
   playerId: string,
   randomInt: (maxExclusive: number) => number
 ): MafiaPlayer {
-  if (state.phase !== 'lobby') throw new Error('La partie a déjà commencé');
+  if (state.phase !== 'lobby') throw new MafiaError(NO.alreadyStarted(), 'La partie a déjà commencé');
   const slot = nextFreeSlot(state);
-  if (slot === null) throw new Error('La table est pleine');
+  if (slot === null) throw new MafiaError(NO.tableFull(), 'La table est pleine');
 
   const player = seatPlayer({ playerId, token, name: nextBotName(state, randomInt), slot, isBot: true });
   state.players[playerId] = player;
@@ -196,19 +203,18 @@ export function removeMafiaBot(state: MafiaState, playerId: string): void {
 }
 
 export function startMafia(state: MafiaState, now: number, rng: () => number): void {
-  if (state.phase !== 'lobby') throw new Error('Déjà en cours');
+  if (state.phase !== 'lobby') throw new MafiaError(NO.alreadyRunning(), 'Déjà en cours');
   if (Object.keys(state.players).length < state.config.minPlayers) {
-    throw new Error(`Il faut au moins ${state.config.minPlayers} joueurs`);
+    throw new MafiaError(NO.needPlayers(state.config.minPlayers), `Il faut au moins ${state.config.minPlayers} joueurs`);
   }
 
   assignRoles(state, rng);
 
   for (const player of Object.values(state.players)) {
-    const def = roleDef(player.role!);
-    notify(player, `Vous êtes ${def.name}. ${def.description}`);
+    notify(player, NOTE.roleDealt(player.role!));
     if (player.obsessionId) {
       const mark = state.players[player.obsessionId];
-      if (mark) notify(player, `Votre obsession : faire pendre ${mark.name} (maison ${mark.slot}).`);
+      if (mark) notify(player, NOTE.obsession(mark.name, mark.slot));
     }
   }
 
@@ -245,17 +251,25 @@ export function sayInChat(
   channel: string,
   text: string,
   now: number
-): { ok: true; message: ChatMessage } | { ok: false; error: string } {
+): { ok: true; message: ChatMessage } | { ok: false; error: Msg } {
   const player = state.players[playerId];
-  if (!player) return { ok: false, error: 'Pas à cette table' };
+  if (!player) return { ok: false, error: NO.notAtTable() };
 
   const rules = chatRules();
   if (!rules.canWrite(channel, playerId, state)) {
-    return { ok: false, error: 'Vous ne pouvez pas parler ici' };
+    return { ok: false, error: NO.cannotSpeakHere() };
   }
 
-  return post(state.chat, { channel, authorId: playerId, authorName: player.name, text, at: now });
+  const result = post(state.chat, { channel, authorId: playerId, authorName: player.name, text, at: now });
+  return result.ok ? result : { ok: false, error: CHAT_NO[result.reason]() };
 }
+
+/** The log's own refusals, in the reader's language rather than the log's. */
+const CHAT_NO: Record<PostRefusal, () => Msg> = {
+  empty: NO.emptyMessage,
+  tooLong: NO.messageTooLong,
+  flood: NO.slowDown
+};
 
 export function chatVisibleTo(state: MafiaState, playerId: string): ChatMessage[] {
   return visibleTo(state.chat, playerId, state, chatRules());
@@ -272,20 +286,20 @@ export function whisperTo(
   targetSlot: number,
   text: string,
   now: number
-): { ok: true; message: ChatMessage; gossip: ChatMessage } | { ok: false; error: string } {
+): { ok: true; message: ChatMessage; gossip: ChatMessage } | { ok: false; error: Msg } {
   const from = state.players[fromId];
   const target = playerBySlot(state, targetSlot);
-  if (!from || !target) return { ok: false, error: 'Destinataire introuvable' };
-  if (target.playerId === fromId) return { ok: false, error: 'Se parler à soi-même, ça inquiète les voisins' };
+  if (!from || !target) return { ok: false, error: NO.noRecipient() };
+  if (target.playerId === fromId) return { ok: false, error: NO.whisperSelf() };
 
   const channel = pmChannel(fromId, target.playerId);
   const rules = chatRules();
   if (!rules.canWrite(channel, fromId, state)) {
-    return { ok: false, error: 'Impossible de murmurer maintenant' };
+    return { ok: false, error: NO.whisperNotNow() };
   }
 
   const result = post(state.chat, { channel, authorId: fromId, authorName: from.name, text, at: now });
-  if (!result.ok) return result;
+  if (!result.ok) return { ok: false, error: CHAT_NO[result.reason]() };
 
   // Both messages are handed back rather than left for the caller to fish out of
   // the tail of the log: the square's notice is a second delivery to a second
@@ -295,7 +309,7 @@ export function whisperTo(
 
 export function setLastWill(state: MafiaState, playerId: string, text: string): ActionOutcome {
   const player = state.players[playerId];
-  if (!player || !player.alive) return { ok: false, error: 'Trop tard' };
+  if (!player || !player.alive) return { ok: false, error: NO.tooLate() };
   player.lastWill = text.slice(0, 400);
   return { ok: true };
 }
@@ -306,10 +320,10 @@ export function revealMayor(state: MafiaState, playerId: string, now: number): A
   if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const player = state.players[playerId];
   if (!player?.alive || (player.role !== 'mayor' && player.role !== 'marshall')) {
-    return { ok: false, error: 'Impossible' };
+    return { ok: false, error: NO.impossible() };
   }
-  if (state.phase !== 'day') return { ok: false, error: 'Attendez le jour' };
-  if (player.revealed) return { ok: false, error: 'Déjà révélé' };
+  if (state.phase !== 'day') return { ok: false, error: NO.waitForDay() };
+  if (player.revealed) return { ok: false, error: NO.alreadyRevealed() };
 
   player.revealed = true;
   announce(state, player.role === 'mayor' ? M.mayorReveal(player.name) : M.marshallReveal(player.name), now);
@@ -329,10 +343,10 @@ function marshallActive(state: MafiaState): boolean {
 export function callCourt(state: MafiaState, playerId: string, now: number): ActionOutcome {
   if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const judge = state.players[playerId];
-  if (!judge?.alive || judge.role !== 'judge') return { ok: false, error: 'Impossible' };
-  if (judge.charges <= 0) return { ok: false, error: 'Le tribunal a déjà siégé' };
+  if (!judge?.alive || judge.role !== 'judge') return { ok: false, error: NO.impossible() };
+  if (judge.charges <= 0) return { ok: false, error: NO.courtSpent() };
   if (state.phase !== 'day' || state.stage !== 'discussion' || state.day <= 1) {
-    return { ok: false, error: 'Pas maintenant' };
+    return { ok: false, error: NO.notNow() };
   }
 
   // The court needs a defendant: the current top-voted player.
@@ -348,7 +362,7 @@ export function callCourt(state: MafiaState, playerId: string, now: number): Act
       best = count;
     }
   }
-  if (!accusedId) return { ok: false, error: 'Personne n’est accusé' };
+  if (!accusedId) return { ok: false, error: NO.nobodyAccused() };
 
   judge.charges -= 1;
   state.trial = { accusedId, ballots: {}, court: true };
@@ -365,42 +379,74 @@ export function callCourt(state: MafiaState, playerId: string, now: number): Act
 export function jailTarget(state: MafiaState, playerId: string, targetSlot: number | null): ActionOutcome {
   if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const player = state.players[playerId];
-  if (!player?.alive || player.role !== 'jailor') return { ok: false, error: 'Impossible' };
-  if (state.phase !== 'day') return { ok: false, error: 'Choisissez pendant le jour' };
+  if (!player?.alive || player.role !== 'jailor') return { ok: false, error: NO.impossible() };
+  if (state.phase !== 'day') return { ok: false, error: NO.dayOnly() };
 
   if (targetSlot === null) {
     state.jailedId = null;
     return { ok: true };
   }
   const target = playerBySlot(state, targetSlot);
-  if (!target?.alive || target.playerId === playerId) return { ok: false, error: 'Cible invalide' };
+  if (!target?.alive || target.playerId === playerId) return { ok: false, error: NO.badTarget() };
   state.jailedId = target.playerId;
   return { ok: true };
 }
 
-export function castVote(state: MafiaState, voterId: string, targetSlot: number | null, now: number): ActionOutcome {
+/** The weighted majority of the living: what it takes to move the day. */
+export function voteThreshold(state: MafiaState): number {
+  return Math.floor(alivePlayers(state).reduce((sum, player) => sum + voteWeight(player), 0) / 2) + 1;
+}
+
+/** Weighted votes currently sitting on one target id (a player, or `SKIP_VOTE`). */
+function votesOn(state: MafiaState, targetId: string): number {
+  return alivePlayers(state)
+    .filter((player) => state.votes[player.playerId] === targetId)
+    .reduce((sum, player) => sum + voteWeight(player), 0);
+}
+
+/**
+ * An accusation, a withdrawal, or a vote to hang nobody at all.
+ *
+ * `'skip'` is a target like any other and deliberately so: it goes in the same
+ * record, clears the same way, and passes at the same weighted majority. Before
+ * it existed, a town that had already said everything it had to say could do
+ * nothing but stand in the square and watch two minutes run out — the day had
+ * exactly one exit and it was the clock.
+ */
+export function castVote(
+  state: MafiaState,
+  voterId: string,
+  targetSlot: number | 'skip' | null,
+  now: number
+): ActionOutcome {
   if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const voter = state.players[voterId];
-  if (!voter?.alive) return { ok: false, error: 'Les morts ne votent pas' };
-  if (state.phase !== 'day' || state.stage !== 'discussion') return { ok: false, error: 'Pas maintenant' };
-  if (state.day <= 1) return { ok: false, error: 'Pas de vote le premier jour' };
+  if (!voter?.alive) return { ok: false, error: NO.deadNoVote() };
+  if (state.phase !== 'day' || state.stage !== 'discussion') return { ok: false, error: NO.notNow() };
+  if (state.day <= 1) return { ok: false, error: NO.firstDay() };
 
   if (targetSlot === null) {
     delete state.votes[voterId];
     return { ok: true };
   }
 
+  if (targetSlot === 'skip') {
+    state.votes[voterId] = SKIP_VOTE;
+    if (votesOn(state, SKIP_VOTE) >= voteThreshold(state)) {
+      announce(state, M.voteSkipped(), now);
+      beginNight(state, now);
+    }
+    return { ok: true };
+  }
+
   const target = playerBySlot(state, targetSlot);
-  if (!target?.alive) return { ok: false, error: 'Cible invalide' };
-  if (target.playerId === voterId) return { ok: false, error: 'Pas contre soi-même' };
+  if (!target?.alive) return { ok: false, error: NO.badTarget() };
+  if (target.playerId === voterId) return { ok: false, error: NO.notYourself() };
 
   state.votes[voterId] = target.playerId;
 
-  const alive = alivePlayers(state);
-  const needed = Math.floor(alive.reduce((sum, p) => sum + voteWeight(p), 0) / 2) + 1;
-  const against = alive
-    .filter((p) => state.votes[p.playerId] === target.playerId)
-    .reduce((sum, p) => sum + voteWeight(p), 0);
+  const needed = voteThreshold(state);
+  const against = votesOn(state, target.playerId);
 
   /**
    * An accusation is no longer announced.
@@ -438,11 +484,11 @@ export function castBallot(
 ): ActionOutcome {
   if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const voter = state.players[voterId];
-  if (!voter?.alive) return { ok: false, error: 'Les morts ne votent pas' };
+  if (!voter?.alive) return { ok: false, error: NO.deadNoVote() };
   if (state.phase !== 'day' || state.stage !== 'judgement' || !state.trial) {
-    return { ok: false, error: 'Pas maintenant' };
+    return { ok: false, error: NO.notNow() };
   }
-  if (state.trial.accusedId === voterId) return { ok: false, error: "L'accusé ne vote pas" };
+  if (state.trial.accusedId === voterId) return { ok: false, error: NO.accusedSilent() };
 
   if (verdict === 'abstain') delete state.trial.ballots[voterId];
   else state.trial.ballots[voterId] = verdict;
@@ -529,7 +575,7 @@ export function setNightAction(
 ): ActionOutcome {
   if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const legal = legalNightAction(state, playerId);
-  if (!legal) return { ok: false, error: 'Aucune action possible' };
+  if (!legal) return { ok: false, error: NO.noAction() };
 
   if (targetSlot === null) {
     delete state.nightActions[playerId];
@@ -539,7 +585,7 @@ export function setNightAction(
   let targetId: string | null = null;
   if (legal.targets.length > 0) {
     const target = playerBySlot(state, targetSlot);
-    if (!target || !legal.targets.includes(target.slot)) return { ok: false, error: 'Cible invalide' };
+    if (!target || !legal.targets.includes(target.slot)) return { ok: false, error: NO.badTarget() };
     targetId = target.playerId;
   }
 
@@ -797,7 +843,9 @@ function beginDay(state: MafiaState, now: number, announcements: Announcement[])
   state.trialsToday = 0;
   state.votes = {};
   state.nightActions = {};
-  state.phaseEndsAt = now + (state.day === 1 ? Math.round(state.config.dayMs * 0.6) : state.config.dayMs);
+    // Day one has no corpse to argue about and no rope to pull, so it runs on its
+  // own much shorter clock. Older persisted tables predate the field.
+  state.phaseEndsAt = now + (state.day === 1 ? (state.config.firstDayMs ?? 35_000) : state.config.dayMs);
 
   announce(state, M.dayHeader(state.day), now);
   for (const line of announcements) {
@@ -819,7 +867,7 @@ function beginNight(state: MafiaState, now: number): void {
   const jailed = state.jailedId ? state.players[state.jailedId] : null;
   const jailor = Object.values(state.players).find((player) => player.role === 'jailor' && player.alive);
   if (jailed?.alive && jailor?.alive) {
-    notify(jailed, 'On vous a traîné en cellule pour la nuit. Le Geôlier vous écoute.');
+    notify(jailed, NOTE.jailedNight());
     systemPost(state.chat, jailChannel(state.day), M.jailLocked(jailed.name), now);
   } else {
     state.jailedId = null;
@@ -983,17 +1031,17 @@ function lynch(state: MafiaState, accused: MafiaPlayer, trial: { ballots: Record
   }
 
   if (role === 'jester') {
-    state.winners.push({ playerId: accused.playerId, reason: 'Bouffon pendu : il gagne seul', kind: 'jester' });
+    state.winners.push({ playerId: accused.playerId, reason: M.winReason('jester'), kind: 'jester' });
     addPoints(state, accused.playerId, 'solo-win');
-    notify(accused, 'Ils vous ont pendu. Vous avez gagné.');
+    notify(accused, NOTE.jesterWon());
     announce(state, M.winJester(), now);
   }
 
   for (const player of Object.values(state.players)) {
     if (player.role === 'executioner' && player.alive && player.obsessionId === accused.playerId) {
-      state.winners.push({ playerId: player.playerId, reason: 'Obsession pendue : le Bourreau gagne', kind: 'executioner' });
+      state.winners.push({ playerId: player.playerId, reason: M.winReason('executioner'), kind: 'executioner' });
       addPoints(state, player.playerId, 'solo-win');
-      notify(player, 'Votre obsession se balance. Vous avez gagné.');
+      notify(player, NOTE.execWon());
     }
   }
 
@@ -1103,12 +1151,12 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     if (action?.type === 'alert' && player.charges > 0) {
       player.charges -= 1;
       alerted.add(player.playerId);
-      notify(player, 'Vous passez la nuit en alerte, fusil sur les genoux.');
+      notify(player, NOTE.onAlert());
     }
     if (action?.type === 'vest' && player.charges > 0) {
       player.charges -= 1;
       vested.add(player.playerId);
-      notify(player, 'Gilet enfilé pour la nuit.');
+      notify(player, NOTE.vestOn());
     }
   }
 
@@ -1133,11 +1181,11 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       const destination = living(action.secondTargetId) ?? randomOther(victim.playerId);
       if (destination) {
         victimAction.targetId = destination.playerId;
-        notify(victim, 'Une volonté étrangère a guidé vos pas cette nuit.');
-        notify(player, `Vous avez envoûté ${victim.name} et détourné son geste vers ${destination.name}.`);
+        notify(victim, NOTE.controlled());
+        notify(player, NOTE.controlDone(victim.name, destination.name));
       }
     } else {
-      notify(player, `${victim.name} n'avait aucun geste à détourner cette nuit.`);
+      notify(player, NOTE.controlIdle(victim.name));
     }
   }
 
@@ -1160,9 +1208,9 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       if (other.targetId === first.playerId) other.targetId = second.playerId;
       else if (other.targetId === second.playerId) other.targetId = first.playerId;
     }
-    notify(first, 'Un bus vous a déposé ailleurs cette nuit.');
-    notify(second, 'Un bus vous a déposé ailleurs cette nuit.');
-    notify(player, `Vous avez échangé ${first.name} et ${second.name}. Vous seul savez qui dormait où.`);
+    notify(first, NOTE.bussed());
+    notify(second, NOTE.bussed());
+    notify(player, NOTE.busDone(first.name, second.name));
     player.intel.push({
       night: state.day,
       kind: 'swapped',
@@ -1183,7 +1231,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     visit(player.playerId, target.playerId);
     blocked.add(target.playerId);
     sheltered.add(target.playerId);
-    notify(target, 'Un sac sur la tête, une cave inconnue : on vous a enlevé pour la nuit.');
+    notify(target, NOTE.kidnapped());
     player.intel.push({ night: state.day, kind: 'blocked', targetSlot: target.slot, value: 'kidnapped' });
   }
 
@@ -1197,7 +1245,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     visit(player.playerId, target.playerId);
     if (!alerted.has(target.playerId)) {
       blocked.add(target.playerId);
-      notify(target, 'Quelqu’un vous a retenu toute la nuit. Votre action est tombée à l’eau.');
+      notify(target, NOTE.blocked());
       // The blocker knows whom they kept busy — a quiet night says a lot.
       player.intel.push({ night: state.day, kind: 'blocked', targetSlot: target.slot, value: 'blocked' });
     }
@@ -1232,15 +1280,15 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       case 'silence':
         target.silencedDay = state.day + 1;
         visit(player.playerId, target.playerId);
-        notify(target, 'Une lettre sous votre porte : « Un mot demain et tout le monde saura. » Vous voilà muet.');
-        notify(player, `${target.name} se taira demain.`);
+        notify(target, NOTE.silenced());
+        notify(player, NOTE.silenceDone(target.name));
         break;
       case 'douse':
         if (target.playerId !== player.playerId) {
           target.doused = true;
           visit(player.playerId, target.playerId);
-          notify(target, 'Une odeur d’essence imprègne vos murs…');
-          notify(player, `La maison de ${target.name} est imbibée.`);
+          notify(target, NOTE.doused());
+          notify(player, NOTE.douseDone(target.name));
           player.intel.push({ night: state.day, kind: 'doused', targetSlot: target.slot, value: 'doused' });
         }
         break;
@@ -1248,32 +1296,32 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         if (target.playerId !== player.playerId) {
           target.charged = true;
           visit(player.playerId, target.playerId);
-          notify(player, `La maison de ${target.name} est câblée.`);
+          notify(player, NOTE.chargeDone(target.name));
           player.intel.push({ night: state.day, kind: 'doused', targetSlot: target.slot, value: 'charged' });
         }
         break;
       case 'poison':
         target.poisonedNight = state.day;
         visit(player.playerId, target.playerId);
-        notify(target, 'Un goût amer au fond de la gorge. Vous vous sentez fiévreux…');
-        notify(player, `${target.name} est empoisonné : il s’éteindra demain, sauf médecin.`);
+        notify(target, NOTE.poisoned());
+        notify(player, NOTE.poisonDone(target.name));
         break;
       case 'imitate':
         player.disguiseRole = target.role;
         visit(player.playerId, target.playerId);
-        notify(player, `Cette nuit, les curieux vous prendront pour ${roleDef(target.role!).name}.`);
+        notify(player, NOTE.disguised(target.role!));
         break;
       case 'hide':
         hideHosts.set(player.playerId, target.playerId);
         visit(player.playerId, target.playerId);
-        notify(player, `Vous passez la nuit caché chez ${target.name}. Ce qui vous visait le trouvera.`);
+        notify(player, NOTE.hiding(target.name));
         break;
       case 'charm':
         target.bondPartnerId = player.playerId;
         target.bondKind = 'charm';
         visit(player.playerId, target.playerId);
-        notify(target, 'Un parfum entêtant vous colle à la peau. Votre cœur ne bat plus tout à fait pour vous.');
-        notify(player, `${target.name} vous appartient : si vous tombez, ce cœur s’arrête aussi.`);
+        notify(target, NOTE.charmed());
+        notify(player, NOTE.charmDone(target.name));
         break;
       case 'bond':
         if (player.charges > 0 && player.bondPartnerId === null) {
@@ -1283,8 +1331,8 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
           target.bondPartnerId = player.playerId;
           target.bondKind = 'lover';
           visit(player.playerId, target.playerId);
-          notify(player, `Votre cœur a choisi ${target.name}. Vivez ensemble, ou mourez ensemble.`);
-          notify(target, `Quelqu’un vous aime à la folie : ${player.name}. Vivez ensemble, ou mourez ensemble.`);
+          notify(player, NOTE.bondDone(target.name));
+          notify(target, NOTE.bonded(player.name));
         }
         break;
       case 'clean':
@@ -1465,12 +1513,12 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
 
     // The cell protects its prisoner from the outside world, never from its keeper.
     if (target.playerId === jailedId && !fromJailor && !isPoison) {
-      if (attacker) notify(attacker, 'Votre cible était introuvable cette nuit.');
+      if (attacker) notify(attacker, NOTE.targetMissing());
       continue;
     }
     // A kidnapped player is somewhere nobody knows.
     if (sheltered.has(target.playerId) && !isPoison) {
-      if (attacker) notify(attacker, 'Votre cible était introuvable cette nuit.');
+      if (attacker) notify(attacker, NOTE.targetMissing());
       continue;
     }
 
@@ -1481,8 +1529,8 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     if (isPoison) defense = 0; // the poison is already inside; armour is irrelevant
 
     if (attack.power <= defense) {
-      notify(target, 'On vous a attaqué cette nuit, mais vous avez tenu bon.');
-      if (attacker) notify(attacker, 'Votre cible a survécu à votre attaque.');
+      notify(target, NOTE.survived());
+      if (attacker) notify(attacker, NOTE.attackFailed());
       continue;
     }
 
@@ -1494,14 +1542,14 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         diedTonight.add(guard.playerId);
         kill(state, guard, 'night', CAUSE.guard(target.name));
         addPoints(state, guard.playerId, 'save');
-        notify(target, 'Quelqu’un est mort pour vous cette nuit.');
+        notify(target, NOTE.guarded());
         if (attacker && attacker.playerId !== guard.playerId) {
           const counterDefense = attacker.role && roleDef(attacker.role).nightImmune ? 1 : 0;
           if (2 > counterDefense && !diedTonight.has(attacker.playerId)) {
             diedTonight.add(attacker.playerId);
             kill(state, attacker, 'night', CAUSE.bodyguard());
           } else {
-            notify(attacker, 'Un garde du corps vous a repoussé.');
+            notify(attacker, NOTE.bodyguardRepelled());
           }
         }
         continue;
@@ -1513,13 +1561,13 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     if (!fromJailor && attack.power <= 2 && healerList.length > 0) {
       if (isPoison) {
         target.poisonedNight = null;
-        notify(target, 'La fièvre tombe : on vous a purgé le sang à temps.');
+        notify(target, NOTE.purged());
       } else {
-        notify(target, 'On vous a laissé pour mort, mais des mains expertes vous ont recousu.');
+        notify(target, NOTE.healed());
       }
       for (const healer of healerList) {
         if (healer) {
-          notify(healer, 'Votre patient a été attaqué cette nuit. Vous l’avez sauvé.');
+          notify(healer, NOTE.healSaved());
           healer.intel.push({ night: state.day, kind: 'saved', targetSlot: target.slot, value: 'saved' });
           addPoints(state, healer.playerId, 'save');
         }
@@ -1537,7 +1585,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
           addPoints(state, attacker.playerId, 'execute-evil');
         } else {
           attacker.charges = 0;
-          notify(attacker, 'Vous avez exécuté un innocent. Vos mains tremblent : plus aucune exécution.');
+          notify(attacker, NOTE.executedInnocent());
         }
       }
     }
@@ -1565,7 +1613,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     record.hidden = true;
     cleaner.charges -= 1;
     cleaner.intel.push({ night: state.day, kind: 'role', targetSlot: target.slot, value: target.role! });
-    notify(cleaner, `Le cadavre de ${target.name} est méconnaissable. C'était ${roleDef(target.role!).name}.`);
+    notify(cleaner, NOTE.cleaned(target.name, target.role!));
   }
 
   // Dawn report.
@@ -1592,7 +1640,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     if (player.role === 'executioner' && player.alive && player.obsessionId && !state.players[player.obsessionId]?.alive) {
       player.role = 'jester';
       player.obsessionId = null;
-      notify(player, 'Votre obsession est morte sans corde. Le deuil vous rend fou : vous êtes désormais le Bouffon.');
+      notify(player, NOTE.griefMad());
     }
   }
 
@@ -1602,9 +1650,9 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     for (const [familyId, targetId] of familyKillTargets) {
       const target = state.players[targetId];
       if (!target) continue;
-      // The family's own name, from the one place it is spelled: a two-way
-      // ternary here would report the Cult as the Triad the day it can kill.
-      notify(player, `${capitalise(FAMILIES[familyId].label)} a visé la maison ${target.slot} cette nuit.`);
+      // The family's own name as a camp key, so the Cult never reports as the
+      // Triad the day it can kill.
+      notify(player, NOTE.familyAimed(familyId, target.slot));
       player.intel.push({ night: state.day, kind: 'spied', targetSlot: target.slot, value: familyId });
     }
   }
@@ -1638,16 +1686,16 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         framed.has(target.playerId) ||
         !!shown.suspicious ||
         (familyOf(shownRole) !== null && !shown.detectionImmune);
-      notify(player, `${target.name} ${suspect ? 'est SUSPECT' : 'n’a rien de suspect'}.`);
+      notify(player, NOTE.sheriff(target.name, suspect));
       player.intel.push({ night: state.day, kind: 'sheriff', targetSlot: target.slot, value: suspect ? 'suspect' : 'clear' });
     }
     if (action.type === 'examine') {
       if (player.role === 'consigliere' || player.role === 'administrator') {
-        notify(player, `${target.name} est ${shown.name}.`);
+        notify(player, NOTE.exactRole(target.name, shown.id));
         player.intel.push({ night: state.day, kind: 'role', targetSlot: target.slot, value: shownRole });
       } else {
         const line = framed.has(target.playerId) ? roleDef('framer').investigated : shown.investigated;
-        notify(player, `${target.name} ${line}.`);
+        notify(player, NOTE.tradeLine(target.name, line));
         player.intel.push({ night: state.day, kind: 'trade', targetSlot: target.slot, value: line });
       }
     }
@@ -1660,12 +1708,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
             .filter((visitor): visitor is MafiaPlayer => !!visitor)
         )
       ];
-      notify(
-        player,
-        seenPlayers.length > 0
-          ? `Chez ${target.name} cette nuit : ${seenPlayers.map((v) => v.name).join(', ')}.`
-          : `Personne n’a rendu visite à ${target.name} cette nuit.`
-      );
+      notify(player, NOTE.visitors(target.name, seenPlayers.map((visitor) => visitor.name)));
       player.intel.push({
         night: state.day,
         kind: 'visitors',
@@ -1683,12 +1726,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
             .filter((house): house is MafiaPlayer => !!house)
         )
       ];
-      notify(
-        player,
-        wentTo.length > 0
-          ? `${target.name} est sorti cette nuit : vu chez ${wentTo.map((v) => v.name).join(', ')}.`
-          : `${target.name} n’a pas quitté sa maison cette nuit.`
-      );
+      notify(player, NOTE.tracked(target.name, wentTo.map((house) => house.name)));
       player.intel.push({
         night: state.day,
         kind: 'tracked',
@@ -1698,7 +1736,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       });
     }
     if (action.type === 'autopsy' && !target.alive) {
-      notify(player, `Sous votre scalpel, ${target.name} livre son secret : c'était ${roleDef(target.role!).name}.`);
+      notify(player, NOTE.autopsy(target.name, target.role!));
       player.intel.push({ night: state.day, kind: 'role', targetSlot: target.slot, value: target.role! });
     }
   }
@@ -1715,10 +1753,10 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       visit(player.playerId, target.playerId);
       if (target.role === 'citizen') {
         target.role = 'mason';
-        notify(target, 'On vous a initié à la loge. Vos frères vous connaissent désormais.');
-        notify(player, `${target.name} a rejoint la loge.`);
+        notify(target, NOTE.initiated());
+        notify(player, NOTE.initiateDone(target.name));
       } else {
-        notify(player, `${target.name} a décliné l’initiation.`);
+        notify(player, NOTE.initiateRefused(target.name));
       }
     }
 
@@ -1729,11 +1767,11 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         target.role = converted;
         target.charges = roleDef(converted).charges ?? 0;
         player.cooldownUntilDay = state.day + 2;
-        notify(target, 'Des voix dans la nuit… et soudain tout est clair. Vous appartenez à la Secte.');
-        notify(player, `${target.name} a rejoint la Secte.`);
+        notify(target, NOTE.converted());
+        notify(player, NOTE.convertDone(target.name));
         announcements.push({ line: M.cultChant(), reveals: true });
       } else {
-        notify(player, `${target.name} a résisté à l’appel.`);
+        notify(player, NOTE.convertRefused(target.name));
       }
     }
 
@@ -1741,7 +1779,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       const remembered = target.role;
       player.role = remembered;
       player.charges = roleDef(remembered).charges ?? 0;
-      notify(player, `Tout vous revient : vous êtes ${roleDef(remembered).name}.`);
+      notify(player, NOTE.remembered(remembered));
       announcements.push({
         line: M.amnesiacRemembered(roleDef(remembered).name, target.name),
         reveals: true
@@ -1760,10 +1798,10 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         player.charges -= 1;
         target.role = audited;
         target.charges = roleDef(audited).charges ?? 0;
-        notify(target, `Un contrôle implacable : vos papiers, vos outils, votre vie d'avant — saisis. Vous êtes ${roleDef(audited).name}.`);
-        notify(player, `${target.name} a été réduit à néant administratif.`);
+        notify(target, NOTE.audited(audited));
+        notify(player, NOTE.auditDone(target.name));
       } else {
-        notify(player, `${target.name} est inattaquable sur le papier.`);
+        notify(player, NOTE.auditFailed(target.name));
       }
     }
   }
@@ -1775,24 +1813,24 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
 
 /* ------------------------------- endings -------------------------------- */
 
-const FAMILY_WIN: Record<FamilyId, { reason: string; headline: Msg }> = {
-  mafia: { reason: 'Victoire de la Mafia', headline: M.winFamily('mafia') },
-  triad: { reason: 'Victoire de la Triade', headline: M.winFamily('triad') },
-  cult: { reason: 'Victoire de la Secte', headline: M.winFamily('cult') }
+const FAMILY_WIN: Record<FamilyId, { reason: Msg; headline: Msg }> = {
+  mafia: { reason: M.winReason('mafia'), headline: M.winFamily('mafia') },
+  triad: { reason: M.winReason('triad'), headline: M.winFamily('triad') },
+  cult: { reason: M.winReason('cult'), headline: M.winFamily('cult') }
 };
 
-const SOLO_WIN: Partial<Record<RoleId, { reason: string; headline: Msg }>> = {
+const SOLO_WIN: Partial<Record<RoleId, { reason: Msg; headline: Msg }>> = {
   'serial-killer': {
-    reason: 'Dernier tueur debout',
+    reason: M.winReason('serial-killer'),
     headline: M.winSolo('serial-killer')
   },
-  arsonist: { reason: 'Dernière flamme debout', headline: M.winSolo('arsonist') },
-  'mass-murderer': { reason: 'Dernier massacre debout', headline: M.winSolo('mass-murderer') },
+  arsonist: { reason: M.winReason('arsonist'), headline: M.winSolo('arsonist') },
+  'mass-murderer': { reason: M.winReason('mass-murderer'), headline: M.winSolo('mass-murderer') },
   poisoner: {
-    reason: 'Dernière fiole debout',
+    reason: M.winReason('poisoner'),
     headline: M.winSolo('poisoner')
   },
-  electromaniac: { reason: 'Dernier courant debout', headline: M.winSolo('electromaniac') }
+  electromaniac: { reason: M.winReason('electromaniac'), headline: M.winSolo('electromaniac') }
 };
 
 /**
@@ -1821,7 +1859,7 @@ function endGame(state: MafiaState, now: number, headline: Msg, ending: Ending):
   for (const player of Object.values(state.players)) {
     if (player.alive) addPoints(state, player.playerId, 'survive');
     if (player.alive && player.role === 'survivor') {
-      state.winners.push({ playerId: player.playerId, reason: 'A survécu jusqu’au bout', kind: 'survivor' });
+      state.winners.push({ playerId: player.playerId, reason: M.winReason('survivor'), kind: 'survivor' });
       addPoints(state, player.playerId, 'solo-win');
     }
     // Misfortune's parasites: alive while the town failed is a win.
@@ -1830,7 +1868,7 @@ function endGame(state: MafiaState, now: number, headline: Msg, ending: Ending):
       (player.role === 'witch' || player.role === 'scumbag' || player.role === 'judge' || player.role === 'auditor') &&
       !townWon
     ) {
-      state.winners.push({ playerId: player.playerId, reason: 'A prospéré dans le malheur', kind: 'parasite' });
+      state.winners.push({ playerId: player.playerId, reason: M.winReason('parasite'), kind: 'parasite' });
       addPoints(state, player.playerId, 'solo-win');
     }
     // Lovers win together, whoever else won.
@@ -1843,8 +1881,8 @@ function endGame(state: MafiaState, now: number, headline: Msg, ending: Ending):
     ) {
       lovers.add(player.playerId);
       lovers.add(player.bondPartnerId);
-      state.winners.push({ playerId: player.playerId, reason: 'L’amour a survécu à la ville', kind: 'lovers' });
-      state.winners.push({ playerId: player.bondPartnerId, reason: 'L’amour a survécu à la ville', kind: 'lovers' });
+      state.winners.push({ playerId: player.playerId, reason: M.winReason('lovers'), kind: 'lovers' });
+      state.winners.push({ playerId: player.bondPartnerId, reason: M.winReason('lovers'), kind: 'lovers' });
       addPoints(state, player.playerId, 'solo-win');
       addPoints(state, player.bondPartnerId, 'solo-win');
     }
@@ -1886,7 +1924,7 @@ export function checkVictory(state: MafiaState, now: number): boolean {
   if (familiesAlive.length === 0 && soloKillers.length === 0) {
     for (const player of Object.values(state.players)) {
       if (player.role && roleDef(player.role).faction === 'town') {
-        state.winners.push({ playerId: player.playerId, reason: 'Victoire de la Ville', kind: 'town' });
+        state.winners.push({ playerId: player.playerId, reason: M.winReason('town'), kind: 'town' });
         addPoints(state, player.playerId, 'win');
       }
     }

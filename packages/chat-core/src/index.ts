@@ -11,6 +11,7 @@ export {
   type ChatState,
   type PostInput,
   type PostLimits,
+  type PostRefusal,
   type PostResult,
   type Retention
 } from './chat.js';

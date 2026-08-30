@@ -16,15 +16,12 @@ export function kindColor(kind: string): string {
   return KIND_COLORS[kind] ?? 'var(--ink-faint)';
 }
 
-/** Short French label, for chips and table cells. */
-const KIND_LABELS: Record<string, string> = {
-  blindtest: 'Blind test',
-  quiz: 'Question',
-  estimation: 'Estimation',
-  'image-reveal': 'Image',
-  'image-memory': 'Panel'
-};
-
-export function kindLabel(kind: string): string {
-  return KIND_LABELS[kind] ?? kind;
+/**
+ * The catalogue key that names a kind, for chips and table cells.
+ *
+ * A key rather than a word: five labels appear on eight different screens, and
+ * one of those screens is a phone whose owner may not read French.
+ */
+export function kindKey(kind: string): string {
+  return `quiz.kind.${kind}`;
 }

@@ -1,3 +1,4 @@
+import { msg } from 'i18n';
 import {
   heroDef,
   PROGRAM_LABELS,
@@ -24,6 +25,7 @@ import {
 } from './iso/geometry';
 import { pickCellAt, renderScene, sceneSignature } from './iso/scene';
 import { useCzCamera, type FollowTarget } from './useCzCamera';
+import { useT } from '../../i18n/locale-context';
 
 /**
  * The board, in fake three dimensions, for every screen at once.
@@ -83,6 +85,7 @@ export function CzMap({
    */
   camera?: 'manual' | 'auto';
 }) {
+  const t = useT();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [artTick, setArtTick] = useState(0);
   /**
@@ -478,7 +481,7 @@ export function CzMap({
                   color: RARITY_META[def.rarity].color,
                   borderColor: RARITY_META[def.rarity].color
                 }}
-                title={`${def.name} (${RARITY_META[def.rarity].label}) · ${zombie.hp}/${zombie.maxHp} PV${
+                title={`${t(msg(def.name))} (${t(msg(RARITY_META[def.rarity].label))}) · ${zombie.hp}/${zombie.maxHp} PV${
                   zombie.bonusDmg > 0 ? ' · élite' : ''
                 }${aimable === false ? ' · hors de portée' : ''}${
                   spentZombies?.has(zombie.id) ? ' · a fini son tour' : ''

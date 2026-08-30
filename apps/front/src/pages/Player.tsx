@@ -1,9 +1,11 @@
 import { toServerTime, type AnswerAck, type JoinAck, type RedactedAnswerField } from 'game-core';
+import { msg } from 'i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 
 import { awardMeta } from '../app/awards';
 import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
+import { useLocale } from '../i18n/locale-context';
 import { assetUrl } from '../tools/api-url';
 import { BlindtestAudio } from '../ui/BlindtestAudio';
 import { QuickEnd } from '../ui/QuickEnd';
@@ -23,6 +25,7 @@ import './play.css';
 export default function Player() {
   const { code = '' } = useParams<{ code: string }>();
   const { socket, connected, session, error, serverNow, clock } = useGameSocket();
+  const { t, locale } = useLocale();
 
   const [name, setName] = useState('');
   const [joined, setJoined] = useState(false);
@@ -41,7 +44,7 @@ export default function Player() {
         // The remembered name rides with the token: a silent rejoin used to
         // send an empty name, which the schema refused — token or no token.
         const remembered = localStorage.getItem(`${tokenKey}.name`) ?? '';
-        const actualName = playerName.trim() || remembered || 'Joueur';
+        const actualName = playerName.trim() || remembered || t(msg('play.defaultName'));
 
         // socket.io's ack types do not survive `timeout()`; asserted once here.
         const ack = (await socket.timeout(5000).emitWithAck('session:join', {
@@ -56,10 +59,10 @@ export default function Player() {
           localStorage.setItem(`${tokenKey}.name`, actualName);
           setJoined(true);
         } else {
-          setJoinError(ack.error ?? 'Impossible de rejoindre.');
+          setJoinError(ack.error ?? t(msg('play.joinFailed')));
         }
       } catch {
-        setJoinError('Le serveur ne répond pas.');
+        setJoinError(t(msg('play.serverQuiet')));
       } finally {
         setBusy(false);
       }
@@ -67,7 +70,7 @@ export default function Player() {
     // Wrapped so the auto-rejoin effect below can depend on it honestly. Without
     // this it would be a new function every render, and the effect would either
     // lie about its dependencies or re-run on each one.
-    [socket, code, tokenKey]
+    [socket, code, tokenKey, t]
   );
 
   // A stored token means this phone was already in the game: rejoin silently
@@ -96,7 +99,7 @@ export default function Player() {
   if (!connected) {
     return (
       <div className="jeu-screen jeu-center">
-        <Loading label="Connexion…" />
+        <Loading label={t(msg('play.connecting'))} />
       </div>
     );
   }
@@ -111,18 +114,18 @@ export default function Player() {
             void join(name);
           }}
         >
-          <h1 className="join-title">Partie {code}</h1>
+          <h1 className="join-title">{t(msg('play.game', { code }))}</h1>
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Ton pseudo"
+            placeholder={t(msg('play.yourNickname'))}
             maxLength={24}
-            aria-label="Ton pseudo"
+            aria-label={t(msg('play.yourNickname'))}
             autoFocus
           />
           {joinError && <p className="play-error">{joinError}</p>}
           <Button type="submit" variant="primary" size="lg" block busy={busy} disabled={!name.trim()}>
-            Rejoindre
+            {t(msg('play.join'))}
           </Button>
         </form>
       </div>
@@ -132,7 +135,7 @@ export default function Player() {
   if (!session) {
     return (
       <div className="jeu-screen jeu-center">
-        <Loading label="En attente de la partie…" />
+        <Loading label={t(msg('play.waitingForGame'))} />
       </div>
     );
   }
@@ -155,8 +158,8 @@ export default function Player() {
       {session.phase === 'lobby' && (
         <div className="jeu-center" style={{ flex: 1 }}>
           <div className="stack-4" style={{ textAlign: 'center' }}>
-            <p className="play-note">En attente du lancement.</p>
-            <p className="play-label">{session.players.length} joueur(s)</p>
+            <p className="play-note">{t(msg('play.waitingForStart'))}</p>
+            <p className="play-label">{t(msg('play.playerCount', { count: session.players.length }))}</p>
             <ul className="player-chips">
               {session.players.map((player) => (
                 <li key={player.id} className={player.connected ? '' : 'away'}>
@@ -191,6 +194,7 @@ export default function Player() {
           serverNow={serverNow}
           offsetMs={clock.offsetMs}
           myId={myId}
+          locale={locale}
           onSubmit={async (fieldKey, value, direct) => {
             if (!socket || !session.round) return { ok: false };
 
@@ -218,7 +222,7 @@ export default function Player() {
       {session.phase === 'finished' && (
         <div className="jeu-center" style={{ flex: 1 }}>
           <div className="stack-4" style={{ textAlign: 'center' }}>
-            <p className="play-label">Terminé</p>
+            <p className="play-label">{t(msg('play.finished'))}</p>
             {/* The television holds the ceremony; the phone tells you what YOU got. */}
             {(session.final?.awards ?? [])
               .filter((award) => award.playerId === myId)
@@ -226,7 +230,7 @@ export default function Player() {
                 const meta = awardMeta(award.key);
                 return (
                   <p className="player-award" key={award.key}>
-                    {meta.emoji} {meta.title} · {award.value}
+                    {meta.emoji} {t(msg(meta.titleKey))} · {award.value}
                   </p>
                 );
               })}
@@ -255,6 +259,8 @@ interface RoundPanelProps {
   offsetMs: number;
   /** This phone’s player id, so the reveal shows its own score. */
   myId: string | null;
+  /** The reader's language, for the numbers `toLocaleString` has to format. */
+  locale: string;
   /**
    * True when this panel sits on a screen that already presents the media, i.e.
    * solo play on the host screen: the question is up there, only answers here.
@@ -273,10 +279,12 @@ export function RoundPanel({
   session,
   serverNow,
   myId,
+  locale,
   hidePresentation = false,
   onSubmit,
   onRevealChoices
 }: RoundPanelProps) {
+  const t = useLocale().t;
   const round = session.round;
   const remaining = useCountdown(round?.phaseEndsAt ?? null, serverNow);
   const [feedback, setFeedback] = useState<{ field: string; text: string; good: boolean } | null>(null);
@@ -293,33 +301,39 @@ export function RoundPanel({
     return (
       <div className="jeu-center" style={{ flex: 1 }}>
         <div className="stack-4" style={{ textAlign: 'center' }}>
-          <p className="play-label">Réponse</p>
+          <p className="play-label">{t(msg('play.answer'))}</p>
           {reveal.answers.map((answer) => (
             <p className="player-answer" key={answer.key}>
               {answer.value}
             </p>
           ))}
-          {reveal.guesses && reveal.guesses.length > 0 && <GuessList guesses={reveal.guesses} myId={myId} />}
+          {reveal.guesses && reveal.guesses.length > 0 && (
+            <GuessList guesses={reveal.guesses} myId={myId} locale={locale} />
+          )}
           {reveal.explanation && <p className="play-note">{reveal.explanation}</p>}
           {mine && (
             <p className="play-note">
-              +{mine.points} pts ce tour
+              {t(msg('play.pointsThisRound', { points: mine.points }))}
               {/* A multiplied score has to say why, or it reads as a bug. */}
               {mine.comboMultiplier !== undefined && mine.comboMultiplier > 1 && (
                 <>
                   {' '}
-                  <Badge tone="ok">combo ×{mine.comboMultiplier.toFixed(1)}</Badge>
+                  <Badge tone="ok">{t(msg('play.combo', { factor: mine.comboMultiplier.toFixed(1) }))}</Badge>
                 </>
               )}
               {mine.comebackMultiplier !== undefined && mine.comebackMultiplier > 1 && (
                 <>
                   {' '}
-                  <Badge tone="warn">remontée ×{mine.comebackMultiplier.toFixed(1)}</Badge>
+                  <Badge tone="warn">
+                    {t(msg('play.comeback', { factor: mine.comebackMultiplier.toFixed(1) }))}
+                  </Badge>
                 </>
               )}
             </p>
           )}
-          {mine && mine.comboLength > 1 && <p className="play-note">{mine.comboLength} manches gagnées d’affilée</p>}
+          {mine && mine.comboLength > 1 && (
+            <p className="play-note">{t(msg('play.streak', { count: mine.comboLength }))}</p>
+          )}
         </div>
       </div>
     );
@@ -329,7 +343,7 @@ export function RoundPanel({
     return (
       <div className="jeu-center" style={{ flex: 1 }}>
         <div className="stack-4" style={{ textAlign: 'center' }}>
-          <p className="play-label">Mémorisez</p>
+          <p className="play-label">{t(msg('play.memorise'))}</p>
           <p className="host-timer tabular">{remaining}</p>
           {!hidePresentation && <Presentation round={round} serverNow={serverNow} />}
         </div>
@@ -413,16 +427,18 @@ export function RoundPanel({
                   field: field.key,
                   good: Boolean(result.correct),
                   text: result.correct
-                    ? 'Trouvé'
+                    ? t(msg('play.found'))
                     : (result.error ??
-                      (result.attemptsLeft !== undefined ? `Non, ${result.attemptsLeft} essai(s) restant(s)` : 'Non'))
+                      (result.attemptsLeft !== undefined
+                        ? t(msg('play.notFoundLeft', { count: result.attemptsLeft }))
+                        : t(msg('play.notFound'))))
                 });
               }}
             />
           );
         })}
 
-        {open.length === 0 && <p className="play-note">Tout est joué. En attente du prochain tour.</p>}
+        {open.length === 0 && <p className="play-note">{t(msg('play.allPlayed'))}</p>}
       </div>
     </div>
   );
@@ -446,6 +462,7 @@ function FreeRecallBox({
   locked: boolean;
   onSubmit: (value: string) => Promise<{ ok: boolean; error?: string; correct?: boolean }>;
 }) {
+  const t = useLocale().t;
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [found, setFound] = useState<string[]>([]);
@@ -475,7 +492,7 @@ function FreeRecallBox({
         setMiss(null);
         setValue('');
       } else {
-        setMiss(result.error ?? 'Non');
+        setMiss(result.error ?? t(msg('play.notFound')));
       }
     } finally {
       setBusy(false);
@@ -488,7 +505,7 @@ function FreeRecallBox({
     <div className="recall">
       <div className="recall-head">
         <span className="play-label">
-          {showPrompts ? 'Répondez dans l’ordre que vous voulez' : 'Citez ce que vous avez retenu'}
+          {t(msg(showPrompts ? 'play.answerInAnyOrder' : 'play.recallWhatYouSaw'))}
         </span>
         <span className="recall-count tabular">
           {found.length} / {total}
@@ -506,13 +523,13 @@ function FreeRecallBox({
         </ul>
       )}
 
-      {locked && <p className="field-error">Plus d’essais pour ce tour.</p>}
+      {locked && <p className="field-error">{t(msg('play.noTriesThisRound'))}</p>}
 
       {!done && !locked && (
         <div className="row-attached">
           <Input
             value={value}
-            placeholder="Un élément, puis Entrée"
+            placeholder={t(msg('play.oneItemThenEnter'))}
             autoComplete="off"
             onChange={(event) => {
               setValue(event.target.value);
@@ -526,13 +543,13 @@ function FreeRecallBox({
             }}
           />
           <Button variant="primary" busy={busy} onClick={() => void send()}>
-            Valider
+            {t(msg('play.confirm'))}
           </Button>
         </div>
       )}
 
       {miss && <p className="field-error">{miss}</p>}
-      {done && <p className="play-note">Tout trouvé.</p>}
+      {done && <p className="play-note">{t(msg('play.allFound'))}</p>}
 
       {found.length > 0 && (
         <ul className="token-list">
@@ -561,6 +578,7 @@ function EstimationBox({
   unit?: string;
   onSubmit: (value: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
+  const t = useLocale().t;
   const [value, setValue] = useState('');
   const [committed, setCommitted] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -578,7 +596,7 @@ function EstimationBox({
         setCommitted(answer);
         setValue('');
       } else {
-        setError(result.error ?? 'Impossible d’envoyer ce nombre.');
+        setError(result.error ?? t(msg('play.estimateRefused')));
       }
     } finally {
       setBusy(false);
@@ -600,22 +618,24 @@ function EstimationBox({
             setValue(event.target.value);
             setError(null);
           }}
-          placeholder={committed ? 'Corriger ton estimation' : 'Ton estimation'}
+          placeholder={t(msg(committed ? 'play.fixEstimate' : 'play.yourEstimate'))}
           inputMode="decimal"
           autoComplete="off"
           enterKeyHint="send"
         />
         {unit && <span className="estimate-unit">{unit}</span>}
         <Button type="submit" variant="primary" busy={busy} disabled={!value.trim()}>
-          {committed ? 'Corriger' : 'Envoyer'}
+          {t(msg(committed ? 'play.fix' : 'play.send'))}
         </Button>
       </form>
 
       {error && <p className="play-error">{error}</p>}
       {committed && (
         <p className="estimate-committed">
-          Ton estimation : <strong>{committed}</strong>
-          {unit ? ` ${unit}` : ''} · modifiable jusqu’à la fin du chrono
+          {t(msg('play.estimateCommitted'))}
+          <strong>{committed}</strong>
+          {unit ? ` ${unit}` : ''}
+          {t(msg('play.estimateEditable'))}
         </p>
       )}
     </div>
@@ -625,12 +645,16 @@ function EstimationBox({
 /** Everyone's number at the reveal, closest first. */
 function GuessList({
   guesses,
-  myId
+  myId,
+  locale
 }: {
   guesses: { playerId: string; name: string; value: number; delta: number }[];
   myId: string | null;
+  locale: string;
 }) {
-  const format = (value: number) => value.toLocaleString('fr-FR');
+  const t = useLocale().t;
+  // The reader's own grouping and decimal marks: 1 234,5 or 1,234.5.
+  const format = (value: number) => value.toLocaleString(locale);
 
   return (
     <ul className="guess-list">
@@ -639,7 +663,11 @@ function GuessList({
           <span className="score-name">{guess.name}</span>
           <span className="tabular">{format(guess.value)}</span>
           <span className="guess-delta">
-            {guess.delta === 0 ? 'exact !' : guess.delta > 0 ? `+${format(guess.delta)}` : format(guess.delta)}
+            {guess.delta === 0
+              ? t(msg('play.exact'))
+              : guess.delta > 0
+                ? `+${format(guess.delta)}`
+                : format(guess.delta)}
           </span>
         </li>
       ))}
@@ -739,6 +767,7 @@ function AnswerBox({
   onSubmit: (value: string, direct: boolean) => Promise<void>;
   onRevealChoices: () => void;
 }) {
+  const t = useLocale().t;
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -756,8 +785,8 @@ function AnswerBox({
   if (solved) {
     return (
       <div className="answer-box solved">
-        <span className="play-label">{field.label.trim() || 'Réponse'}</span>
-        <Badge tone="ok">trouvé</Badge>
+        <span className="play-label">{field.label.trim() || t(msg('play.answer'))}</span>
+        <Badge tone="ok">{t(msg('play.gotIt'))}</Badge>
       </div>
     );
   }
@@ -765,8 +794,8 @@ function AnswerBox({
   if (locked) {
     return (
       <div className="answer-box locked">
-        <span className="play-label">{field.label.trim() || 'Réponse'}</span>
-        <span className="play-note">Plus d’essais</span>
+        <span className="play-label">{field.label.trim() || t(msg('play.answer'))}</span>
+        <span className="play-note">{t(msg('play.noTriesLeft'))}</span>
       </div>
     );
   }
@@ -774,10 +803,10 @@ function AnswerBox({
   return (
     <div className="answer-box">
       <div className="answer-box-head">
-        <span className="play-label">{field.label.trim() || 'Réponse'}</span>
+        <span className="play-label">{field.label.trim() || t(msg('play.answer'))}</span>
         <span className="play-note tabular">
-          {field.points} pts
-          {field.directBonus > 0 && !field.choices ? ` (+${field.directBonus} à l’aveugle)` : ''}
+          {t(msg('play.points', { points: field.points }))}
+          {field.directBonus > 0 && !field.choices ? t(msg('play.blindBonus', { bonus: field.directBonus })) : ''}
         </span>
       </div>
 
@@ -801,20 +830,20 @@ function AnswerBox({
             <Input
               value={value}
               onChange={(event) => setValue(event.target.value)}
-              placeholder="Ta réponse"
+              placeholder={t(msg('play.yourAnswer'))}
               autoComplete="off"
               autoCorrect="off"
               spellCheck={false}
               enterKeyHint="send"
             />
             <Button type="submit" variant="primary" busy={busy} disabled={!value.trim()}>
-              Envoyer
+              {t(msg('play.send'))}
             </Button>
           </form>
 
           {field.hasChoices && (
             <Button variant="ghost" size="sm" onClick={onRevealChoices}>
-              Voir les choix (moins de points)
+              {t(msg('play.seeChoices'))}
             </Button>
           )}
         </>

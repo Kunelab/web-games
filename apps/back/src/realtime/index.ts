@@ -16,8 +16,11 @@ import {
 import { randomUUID } from 'node:crypto';
 
 import type { FastifyInstance } from 'fastify';
+import { msg, type Msg } from 'i18n';
 import {
   chatRules,
+  NO,
+  refusalOf,
   type MafiaViewer,
   mafiaActionSchema,
   mafiaBallotSchema,
@@ -112,14 +115,32 @@ interface Parser<T> {
 }
 
 /**
- * Why a proposed kick was refused, in French, for the phone that proposed it.
+ * Why a proposed kick was refused, for the phone that proposed it.
  *
  * presence-core answers with a key rather than a sentence, which is the right
- * shape for a rule — and this is the one place that turns those keys into words.
- * Every branch is a rule the player is entitled to be told about, `too-soon`
- * most of all: it is the whole reason the delay exists.
+ * shape for a rule — and this is the one place that maps those keys onto the
+ * catalogue's. Every branch is a rule the player is entitled to be told about,
+ * `too-soon` most of all: it is the whole reason the delay exists.
  */
-function kickRefusal(reason: KickRefusal | undefined): string {
+const KICK_REFUSALS: Partial<Record<KickRefusal, string>> = {
+  'too-soon': 'presence.kick.tooSoon',
+  'target-present': 'presence.kick.targetPresent',
+  'already-open': 'presence.kick.alreadyOpen',
+  'already-kicked': 'presence.kick.alreadyKicked',
+  self: 'presence.kick.self',
+  'no-vote': 'presence.kick.noVote'
+};
+
+/** Mafia's phones render keys, so they get one. */
+function kickRefusal(reason: KickRefusal | undefined): Msg {
+  return msg((reason && KICK_REFUSALS[reason]) ?? 'presence.kick.impossible');
+}
+
+/**
+ * CoronaZ's screens still print the sentence they are handed, so its kick
+ * refusals stay French here until that game learns the catalogue too.
+ */
+function kickRefusalText(reason: KickRefusal | undefined): string {
   switch (reason) {
     case 'too-soon':
       return 'Trop tôt : laissez-lui le temps de revenir.';
@@ -352,7 +373,7 @@ export function registerRealtime(
 
       const parsed = joinPayloadSchema.safeParse(payload);
       if (!parsed.success) {
-        respond({ ok: false, error: parsed.error.issues[0]?.message ?? 'Requête invalide' });
+        respond({ ok: false, error: NO.badRequest() });
         return;
       }
 
@@ -656,7 +677,7 @@ export function registerRealtime(
       const state = cz.get(code);
 
       if (!state || payload?.hostToken !== state.hostToken) {
-        respond({ ok: false, error: 'Aucune partie avec ce code' });
+        respond({ ok: false, error: NO.noTable() });
         return;
       }
 
@@ -714,7 +735,7 @@ export function registerRealtime(
       const respond = responder(ack);
       const parsed = czJoinSchema.safeParse(payload);
       if (!parsed.success) {
-        respond({ ok: false, error: parsed.error.issues[0]?.message ?? 'Requête invalide' });
+        respond({ ok: false, error: NO.badRequest() });
         return;
       }
 
@@ -757,7 +778,7 @@ export function registerRealtime(
             })
             .catch(() => undefined);
         } catch (error) {
-          respond({ ok: false, error: error instanceof Error ? error.message : 'Impossible de rejoindre' });
+          respond({ ok: false, error: refusalOf(error, NO.joinFailed()) });
         }
       })();
     });
@@ -989,7 +1010,7 @@ export function registerRealtime(
         parsed.data.type === 'propose'
           ? cz.proposeKick(czCode, czRole.playerId, parsed.data.playerId)
           : cz.voteKick(czCode, czRole.playerId, parsed.data.yes);
-      respond(result.ok ? { ok: true } : { ok: false, error: kickRefusal(result.reason) });
+      respond(result.ok ? { ok: true } : { ok: false, error: kickRefusalText(result.reason) });
     });
 
     /* -------------------------------- Mafia -------------------------------- */
@@ -998,13 +1019,13 @@ export function registerRealtime(
       const respond = responder(ack);
       const parsed = mafiaJoinSchema.safeParse(payload);
       if (!parsed.success) {
-        respond({ ok: false, error: parsed.error.issues[0]?.message ?? 'Requête invalide' });
+        respond({ ok: false, error: NO.badRequest() });
         return;
       }
 
       const state = mafia.get(parsed.data.code.trim().toUpperCase());
       if (!state) {
-        respond({ ok: false, error: 'Aucune partie avec ce code' });
+        respond({ ok: false, error: NO.noTable() });
         return;
       }
 
@@ -1027,7 +1048,7 @@ export function registerRealtime(
             view: toMafiaView(state, { kind: 'player', playerId: player.playerId })
           });
         } catch (error) {
-          respond({ ok: false, error: error instanceof Error ? error.message : 'Impossible de rejoindre' });
+          respond({ ok: false, error: refusalOf(error, NO.joinFailed()) });
         }
       })();
     });
@@ -1037,7 +1058,7 @@ export function registerRealtime(
       const code = readCode(payload);
       const state = mafia.get(code);
       if (!state || payload?.hostToken !== state.hostToken) {
-        respond({ ok: false, error: 'Aucune partie avec ce code' });
+        respond({ ok: false, error: NO.noTable() });
         return;
       }
       mafiaAttach(code, { kind: 'host' });
@@ -1060,7 +1081,7 @@ export function registerRealtime(
       const code = readCode(payload);
       const state = mafia.get(code);
       if (!state) {
-        respond({ ok: false, error: 'Aucune partie avec ce code' });
+        respond({ ok: false, error: NO.noTable() });
         return;
       }
       mafiaAttach(code, { kind: 'spectator' });
@@ -1072,13 +1093,13 @@ export function registerRealtime(
     socket.on('mafia:start', (payload) => {
       const state = mafiaTableForHost(payload);
       if (!state) {
-        socket.emit('mafia:error', { message: "Action réservée à l'hôte" });
+        socket.emit('mafia:error', { message: NO.hostOnly() });
         return;
       }
       try {
         mafia.start(state.code);
       } catch (error) {
-        socket.emit('mafia:error', { message: error instanceof Error ? error.message : 'Impossible de lancer' });
+        socket.emit('mafia:error', { message: refusalOf(error, NO.startFailed()) });
       }
     });
 
@@ -1089,7 +1110,7 @@ export function registerRealtime(
       try {
         mafia.addBots(state.code, count);
       } catch (error) {
-        socket.emit('mafia:error', { message: error instanceof Error ? error.message : 'Impossible' });
+        socket.emit('mafia:error', { message: refusalOf(error, NO.impossible()) });
       }
     });
 
@@ -1104,17 +1125,17 @@ export function registerRealtime(
       ack: unknown,
       schema: Parser<T>,
       payload: unknown,
-      run: (code: string, playerId: string, data: T) => { ok: boolean; error?: string }
+      run: (code: string, playerId: string, data: T) => { ok: boolean; error?: Msg }
     ): void {
-      const respond = responder<{ ok: boolean; error?: string }>(ack);
+      const respond = responder<{ ok: boolean; error?: Msg }>(ack);
       const { mafiaCode, mafiaPlayerId } = socket.data;
       if (!mafiaCode || !mafiaPlayerId) {
-        respond({ ok: false, error: "Vous n'êtes pas à une table" });
+        respond({ ok: false, error: NO.notSeated() });
         return;
       }
       const parsed = schema.safeParse(payload);
       if (!parsed.success) {
-        respond({ ok: false, error: 'Requête invalide' });
+        respond({ ok: false, error: NO.badRequest() });
         return;
       }
       respond(run(mafiaCode, mafiaPlayerId, parsed.data));
@@ -1196,7 +1217,7 @@ export function registerRealtime(
       const respond = responder<QuickJoinAck>(ack);
       const parsed = quickJoinSchema.safeParse(payload);
       if (!parsed.success) {
-        respond({ ok: false, error: 'Requête invalide' });
+        respond({ ok: false, error: msg('quick.badRequest') });
         return;
       }
 
@@ -1232,7 +1253,7 @@ export function registerRealtime(
         })
         .catch((error: unknown) => {
           app.log.error({ err: error }, 'quick join failed');
-          respond({ ok: false, error: 'Le serveur ne répond pas.' });
+          respond({ ok: false, error: msg('quick.serverQuiet') });
         });
     });
 
@@ -1240,7 +1261,7 @@ export function registerRealtime(
       const respond = responder<QuickJoinAck>(ack);
       const parsed = quickReplaySchema.safeParse(payload);
       if (!parsed.success) {
-        respond({ ok: false, error: 'Requête invalide' });
+        respond({ ok: false, error: msg('quick.badRequest') });
         return;
       }
 
@@ -1270,7 +1291,7 @@ export function registerRealtime(
         })
         .catch((error: unknown) => {
           app.log.error({ err: error }, 'quick replay failed');
-          respond({ ok: false, error: 'Le serveur ne répond pas.' });
+          respond({ ok: false, error: msg('quick.serverQuiet') });
         });
     });
 

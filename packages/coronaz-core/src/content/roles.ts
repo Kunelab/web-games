@@ -72,6 +72,7 @@ export interface RoleDef {
   /** Where it sits in the loot table: the same in every biome. */
   tier: Rarity;
   /** What it is for, in one word, for the UI when no biome is in hand. */
+  /** Catalogue key: what this job is called on a screen. */
   label: string;
   /**
    * Expected damage of one attack with the reference weapon, in scaled units
@@ -125,23 +126,23 @@ export function expectedDamage(weapon: WeaponStats): number {
  * *for*.
  */
 export const ITEM_ROLES: readonly RoleDef[] = [
-  { id: 'club', kind: 'weapon', tier: 1, label: 'Arme contondante', power: 14 },
-  { id: 'blade', kind: 'weapon', tier: 1, label: 'Lame', power: 24 },
-  { id: 'pick', kind: 'weapon', tier: 1, label: 'Arme perforante', power: 22 },
-  { id: 'saw', kind: 'weapon', tier: 2, label: 'Arme lourde de mêlée', power: 36 },
-  { id: 'sidearm', kind: 'weapon', tier: 2, label: 'Arme de poing', power: 33 },
-  { id: 'scatter', kind: 'weapon', tier: 2, label: 'Tir en gerbe', power: 34 },
-  { id: 'smg', kind: 'weapon', tier: 3, label: 'Automatique', power: 48 },
-  { id: 'rifle', kind: 'weapon', tier: 3, label: 'Fusil', power: 45 },
-  { id: 'magnum', kind: 'weapon', tier: 4, label: 'Gros calibre', power: 56 },
-  { id: 'marksman', kind: 'weapon', tier: 4, label: 'Tir de précision', power: 58 },
-  { id: 'flamer', kind: 'weapon', tier: 5, label: 'Arme de zone', power: 70 },
-  { id: 'chaingun', kind: 'weapon', tier: 5, label: 'Arme rotative', power: 72 },
+  { id: 'club', kind: 'weapon', tier: 1, label: 'coronaz.role.club', power: 14 },
+  { id: 'blade', kind: 'weapon', tier: 1, label: 'coronaz.role.blade', power: 24 },
+  { id: 'pick', kind: 'weapon', tier: 1, label: 'coronaz.role.pick', power: 22 },
+  { id: 'saw', kind: 'weapon', tier: 2, label: 'coronaz.role.saw', power: 36 },
+  { id: 'sidearm', kind: 'weapon', tier: 2, label: 'coronaz.role.sidearm', power: 33 },
+  { id: 'scatter', kind: 'weapon', tier: 2, label: 'coronaz.role.scatter', power: 34 },
+  { id: 'smg', kind: 'weapon', tier: 3, label: 'coronaz.role.smg', power: 48 },
+  { id: 'rifle', kind: 'weapon', tier: 3, label: 'coronaz.role.rifle', power: 45 },
+  { id: 'magnum', kind: 'weapon', tier: 4, label: 'coronaz.role.magnum', power: 56 },
+  { id: 'marksman', kind: 'weapon', tier: 4, label: 'coronaz.role.marksman', power: 58 },
+  { id: 'flamer', kind: 'weapon', tier: 5, label: 'coronaz.role.flamer', power: 70 },
+  { id: 'chaingun', kind: 'weapon', tier: 5, label: 'coronaz.role.chaingun', power: 72 },
 
-  { id: 'vest', kind: 'gear', tier: 3, label: 'Protection' },
-  { id: 'torch', kind: 'gear', tier: 2, label: 'Éclairage' },
-  { id: 'medkit', kind: 'gear', tier: 2, label: 'Soins' },
-  { id: 'stim', kind: 'gear', tier: 3, label: 'Stimulant' }
+  { id: 'vest', kind: 'gear', tier: 3, label: 'coronaz.role.vest' },
+  { id: 'torch', kind: 'gear', tier: 2, label: 'coronaz.role.torch' },
+  { id: 'medkit', kind: 'gear', tier: 2, label: 'coronaz.role.medkit' },
+  { id: 'stim', kind: 'gear', tier: 3, label: 'coronaz.role.stim' }
 ];
 
 export const WEAPON_ROLES = ITEM_ROLES.filter((role) => role.kind === 'weapon').map((role) => role.id);

@@ -1,3 +1,4 @@
+import { msg } from 'i18n';
 import { CURRENCIES, shopSlots, type LobbyGame, type LockerView, type ShopItem } from 'lobby-core';
 import { useState } from 'react';
 import { Link } from 'react-router';
@@ -5,6 +6,7 @@ import { Link } from 'react-router';
 import { api, ApiError } from '../../api/client';
 import { gameEntry } from '../../app/games';
 import { useAsync } from '../../hooks/useAsync';
+import { useT } from '../../i18n/locale-context';
 import { Button, Loading } from '../../ui';
 import './menu.css';
 
@@ -32,6 +34,7 @@ export interface LockerPageProps {
 export default function Locker({ game, mode }: LockerPageProps) {
   const entry = gameEntry(game);
   const currency = CURRENCIES[game];
+  const t = useT();
 
   const shop = useAsync(() => api.shop(game), [game]);
   const locker = useAsync(() => api.locker(game), [game]);
@@ -45,7 +48,7 @@ export default function Locker({ game, mode }: LockerPageProps) {
     try {
       locker.set(await run());
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : 'L’opération a échoué.');
+      setError(cause instanceof ApiError ? cause.message : t(msg('shop.failed')));
     } finally {
       setBusy(null);
     }
@@ -69,12 +72,12 @@ export default function Locker({ game, mode }: LockerPageProps) {
         </span>
         <div>
           <h1 className="menu-title">
-            {selling ? 'Boutique' : 'Équipement'} — {entry.name}
+            {t(msg(selling ? 'shop.title' : 'locker.title'))} — {entry.name}
           </h1>
           <p className="menu-lede">
             {selling
-              ? `${currency.earnedBy} Rien de ce qui est vendu ici ne change une partie : ce sont des apparences, et c’est délibéré.`
-              : 'Ce que vous portez, un article par emplacement. Retirez-le pour revenir à l’apparence par défaut.'}
+              ? t(msg('shop.headline', { earned: msg(currency.earnedBy) }))
+              : t(msg('locker.headline'))}
           </p>
         </div>
       </header>
@@ -82,7 +85,7 @@ export default function Locker({ game, mode }: LockerPageProps) {
       <p className="locker-balance">
         <strong>{balance}</strong>
         <span>
-          {currency.emoji} {currency.name}
+          {currency.emoji} {t(msg(currency.name))}
         </span>
       </p>
 
@@ -90,11 +93,9 @@ export default function Locker({ game, mode }: LockerPageProps) {
 
       {visible.length === 0 ? (
         <p className="guide-prose">
-          {selling
-            ? 'La boutique de ce jeu est vide pour l’instant.'
-            : 'Vous ne possédez encore rien ici.'}{' '}
+          {t(msg(selling ? 'shop.empty' : 'locker.empty'))}{' '}
           <Link to={selling ? entry.path : `${entry.path}/boutique`}>
-            {selling ? 'Retour au menu' : 'Voir la boutique'}
+            {t(msg(selling ? 'shop.backToMenu' : 'locker.seeShop'))}
           </Link>
         </p>
       ) : selling ? (
@@ -108,7 +109,7 @@ export default function Locker({ game, mode }: LockerPageProps) {
               action={
                 owned.has(item.id) ? (
                   <Button variant="ghost" disabled>
-                    Déjà à vous
+                    {t(msg('shop.alreadyYours'))}
                   </Button>
                 ) : (
                   <Button
@@ -117,7 +118,7 @@ export default function Locker({ game, mode }: LockerPageProps) {
                     disabled={balance < item.price}
                     onClick={() => void act(item.id, () => api.buyItem(game, item.id))}
                   >
-                    Acheter — {item.price} {currency.emoji}
+                    {t(msg('shop.buy', { price: item.price, emoji: currency.emoji }))}
                   </Button>
                 )
               }
@@ -131,7 +132,7 @@ export default function Locker({ game, mode }: LockerPageProps) {
 
           return (
             <section className="guide-section" key={slot}>
-              <h2 className="locker-slot-title">{slotLabel(slot)}</h2>
+              <h2 className="locker-slot-title">{t(msg(slotKey(slot)))}</h2>
               <div className="locker-grid">
                 {inSlot.map((item) => {
                   const isWorn = worn[slot] === item.id;
@@ -149,7 +150,7 @@ export default function Locker({ game, mode }: LockerPageProps) {
                             void act(item.id, () => api.wearItem(game, slot, isWorn ? null : item.id))
                           }
                         >
-                          {isWorn ? 'Retirer' : 'Porter'}
+                          {t(msg(isWorn ? 'locker.takeOff' : 'locker.wear'))}
                         </Button>
                       }
                     />
@@ -162,7 +163,7 @@ export default function Locker({ game, mode }: LockerPageProps) {
       )}
 
       <Link to={entry.path} className="menu-back">
-        ← Retour au menu {entry.name}
+        {t(msg('shop.back', { game: entry.name }))}
       </Link>
     </div>
   );
@@ -179,6 +180,7 @@ function ItemCard({
   worn: boolean;
   action: React.ReactNode;
 }) {
+  const t = useT();
   return (
     <article className={`locker-item ${owned ? 'owned' : ''} ${worn ? 'worn' : ''}`}>
       {/* The emoji is the art until the art exists; see public/games/README.md. */}
@@ -186,15 +188,16 @@ function ItemCard({
         {item.emoji}
       </div>
       <span className="locker-item-name">
-        {item.name}
-        {worn && ' — porté'}
+        {t(msg(`shop.item.${item.id}`))}
+        {worn && ` ${t(msg('locker.worn'))}`}
       </span>
-      <span className="locker-item-note">{item.description}</span>
+      <span className="locker-item-note">{t(msg(`shop.item.${item.id}.desc`))}</span>
       {action}
     </article>
   );
 }
 
-function slotLabel(slot: string): string {
-  return slot === 'avatar' ? 'Apparence' : slot;
+/** One key per slot; an unknown slot falls through to its own id. */
+function slotKey(slot: string): string {
+  return `locker.slot.${slot}`;
 }

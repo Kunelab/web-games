@@ -6,7 +6,7 @@ import { createPresence, type PresenceState, type Roster } from 'presence-core';
 import type { DeathSource } from './messages.js';
 
 import { familyOf, roleDef, rosterFor, type FamilyId, type NightActionType, type RoleId } from './roles.js';
-import { censusSetup, chaosSetup, fitSetup, rollSetup, setupById, type SlotToken } from './setups.js';
+import { censusSetup, chaosSetup, fitSetup, rollSetup, setupById, sortRoleList, type SlotToken } from './setups.js';
 
 /**
  * One Mafia table: up to 24 numbered seats around the town square. The state is
@@ -17,6 +17,17 @@ import { censusSetup, chaosSetup, fitSetup, rollSetup, setupById, type SlotToken
 
 export type MafiaPhase = 'lobby' | 'day' | 'night' | 'ended';
 
+/**
+ * "Hang nobody today", as a vote target.
+ *
+ * A sentinel inside `state.votes` rather than a second record, because wanting
+ * the day over and wanting somebody on the stand are the same decision and a
+ * player holds exactly one of them at a time. Stored as an id that can never be
+ * a player id — every seat's is a random token — so the projection and the tally
+ * simply find no player under it and skip past, which is what they should do.
+ */
+export const SKIP_VOTE = '@skip';
+
 /** Sub-state of a day: open discussion, or a trial in one of its two beats. */
 export type DayStage = 'discussion' | 'defense' | 'judgement';
 
@@ -26,6 +37,15 @@ export interface MafiaConfig {
   minPlayers: number;
   /** Phase clocks, milliseconds. */
   dayMs: number;
+  /**
+   * The first day, which is a different thing from a day.
+   *
+   * Nothing has happened yet: no corpse, no claim, no vote — the town cannot
+   * even hang anybody. A full-length day one is two minutes of "hi" followed by
+   * silence, so it gets its own, much shorter clock rather than a fraction of
+   * `dayMs`, which is what it used to be and still felt interminable.
+   */
+  firstDayMs: number;
   nightMs: number;
   defenseMs: number;
   judgementMs: number;
@@ -91,6 +111,7 @@ export const DEFAULT_CONFIG: MafiaConfig = {
   maxPlayers: 24,
   minPlayers: 4,
   dayMs: 120_000,
+  firstDayMs: 35_000,
   nightMs: 40_000,
   defenseMs: 25_000,
   judgementMs: 20_000,
@@ -105,8 +126,8 @@ export const DEFAULT_CONFIG: MafiaConfig = {
 
 /**
  * A structured night result, private to its owner. The notifications carry the
- * same information as prose for humans; bots and future UI read this instead
- * of parsing French.
+ * same information as sentences for humans; bots and future UI read this, which
+ * needs no rendering at all.
  */
 export interface IntelEntry {
   night: number;
@@ -160,8 +181,14 @@ export interface MafiaPlayer {
   /** Next day this player's cooldown power may fire again (cult conversion). */
   cooldownUntilDay: number | null;
   lastWill: string;
-  /** Private feed: night results, warnings. Only ever sent to this player. */
-  notifications: string[];
+  /**
+   * Private feed: night results, warnings. Only ever sent to this player.
+   *
+   * Keys, not prose. They are persisted with the table and replayed on every
+   * reconnect, so a sentence stored here would be a sentence in one language for
+   * the life of the game — which is exactly what it was.
+   */
+  notifications: Msg[];
   /** The same night results, structured. Same privacy as the notifications. */
   intel: IntelEntry[];
   /** Filled at death; role goes public with it. */
@@ -267,8 +294,8 @@ export type WinKind =
 
 export interface WinEntry {
   playerId: string;
-  /** For the podium. Display prose — never branch on it; branch on `kind`. */
-  reason: string;
+  /** For the podium, as a key. Never branch on it; branch on `kind`. */
+  reason: Msg;
   kind: WinKind;
 }
 
@@ -284,7 +311,7 @@ export interface MafiaState {
   /** Server deadline of the running phase; clients render the countdown. */
   phaseEndsAt: number | null;
   players: Record<string, MafiaPlayer>;
-  /** Day accusations: voter id -> accused id. */
+  /** Day accusations: voter id -> accused id, or `SKIP_VOTE`. */
   votes: Record<string, string>;
   trial: TrialState | null;
   trialsToday: number;
@@ -600,6 +627,27 @@ export function nextFreeSlot(state: MafiaState): number | null {
     if (!taken.has(slot)) return slot;
   }
   return null;
+}
+
+/**
+ * The published role list: what the table promised, not what it dealt.
+ *
+ * A preset or a custom list is shown as its *slots* — "Sheriff, Doctor, Random
+ * Town ×4, Mafioso ×2, Serial Killer" — because that is public information the
+ * moment the host picks it, while the roles those categories actually rolled are
+ * exactly the secret the game is about. The automatic roster is deterministic in
+ * the seat count, so it can be shown role for role and every player could have
+ * worked it out anyway. Chaos and the census promise nothing, so they say so.
+ */
+export function tableRoleList(state: MafiaState, n: number): SlotToken[] {
+  const choice = state.config.setup ?? { mode: 'auto' as const };
+  if (choice.mode === 'chaos' || choice.mode === 'census') return Array<SlotToken>(n).fill('any');
+  if (choice.mode === 'preset') {
+    const preset = setupById(choice.presetId);
+    if (preset) return sortRoleList(fitSetup(preset.slots, n));
+  }
+  if (choice.mode === 'custom' && choice.slots.length > 0) return sortRoleList(fitSetup(choice.slots, n));
+  return sortRoleList(rosterFor(n));
 }
 
 /** The role list this table's setup deals for `n` seats. */

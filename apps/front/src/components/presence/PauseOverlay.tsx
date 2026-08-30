@@ -1,6 +1,8 @@
+import { msg } from 'i18n';
 import { useState } from 'react';
 
 import { useCountdown } from '../../hooks/useServerClock';
+import { useT } from '../../i18n/locale-context';
 import { cx } from '../../ui/cx';
 import './presence.css';
 
@@ -72,6 +74,7 @@ export function PauseOverlay({
   onVote,
   error
 }: PauseOverlayProps) {
+  const t = useT();
   const [folded, setFolded] = useState(false);
   const resumeIn = useCountdown(resumesAt, serverNow);
   const expiresIn = useCountdown(expiresAt, serverNow);
@@ -101,11 +104,11 @@ export function PauseOverlay({
       <div className="pz-banner" role="status">
         <span className="pz-spinner" aria-hidden="true" />
         <span>
-          En pause · on attend <strong>{waitingFor.map((seat) => seat.label).join(', ')}</strong>
-          {expiresAt !== null && ` · reprise dans ${expiresIn}s`}
+          {t(msg('presence.paused.short', { names: waitingFor.map((seat) => seat.label).join(', ') }))}
+          {expiresAt !== null && ` · ${t(msg('presence.resuming.inSeconds', { seconds: expiresIn }))}`}
         </span>
         <button type="button" className="pz-fold" onClick={() => setFolded(false)}>
-          Détails
+          {t(msg('presence.unfold'))}
         </button>
       </div>
     );
@@ -117,52 +120,49 @@ export function PauseOverlay({
         {resuming ? (
           <>
             <h2 className="pz-title" id="pz-title">
-              Tout le monde est là
+              {t(msg('presence.resuming.title'))}
             </h2>
             <p className="pz-lead">
               {resumesAt === null ? (
-                'Reprise imminente'
+                t(msg('presence.resuming.soon'))
               ) : (
                 <>
-                  Reprise dans <strong className="pz-big">{resumeIn}</strong>
+                  {t(msg('presence.resuming.inPrefix'))} <strong className="pz-big">{resumeIn}</strong>
                 </>
               )}
             </p>
-            <p className="pz-note">Le temps qui restait à la phase vous est rendu intact.</p>
+            <p className="pz-note">{t(msg('presence.paused.note'))}</p>
           </>
         ) : (
           <>
             <h2 className="pz-title" id="pz-title">
-              Partie en pause
+              {t(msg('presence.paused.title'))}
             </h2>
             <p className="pz-lead">
-              On attend <strong>{waitingFor.map((seat) => seat.label).join(', ')}</strong>
+              {t(msg('presence.paused.lead', { names: waitingFor.map((seat) => seat.label).join(', ') }))}
             </p>
             <ul className="pz-waiting">
               {waitingFor.map((seat) => (
                 <li key={String(seat.id)}>
                   <span className="pz-spinner" aria-hidden="true" />
                   {seat.label}
-                  <span className="pz-away">absent depuis {Math.round(seat.awayMs / 1000)}s</span>
+                  <span className="pz-away">
+                    {t(msg('presence.paused.away', { seconds: Math.round(seat.awayMs / 1000) }))}
+                  </span>
                 </li>
               ))}
             </ul>
             {expiresAt !== null && (
-              <p className="pz-note">
-                Sans retour, la partie reprend sans {waitingFor.length > 1 ? 'eux' : 'lui'} dans {expiresIn}s.
-              </p>
+              <p className="pz-note">{t(msg('presence.paused.expiry', { seconds: expiresIn }))}</p>
             )}
           </>
         )}
 
         {vote ? (
           <div className="pz-vote">
-            <p className="pz-vote-q">
-              Continuer sans <strong>{vote.label}</strong> ?
-            </p>
+            <p className="pz-vote-q">{t(msg('presence.vote.question', { name: vote.label }))}</p>
             <p className="pz-vote-tally">
-              {vote.yes} pour · {vote.no} contre · {vote.needed > 0 ? `${vote.needed} de plus` : 'majorité atteinte'} ·{' '}
-              {voteIn}s
+              {t(msg('presence.vote.tally', { yes: vote.yes, no: vote.no, needed: vote.needed }))} · {voteIn}s
             </p>
             {onVote && (
               <div className="pz-vote-buttons">
@@ -171,14 +171,14 @@ export function PauseOverlay({
                   className={cx('pz-btn', vote.mine === true && 'pz-btn--on')}
                   onClick={() => onVote(true)}
                 >
-                  Continuer
+                  {t(msg('presence.vote.yes'))}
                 </button>
                 <button
                   type="button"
                   className={cx('pz-btn', vote.mine === false && 'pz-btn--on')}
                   onClick={() => onVote(false)}
                 >
-                  Attendre
+                  {t(msg('presence.vote.no'))}
                 </button>
               </div>
             )}
@@ -192,7 +192,7 @@ export function PauseOverlay({
                 is the point of the whole feature: for the first half-minute there
                 is no button here at all, because most drops come back.
               */}
-              <p className="pz-vote-q">Cette absence dure. Proposer de continuer sans&nbsp;:</p>
+              <p className="pz-vote-q">{t(msg('presence.vote.propose'))}</p>
               <div className="pz-vote-buttons">
                 {kickable.map((seat) => (
                   <button key={String(seat.id)} type="button" className="pz-btn" onClick={() => onPropose(seat.id)}>
@@ -208,7 +208,7 @@ export function PauseOverlay({
 
         {!demandsAttention && (
           <button type="button" className="pz-fold pz-fold--card" onClick={() => setFolded(true)}>
-            Réduire et parler
+            {t(msg('presence.fold'))}
           </button>
         )}
       </div>
@@ -224,10 +224,11 @@ export function PauseOverlay({
  * people for each of them would make the pause itself unreadable.
  */
 export function RecoveringMark({ label }: { label: string }) {
+  const t = useT();
   return (
-    <span className="pz-recovering" title={`${label} : reconnexion…`}>
+    <span className="pz-recovering" title={t(msg('presence.recovering.title', { label }))}>
       <span className="pz-spinner pz-spinner--small" aria-hidden="true" />
-      <span className="pz-recovering-label">reconnexion…</span>
+      <span className="pz-recovering-label">{t(msg('presence.recovering'))}</span>
     </span>
   );
 }

@@ -1,9 +1,11 @@
+import { msg } from 'i18n';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 
 import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
+import { useT } from '../i18n/locale-context';
 import { ChevronDown, PortalContainerProvider } from '../ui';
 import AccountMenu from './AccountMenu';
 import { GAMES } from './games';
@@ -24,6 +26,7 @@ import './shells.css';
 export function AtelierShell() {
   const { user, setUser } = useAuth();
   const navigate = useNavigate();
+  const t = useT();
   /**
    * Published so selects and dialogs can render inside the shell rather than on the
    * body. The palette is declared here, and a portal to the body escapes it: that is
@@ -56,7 +59,7 @@ export function AtelierShell() {
               nothing. Each game's own menu is the front door now, so those live
               as tiles on the menus they belong to.
             */}
-            <nav className="mainnav" aria-label="Navigation principale">
+            <nav className="mainnav" aria-label={t(msg('site.nav.main'))}>
               <GamesMenu container={shell} />
             </nav>
 
@@ -65,7 +68,7 @@ export function AtelierShell() {
                 <AccountMenu login={user.login} container={shell} onLogout={() => void logout()} />
               ) : (
                 <NavLink to="/connexion" className="navlink">
-                  Connexion
+                  {t(msg('site.nav.signIn'))}
                 </NavLink>
               )}
             </div>
@@ -93,6 +96,7 @@ export function AtelierShell() {
  * It is deliberately visible signed out. The games are the reason to be here.
  */
 function GamesMenu({ container }: { container: HTMLElement | null }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -173,7 +177,7 @@ function GamesMenu({ container }: { container: HTMLElement | null }) {
           </span>
           <span>
             <strong style={{ color: game.accent }}>{game.name}</strong>
-            <span className="gamesmenu-tagline">{game.tagline}</span>
+            <span className="gamesmenu-tagline">{t(msg(game.tagline))}</span>
           </span>
         </NavLink>
       ))}
@@ -183,8 +187,8 @@ function GamesMenu({ container }: { container: HTMLElement | null }) {
           🔑
         </span>
         <span>
-          <strong>Rejoindre une partie</strong>
-          <span className="gamesmenu-tagline">Un code, ou la liste des salons ouverts.</span>
+          <strong>{t(msg('site.nav.join'))}</strong>
+          <span className="gamesmenu-tagline">{t(msg('site.nav.joinHint'))}</span>
         </span>
       </NavLink>
     </div>
@@ -200,7 +204,7 @@ function GamesMenu({ container }: { container: HTMLElement | null }) {
         aria-haspopup="menu"
         onClick={() => setOpen((value) => !value)}
       >
-        Jeux
+        {t(msg('site.nav.games'))}
         <ChevronDown />
       </button>
 

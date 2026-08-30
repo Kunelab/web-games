@@ -4,49 +4,49 @@ import GameMenu, { type MenuTile } from './GameMenu';
 const TILES: MenuTile[] = [
   {
     to: '/partie-rapide/mafia',
-    label: 'Partie rapide',
-    hint: 'Une table qui se remplit toute seule, complétée par des bots au besoin.',
+    label: 'site.tile.quick',
+    hint: 'site.tile.quick.mafia',
     emoji: '⚡',
     primary: true
   },
   {
     to: '/mafia/nouveau',
-    label: 'Ouvrir une table',
-    hint: 'Distribution des rôles, durée du jour, ce qu’un cadavre révèle.',
+    label: 'site.tile.createTable',
+    hint: 'site.tile.createTable.hint',
     emoji: '🎭',
     requiresAccount: true
   },
   {
     to: '/rejoindre?jeu=mafia',
-    label: 'Rejoindre une table',
-    hint: 'Un code, ou la liste des tables publiques ouvertes.',
+    label: 'site.tile.joinTable',
+    hint: 'site.tile.joinTable.hint',
     emoji: '🔑'
   },
   {
     to: '/mafia/boutique',
-    label: 'Boutique',
-    hint: 'Dépenser vos points en masques et costumes.',
+    label: 'site.tile.shop',
+    hint: 'site.tile.shop.mafia',
     emoji: '🎩',
     requiresAccount: true
   },
   {
     to: '/mafia/equipement',
-    label: 'Équipement',
-    hint: 'Choisir ce que la ville voit de vous.',
+    label: 'site.tile.locker',
+    hint: 'site.tile.locker.mafia',
     emoji: '🎽',
     requiresAccount: true
   },
   {
     to: '/historique',
-    label: 'Historique et carrières',
-    hint: 'Les parties terminées, et ce que chacun a fini par devenir.',
+    label: 'site.tile.history',
+    hint: 'site.tile.history.mafia',
     emoji: '🏆',
     requiresAccount: true
   },
   {
     to: '/mafia/guide',
-    label: 'Rôles et règles',
-    hint: 'Les camps, les rôles, le déroulé d’un jour et d’une nuit.',
+    label: 'site.tile.guide.mafia',
+    hint: 'site.tile.guide.mafia.hint',
     emoji: '📖'
   }
 ];
@@ -55,7 +55,7 @@ export default function MafiaMenu() {
   return (
     <GameMenu
       game={gameEntry('mafia')}
-      lede="Une ville, des loups cachés parmi elle, et personne qui dit toute la vérité. Cinq à quinze joueurs, chacun sur son téléphone, une télé en option."
+      lede="site.menu.mafia.lede"
       tiles={TILES}
     />
   );

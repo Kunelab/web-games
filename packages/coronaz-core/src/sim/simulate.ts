@@ -194,7 +194,11 @@ export function runGame(options: {
     keysCollected: state.keysCollected,
     exitOpen: state.keysCollected >= state.config.keys && objectivesDone(state),
     heroesEscaped: Object.values(state.heroes).filter((hero) => hero.escaped).length,
-    log: options.captureLog ? state.log.map((entry) => `T${entry.turn} ${entry.text}`) : undefined
+    // The bench reads a terminal, not a screen: a keyed line prints its key,
+    // which is exactly what a transcript wants to show.
+    log: options.captureLog
+      ? state.log.map((entry) => `T${entry.turn} ${typeof entry.text === 'string' ? entry.text : entry.text.k}`)
+      : undefined
   };
 }
 

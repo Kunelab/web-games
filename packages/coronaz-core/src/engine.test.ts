@@ -1230,7 +1230,7 @@ describe('projections', () => {
     const player = toView(state, { kind: 'player', playerId: hero.playerId }).log;
     assert.equal(player.length, 12);
     assert(
-      player.every((entry) => entry.text.startsWith('visible')),
+      player.every((entry) => typeof entry.text === 'string' && entry.text.startsWith('visible')),
       'and none of them from the dark'
     );
   });

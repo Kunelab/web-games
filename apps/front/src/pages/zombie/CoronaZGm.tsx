@@ -1,3 +1,4 @@
+import { msg } from 'i18n';
 import {
   GM_ORDERS,
   GM_REWARD_ID,
@@ -21,6 +22,8 @@ import { Button, Loading } from '../../ui';
 import { CzEventBanner } from './CoronaZPlayer';
 import { CzEndScreen } from './CoronaZTv';
 import { CzMap } from './CzMap';
+import { useT } from '../../i18n/locale-context';
+import { czLine } from './czLine';
 import './coronaz.css';
 import '../play.css';
 
@@ -50,6 +53,7 @@ import '../play.css';
  *    horde to the server's own brain, which plays it exactly as AI mode would.
  */
 export default function CoronaZGm() {
+  const t = useT();
   const { code = '' } = useParams<{ code: string }>();
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -303,7 +307,8 @@ export default function CoronaZGm() {
         {myPhase && selectedZombie && (
           <div className="cz-sheet">
             <span className="cz-slot-label">
-              {zombieDef(selectedZombie.def).emoji} {zombieDef(selectedZombie.def).name} · {selectedZombie.ap} PA ·{' '}
+              {zombieDef(selectedZombie.def).emoji} {t(msg(zombieDef(selectedZombie.def).name))} ·{' '}
+              {selectedZombie.ap} PA ·{' '}
               {selectedZombie.hp} PV
             </span>
             <div className="cz-actions">
@@ -387,7 +392,7 @@ export default function CoronaZGm() {
                     disabled={maxed || (view.gmBudget ?? 0) < cost}
                     onClick={() => void send({ type: 'gmUpgrade', upgrade: key })}
                   >
-                    {upgrade.label} {maxed ? '· max' : `(${cost})`} {level > 0 ? `· niv. ${level}` : ''}
+                    {t(msg(upgrade.label))} {maxed ? '· max' : `(${cost})`} {level > 0 ? `· niv. ${level}` : ''}
                   </Button>
                 );
               })}
@@ -397,7 +402,7 @@ export default function CoronaZGm() {
                 disabled={view.gm.rushUsed || (view.gmBudget ?? 0) < GM_ORDERS.rush.cost}
                 onClick={() => void send({ type: 'gmOrder', order: 'rush' })}
               >
-                {GM_ORDERS.rush.label} ({GM_ORDERS.rush.cost})
+                {t(msg(GM_ORDERS.rush.label))} ({GM_ORDERS.rush.cost})
               </Button>
             </div>
           </div>
@@ -413,7 +418,7 @@ export default function CoronaZGm() {
               // Dimmed when the survivors could not see it happen. Knowing which
               // of your moves they read is half of playing the horde.
               <li key={`${entry.turn}-${index}`} className={entry.hidden ? 'unseen' : undefined}>
-                {entry.text}
+                {czLine(entry.text, t)}
               </li>
             ))}
           </ul>

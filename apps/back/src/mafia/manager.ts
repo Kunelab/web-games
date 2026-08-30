@@ -22,6 +22,7 @@ import {
   sayInChat,
   setLastWill,
   setNightAction,
+  NO,
   startMafia,
   tablePresence,
   tickMafiaPresence,
@@ -77,7 +78,10 @@ const CHAT_PERSIST_MS = 2000;
 const PRESENCE_TICK_MS = 1000;
 
 /** Every lookup miss says the same thing; it is spelled once. */
-const NO_SUCH_TABLE = 'Partie introuvable';
+/** The one refusal the manager owns: the table is gone, so nothing else applies. */
+const NO_SUCH_TABLE = () => NO.noTable();
+/** Still a sentence, for the two throw sites where nothing renders a key. */
+const NO_SUCH_TABLE_TEXT = 'Partie introuvable';
 
 export type MafiaTransitionListener = (state: MafiaState) => void;
 export type MafiaMessageListener = (state: MafiaState, message: ChatMessage) => void;
@@ -103,6 +107,8 @@ export class MafiaManager {
       vote: (code, botId, slot) => this.vote(code, botId, slot),
       ballot: (code, botId, verdict) => this.ballot(code, botId, verdict),
       action: (code, botId, slot) => this.nightAction(code, botId, slot),
+      dayAction: (code, botId, action) => this.dayAction(code, botId, action),
+      will: (code, botId, text) => this.will(code, botId, text),
       get: (code) => this.sessions.get(code)
     });
   }
@@ -203,7 +209,7 @@ export class MafiaManager {
 
   playerChat(code: string, playerId: string, channel: string, text: string): ActionOutcome {
     const state = this.sessions.get(code);
-    if (!state) return { ok: false, error: NO_SUCH_TABLE };
+    if (!state) return { ok: false, error: NO_SUCH_TABLE() };
     const result = sayInChat(state, playerId, channel, text, Date.now());
     if (!result.ok) return result;
 
@@ -213,7 +219,7 @@ export class MafiaManager {
     return { ok: true };
   }
 
-  vote(code: string, playerId: string, targetSlot: number | null): ActionOutcome {
+  vote(code: string, playerId: string, targetSlot: number | 'skip' | null): ActionOutcome {
     return this.mutate(code, (state) => castVote(state, playerId, targetSlot, Date.now()));
   }
 
@@ -232,7 +238,7 @@ export class MafiaManager {
 
   whisper(code: string, playerId: string, targetSlot: number, text: string): ActionOutcome {
     const state = this.sessions.get(code);
-    if (!state) return { ok: false, error: NO_SUCH_TABLE };
+    if (!state) return { ok: false, error: NO_SUCH_TABLE() };
     const result = whisperTo(state, playerId, targetSlot, text, Date.now());
     if (!result.ok) return result;
 
@@ -346,13 +352,13 @@ export class MafiaManager {
 
   private mustGet(code: string): MafiaState {
     const state = this.sessions.get(code);
-    if (!state) throw new Error(NO_SUCH_TABLE);
+    if (!state) throw new Error(NO_SUCH_TABLE_TEXT);
     return state;
   }
 
   private mutate(code: string, change: (state: MafiaState) => ActionOutcome): ActionOutcome {
     const state = this.sessions.get(code);
-    if (!state) return { ok: false, error: NO_SUCH_TABLE };
+    if (!state) return { ok: false, error: NO_SUCH_TABLE() };
     const result = change(state);
     if (result.ok) this.afterChange(state);
     return result;

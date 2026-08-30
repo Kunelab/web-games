@@ -194,21 +194,15 @@ export const DIFFICULTY_PRESETS: Record<string, Partial<GameConfig>> = {
   }
 };
 
+/**
+ * What each scenario is called and what it asks for — as catalogue keys.
+ *
+ * Read by the setup screen, the television, the join board and the guide, in
+ * two languages between them, so the words cannot live here.
+ */
 export const SCENARIO_LABELS: Record<Scenario, { name: string; goal: string }> = {
-  escape: {
-    name: 'Évasion',
-    goal: 'Remplissez les objectifs, ramassez les clés, puis rejoignez la sortie.'
-  },
-  purge: {
-    name: 'Purge',
-    goal: 'Éliminez la horde : atteignez le quota de victimes.'
-  },
-  survival: {
-    name: 'Survie',
-    goal: 'Tenez le nombre de tours demandé. L’extraction fait le reste.'
-  },
-  endless: {
-    name: 'Sans fin',
-    goal: 'Personne ne sort. Marquez le plus de points avant la fin, la horde ne cessera jamais de grossir.'
-  }
+  escape: { name: 'coronaz.scenario.escape.name', goal: 'coronaz.scenario.escape.goal' },
+  purge: { name: 'coronaz.scenario.purge.name', goal: 'coronaz.scenario.purge.goal' },
+  survival: { name: 'coronaz.scenario.survival.name', goal: 'coronaz.scenario.survival.goal' },
+  endless: { name: 'coronaz.scenario.endless.name', goal: 'coronaz.scenario.endless.goal' }
 };

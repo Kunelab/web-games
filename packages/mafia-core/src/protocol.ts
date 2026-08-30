@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { ChatMessage } from 'chat-core';
+import type { Msg } from 'i18n';
 import { isSlotToken } from './setups.js';
 import type { MafiaView } from './view.js';
 
@@ -19,8 +20,14 @@ export const mafiaChatSchema = z.object({
   text: z.string().min(1).max(400)
 });
 
+/**
+ * An accusation, a withdrawal (`null`), or `'skip'` — the town voting to hang
+ * nobody today. One field rather than a second boolean, because a player holds
+ * exactly one of those positions at a time and two fields would let a payload
+ * claim both.
+ */
 export const mafiaVoteSchema = z.object({
-  targetSlot: z.number().int().min(1).max(24).nullable()
+  targetSlot: z.union([z.number().int().min(1).max(24), z.literal('skip')]).nullable()
 });
 
 export const mafiaBallotSchema = z.object({
@@ -66,6 +73,7 @@ export const mafiaSetupSchema = z.discriminatedUnion('mode', [
 export const mafiaConfigSchema = z.object({
   maxPlayers: z.number().int().min(4).max(24).optional(),
   dayMs: z.number().int().min(30_000).max(600_000).optional(),
+  firstDayMs: z.number().int().min(10_000).max(300_000).optional(),
   nightMs: z.number().int().min(15_000).max(180_000).optional(),
   revealOnDeath: z.enum(['role', 'faction', 'none']).optional(),
   locale: z.enum(['en', 'fr']).optional(),
@@ -75,11 +83,15 @@ export const mafiaConfigSchema = z.object({
 });
 
 type Ack<T> = (response: T) => void;
-export type MafiaAckResult = { ok: true } | { ok: false; error: string };
+/**
+ * Every refusal travels as a key. The phone renders it in its own reader's
+ * language, like everything else the server says — see `ActionOutcome`.
+ */
+export type MafiaAckResult = { ok: true } | { ok: false; error: Msg };
 
 export interface MafiaJoinAck {
   ok: boolean;
-  error?: string;
+  error?: Msg;
   playerId?: string;
   playerToken?: string;
   view?: MafiaView;
@@ -95,7 +107,7 @@ export interface MafiaReward {
 
 export interface MafiaClientToServer {
   'mafia:join': (payload: z.infer<typeof mafiaJoinSchema>, ack: Ack<MafiaJoinAck>) => void;
-  'mafia:host': (payload: { code: string; hostToken: string }, ack: Ack<{ ok: boolean; error?: string; view?: MafiaView }>) => void;
+  'mafia:host': (payload: { code: string; hostToken: string }, ack: Ack<{ ok: boolean; error?: Msg; view?: MafiaView }>) => void;
   /**
    * A television claims the table with nothing but its join code.
    *
@@ -106,7 +118,7 @@ export interface MafiaClientToServer {
    * a secret would buy no privacy and cost the room the one-tap setup that makes
    * "put it on the TV" worth doing at all.
    */
-  'mafia:spectate': (payload: { code: string }, ack: Ack<{ ok: boolean; error?: string; view?: MafiaView }>) => void;
+  'mafia:spectate': (payload: { code: string }, ack: Ack<{ ok: boolean; error?: Msg; view?: MafiaView }>) => void;
   'mafia:start': (payload: { hostToken: string }) => void;
   'mafia:addBots': (payload: { hostToken: string; count: number }) => void;
   'mafia:chat': (payload: z.infer<typeof mafiaChatSchema>, ack: Ack<MafiaAckResult>) => void;
@@ -134,5 +146,5 @@ export interface MafiaServerToClient {
   'mafia:state': (view: MafiaView) => void;
   'mafia:message': (message: ChatMessage) => void;
   'mafia:rewards': (rewards: MafiaReward[]) => void;
-  'mafia:error': (payload: { message: string }) => void;
+  'mafia:error': (payload: { message: Msg }) => void;
 }

@@ -174,7 +174,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'marksman',
     favoriteWeapon: 'marksman',
     personalPerks: ['fetiche', 'discret', 'vigile'],
-    blurb: 'Tireur embusqué. Un PA gardé devient un tir pendant la phase ennemie.',
+    blurb: 'coronaz.hero.charles.blurb',
     emoji: '🎯'
   },
   {
@@ -184,7 +184,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'assassin',
     favoriteWeapon: 'blade',
     personalPerks: ['fetiche', 'brave', 'elan'],
-    blurb: 'Ex-assassin. Vider une salle au corps à corps rend le PA dépensé.',
+    blurb: 'coronaz.hero.johanna.blurb',
     emoji: '🗡️'
   },
   {
@@ -194,7 +194,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'scavenger',
     favoriteWeapon: 'club',
     personalPerks: ['pilleur', 'fetiche', 'courrier'],
-    blurb: 'Trieur. Jamais de camelote, et une fouille de plus par salle.',
+    blurb: 'coronaz.hero.chuck.blurb',
     emoji: '🎒'
   },
   {
@@ -204,7 +204,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'tough',
     favoriteWeapon: 'scatter',
     personalPerks: ['vigor', 'fetiche', 'vigile'],
-    blurb: 'Marine déchu. Encaisse les coups destinés à ses alliés de la salle.',
+    blurb: 'coronaz.hero.yuri.blurb',
     emoji: '🛡️'
   },
   {
@@ -214,7 +214,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'medic',
     favoriteWeapon: 'sidearm',
     personalPerks: ['soigneur', 'fetiche', 'vigor'],
-    blurb: 'Médecin de guerre. Soins gratuits, et meilleurs.',
+    blurb: 'coronaz.hero.sacha.blurb',
     emoji: '🚑'
   },
   {
@@ -224,7 +224,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'fleet',
     favoriteWeapon: 'smg',
     personalPerks: ['elan', 'fetiche', 'discret'],
-    blurb: 'Messagère. Court deux salles pour un PA, mais arrive en faisant du bruit.',
+    blurb: 'coronaz.hero.nadia.blurb',
     emoji: '👟'
   },
   {
@@ -234,7 +234,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'mule',
     favoriteWeapon: 'chaingun',
     personalPerks: ['fetiche', 'vigor', 'courrier'],
-    blurb: 'Déménageur. Deux places de sac en plus.',
+    blurb: 'coronaz.hero.marco.blurb',
     emoji: '📦'
   },
   {
@@ -244,7 +244,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'silent',
     favoriteWeapon: 'smg',
     personalPerks: ['discret', 'fetiche', 'brave'],
-    blurb: 'Silencieuse. Ses attaques ne font jamais de bruit.',
+    blurb: 'coronaz.hero.ines.blurb',
     emoji: '🤫'
   },
   {
@@ -254,7 +254,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'brawler',
     favoriteWeapon: 'club',
     personalPerks: ['brave', 'vigor', 'vigile'],
-    blurb: 'Bagarreur. Se bat à mains nues s’il le faut.',
+    blurb: 'coronaz.hero.bernard.blurb',
     emoji: '👊'
   },
   {
@@ -264,7 +264,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'scout',
     favoriteWeapon: 'rifle',
     personalPerks: ['fetiche', 'vigile', 'elan'],
-    blurb: 'Vigie. Repère les salles voisines en passant.',
+    blurb: 'coronaz.hero.awa.blurb',
     emoji: '🔭'
   },
 
@@ -276,7 +276,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'grim',
     favoriteWeapon: 'pick',
     personalPerks: ['fetiche', 'brave', 'vigor'],
-    blurb: 'Croque-mort. Chaque boss abattu lui rend 10 PV.',
+    blurb: 'coronaz.hero.viktor.blurb',
     emoji: '⚰️',
     cost: 150
   },
@@ -287,7 +287,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'magpie',
     favoriteWeapon: 'magnum',
     personalPerks: ['pilleur', 'fetiche', 'discret'],
-    blurb: 'Chapardeuse. Sa première fouille du raid donne deux objets.',
+    blurb: 'coronaz.hero.lea.blurb',
     emoji: '🪶',
     cost: 150
   },
@@ -298,7 +298,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'bulwark',
     favoriteWeapon: 'scatter',
     personalPerks: ['vigor', 'vigile', 'fetiche'],
-    blurb: 'Rempart. Une fois par raid, son gilet survit à l’impact.',
+    blurb: 'coronaz.hero.omar.blurb',
     emoji: '🧱',
     cost: 200
   },
@@ -309,7 +309,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'adrenal',
     favoriteWeapon: 'sidearm',
     personalPerks: ['soigneur', 'elan', 'fetiche'],
-    blurb: 'Urgentiste. L’adrénaline donne un PA de plus.',
+    blurb: 'coronaz.hero.fatou.blurb',
     emoji: '💉',
     cost: 200
   },
@@ -320,7 +320,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'daredevil',
     favoriteWeapon: 'saw',
     personalPerks: ['fetiche', 'brave', 'elan'],
-    blurb: 'Tête brûlée. +1 dé quand il joue sa peau (≤ 20 PV).',
+    blurb: 'coronaz.hero.diego.blurb',
     emoji: '🔥',
     cost: 250
   },
@@ -331,7 +331,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'deadeye',
     favoriteWeapon: 'magnum',
     personalPerks: ['fetiche', 'discret', 'vigile'],
-    blurb: 'Arquebusière. Ses armes portent une salle plus loin.',
+    blurb: 'coronaz.hero.suzanne.blurb',
     emoji: '🦅',
     cost: 250
   },
@@ -342,7 +342,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'trophy',
     favoriteWeapon: 'rifle',
     personalPerks: ['fetiche', 'serrurier', 'brave'],
-    blurb: 'Chasseur de primes. Chaque victime vaut un point de plus.',
+    blurb: 'coronaz.hero.karim.blurb',
     emoji: '🏹',
     cost: 300
   },
@@ -353,7 +353,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'lucky',
     favoriteWeapon: 'blade',
     personalPerks: ['pilleur', 'fetiche', 'vigor'],
-    blurb: 'Chanceuse. La fatigue de fouille la rattrape deux fois moins vite.',
+    blurb: 'coronaz.hero.margot.blurb',
     emoji: '🍀',
     cost: 300
   },
@@ -364,7 +364,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'tactician',
     favoriteWeapon: 'marksman',
     personalPerks: ['serrurier', 'fetiche', 'discret'],
-    blurb: 'Stratège. Un PA non dépensé se garde pour le tour suivant.',
+    blurb: 'coronaz.hero.ethan.blurb',
     emoji: '♟️',
     cost: 400
   },
@@ -375,7 +375,7 @@ export const HEROES: readonly HeroDef[] = [
     ability: 'veteran',
     favoriteWeapon: 'sidearm',
     personalPerks: ['fetiche', 'vigile', 'courrier'],
-    blurb: 'Vétérane. Arrive armée d’une arme de poing, insensible aux spores.',
+    blurb: 'coronaz.hero.rosa.blurb',
     emoji: '🎖️',
     cost: 400
   }
@@ -420,46 +420,46 @@ export interface LoadoutPerkDef {
  */
 export const HERO_LOADOUT_PERKS: readonly LoadoutPerkDef[] = [
   /* Signature pool (assigned per character). */
-  { id: 'fetiche', label: 'Fétichiste · +1 dé de plus avec l’arme fétiche', emoji: '🎯' },
-  { id: 'vigor', label: 'Vigueur · +10 PV max', emoji: '❤️' },
-  { id: 'soigneur', label: 'Prévoyant · commence avec un kit de soin', emoji: '💊' },
-  { id: 'discret', label: 'Discret · la première attaque bruyante de chaque tour est silencieuse', emoji: '🤫' },
-  { id: 'brave', label: 'Brave · +1 dé quand aucun allié n’est dans la salle', emoji: '🦁' },
+  { id: 'fetiche', label: 'coronaz.perk.fetiche', emoji: '🎯' },
+  { id: 'vigor', label: 'coronaz.perk.vigor', emoji: '❤️' },
+  { id: 'soigneur', label: 'coronaz.perk.soigneur', emoji: '💊' },
+  { id: 'discret', label: 'coronaz.perk.discret', emoji: '🤫' },
+  { id: 'brave', label: 'coronaz.perk.brave', emoji: '🦁' },
   /**
    * Replaces `fouineur` (first crate of the raid at rarity +1), which paid out once
    * and then sat there. This one pays every turn and only if you go somewhere: the
    * glittering rooms stop being scenery you walk past.
    */
-  { id: 'pilleur', label: 'Pilleur · une fouille gratuite par tour dans une salle à bon butin', emoji: '💎' },
+  { id: 'pilleur', label: 'coronaz.perk.pilleur', emoji: '💎' },
   /**
    * Replaces `lettre` (+2 score per objective), which changed a number on a screen
    * nobody saw until the raid was over. Keys are the escape scenario's spine, so
    * making them free — and showing the door — reshapes the route instead.
    */
-  { id: 'serrurier', label: 'Serrurier · ramasser une clé est gratuit et révèle la sortie', emoji: '🔑' },
+  { id: 'serrurier', label: 'coronaz.perk.serrurier', emoji: '🔑' },
   /**
    * Replaces `coriace` (first wound of the raid reduced by 10) — a number, spent
    * once, that nobody could feel. Information instead: the dark is the game's real
    * antagonist and this is the perk that pushes it back one room.
    */
-  { id: 'vigile', label: 'Vigile · les salles voisines sont toujours visibles', emoji: '👁️' },
+  { id: 'vigile', label: 'coronaz.perk.vigile', emoji: '👁️' },
   /**
    * New. Handing things over was already free, and it was already the best thing a
    * team could do — this lets it happen without everybody first walking into one
    * room, which is where the free action was quietly costing two moves.
    */
-  { id: 'courrier', label: 'Courrier · donne un objet à un survivant d’une salle voisine', emoji: '📨' },
+  { id: 'courrier', label: 'coronaz.perk.courrier', emoji: '📨' },
   /**
    * Replaces `nerveux` (+1 AP on turn one). Same free point, except it only exists
    * if you spend it walking into somewhere nobody has been — so the perk argues for
    * exploring rather than paying you for having turned up.
    */
-  { id: 'elan', label: 'Élan · le premier pas vers une salle inexplorée est gratuit, chaque tour', emoji: '🥾' },
+  { id: 'elan', label: 'coronaz.perk.elan', emoji: '🥾' },
 
   /* Global pool (any character may pick two). */
-  { id: 'poches', label: 'Poches profondes · +1 place de sac', emoji: '👝' },
-  { id: 'injection', label: 'Seringue · commence avec une adrénaline', emoji: '💉' },
-  { id: 'esquive', label: 'Esquive · la première attaque subie du raid est évitée', emoji: '💨' },
+  { id: 'poches', label: 'coronaz.perk.poches', emoji: '👝' },
+  { id: 'injection', label: 'coronaz.perk.injection', emoji: '💉' },
+  { id: 'esquive', label: 'coronaz.perk.esquive', emoji: '💨' },
   /**
    * Replaces `chasseur` (+1 score per kill), the last perk in the pool that moved
    * only a number on a screen nobody reads until the raid is over — and it fills a
@@ -478,31 +478,31 @@ export const HERO_LOADOUT_PERKS: readonly LoadoutPerkDef[] = [
    * twice. It folds into the plate's own `max()` rather than adding to it, for the
    * same reason two vests do not stack.
    */
-  { id: 'endurci', label: 'Endurci · -2 dégâts sur chaque blessure', emoji: '🪨' },
+  { id: 'endurci', label: 'coronaz.perk.endurci', emoji: '🪨' },
   /**
    * Replaces `couteau` (start with a machete). Clearing a room was worth points and
    * a little loot; this makes killing a way of *looting*, which is a strategy rather
    * than an item.
    */
-  { id: 'charognard', label: 'Charognard · vos victimes lâchent du butin deux fois plus souvent', emoji: '🦴' },
+  { id: 'charognard', label: 'coronaz.perk.charognard', emoji: '🦴' },
   /**
    * Replaces `sang-froid`, which was `vigor` with a different emoji. Positional
    * rather than statistical: it makes standing next to somebody a tactic, and it is
    * the other half of Yuri's shield.
    */
-  { id: 'fantome', label: 'Discrétion · la horde vise vos alliés en priorité si vous partagez leur salle', emoji: '👻' },
+  { id: 'fantome', label: 'coronaz.perk.fantome', emoji: '👻' },
   /**
    * Replaces `trousse`, the second medkit. A full bag used to refuse the search
    * outright, so the last third of a raid was spent unable to look at anything;
    * now it is a swap, and deciding what to leave behind is the interesting part.
    */
-  { id: 'brocanteur', label: 'Brocanteur · sac plein, une fouille remplace votre pire objet', emoji: '⚖️' },
+  { id: 'brocanteur', label: 'coronaz.perk.brocanteur', emoji: '⚖️' },
   /**
    * Replaces `boussole` (the start room's neighbours are known), which was one
    * reveal at turn one and then nothing. This one keeps paying, and it points at
    * the thing the scenario is actually about.
    */
-  { id: 'eclaireur', label: 'Éclaireur · en entrant dans une salle, vous sentez les clés voisines', emoji: '🧭' }
+  { id: 'eclaireur', label: 'coronaz.perk.eclaireur', emoji: '🧭' }
 ];
 
 /** The two-of-many half of the pick. */
@@ -630,11 +630,11 @@ export interface ItemDef {
 
 /** The rarity's colour language, Fortnite-style, shared by loot and horde. */
 export const RARITY_META: Record<Rarity, { label: string; color: string }> = {
-  1: { label: 'Commun', color: '#9aa0a6' },
-  2: { label: 'Peu commun', color: '#3fb950' },
-  3: { label: 'Rare', color: '#4f9cf0' },
-  4: { label: 'Épique', color: '#b06ae0' },
-  5: { label: 'Légendaire', color: '#e8a33d' }
+  1: { label: 'coronaz.rarity.1', color: '#9aa0a6' },
+  2: { label: 'coronaz.rarity.2', color: '#3fb950' },
+  3: { label: 'coronaz.rarity.3', color: '#4f9cf0' },
+  4: { label: 'coronaz.rarity.4', color: '#b06ae0' },
+  5: { label: 'coronaz.rarity.5', color: '#e8a33d' }
 };
 
 /**
@@ -792,79 +792,79 @@ export const GM_CLASSES: readonly GmClassDef[] = [
   /* ------------------------------ base roster ----------------------------- */
   {
     id: 'horde',
-    name: 'La Horde',
+    name: 'coronaz.gmclass.horde.name',
     emoji: '🧟',
     personalPerks: ['tresor', 'dividende', 'essaim'],
-    blurb: 'La référence : rien de spécial, tout en nombre.'
+    blurb: 'coronaz.gmclass.horde.blurb'
   },
   {
     id: 'necromancienne',
-    name: 'La Nécromancienne',
+    name: 'coronaz.gmclass.necromancienne.name',
     emoji: '🕯️',
     personalPerks: ['economat', 'essaim', 'tresor'],
-    blurb: 'Invocations à -1 point, mais chaque créature perd 10 PV.'
+    blurb: 'coronaz.gmclass.necromancienne.blurb'
   },
   {
     id: 'boucher',
-    name: 'Le Boucher',
+    name: 'coronaz.gmclass.boucher.name',
     emoji: '🪓',
     personalPerks: ['brutalite', 'tresor', 'dividende'],
-    blurb: 'Les boss coûtent 2 de moins et gagnent 20 PV.'
+    blurb: 'coronaz.gmclass.boucher.blurb'
   },
   {
     id: 'traqueur',
-    name: 'Le Traqueur',
+    name: 'coronaz.gmclass.traqueur.name',
     emoji: '👣',
     personalPerks: ['clairon', 'essaim', 'dividende'],
-    blurb: 'Ses créatures gagnent 1 PA dans une salle où l’on a tiré.'
+    blurb: 'coronaz.gmclass.traqueur.blurb'
   },
   {
     id: 'parasite',
-    name: 'Le Parasite',
+    name: 'coronaz.gmclass.parasite.name',
     emoji: '🍄',
     personalPerks: ['taniere', 'dividende', 'tresor'],
-    blurb: 'Trois salles infestées : y entrer coûte 10 PV aux survivants.'
+    blurb: 'coronaz.gmclass.parasite.blurb'
   },
 
   /* --------------------------- unlockable roster -------------------------- */
   {
     id: 'crypte',
-    name: 'Seigneur des cryptes',
+    name: 'coronaz.gmclass.crypte.name',
     emoji: '⚱️',
     personalPerks: ['taniere', 'essaim', 'economat'],
-    blurb: 'Une salle d’apparition supplémentaire sur la carte.',
+    blurb: 'coronaz.gmclass.crypte.blurb',
     cost: 200
   },
   {
     id: 'hurleur',
-    name: 'Le Grand Hurleur',
+    name: 'coronaz.gmclass.hurleur.name',
     emoji: '📢',
     personalPerks: ['porte-voix', 'essaim', 'tresor'],
-    blurb: 'Les hurleuses coûtent 2 de moins et invoquent deux zombies.',
+    blurb: 'coronaz.gmclass.hurleur.blurb',
     cost: 250
   },
   {
     id: 'general',
-    name: 'Le Général',
+    name: 'coronaz.gmclass.general.name',
     emoji: '🎖️',
     personalPerks: ['clairon', 'dividende', 'brutalite'],
-    blurb: 'Le premier renfort de chaque tour agit immédiatement.',
+    blurb: 'coronaz.gmclass.general.blurb',
     cost: 300
   },
   {
     id: 'charognard',
-    name: 'Le Charognard',
+    name: 'coronaz.gmclass.charognard.name',
     emoji: '🦴',
     personalPerks: ['dividende', 'tresor', 'economat'],
-    blurb: 'Chaque blessure infligée rapporte 1 point de budget.',
+    blurb: 'coronaz.gmclass.charognard.blurb',
     cost: 350
   },
   {
     id: 'ossature',
-    name: 'Colosse d’os',
+    name: 'coronaz.gmclass.ossature.name',
     emoji: '☠️',
     personalPerks: ['forgeron', 'brutalite', 'tresor'],
-    blurb: 'Peut faire apparaître ses créatures dans toute salle inexplorée.',
+    blurb: 'coronaz.gmclass.ossature.blurb',
     cost: 400
   }
 ];
@@ -879,15 +879,15 @@ export function gmClassDef(id: string): GmClassDef {
 
 /** The game master's loadout pool: signature entries plus the global picks. */
 export const GM_LOADOUT_PERKS: readonly LoadoutPerkDef[] = [
-  { id: 'tresor', label: 'Trésor de guerre · +3 de budget initial', emoji: '💰' },
-  { id: 'dividende', label: 'Dividende · +1 de revenu par tour', emoji: '📈' },
-  { id: 'clairon', label: 'Clairon · l’ordre Ruée coûte 2 de moins', emoji: '📯' },
-  { id: 'forgeron', label: 'Forgeron · les évolutions coûtent 2 de moins', emoji: '⚒️' },
-  { id: 'essaim', label: 'Essaim · 2 zombies gratuits au premier assaut', emoji: '🐜' },
-  { id: 'taniere', label: 'Tanière · une salle d’apparition de plus', emoji: '🕳️' },
-  { id: 'economat', label: 'Économat · la première invocation du tour coûte 1 de moins', emoji: '🧾' },
-  { id: 'porte-voix', label: 'Porte-voix · les hurleuses coûtent 1 de moins', emoji: '📣' },
-  { id: 'brutalite', label: 'Brutalité · les boss invoqués gagnent 10 PV', emoji: '🩸' }
+  { id: 'tresor', label: 'coronaz.perk.tresor', emoji: '💰' },
+  { id: 'dividende', label: 'coronaz.perk.dividende', emoji: '📈' },
+  { id: 'clairon', label: 'coronaz.perk.clairon', emoji: '📯' },
+  { id: 'forgeron', label: 'coronaz.perk.forgeron', emoji: '⚒️' },
+  { id: 'essaim', label: 'coronaz.perk.essaim', emoji: '🐜' },
+  { id: 'taniere', label: 'coronaz.perk.taniere', emoji: '🕳️' },
+  { id: 'economat', label: 'coronaz.perk.economat', emoji: '🧾' },
+  { id: 'porte-voix', label: 'coronaz.perk.porte-voix', emoji: '📣' },
+  { id: 'brutalite', label: 'coronaz.perk.brutalite', emoji: '🩸' }
 ];
 
 export const GM_GLOBAL_PERKS = [

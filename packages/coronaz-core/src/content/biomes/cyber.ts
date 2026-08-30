@@ -27,13 +27,13 @@ import type { BiomeDef } from '../biome.js';
  */
 export const cyber: BiomeDef = {
   id: 'cyber',
-  name: 'Cyber',
-  blurb: 'La ville quand le réseau est revenu : chrome, tours, et ce que les cliniques ont laissé.',
+  name: 'coronaz.biome.cyber.name',
+  blurb: 'coronaz.biome.cyber.blurb',
 
   items: {
     club: {
       id: 'shockrod',
-      name: 'Matraque à choc',
+      name: 'coronaz.thing.shockrod',
       emoji: '🔌',
       // Two taps of seven where the bat swings once for fourteen: same budget,
       // and it clears a pair of husks the bat has to hit twice for.
@@ -41,19 +41,19 @@ export const cyber: BiomeDef = {
     },
     blade: {
       id: 'monoblade',
-      name: 'Lames monofilament',
+      name: 'coronaz.thing.monoblade',
       emoji: '⚔️',
       weapon: { range: 0, dice: 2, damage: 12, accuracy: 1, melee: true, akimbo: true, noisy: false }
     },
     pick: {
       id: 'railspike',
-      name: 'Pointe à rail',
+      name: 'coronaz.thing.railspike',
       emoji: '🪛',
       weapon: { range: 0, dice: 1, damage: 22, accuracy: 1, melee: true, akimbo: false, noisy: false, pierce: true }
     },
     saw: {
       id: 'plasmacutter',
-      name: 'Découpeur à plasma',
+      name: 'coronaz.thing.plasmacutter',
       emoji: '🔥',
       // Two cuts of eighteen against the chainsaw's one of thirty-six: the same
       // heavy melee slot, spent on a crowd instead of on a carapace.
@@ -61,69 +61,69 @@ export const cyber: BiomeDef = {
     },
     sidearm: {
       id: 'holdout',
-      name: 'Pistolet compact',
+      name: 'coronaz.thing.holdout',
       emoji: '🔫',
       weapon: { range: 1, dice: 3, damage: 11, accuracy: 1, melee: false, akimbo: true, noisy: true }
     },
     scatter: {
       id: 'flechette',
-      name: 'Fusil à fléchettes',
+      name: 'coronaz.thing.flechette',
       emoji: '🪡',
       weapon: { range: 1, dice: 2, damage: 17, accuracy: 1, melee: false, akimbo: false, noisy: true }
     },
     smg: {
       id: 'smartgun',
-      name: 'Smartgun',
+      name: 'coronaz.thing.smartgun',
       emoji: '🎛️',
       weapon: { range: 1, dice: 4, damage: 12, accuracy: 1, melee: false, akimbo: true, noisy: true }
     },
     rifle: {
       id: 'pulserifle',
-      name: 'Fusil à impulsion',
+      name: 'coronaz.thing.pulserifle',
       emoji: '⚡',
       weapon: { range: 2, dice: 3, damage: 15, accuracy: 1, melee: false, akimbo: false, noisy: true }
     },
     magnum: {
       id: 'handcannon',
-      name: 'Canon de poing',
+      name: 'coronaz.thing.handcannon',
       emoji: '💢',
       weapon: { range: 2, dice: 2, damage: 28, accuracy: 1, melee: false, akimbo: false, noisy: true, pierce: true }
     },
     marksman: {
       id: 'railgun',
-      name: 'Railgun',
+      name: 'coronaz.thing.railgun',
       emoji: '🛰️',
       weapon: { range: 3, dice: 1, damage: 58, accuracy: 1, melee: false, akimbo: false, noisy: true, pierce: true }
     },
     flamer: {
       id: 'arcthrower',
-      name: 'Projecteur d’arc',
+      name: 'coronaz.thing.arcthrower',
       emoji: '🌩️',
       weapon: { range: 1, dice: 2, damage: 35, accuracy: 1, melee: false, akimbo: false, noisy: true }
     },
     chaingun: {
       id: 'rotarylaser',
-      name: 'Laser rotatif',
+      name: 'coronaz.thing.rotarylaser',
       emoji: '🔆',
       weapon: { range: 1, dice: 6, damage: 12, accuracy: 1, melee: false, akimbo: false, noisy: true }
     },
 
-    vest: { id: 'weave', name: 'Tissage balistique', emoji: '🧵', gear: { armor: 3 } },
-    torch: { id: 'optics', name: 'Optiques de nuit', emoji: '🥽', gear: { flashlight: true } },
-    medkit: { id: 'nanogel', name: 'Nanogel', emoji: '🧪', gear: { heal: 18 } },
-    stim: { id: 'combatstim', name: 'Stim de combat', emoji: '🧬', gear: { adrenaline: 2 } }
+    vest: { id: 'weave', name: 'coronaz.thing.weave', emoji: '🧵', gear: { armor: 3 } },
+    torch: { id: 'optics', name: 'coronaz.thing.optics', emoji: '🥽', gear: { flashlight: true } },
+    medkit: { id: 'nanogel', name: 'coronaz.thing.nanogel', emoji: '🧪', gear: { heal: 18 } },
+    stim: { id: 'combatstim', name: 'coronaz.thing.combatstim', emoji: '🧬', gear: { adrenaline: 2 } }
   },
 
   zombies: {
-    walker: { id: 'husk', name: 'Carcasse', emoji: '🧟' },
-    runner: { id: 'chaser', name: 'Chasseur', emoji: '🏃' },
-    horror: { id: 'splicer', name: 'Greffé', emoji: '👺' },
-    fatty: { id: 'bloater', name: 'Réservoir', emoji: '🛢️' },
-    mutant: { id: 'chimera', name: 'Chimère', emoji: '👹' },
-    screamer: { id: 'broadcaster', name: 'Émetteur', emoji: '📡' },
-    brute: { id: 'enforcer', name: 'Exécuteur', emoji: '🤖' },
-    colossus: { id: 'juggernaut', name: 'Juggernaut', emoji: '🦾' },
-    abomination: { id: 'singularity', name: 'Singularité', emoji: '☣️' }
+    walker: { id: 'husk', name: 'coronaz.thing.husk', emoji: '🧟' },
+    runner: { id: 'chaser', name: 'coronaz.thing.chaser', emoji: '🏃' },
+    horror: { id: 'splicer', name: 'coronaz.thing.splicer', emoji: '👺' },
+    fatty: { id: 'bloater', name: 'coronaz.thing.bloater', emoji: '🛢️' },
+    mutant: { id: 'chimera', name: 'coronaz.thing.chimera', emoji: '👹' },
+    screamer: { id: 'broadcaster', name: 'coronaz.thing.broadcaster', emoji: '📡' },
+    brute: { id: 'enforcer', name: 'coronaz.thing.enforcer', emoji: '🤖' },
+    colossus: { id: 'juggernaut', name: 'coronaz.thing.juggernaut', emoji: '🦾' },
+    abomination: { id: 'singularity', name: 'coronaz.thing.singularity', emoji: '☣️' }
   },
 
   /**
