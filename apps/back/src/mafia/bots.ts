@@ -34,6 +34,7 @@ import { say } from './say.js';
 import { actionVerb, brief, dossier } from './bot-brief.js';
 import { BotMinds } from './bot-mind.js';
 import { HEARD_FORMAT, HEARD_RULES, hearingPrompt, readHeard, unheard } from './ear.js';
+import { MOUTH_FORMAT, mouthPrompt, mouthRules, readLine, type Intent } from './mouth.js';
 
 /**
  * The town's extras: LLM-driven players that fill the empty seats.
@@ -85,6 +86,14 @@ interface Decision {
   verdict: 'guilty' | 'innocent' | 'abstain' | null;
   /** What this turn asserts publicly, for the claims board. Null = small talk. */
   claim: { kind: ClaimKind; slot: number | null; role: string | null; account?: 'home' | 'visited' } | null;
+  /**
+   * What this turn means, for the mouth to phrase.
+   *
+   * The phrasebook line in `say` is the fallback and the floor; this is the same
+   * move described so a model can put it in its own words without being told
+   * anything it could get wrong.
+   */
+  intent?: Intent;
   /** Jailor only: tonight's cell, chosen during the day. */
   jailSlot?: number | null;
   /** Mayor only: put the sash on today. */
@@ -328,6 +337,22 @@ function systemFor(tongue: Locale): string {
   const built = `${RULES}\n${SHAPE}\n${SPEAK[tongue]}`;
   SYSTEM_CACHE.set(tongue, built);
   return built;
+}
+
+/**
+ * A seat's temperament, in the words the mouth is given.
+ *
+ * Drawn from the same `Personality` the policy plays with, so how a bot *sounds*
+ * and how it *behaves* come from one place: a seat that accuses on thin evidence
+ * reads as impulsive because it is impulsive.
+ */
+function moodOf(personality: { aggression: number; herd: number; claimRate: number; deceit: number }): string {
+  if (personality.claimRate < 0.3) return 'taciturn — you barely speak, and never more than a few words';
+  if (personality.aggression > 0.7) return 'impulsive and combative, quick to accuse';
+  if (personality.deceit > 0.6) return 'smooth and plausible, never quite pinned down';
+  if (personality.herd > 0.7) return 'agreeable, happier following the room than leading it';
+  if (personality.aggression < 0.3) return 'calm and careful, you argue rather than shout';
+  return 'dry, a little sarcastic';
 }
 
 /** A turn where the bot does and says nothing. */
@@ -1078,7 +1103,38 @@ export class MafiaBotDriver {
      */
     const first = this.nextRung();
     const maxInFlight = this.tempo === 'deliberate' ? 1 : first === 'ollama' ? 2 : 4;
-    if (first !== null && this.inFlight < maxInFlight) {
+    const busy = first === null || this.inFlight >= maxInFlight;
+
+    /**
+     * The brain decides. Always, and first.
+     *
+     * Under `policy` a model is never asked what to do — only how to say it —
+     * so a turn is a complete, legal, consistent move before any network call
+     * exists, and the call can fail without costing the table anything but
+     * prose. `model` keeps the old arrangement for comparison.
+     */
+    if (env.MAFIA_BOT_MIND === 'policy') {
+      const decision = this.scripted(state, botId, task, channel, round);
+      if (busy || !decision.intent || !decision.say) {
+        this.apply(state, botId, task, channel, decision);
+        return;
+      }
+
+      this.inFlight++;
+      void this.speak(state, botId, decision)
+        .then((spoken) => {
+          this.inFlight--;
+          const fresh = this.hooks.get(code);
+          if (fresh) this.apply(fresh, botId, task, channel, spoken);
+        })
+        .catch((error: unknown) => {
+          this.inFlight--;
+          this.log.error({ err: error, code, botId }, 'mafia bot line could not be applied');
+        });
+      return;
+    }
+
+    if (!busy) {
       this.inFlight++;
       void this.walkChain(state, botId, task, round, rounds)
         .then((decision) => {
@@ -1099,6 +1155,49 @@ export class MafiaBotDriver {
     }
 
     this.apply(state, botId, task, channel, this.scripted(state, botId, task, channel, round));
+  }
+
+  /**
+   * The same decision, said better.
+   *
+   * Everything about the move is already settled — the vote, the target, the
+   * claim that goes on the board — and none of it is at risk here. The model is
+   * handed an intention and two hundred tokens of context and asked for one
+   * sentence; if it declines, hallucinates, rambles or times out, the phrasebook
+   * line the brain already wrote is used instead and the turn is identical.
+   *
+   * That asymmetry is the whole point of the split: the expensive, fallible part
+   * of the system can only ever affect the *wording*.
+   */
+  private async speak(state: MafiaState, botId: string, decision: Decision): Promise<Decision> {
+    const self = state.players[botId];
+    const intent = decision.intent;
+    if (!self || !intent) return decision;
+
+    const tongue = spokenLocale(state);
+    const recent = state.chat.messages
+      .filter((message) => message.channel === 'day' && message.authorId && message.authorId !== botId)
+      .slice(-4)
+      .map((message) => ({
+        slot: message.authorId ? (state.players[message.authorId]?.slot ?? 0) : 0,
+        name: message.authorName,
+        text: message.text
+      }));
+
+    const answer = await this.askChain(
+      {
+        system: mouthRules(tongue),
+        user: mouthPrompt({ name: self.name, slot: self.slot }, intent, recent),
+        format: MOUTH_FORMAT,
+        // One short line. The ceiling is for a model that decides to explain
+        // itself; `readLine` throws that away anyway.
+        maxTokens: 400,
+        temperature: 0.9
+      },
+      { code: state.code, botId, task: 'speak' }
+    );
+
+    return { ...decision, say: answer ? readLine(answer, intent) : intent.fallback };
   }
 
   /**
@@ -1357,7 +1456,17 @@ export class MafiaBotDriver {
        * on its own turn, which is why no target is returned here.
        */
       if (channel === 'mafia') {
-        return { ...EMPTY, say: this.familyLine(state, botId, view, board, slot) };
+        const shop = this.familyLine(state, botId, view, board, slot);
+        if (!shop) return EMPTY;
+        return {
+          ...EMPTY,
+          say: shop,
+          intent: {
+            act: `tell your own family, privately, what you want done tonight — say this and only this: "${shop}"`,
+            mood: moodOf(mind.brain.personality),
+            fallback: shop
+          }
+        };
       }
       return { ...EMPTY, targetSlot: slot };
     }
@@ -1379,7 +1488,16 @@ export class MafiaBotDriver {
        */
       this.sealWill(state, botId);
       if (mind.brain.personality.claimRate < 0.3) return EMPTY;
-      return { ...EMPTY, say: this.greeting(state, botId) };
+      const hello = this.greeting(state, botId);
+      return {
+        ...EMPTY,
+        say: hello,
+        intent: {
+          act: 'say hello to the table on the first day, when nobody knows anything yet',
+          mood: moodOf(mind.brain.personality),
+          fallback: hello
+        }
+      };
     }
 
     if (task === 'defense') {
@@ -1388,7 +1506,19 @@ export class MafiaBotDriver {
       // every round it was given.
       const onTrial = view.trial?.slot === me.slot;
       if (!onTrial && (round > 1 || mind.brain.personality.claimRate < 0.45)) return EMPTY;
-      return { ...EMPTY, say: this.defenceLine(state, botId, onTrial, round) };
+      const plea = this.defenceLine(state, botId, onTrial, round);
+      if (!plea) return EMPTY;
+      return {
+        ...EMPTY,
+        say: plea,
+        intent: {
+          act: onTrial
+            ? `defend yourself on the stand — say this and only this: "${plea}"`
+            : 'mutter something from the benches while somebody else is on trial',
+          mood: moodOf(mind.brain.personality),
+          fallback: plea
+        }
+      };
     }
 
     /* ------------------------------- daylight ------------------------------- */
@@ -1461,8 +1591,18 @@ export class MafiaBotDriver {
     const heatRow = view.players.find((player) => player.slot === me.slot);
     const heat = (heatRow?.votesAgainst ?? 0) / Math.max(1, view.voteThreshold);
     if (heat >= 0.5 && view.trial === null) {
+      const wagonLine = this.answerWagon(state, botId, view, board);
+      const heatRow2 = view.players.find((player) => player.slot === me.slot);
       return {
-        say: this.answerWagon(state, botId, view, board),
+        say: wagonLine,
+        intent: {
+          act:
+            (heatRow2?.votesAgainst ?? 0) > 0
+              ? 'push back at the people voting for you, and demand they say what you actually did'
+              : 'push back at the room',
+          mood: moodOf(mind.brain.personality),
+          fallback: wagonLine
+        },
         urgent: true,
         targetSlot: day.voteSlot,
         verdict: null,
@@ -1482,8 +1622,19 @@ export class MafiaBotDriver {
         ? this.why(state, view, board, spoken.targetSlot)
         : null;
 
+    const line = spoken ? this.sentence(state, botId, spoken, reason) : null;
+
     return {
-      say: spoken ? this.sentence(state, botId, spoken, reason) : null,
+      say: line,
+      intent:
+        spoken && line
+          ? {
+              act: this.actOf(state, spoken),
+              ...(reason ? { because: say('en')(reason) } : {}),
+              mood: moodOf(mind.brain.personality),
+              fallback: line
+            }
+          : undefined,
       urgent: spoken?.kind === 'accuse' && day.voteSlot !== null,
       targetSlot: day.voteSlot,
       verdict: null,
@@ -1553,6 +1704,40 @@ export class MafiaBotDriver {
         return line('taunt', 3, { who: who(claim.targetSlot) });
       case 'hint':
         return line('hint', 2, { who: who(claim.targetSlot) });
+    }
+  }
+
+  /**
+   * One claim, described rather than phrased.
+   *
+   * The mouth is given this instead of a sentence, so it writes its own — and it
+   * names the house *and* the name, because a model handed only a number
+   * sometimes decides the number is a quantity.
+   */
+  private actOf(state: MafiaState, claim: Claim): string {
+    const who = (slot: number): string => {
+      const name = Object.values(state.players).find((player) => player.slot === slot)?.name;
+      return name ? `house ${slot} (${name})` : `house ${slot}`;
+    };
+    switch (claim.kind) {
+      case 'accuse':
+        return `accuse ${who(claim.targetSlot)} and vote for them`;
+      case 'clear':
+        return `say ${who(claim.targetSlot)} is not the one, and take the heat off them`;
+      case 'role-claim':
+        return `tell the square you are the ${claim.claimedRole ?? 'role you claimed'}`;
+      case 'account':
+        return claim.account === 'home'
+          ? 'say you never left your house last night'
+          : `admit you went to ${who(claim.targetSlot)} last night`;
+      case 'question':
+        return `ask ${who(claim.targetSlot)} where they were last night`;
+      case 'sighting':
+        return `say you saw somebody go into ${who(claim.targetSlot)} last night`;
+      case 'taunt':
+        return `needle ${who(claim.targetSlot)} about how quiet they have been`;
+      case 'hint':
+        return `say you are not sure about ${who(claim.targetSlot)} yet`;
     }
   }
 

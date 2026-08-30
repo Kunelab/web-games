@@ -127,6 +127,23 @@ const envSchema = z.object({
    * personalities actually do when they are not rushed.
    */
   MAFIA_BOT_TEMPO: z.enum(['live', 'deliberate']).default('live'),
+
+  /**
+   * Who decides a bot's turn, and who only phrases it.
+   *
+   *   `policy` — the deterministic brain decides everything and a model, when
+   *              one is reachable, rewrites the resulting line in its own voice.
+   *              Roughly a sixth of the tokens, and a model that cannot decide
+   *              anything cannot decide anything wrong.
+   *   `model`  — the model decides the whole turn from a full briefing. The
+   *              original arrangement, kept because letting a model *plan* is
+   *              worth revisiting once there is a way to tell a good plan from a
+   *              confidently invented one.
+   *
+   * Either way the played brain is underneath: `policy` uses it always, `model`
+   * falls back to it whenever nothing answers.
+   */
+  MAFIA_BOT_MIND: z.enum(['policy', 'model']).default('policy'),
   /** Think-then-act rounds per phase in the deliberate tempo. */
   MAFIA_BOT_ROUNDS: z.coerce.number().int().min(1).max(6).default(3),
   /**
