@@ -179,6 +179,79 @@ The frontend's API origin is baked at build time by Vite; the compose defaults
 suit browsing the box directly on `:3000`. Behind a reverse proxy on 80/443,
 clear `VITE_API_PORT` in the build args and set `FRONT_PROTOCOL=https`.
 
+### Building somewhere else
+
+The machine that runs this does not have to be the machine that builds it, and
+on a small box it should not be: `pnpm build` compiles seven packages and then
+runs `tsc` and Vite in parallel, which is several minutes with every core pinned.
+A mini PC will thermally throttle through that at best, and a marginal power
+supply can cut out under it — a silent shutdown with nothing in `journalctl` is
+what that looks like from the outside.
+
+So build on a desktop, ship the image, and let the server only run it.
+
+**Two things have to match, or the image is quietly wrong.**
+
+The frontend's API origin is baked in by Vite at build time, so the build args
+must be the deployment's, not the defaults. Behind a reverse proxy that means an
+empty host and an empty port, so the page talks to whatever origin served it:
+
+```bash
+# On the desktop, in a checkout of this repository.
+docker build \
+  --build-arg VITE_API_PROTOCOL=https \
+  --build-arg VITE_API_URL= \
+  --build-arg VITE_API_PORT= \
+  -t web-games:latest .
+```
+
+And the tag has to be the one Compose looks for. Left to itself Compose names the
+image after the _directory_ it is run from — `web-games-web-games` for a checkout
+in `web-games/` — so a folder named differently on either side means the server
+finds nothing and rebuilds from source, which is the whole thing you were
+avoiding. Pin it instead, in a `docker-compose.override.yml` on the server:
+
+```yaml
+services:
+  web-games:
+    image: web-games:latest
+```
+
+**Shipping it.** `docker save` writes a tarball; piping it through `ssh` avoids
+ever putting a 450 MB file on either disk:
+
+```bash
+docker save web-games:latest | gzip | ssh you@192.168.1.18 'gunzip | docker load'
+```
+
+Then on the server, in the directory holding `docker-compose.yml` and the `.env`
+that carries `SECRET`:
+
+```bash
+docker compose up -d --no-build
+```
+
+`--no-build` is the point. The quickstart above uses `--build` because it builds
+on the spot; here the image already exists and rebuilding it would put the load
+back on the machine you moved it off.
+
+**Architecture.** `docker save` carries one platform. Docker Desktop on an x64
+Windows or Linux desktop produces `linux/amd64`, which is what a mini PC runs; on
+an Apple Silicon Mac, pass `--platform linux/amd64` to `docker build` or the
+server will refuse the image with an exec format error.
+
+**If you must build on the server anyway**, cap it rather than letting it take
+the machine:
+
+```bash
+docker buildx create --name limited --driver docker-container \
+  --driver-opt cpuset-cpus=0-2 --driver-opt memory=6g
+BUILDX_BUILDER=limited docker compose build
+```
+
+Three cores instead of sixteen roughly triples the wall clock and keeps the box
+answering its own SSH.
+
 ### Backups
 
 [scripts/backup-db.sh](scripts/backup-db.sh) snapshots the live database with
