@@ -10,8 +10,16 @@ import {
   setNightAction,
   startMafia
 } from '../engine.js';
-import { roleDef, type RoleId } from '../roles.js';
-import { createMafiaGame, isLodgeMate, playerBySlot, playerFamily, type MafiaConfig, type MafiaState } from '../state.js';
+import { ROLES, roleDef, type RoleId } from '../roles.js';
+import {
+  createMafiaGame,
+  isLodgeMate,
+  playerBySlot,
+  playerFamily,
+  type MafiaConfig,
+  type MafiaPlayer,
+  type MafiaState
+} from '../state.js';
 import {
   bindPersonalities,
   decideBallot,
@@ -78,6 +86,26 @@ export function mulberry32(seed: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/**
+ * A town role the accused is not, that the board cannot immediately disprove.
+ *
+ * Deliberately the same test the live driver's `bluffRole` applies: not already
+ * claimed by somebody living, and not lying in the graveyard. A lie that the
+ * room can break by reading its own notes is not a bluff, it is a confession
+ * with extra steps — and it should be punished as one, which it now is.
+ */
+function bluffFor(accused: MafiaPlayer, info: PublicInfo, rng: () => number): RoleId | null {
+  const spoken = new Set(
+    info.claims.filter((claim) => claim.kind === 'role-claim').map((claim) => claim.claimedRole)
+  );
+  const buried = new Set(info.deadRoles.values());
+  const options = (Object.keys(ROLES) as RoleId[]).filter(
+    (role) =>
+      roleDef(role).faction === 'town' && role !== accused.role && !spoken.has(role) && !buried.has(role)
+  );
+  return options.length === 0 ? null : (options[Math.floor(rng() * options.length)] ?? null);
 }
 
 export function simulateGame(options: SimOptions): SimResult {
@@ -316,6 +344,38 @@ export function simulateGame(options: SimOptions): SimResult {
       if ((accused?.role === 'mayor' || accused?.role === 'marshall') && !accused.revealed) {
         revealMayor(state, accused.playerId, now);
       }
+
+      /**
+       * The accused answers, and the answer goes on the board.
+       *
+       * The bench used to skip this stage outright: the trial opened, nobody
+       * said anything, and the ballots were cast against a record identical to
+       * the one that had opened it. That made every measurement of the trial
+       * meaningless — a defence could not help because there was no defence —
+       * and it hid the fact that the live game had the same problem for the
+       * opposite reason (bots spoke but filed nothing).
+       *
+       * Town claims its real role; everything else claims a plausible town role
+       * it is not, which is what makes a bluff catchable: `suspicion` punishes a
+       * claim that clashes with a living rival or with the graveyard, and
+       * `defenceStrength` only rewards one that survives both.
+       */
+      if (accused?.role) {
+        const brain = brains.get(accused.playerId);
+        const info = publicInfo();
+        const claimed = roleDef(accused.role).faction === 'town' ? accused.role : bluffFor(accused, info, rng);
+        if (claimed && (brain?.personality.claimRate ?? 0) > 0.25) {
+          claims.push({
+            day: state.day,
+            claimerSlot: accused.slot,
+            targetSlot: accused.slot,
+            kind: 'role-claim',
+            claimedRole: claimed,
+            truthful: claimed === accused.role
+          });
+        }
+      }
+
       advance();
       continue;
     }

@@ -86,7 +86,7 @@ const envSchema = z.object({
   FRONT_DIR: z.string().optional(),
   FRONT_DIR_BUILD: z.string().optional(),
 
-  GOOGLE_API_KEY: z.string().optional(),
+  GOOGLE_API_KEY: blankIsUnset(),
 
   /**
    * Brains for the Mafia bots, in the order they are tried.

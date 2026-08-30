@@ -142,6 +142,8 @@ export {
   makePersonality,
   parityPressure,
   provenLiar,
+  suspicion,
+  suspicionParts,
   trustOf,
   type Brain,
   type Claim,

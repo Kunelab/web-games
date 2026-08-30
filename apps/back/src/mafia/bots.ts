@@ -5,6 +5,7 @@ import {
   decideBallot,
   decideDay,
   decideNightTarget,
+  jailChannel,
   legalNightAction,
   parityPressure,
   playerFamily,
@@ -13,6 +14,7 @@ import {
   SKIP_VOTE,
   slotPool,
   spokenLocale,
+  suspicion,
   tableRoleList,
   toMafiaView,
   type ActionOutcome,
@@ -35,6 +37,7 @@ import { say } from './say.js';
 import { actionVerb, brief, dossier } from './bot-brief.js';
 import { BotMinds } from './bot-mind.js';
 import { HEARD_FORMAT, HEARD_RULES, hearingPrompt, readHeard, unheard } from './ear.js';
+import { JURY_FORMAT, JURY_RULES, juryPrompt, readJury, type JuryLean } from './jury.js';
 import { MOUTH_FORMAT, mouthPrompt, mouthRules, readLine, type Intent } from './mouth.js';
 
 /**
@@ -518,6 +521,12 @@ export class MafiaBotDriver {
    * and the endpoint already knows the answer.
    */
   private readonly dialect = new Map<ApiRung, number>();
+  /**
+   * This trial's leanings, per table, thrown away when the trial closes.
+   *
+   * Keyed by nothing more than the table, because only one trial is ever open.
+   */
+  private readonly jury = new Map<string, { key: string; leans: JuryLean[] }>();
   /** The last chat message this table's ear has taken notes on. */
   private readonly heardUpTo = new Map<string, number>();
   /** Tables with an ear call in flight, so a tick cannot start a second one. */
@@ -756,6 +765,7 @@ export class MafiaBotDriver {
     this.timers.delete(code);
     this.signatures.delete(code);
     this.heardUpTo.delete(code);
+    this.jury.delete(code);
     this.listening.delete(code);
     this.minds.forget(code);
   }
@@ -806,6 +816,34 @@ export class MafiaBotDriver {
     if (state.phase === 'night') {
       // The tail of the day, taken down before anybody acts on it.
       this.later(code, 200, () => void this.listen(code));
+
+      /**
+       * A night in the cell, as a conversation rather than a held breath.
+       *
+       * The channel has always existed and both ends have always been allowed
+       * to write in it; no bot ever did, so a jailor who locked up a bot spent
+       * the night looking at an empty room and then guessed. That is the one
+       * night in the game where a player can ask a direct question and get a
+       * checkable answer, and it was doing nothing at all.
+       *
+       * The jailor asks first and the prisoner answers second, far enough apart
+       * that the second is plainly a reply. Either end may be a person, in which
+       * case their half simply does not get scheduled.
+       */
+      const cell = jailChannel(state.day);
+      const jailor = bots.find((bot) => bot.role === 'jailor');
+      const prisoner = state.jailedId ? state.players[state.jailedId] : null;
+
+      if (state.jailedId && jailor) {
+        this.later(code, within(0.05, 0.15, state.config.nightMs), () =>
+          this.decide(code, jailor.playerId, 'night', cell)
+        );
+      }
+      if (prisoner?.isBot && prisoner.alive) {
+        this.later(code, within(0.35, 0.5, state.config.nightMs), () =>
+          this.decide(code, prisoner.playerId, 'night', cell)
+        );
+      }
       for (const bot of bots) {
         if (legalNightAction(state, bot.playerId)) {
           this.later(code, within(0.1, 0.6, state.config.nightMs), () => this.decide(code, bot.playerId, 'night'));
@@ -913,11 +951,73 @@ export class MafiaBotDriver {
     }
 
     if (state.stage === 'judgement') {
+      /**
+       * One reading of the trial, for everybody, before anybody votes.
+       *
+       * Started immediately and given a hard slice of the judgement clock; the
+       * ballots are scheduled to land after it, so a leaning that arrives in
+       * time is used and one that does not is simply absent. Nothing waits on
+       * it — a bot whose turn comes with no jury in the map votes exactly as it
+       * did before this existed.
+       */
+      void this.readTrial(code, signature);
+
       for (const bot of bots) {
         if (bot.playerId === state.trial?.accusedId) continue;
-        this.later(code, within(0.1, 0.6, state.config.judgementMs), () => this.decide(code, bot.playerId, 'judgement'));
+        this.later(code, within(0.35, 0.8, state.config.judgementMs), () =>
+          this.decide(code, bot.playerId, 'judgement')
+        );
       }
     }
+  }
+
+  /**
+   * Reads the trial once and remembers which way it pushed each juror.
+   *
+   * The single most valuable thing a model can do for this game after the ear,
+   * and the cheapest: one call decides the shape of the vote that decides the
+   * game. It is also the one with the least room for error, which is why the
+   * answer is a *lean* and never a ballot — the played brain still does the
+   * voting, and a leaning only moves a seat that was close to the line anyway.
+   *
+   * Bounded hard. The judgement clock is thirty seconds and the vote must not
+   * wait on a network call, so the request gets a slice of it and the map stays
+   * empty if it overruns.
+   */
+  private async readTrial(code: string, key: string): Promise<void> {
+    const state = this.hooks.get(code);
+    if (!state?.trial || env.MAFIA_BOT_MIND === 'model') return;
+
+    const view = toMafiaView(state, { kind: 'host' });
+    const locale = spokenLocale(state);
+    const prompt = juryPrompt(state, view, locale);
+    if (!prompt) return;
+
+    const answer = await this.askChain(
+      {
+        system: JURY_RULES,
+        user: prompt,
+        format: JURY_FORMAT,
+        // Room for a reasoning model to think and still list every juror.
+        maxTokens: 1500,
+        // Reading an argument, not writing one: the same trial twice should
+        // score the same way.
+        temperature: 0.2
+      },
+      { code, task: 'jury' },
+      'listen'
+    );
+    if (!answer) return;
+
+    const fresh = this.hooks.get(code);
+    // The trial may have closed while this was in flight, and a leaning about a
+    // finished trial is worse than none.
+    if (!fresh?.trial || this.signatures.get(code) !== key) return;
+
+    const leans = readJury(fresh, answer);
+    if (leans.length === 0) return;
+    this.jury.set(code, { key, leans });
+    this.log.info({ code, jurors: leans.length }, 'mafia bots: the trial was read');
   }
 
   /**
@@ -1470,7 +1570,22 @@ export class MafiaBotDriver {
 
     const board = this.minds.board(state);
     const rng = Math.random;
+    /**
+     * Everyone this seat cannot afford to lose.
+     *
+     * The family, and — the part that was missing — whoever it is bonded to. A
+     * Lover dies the moment their partner does, so a Lover voting guilty on
+     * their own partner is voting to kill themselves; it happened at a real
+     * table, and both of them died. `teammates` is the mafia's own list and has
+     * never included a bond, so every voting decision treated a lover's other
+     * half as a stranger.
+     *
+     * Read off `bondPartnerId`, which the engine has always maintained and the
+     * policy has never once consulted.
+     */
     const allies = new Set((me.teammates ?? []).map((mate) => mate.slot));
+    const bonded = self.bondPartnerId ? state.players[self.bondPartnerId] : null;
+    if (bonded?.alive) allies.add(bonded.slot);
 
     if (task === 'night') {
       const action = me.action;
@@ -1488,6 +1603,33 @@ export class MafiaBotDriver {
       );
 
       /**
+       * The jailor listens before pulling the lever.
+       *
+       * The cell is the one room in the game where a direct question gets a
+       * checkable answer, and the execution used to ignore it entirely —
+       * `decideNightTarget` reads the public board, which knows nothing about
+       * what was said behind a locked door. So a prisoner could claim a role,
+       * name a night's work and offer tomorrow's, and be emptied anyway.
+       *
+       * Answering is not proof and is not treated as any: a lie is cheap and
+       * every guilty prisoner will tell one. It is *engagement*, weighed against
+       * what the square already thinks. A seat nobody suspects that pleaded its
+       * case mostly lives; a seat under real suspicion is not saved by talking;
+       * and silence — which is what a bot with nothing to lose used to give —
+       * remains the surest way to die in that cell.
+       */
+      if (action.type === 'jail-execute' && slot !== null && state.jailedId) {
+        const cell = jailChannel(state.day);
+        const pleaded = state.chat.messages.some(
+          (message) => message.channel === cell && message.authorId === state.jailedId
+        );
+        const prisoner = state.players[state.jailedId];
+        const suspected = prisoner ? suspicion(prisoner.slot, self, board, rng) : 0;
+        if (pleaded && suspected < 1.2 && rng() < 0.75) return { ...EMPTY, targetSlot: null };
+        if (!pleaded && rng() < 0.35) return { ...EMPTY, targetSlot: slot };
+      }
+
+      /**
        * A family that never says a word to itself.
        *
        * The private channel was scheduled, a bot was picked to speak in it, and
@@ -1500,6 +1642,28 @@ export class MafiaBotDriver {
        * The channel turn only ever *talks*; the seat's actual submission happens
        * on its own turn, which is why no target is returned here.
        */
+      /**
+       * The cell. Two very different jobs behind one channel.
+       *
+       * The jailor is interrogating and gives nothing away. The prisoner is
+       * bargaining for its life against somebody it cannot identify — the cell
+       * looks the same whether the hand on the key is a Jailor or something
+       * wearing one — so it offers what it has and hopes.
+       */
+      if (channel.startsWith('jail:')) {
+        const line = this.cellLine(state, botId, view);
+        if (!line) return EMPTY;
+        return {
+          ...EMPTY,
+          say: line,
+          intent: {
+            act: `speak privately in the cell, where only the two of you can hear — say this and only this: "${line}"`,
+            mood: moodOf(mind.brain.personality),
+            fallback: line
+          }
+        };
+      }
+
       if (channel === 'mafia') {
         const shop = this.familyLine(state, botId, view, board, slot);
         if (!shop) return EMPTY;
@@ -1519,7 +1683,31 @@ export class MafiaBotDriver {
     if (task === 'judgement') {
       const accused = view.trial?.slot;
       if (accused === undefined) return EMPTY;
-      return { ...EMPTY, verdict: decideBallot(self, mind.brain, board, accused, allies, rng) };
+      const verdict = decideBallot(self, mind.brain, board, accused, allies, rng);
+
+      /**
+       * What the trial did to this juror, if anybody read it.
+       *
+       * Applied last and applied gently: it only moves a seat whose own
+       * reasoning did not already point somewhere firmly, and it never moves
+       * one whose loyalties settle the matter — a mafioso does not hang a
+       * brother because an argument was good, and the family's own verdicts
+       * are decided several branches above this one.
+       *
+       * The point is the seat in the middle: the juror with no strong read,
+       * who used to fall through to a coin flip weighted by temperament and
+       * now falls through to what was actually said in the room.
+       */
+      const read = this.jury.get(state.code);
+      const lean = read?.leans.find((entry) => entry.slot === me.slot);
+      if (lean && !allies.has(accused) && ROLES[self.role].faction === 'town') {
+        // Only where the brain was not already sure: a firm read outranks a
+        // reading of the room.
+        const firm = Math.abs(suspicion(accused, self, board, rng) - 0.8) > 0.7;
+        if (!firm) return { ...EMPTY, verdict: lean.lean };
+      }
+
+      return { ...EMPTY, verdict };
     }
 
     if (task === 'greet') {
@@ -1555,13 +1743,14 @@ export class MafiaBotDriver {
       if (!plea) return EMPTY;
       return {
         ...EMPTY,
-        say: plea,
+        say: plea.text,
+        claim: plea.claim,
         intent: {
           act: onTrial
-            ? `defend yourself on the stand — say this and only this: "${plea}"`
+            ? `defend yourself on the stand — say this and only this: "${plea.text}"`
             : 'mutter something from the benches while somebody else is on trial',
           mood: moodOf(mind.brain.personality),
-          fallback: plea
+          fallback: plea.text
         }
       };
     }
@@ -1868,6 +2057,56 @@ export class MafiaBotDriver {
   }
 
   /**
+   * A night in the cell, from whichever end of it this seat is on.
+   *
+   * The jailor asks a question and offers nothing. The prisoner answers with
+   * the most checkable thing it holds — a role and a night's work beats a role
+   * alone, and a role alone beats "I did nothing" — because a claim the jailor
+   * can verify tomorrow is the only currency in the room.
+   *
+   * An evil prisoner reaches for the same shelf and finds a role it is not,
+   * through `bluffRole`, so the lie is at least a role this table could contain.
+   * A very quiet temperament says nothing at all, which is a personality and
+   * also, in this room, a decision: silence is what gets people executed.
+   */
+  private cellLine(state: MafiaState, botId: string, view: MafiaView): string | null {
+    const t = say(spokenLocale(state));
+    const self = state.players[botId];
+    const me = view.me;
+    if (!self?.role || !me) return null;
+
+    if (self.role === 'jailor') {
+      return t(msg('mafia.bot.jail.ask.' + (1 + (hashCode(botId + ':ask:' + state.day) % 4))));
+    }
+
+    const mind = this.minds.mind(state, botId);
+    if ((mind?.brain.personality.claimRate ?? 0) < 0.2) return t(msg('mafia.bot.jail.silent'));
+
+    const town = ROLES[self.role].faction === 'town';
+    const claimed = town ? self.role : this.bluffRole(state, botId);
+    if (!claimed) return t(msg('mafia.bot.jail.plead.home'));
+
+    const nameOf = (slot: number): string =>
+      Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
+
+    // A night's work, named, is the strongest thing a prisoner has.
+    const work = town ? me.intel.find((entry) => entry.kind === 'sheriff' || entry.kind === 'visitors') : undefined;
+    if (work) {
+      return t(
+        msg('mafia.bot.jail.plead.work', {
+          role: ROLE.name(claimed),
+          night: work.night,
+          who: nameOf(work.targetSlot)
+        })
+      );
+    }
+
+    // Otherwise: the claim, and a reason to be let out rather than emptied.
+    const useful = town && ROLES[claimed].nightAction !== undefined;
+    return t(msg(useful ? 'mafia.bot.jail.plead.offer' : 'mafia.bot.jail.plead.role', { role: ROLE.name(claimed) }));
+  }
+
+  /**
    * What one of the family says to the rest, in the dark.
    *
    * Two things, because those are the two things a real player types in that
@@ -2048,16 +2287,25 @@ export class MafiaBotDriver {
    * the town can call, because the role list is public and somebody else may
    * hold that card.
    */
-  private defenceLine(state: MafiaState, botId: string, onTrial: boolean, round = 1): string | null {
+  private defenceLine(
+    state: MafiaState,
+    botId: string,
+    onTrial: boolean,
+    round = 1
+  ): { text: string; claim: Decision['claim'] } | null {
     const t = say(spokenLocale(state));
-    if (!onTrial) return t(msg('mafia.bot.watch.' + (1 + (hashCode(botId) % 3))));
+    if (!onTrial) return { text: t(msg('mafia.bot.watch.' + (1 + (hashCode(botId) % 3)))), claim: null };
 
     const view = toMafiaView(state, { kind: 'player', playerId: botId });
     const board = this.minds.board(state);
     const mind = this.minds.mind(state, botId);
     const me = view.me;
     const self = state.players[botId];
-    if (!me || !self?.role || !mind) return t(msg('mafia.bot.plead.' + (1 + (hashCode(botId) % 3))));
+    const plead = (): { text: string; claim: Decision['claim'] } => ({
+      text: t(msg('mafia.bot.plead.' + (1 + (hashCode(botId) % 3)))),
+      claim: null
+    });
+    if (!me || !self?.role || !mind) return plead();
 
     const nameOf = (slot: number): string =>
       Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
@@ -2066,28 +2314,53 @@ export class MafiaBotDriver {
     /* -------- round one: what you are. Truthfully, or the best lie going. ---- */
     if (round === 1) {
       const claimed = town ? self.role : this.bluffRole(state, botId);
-      if (claimed) return t(msg('mafia.bot.defend.role', { role: ROLE.name(claimed) }));
-      return t(msg('mafia.bot.plead.' + (1 + (hashCode(botId) % 3))));
+      /**
+       * The claim goes on the board, which is the entire point of saying it.
+       *
+       * Round one of a defence used to produce a sentence and nothing else — no
+       * claim filed — so `defenceStrength` looked at the accused's record, found
+       * they had asserted nothing today, and gave them no credit. Every bot
+       * defended itself out loud and was judged as though it had stayed silent.
+       *
+       * Filing it also makes the bluff *cost* something: a role claim can be
+       * contradicted by a living rival or by the graveyard, and `suspicion`
+       * punishes both. An evil seat lying on the stand now takes a real risk,
+       * and an honest one gets a real reward.
+       */
+      if (claimed) {
+        return {
+          text: t(msg('mafia.bot.defend.role', { role: ROLE.name(claimed) })),
+          claim: { kind: 'role-claim', slot: null, role: claimed }
+        };
+      }
+      return plead();
     }
 
     /* -------- round two: the nights. Real ones, or a manufactured one. ------- */
     if (round === 2) {
       const dump = town ? this.realNight(state, me.intel) : this.inventedNight(state, botId, view);
-      if (dump) return dump;
-      return t(msg('mafia.bot.dump.nothing'));
+      // An account of the night is a claim like any other, and the one thing a
+      // sighting can catch out later.
+      if (dump) return { text: dump, claim: { kind: 'account', slot: null, role: null, account: 'visited' } };
+      return { text: t(msg('mafia.bot.dump.nothing')), claim: { kind: 'account', slot: null, role: null, account: 'home' } };
     }
 
     /* -------- round three: whoever is pushing, and the closing line. --------- */
     const pusher = [...board.votes.entries()].find(
       ([voter, target]) => target === me.slot && claimerWeight(voter, board) === 0
     );
-    if (pusher) return t(msg('mafia.bot.defend.accuser', { who: nameOf(pusher[0]) }));
+    if (pusher) return { text: t(msg('mafia.bot.defend.accuser', { who: nameOf(pusher[0]) })), claim: null };
 
     const account = board.claims.find((claim) => claim.kind === 'account' && claim.claimerSlot === me.slot);
-    if (account?.account === 'visited') return t(msg('mafia.bot.defend.visited', { who: nameOf(account.targetSlot) }));
-    if (account) return t(msg('mafia.bot.defend.home'));
+    if (account?.account === 'visited') {
+      return { text: t(msg('mafia.bot.defend.visited', { who: nameOf(account.targetSlot) })), claim: null };
+    }
+    if (account) return { text: t(msg('mafia.bot.defend.home')), claim: null };
 
-    return t(msg(hashCode(botId) % 2 === 0 ? 'mafia.bot.dump.closing' : 'mafia.bot.defend.nothing'));
+    return {
+      text: t(msg(hashCode(botId) % 2 === 0 ? 'mafia.bot.dump.closing' : 'mafia.bot.defend.nothing')),
+      claim: null
+    };
   }
 
   /**

@@ -457,8 +457,31 @@ export function buddyScore(targetSlot: number, info: PublicInfo): number {
   return best * 1.2;
 }
 
-/** Public suspicion of a slot, as a town-aligned seat computes it. */
-export function suspicion(targetSlot: number, self: MafiaPlayer, info: PublicInfo, rng: () => number): number {
+/**
+ * Why a seat looks guilty, split into the two things that are not the same.
+ *
+ * `evidence` is what the board actually holds against them: an account that did
+ * not survive a sighting, an investigator's report, two people claiming one
+ * role, a proven lie. `wagon` is how many people are already standing on them.
+ *
+ * They were one number, and that is most of why a table of these bots would
+ * pile onto somebody nobody had said anything about. Momentum fed the score,
+ * the score crossed the voting threshold, and crossing it added momentum: a
+ * lynch could bootstrap itself out of nothing at all. Keeping them apart lets
+ * the caller say the thing that was always intended — a wagon may *amplify* a
+ * suspicion but must not *be* one.
+ */
+export interface SuspicionParts {
+  evidence: number;
+  wagon: number;
+}
+
+export function suspicionParts(
+  targetSlot: number,
+  self: MafiaPlayer,
+  info: PublicInfo,
+  rng: () => number
+): SuspicionParts {
   let score = 0;
 
   for (const claim of info.claims) {
@@ -512,11 +535,17 @@ export function suspicion(targetSlot: number, self: MafiaPlayer, info: PublicInf
   // Never once voted for each other, and often together. See `buddyScore`.
   score += buddyScore(targetSlot, info);
 
-  // The wagon: herd instinct, weighted by personality.
+  // The wagon: herd instinct, weighted by personality. Returned separately, so
+  // the caller decides whether momentum is allowed to carry the day.
   const wagon = [...info.votes.values()].filter((voted) => voted === targetSlot).length;
-  score += wagon * 0.5 * brainHerd(self);
 
-  return score + rng() * 0.3;
+  return { evidence: score + rng() * 0.3, wagon: wagon * 0.5 * brainHerd(self) };
+}
+
+/** Public suspicion of a slot, as a town-aligned seat computes it. */
+export function suspicion(targetSlot: number, self: MafiaPlayer, info: PublicInfo, rng: () => number): number {
+  const parts = suspicionParts(targetSlot, self, info, rng);
+  return parts.evidence + parts.wagon;
 }
 
 /** The herd factor lives on the personality; this indirection keeps call sites short. */
@@ -739,6 +768,35 @@ export function decideDay(
     if (role === 'doctor' && rng() < brain.personality.claimRate) {
       const saved = self.intel.find((entry) => entry.kind === 'saved' && info.aliveSlots.includes(entry.targetSlot));
       if (saved) publish(saved.targetSlot, 'clear');
+    }
+
+    /**
+     * Somebody just claimed to be you.
+     *
+     * The most reliable moment in Mafia, and the policy did not model it at
+     * all: a unique role hearing its own name from another mouth stands up,
+     * because one of the two is lying and the room can only find out if both
+     * are on the record. It is also what makes bluffing *cost* something —
+     * without it a Serial Killer could claim Doctor on the stand and be
+     * acquitted by a room with no way to check, which is exactly what the
+     * bench measured once defences started counting.
+     *
+     * Near-automatic for a genuine holder, because the alternative is watching
+     * an impostor wear your badge for the rest of the game. Not entirely, since
+     * a seat that has been quiet all evening does not always find its voice.
+     */
+    const impostor = info.claims.find(
+      (claim) =>
+        claim.kind === 'role-claim' &&
+        claim.claimedRole === role &&
+        claim.claimerSlot !== self.slot &&
+        info.aliveSlots.includes(claim.claimerSlot)
+    );
+    if (impostor && roleDef(role).unique && !alreadyClaimed(info, self.slot, self.slot, 'role-claim')) {
+      if (rng() < 0.85) {
+        publish(self.slot, 'role-claim', role);
+        publish(impostor.claimerSlot, 'accuse');
+      }
     }
 
     /* ---------------- The afternoon: ask, answer, needle ---------------- */
@@ -1024,7 +1082,9 @@ function pickVote(
   const scored = pool
     .filter((slot) => !teammates.has(slot))
     .map((slot) => {
-      let score = suspicion(slot, self, info, rng);
+      const parts = suspicionParts(slot, self, info, rng);
+      const evidence = parts.evidence;
+      let score = parts.evidence + parts.wagon;
       // A short shortlist is itself evidence: it must be one of you.
       if (possible && possible.size <= 3 && possible.has(slot)) score += 1;
       if (isMafiaSeat) {
@@ -1052,7 +1112,7 @@ function pickVote(
           score += 1.2;
         }
       }
-      return { slot, score };
+      return { slot, score, evidence };
     })
     .sort((a, b) => b.score - a.score);
 
@@ -1062,11 +1122,99 @@ function pickVote(
   // Desperation lowers the bar; at full LyLo the town must lynch someone.
   const threshold = (1.7 - brain.personality.aggression) * (1 - 0.6 * pressure);
   if (pressure >= 1) return top.slot;
-  if (top.score >= threshold) return top.slot;
 
-  // Aggressive seats sometimes start a wagon on a hunch.
-  if (rng() < brain.personality.aggression * 0.08) return top.slot;
+  /**
+   * A crowd is not a reason.
+   *
+   * The score that clears the threshold may be mostly other people's votes, and
+   * letting that through is what turned "5, you're dead meat" into a lynching:
+   * one seat guesses, two more read the guess as evidence, and the town spends
+   * its afternoon and one of its own on nothing. So a vote wants *some* of its
+   * case to come from the board — less as the clock runs down, because a town
+   * at the parity clock cannot afford to be sure, and none at all once the
+   * shortlist has done the work for it.
+   *
+   * Deliberately a floor and not a veto: past it the wagon still counts for
+   * everything it counted for before, which is what lets a real case gather the
+   * room quickly.
+   */
+  const evidenceFloor = 0.55 * (1 - pressure) * (possible && possible.size <= 3 ? 0 : 1);
+  if (top.score >= threshold && (top.evidence ?? 0) >= evidenceFloor) return top.slot;
+
+  // Aggressive seats sometimes start a wagon on a hunch. Rarer than it was: at
+  // eight per cent a table of fifteen opened one nearly every afternoon.
+  if (rng() < brain.personality.aggression * 0.04) return top.slot;
   return null;
+}
+
+/**
+ * How much the accused helped themselves, standing there.
+ *
+ * The trial was theatre. A seat could give the best defence of the evening —
+ * claim a role nothing contradicted, account for its night, name a proven liar
+ * as the one pushing the wagon — and the ballot would not move by a thousandth,
+ * because `decideBallot` read `suspicion`, and `suspicion` reads the claims
+ * board, and nothing about *having answered* was on it. Bots defended
+ * themselves well and were hanged anyway, every time, which is the single most
+ * demoralising thing a table can watch.
+ *
+ * So this is the other half of the ledger: what the accused put up today, and
+ * only today. A claim from three days ago is not a defence, it is a fact the
+ * board already priced in.
+ *
+ * Only the *unrefuted* counts. A role claim that clashes with a living rival or
+ * with the graveyard is already punished inside `suspicion`, and would be
+ * double-counted here; what earns credit is a claim the room could check and
+ * did not manage to break.
+ */
+export function defenceStrength(accusedSlot: number, info: PublicInfo): number {
+  const today = info.claims.filter((claim) => claim.claimerSlot === accusedSlot && claim.day === info.day);
+  if (today.length === 0) return 0; // said nothing; there is nothing to weigh
+
+  let credit = 0;
+
+  const roleClaim = today.find((claim) => claim.kind === 'role-claim');
+  if (roleClaim?.claimedRole) {
+    const rivalClaim = info.claims.some(
+      (claim) =>
+        claim.kind === 'role-claim' &&
+        claim.claimedRole === roleClaim.claimedRole &&
+        claim.claimerSlot !== accusedSlot &&
+        info.aliveSlots.includes(claim.claimerSlot)
+    );
+    const buried = [...info.deadRoles.entries()].some(
+      ([slot, role]) => role === roleClaim.claimedRole && slot !== accusedSlot
+    );
+    /**
+     * Credit for a claim nobody could break — scaled by how breakable it was.
+     *
+     * A unique role is a real hostage to fortune: the true holder is sitting
+     * there, and `decideDay` now makes them stand up. Surviving that is worth
+     * something. "I am a citizen" survives everything and proves nothing, so it
+     * earns almost nothing — otherwise the safest lie in the game would also be
+     * the most rewarded, which is how a bench run ends with the solo killers
+     * acquitted at every trial.
+     */
+    if (!rivalClaim && !buried) credit += roleDef(roleClaim.claimedRole).unique ? 0.4 : 0.08;
+  }
+
+  // An account of the night that no sighting contradicts.
+  if (today.some((claim) => claim.kind === 'account') && !contradicted(accusedSlot, info)) credit += 0.28;
+
+  /**
+   * And who is pushing this.
+   *
+   * A wagon whose loudest voice has already been caught lying is a wagon the
+   * room should distrust, and pointing that out is a real defence rather than a
+   * plea. Weighed once however many liars are on it: the argument is that the
+   * case is tainted, not that it is tainted twice over.
+   */
+  const pushedByLiar = [...info.votes.entries()].some(
+    ([voter, target]) => target === accusedSlot && claimerWeight(voter, info) === 0
+  );
+  if (pushedByLiar) credit += 0.45;
+
+  return credit;
 }
 
 /* ------------------------------ judgement ------------------------------- */
@@ -1098,13 +1246,53 @@ export function decideBallot(
   // Jester in the running for it.
   if (role === 'jester') return rng() < 0.35 + stance.pushHard * 0.5 ? 'guilty' : 'innocent';
 
-  const score = suspicion(accusedSlot, self, info, rng);
+  const parts = suspicionParts(accusedSlot, self, info, rng);
+  /**
+   * In the booth the crowd counts for less than it does on the square.
+   *
+   * Joining a wagon during the day is a cheap, reversible act of agreement.
+   * A verdict is neither — and a room where everyone's ballot is mostly a
+   * readout of everyone else's ballot is a room that hangs whoever was
+   * unlucky enough to be named first. Halved rather than dropped: knowing
+   * the room is against you is information, just not much of it.
+   */
+  /**
+   * The room already agreed to try you, and that is not nothing.
+   *
+   * `parts.wagon` is zero here and always was: opening a trial clears
+   * `state.votes`, so by the time a ballot is cast the crowd that put the
+   * accused on the stand has been erased from the board. The verdict was
+   * therefore weighed against the evidence alone — and against a defence that
+   * now subtracts from it — which is how better than half of all trials came
+   * to end in acquittal, stretching games by a full day and handing those
+   * extra nights to whoever was killing in them.
+   *
+   * A weighted majority of the living voted for this. It is weak evidence,
+   * being mostly other people's opinion, but it is evidence, and it is the
+   * thing the accused is there to answer.
+   */
+  const broughtToTrial = 0.6;
+  const against = parts.evidence + parts.wagon * 0.5 + broughtToTrial;
+  const defended = defenceStrength(accusedSlot, info);
+  const score = against - defended;
+
   // At LyLo the town leans guilty: sparing the wrong person ends the game. A
   // seat that personally feels the clock leans harder still.
   const pressure = Math.max(parityPressure(info), stance.pushHard * 0.6);
   if (score >= 1.2 - 0.5 * pressure) return 'guilty';
   if (score <= 0.4 - 0.4 * pressure) return 'innocent';
-  return rng() < brain.personality.herd + 0.25 * pressure ? 'guilty' : 'innocent';
+
+  /**
+   * Genuinely undecided, which is where the old code hanged people.
+   *
+   * It fell through to `rng() < herd`, and `herd` averages well over a half —
+   * so a seat that had heard nothing either way voted guilty most of the time,
+   * and a room full of them convicted on no evidence at all. A ballot with
+   * nothing behind it is an acquittal while the town can still afford one;
+   * only the parity clock turns "I don't know" into a hanging.
+   */
+  if (parts.evidence < 0.3 && pressure < 0.6) return 'innocent';
+  return rng() < brain.personality.herd * 0.6 + 0.3 * pressure ? 'guilty' : 'innocent';
 }
 
 /* -------------------------------- night --------------------------------- */

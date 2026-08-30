@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import { ANSWER_TOLERANCE, type AnswerField } from '../media/answer-field.js';
 import { matchAnswer, matchAnyField, typoBudget } from './match.js';
-import { normalizeAnswer, splitArtistTitle } from './normalize.js';
+import { creditFromDescription, normalizeAnswer, splitArtistTitle } from './normalize.js';
 import { phoneticFold } from './phonetic.js';
 
 function field(overrides: Partial<AnswerField> = {}): AnswerField {
@@ -348,6 +348,52 @@ describe('matchAnyField', () => {
   });
 });
 
+/**
+ * Some videos are not about their music.
+ *
+ * An AMV, a montage, a fan edit: the title describes the *video*, and no amount
+ * of splitting on dashes recovers the song because the song is not in the
+ * string. It is in the description, written by hand, in a shape people have
+ * converged on — and a credit somebody bothered to type is worth more than
+ * anything this code can infer from a title.
+ */
+describe('creditFromDescription', () => {
+  it('reads a one-line credit', () => {
+    const description = ['Premiered: 2010-07-03', 'Anime: Bakemonogatari', 'Music: Yuksek – Tonight', 'DDL: http://x'].join(
+      '\n'
+    );
+    assert.deepEqual(creditFromDescription(description), { artist: 'Yuksek', title: 'Tonight' });
+  });
+
+  it('keeps a remix credit, which names a different track', () => {
+    assert.deepEqual(
+      creditFromDescription('Music: D.I.M. – Is You (Le Castle Vania Remix)'),
+      { artist: 'D.I.M.', title: 'Is You (Le Castle Vania Remix)' }
+    );
+  });
+
+  it('reads a credit split across two lines', () => {
+    assert.deepEqual(creditFromDescription(['Artist: Yuksek', 'Song: Tonight'].join('\n')), {
+      artist: 'Yuksek',
+      title: 'Tonight'
+    });
+  });
+
+  /**
+   * Silence is the right answer far more often than a guess is. A description
+   * with no labelled credit must produce nothing, or every ordinary video would
+   * have its title overruled by the first stray line in its blurb.
+   */
+  it('says nothing when nothing is credited', () => {
+    assert.equal(creditFromDescription('The official video for Never Gonna Give You Up.'), null);
+    assert.equal(creditFromDescription(''), null);
+  });
+
+  it('will not take half a credit', () => {
+    assert.equal(creditFromDescription('Music: Tonight'), null);
+  });
+});
+
 describe('splitArtistTitle', () => {
   it('splits the common convention', () => {
     assert.deepEqual(splitArtistTitle('Toto - Africa'), { artist: 'Toto', title: 'Africa' });
@@ -370,6 +416,65 @@ describe('splitArtistTitle', () => {
 
   it('leaves the whole string as the title when there is no separator', () => {
     assert.deepEqual(splitArtistTitle('Africa'), { artist: '', title: 'Africa' });
+  });
+
+  /**
+   * The featured-artist cases, both ways round.
+   *
+   * The old pattern left "Despacito . Daddy Yankee" in the title field of every
+   * imported track with a guest on it — a stray full stop the host then had to
+   * find and delete by hand, on an answer the matcher would otherwise have
+   * scored against.
+   */
+  it('drops a featured artist from the title', () => {
+    assert.deepEqual(splitArtistTitle('Luis Fonsi - Despacito ft. Daddy Yankee'), {
+      artist: 'Luis Fonsi',
+      title: 'Despacito'
+    });
+    assert.deepEqual(splitArtistTitle('Eminem - Stan feat. Dido'), {
+      artist: 'Eminem',
+      title: 'Stan'
+    });
+  });
+
+  it('keeps the song when the credit sits on the artist side', () => {
+    assert.deepEqual(splitArtistTitle('Calvin Harris ft. Rihanna - This Is What You Came For'), {
+      artist: 'Calvin Harris',
+      title: 'This Is What You Came For'
+    });
+  });
+
+  /**
+   * The distributor label goes; the band keeps its name.
+   *
+   * The guards matter more than the case being fixed: a looser pattern would
+   * have deleted Clean Bandit from their own song, and that failure would have
+   * looked like a bad import rather than a bad regex.
+   */
+  it('drops a content label but never a band name', () => {
+    assert.deepEqual(splitArtistTitle('Bloodhound Gang - The Bad Touch (Explicit)'), {
+      artist: 'Bloodhound Gang',
+      title: 'The Bad Touch'
+    });
+    assert.deepEqual(splitArtistTitle('Justice - D.A.N.C.E. (Radio Edit)'), {
+      artist: 'Justice',
+      title: 'D.A.N.C.E.'
+    });
+    assert.deepEqual(splitArtistTitle('Clean Bandit - Rather Be'), {
+      artist: 'Clean Bandit',
+      title: 'Rather Be'
+    });
+    assert.deepEqual(splitArtistTitle('Extended Play - Some Band'), {
+      artist: 'Extended Play',
+      title: 'Some Band'
+    });
+  });
+
+  it('strips the music-video marker', () => {
+    assert.deepEqual(splitArtistTitle('PSY - GANGNAM STYLE M/V'), {
+      artist: 'PSY',
+      title: 'GANGNAM STYLE'
+    });
   });
 
   it('does not split on a hyphen inside a word', () => {

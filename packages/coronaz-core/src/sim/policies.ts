@@ -76,6 +76,22 @@ export interface SkillProfile {
   regroups: boolean;
   /** Extra searches past the mindset's budget: shiny-loot syndrome. */
   greed: number;
+  /**
+   * Hands things to the survivor who will get more out of them.
+   *
+   * The one verb in this game that is *free* — `give` costs no action point and
+   * the engine's own comment calls it "the best thing a team could do" — and no
+   * bot had ever used it. Every skill tier played the whole raid as strangers
+   * who happened to share a district: the shotgun stayed with whoever opened the
+   * crate, and the medkit sat in a full-health bag while somebody two rooms away
+   * bled out.
+   *
+   * That is also why `expert` and `master` were byte-identical before this:
+   * blunders were already at zero and every flag already true, so the ladder had
+   * run out of things to be better *at*. This is a capability, not a tighter
+   * number, which is the only kind of headroom left.
+   */
+  trades: boolean;
 }
 
 export const SKILLS: Record<string, SkillProfile> = {
@@ -87,7 +103,8 @@ export const SKILLS: Record<string, SkillProfile> = {
     focusFire: false,
     coordinates: false,
     regroups: false,
-    greed: 4
+    greed: 4,
+    trades: false
   },
   advanced: {
     blunder: 0.12,
@@ -97,7 +114,8 @@ export const SKILLS: Record<string, SkillProfile> = {
     focusFire: false,
     coordinates: false,
     regroups: false,
-    greed: 2
+    greed: 2,
+    trades: false
   },
   /** The calibration reference: the balance targets are defined against this. */
   expert: {
@@ -108,8 +126,17 @@ export const SKILLS: Record<string, SkillProfile> = {
     focusFire: true,
     coordinates: true,
     regroups: true,
-    greed: 0
+    greed: 0,
+    trades: false
   },
+  /**
+   * What the people at the table actually play like.
+   *
+   * The balance targets are calibrated against `expert`, and real players beat
+   * it comfortably — two of them clearing "difficile" untouched, where the bench
+   * says eighty per cent and half a death a game. The gap was never nerve or
+   * aim; it was that people pass each other things and bots did not.
+   */
   master: {
     blunder: 0,
     equips: 1,
@@ -118,7 +145,8 @@ export const SKILLS: Record<string, SkillProfile> = {
     focusFire: true,
     coordinates: true,
     regroups: true,
-    greed: 0
+    greed: 0,
+    trades: true
   }
 };
 
@@ -522,6 +550,44 @@ function intendedAction(state: CzState, hero: HeroState, mindset: Mindset, skill
   if (skill.usesConsumables && hero.hp <= hero.maxHp - 20 && hero.ap > 0) {
     const medkit = [...hero.bag, ...hero.gear].find((item) => item && itemDef(item.def).gear?.heal);
     if (medkit) return { type: 'use', uid: medkit.uid };
+  }
+
+  /**
+   * Free: hand something over to whoever will do more with it.
+   *
+   * Before the equip check, because a gun that belongs in somebody else's hands
+   * should not be equipped into these ones first. Two trades are worth making
+   * and both are obvious to a person and invisible to every previous tier:
+   *
+   *  - a spare weapon better than what a room-mate is holding, and
+   *  - a heal, when a room-mate is hurt and you are not.
+   *
+   * Same room only, which is the engine's rule (`courrier` widens it to one, and
+   * this is deliberately not clever enough to exploit that — a trade worth a
+   * move is a plan, and plans are the next tier up, whenever that exists).
+   */
+  if (skill.trades) {
+    const here = Object.values(state.heroes).filter(
+      (mate) => mate.playerId !== hero.playerId && mate.alive && !mate.escaped && mate.roomId === hero.roomId
+    );
+
+    for (const mate of here) {
+      if (mate.bag.length >= bagCapacity(mate)) continue;
+
+      // The spare gun, to the emptier pair of hands.
+      const spare = hero.bag
+        .filter((item) => itemDef(item.def).kind === 'weapon')
+        .sort((a, b) => weaponScore(b) - weaponScore(a))[0];
+      if (spare && weaponScore(spare) > bestHandScore(mate) && weaponScore(spare) <= bestHandScore(hero)) {
+        return { type: 'give', uid: spare.uid, toPlayerId: mate.playerId };
+      }
+
+      // The medkit, to whoever is actually bleeding.
+      const heal = hero.bag.find((item) => itemDef(item.def).gear?.heal);
+      if (heal && mate.hp < mate.maxHp - 1 && hero.hp >= hero.maxHp - 1) {
+        return { type: 'give', uid: heal.uid, toPlayerId: mate.playerId };
+      }
+    }
   }
 
   // Free: put the best weapon from the bag into the weaker hand. Equip

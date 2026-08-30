@@ -15,7 +15,46 @@ const NOISE_PATTERNS = [
   /\((?:lyrics?|paroles?|audio|hd|hq|4k|remaster(?:ed)?|live|clip)[^)]*\)/gi,
   /\[(?:lyrics?|paroles?|audio|hd|hq|4k|remaster(?:ed)?|live|clip)[^\]]*\]/gi,
   /\b(?:official\s+(?:music\s+)?video|clip\s+officiel|music\s+video)\b/gi,
-  /\bfeat\.?\b|\bft\.?\b/gi
+  /**
+   * A featured artist, and everybody they brought.
+   *
+   * This used to be `/\bfeat\.?\b|\bft\.?\b/`, which had two faults. The
+   * trailing `\b` cannot match between a full stop and a space — both are
+   * non-word — so the engine backtracked, matched the bare `ft`, and left the
+   * orphaned dot behind: "Despacito ft. Daddy Yankee" came out of the lookup as
+   * *"Despacito . Daddy Yankee"*, and that is what landed in the answer field.
+   *
+   * And removing the word was never the point. The answer to a blind test is
+   * "Despacito", not "Despacito Daddy Yankee" — the guest belongs with the
+   * artist, not in the title. So the whole clause goes.
+   *
+   * Bounded rather than run to the end of the string, because the credit is not
+   * always last: "Calvin Harris ft. Rihanna - This Is What You Came For" puts it
+   * on the *artist* side, and eating to the end would take the song with it.
+   * Stopping at the next separator keeps both shapes right.
+   */
+  /\s*\b(?:feat|ft|featuring|avec)\b\.?\s*[^-–—|[\]()]*/gi,
+  /** "M/V" and "MV": a music-video marker two thirds of K-pop titles carry. */
+  /\b(?:m\/v|mv)\b/gi,
+  /**
+   * Content markers, matched only when they are the whole parenthesis.
+   *
+   * Deliberately stricter than the patterns above, which allow anything after
+   * the keyword. "(Official Video)" can safely swallow its own brackets because
+   * no band is called "Official"; "(Clean)" cannot, because Clean Bandit exists
+   * and `\(clean[^)]*\)` would quietly delete them from their own song.
+   *
+   * So this alternation has to reach the closing bracket itself, with at most
+   * one trailing noun. It catches "(Explicit)", "(Radio Edit)", "(Album
+   * Version)" — the labels a distributor adds and nobody is expected to type —
+   * and leaves anything longer alone.
+   *
+   * Worth more than tidiness: `normalizeAnswer` runs these too, so a stored
+   * answer of "The Bad Touch (Explicit)" and a player typing "The Bad Touch"
+   * now reduce to the same thing and score. Before, the bracket was part of the
+   * answer and the player was simply wrong.
+   */
+  /\s*[([](?:explicit|clean|radio|album|single|original|extended|visuali[sz]er|restored)(?:\s+(?:edit|version|mix|master|cut))?[)\]]/gi
 ];
 
 /** Combining diacritical marks, left after an NFD decomposition. */
@@ -100,6 +139,62 @@ export function normalizeAnswer(input: string): string {
  * Heuristic by nature: the overwhelming convention is "Artist - Title", so that
  * is what this handles, and the caller keeps both fields editable.
  */
+/**
+ * Labels people use when they write down what the music was.
+ *
+ * Kept narrow on purpose. A generic "by" or a bare dash anywhere in a
+ * description would find a hundred false positives; a line that *begins* with
+ * one of these is somebody deliberately crediting a track, which is a much
+ * stronger signal than anything a title can offer.
+ */
+const CREDIT_LABEL = /^\s*(?:music|musique|song|track|chanson|titre|bgm|audio)\s*[:\-–—]\s*(.+)$/i;
+const ARTIST_LABEL = /^\s*(?:artist|artiste|band|groupe|by)\s*[:\-–—]\s*(.+)$/i;
+const TITLE_LABEL = /^\s*(?:title|titre|song|track|morceau)\s*[:\-–—]\s*(.+)$/i;
+
+/**
+ * What the description says the music was.
+ *
+ * Some videos are not *about* their music: an AMV, a montage, a compilation, a
+ * gameplay clip. Their titles describe the video — "AMV - Nostromo - Pure
+ * Thrust" is an editor and an edit — and no amount of splitting on dashes will
+ * ever recover the song, because the song is not in the string. It is in the
+ * description, written out by hand, in a form people have converged on:
+ *
+ *     Music: Yuksek – Tonight
+ *     Artist: Yuksek
+ *     Song: Tonight
+ *
+ * So this reads that instead. It is preferred over the title when it is found,
+ * which is the right precedence: a credit is a statement, a title is a guess.
+ *
+ * Only the opening of the description, because past the first few lines you are
+ * into tracklists, links and thanks — and a compilation's twentieth track is
+ * not what this video is.
+ */
+export function creditFromDescription(description: string): { artist: string; title: string } | null {
+  const lines = description.split(/\r?\n/).slice(0, 12);
+
+  // One line carrying both, which is the common shape.
+  for (const line of lines) {
+    const whole = CREDIT_LABEL.exec(line)?.[1];
+    if (!whole) continue;
+    const split = splitArtistTitle(whole);
+    if (split.artist && split.title) return split;
+    // "Music: Tonight" alone names a track and no performer; not enough.
+  }
+
+  // Or two lines, each carrying half.
+  let artist = '';
+  let title = '';
+  for (const line of lines) {
+    if (!artist) artist = ARTIST_LABEL.exec(line)?.[1]?.trim() ?? '';
+    if (!title) title = TITLE_LABEL.exec(line)?.[1]?.trim() ?? '';
+  }
+  if (artist && title) return { artist, title };
+
+  return null;
+}
+
 export function splitArtistTitle(youtubeTitle: string): { artist: string; title: string } {
   let text = youtubeTitle;
 

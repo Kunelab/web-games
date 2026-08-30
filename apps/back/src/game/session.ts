@@ -903,7 +903,15 @@ export function toSessionView(
     reveal: toRevealView(state),
     isHost,
     hostRound: isHost ? toHostRoundView(state, currentTitle) : null,
-    stageRound: state.config.autonomous ? toStageRoundView(state) : undefined,
+    /**
+     * The stage goes to every phone unless a television has claimed it.
+     *
+     * Two ways to have no television and they mean the same thing here: a quick
+     * match, which never had one, and a launched game whose host did not ask for
+     * one. Either way the media has to reach the people playing, because
+     * otherwise it reaches nobody at all.
+     */
+    stageRound: state.config.autonomous || !state.config.tv ? toStageRoundView(state) : undefined,
     skipped: isHost ? state.skipped : undefined,
     // The ceremony. An oral game scored nothing, so it has nothing to hand out.
     final: state.phase === 'finished' && !state.config.oral ? { awards: computeAwards(state) } : undefined

@@ -1,4 +1,5 @@
 import type { Claim, PublicInfo, VoteRecord } from './sim/policies.js';
+import { roleDef, type RoleId } from './roles.js';
 import type { DeathSource } from './messages.js';
 import type { MafiaState } from './state.js';
 
@@ -23,6 +24,22 @@ const LONE_BLADES = new Set<DeathSource>(['serialKiller', 'massMurderer', 'arson
  * structured form — spoken claims and the history of past days' accusations —
  * which each caller accumulates as it goes.
  */
+/**
+ * A role that stands for its camp, for a graveyard that only named the camp.
+ *
+ * Deliberately the plainest member of each: a board reasoning from "some
+ * mafioso" must not accidentally conclude that the Godfather is accounted for,
+ * or that the table's only Sheriff is dead.
+ */
+function campStandIn(role: RoleId): RoleId {
+  const faction = roleDef(role).faction;
+  if (faction === 'mafia') return 'mafioso';
+  if (faction === 'triad') return 'enforcer';
+  if (faction === 'cult') return 'cultist';
+  if (faction === 'neutral') return 'survivor';
+  return 'citizen';
+}
+
 export function toPublicInfo(state: MafiaState, claims: Claim[], voteHistory: VoteRecord[]): PublicInfo {
   const players = Object.values(state.players);
   const slotOf = (playerId: string): number | undefined => state.players[playerId]?.slot;
@@ -41,10 +58,33 @@ export function toPublicInfo(state: MafiaState, claims: Claim[], voteHistory: Vo
           (player) =>
             !player.alive &&
             player.role !== null &&
-            (state.config.revealOnDeath ?? 'role') === 'role' &&
+            (state.config.revealOnDeath ?? 'role') !== 'none' &&
             !state.deaths.some((death) => death.playerId === player.playerId && death.hidden)
         )
-        .map((player) => [player.slot, player.role!])
+        /**
+         * Under a faction-reveal table, a stand-in of the right camp.
+         *
+         * This map is how the board remembers what the graveyard turned out to
+         * be, and almost everything downstream only asks it a *camp* question:
+         * `trustOf` scores old ballots by whether the corpse was evil,
+         * `parityPressure` counts dead evils, `possibilitySet` eliminates.
+         * None of them needs the exact role.
+         *
+         * It used to be populated only under full role reveal, so on a table set
+         * to reveal factions the map came back empty and the entire trust system
+         * silently did nothing — nobody was ever held responsible for having
+         * voted to spare a mafioso, which is the loudest tell in the game. The
+         * town played on with no memory of who had protected whom.
+         *
+         * A faction-revealed corpse therefore reports a *representative* role of
+         * its camp rather than its own. Anything that wants the real one asks the
+         * player; anything that wants the camp gets a truthful answer either way,
+         * which is exactly as much as the table said out loud.
+         */
+        .map((player) => [
+          player.slot,
+          (state.config.revealOnDeath ?? 'role') === 'role' ? player.role! : campStandIn(player.role!)
+        ])
     ),
     lastNightDeathSlots: new Set(
       state.deaths

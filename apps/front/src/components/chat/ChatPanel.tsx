@@ -2,6 +2,7 @@ import type { ChatMessage } from 'chat-core';
 import { msg } from 'i18n';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 
+import { authorColour } from '../../ui/authorHue';
 import { cx } from '../../ui/cx';
 import { useT } from '../../i18n/locale-context';
 import './chat.css';
@@ -52,13 +53,6 @@ export interface ChatPanelProps {
    * the composer hides while one is open.
    */
   extraTabs?: { id: string; label: string; render: () => ReactNode }[];
-}
-
-/** Stable hue per author so a name keeps its color for the whole game. */
-function authorHue(authorId: string): number {
-  let hash = 0;
-  for (let i = 0; i < authorId.length; i++) hash = (hash * 31 + authorId.charCodeAt(i)) >>> 0;
-  return hash % 360;
 }
 
 export function ChatPanel({
@@ -155,7 +149,7 @@ export function ChatPanel({
                   other: "16, where were you?" is only readable if 16 is written
                   on the line the answer comes back on. */}
               {authorTag?.(message.authorName) && <span className="chat-slot">{authorTag(message.authorName)}</span>}
-              <span className="chat-author" style={{ color: `hsl(${authorHue(message.authorId ?? '')}, 65%, 55%)` }}>
+              <span className="chat-author" style={{ color: authorColour(message.authorName) }}>
                 {message.authorName}
               </span>
               <span className="chat-text">{message.text}</span>

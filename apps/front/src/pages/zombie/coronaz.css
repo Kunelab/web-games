@@ -258,19 +258,87 @@
   pointer-events: none;
 }
 
+/*
+ * The health bar, at a size somebody can read across a table.
+ *
+ * It was 7% of a token's height with a two-pixel floor, which on a phone is a
+ * coloured hairline — and on the television, where the whole board is on screen
+ * at once, it was invisible. How hurt something is decides every attack in this
+ * game, so it is not decoration and should not be drawn like it.
+ *
+ * Nearly twice as tall, with a four-pixel floor, a dark trough behind it so an
+ * almost-empty bar still reads as a bar rather than as nothing, and a hairline
+ * outline so a red bar stays legible against a red sprite.
+ */
 .cz-token-hp {
   position: absolute;
   left: 8%;
   bottom: 4%;
-  height: 7%;
-  min-height: 2px;
+  height: 13%;
+  min-height: 4px;
   max-width: 84%;
   border-radius: var(--radius-pill);
   background: var(--ok, #3fb950);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.55),
+    0 1px 2px rgb(0 0 0 / 0.4);
   transition: width 300ms ease;
 }
+
+/*
+ * The empty half of the bar.
+ *
+ * Drawn as a track behind the fill rather than a second element, so nothing in
+ * the scene graph changes: a creature on its last point shows a sliver of green
+ * against a visible dark rail instead of vanishing into the sprite.
+ */
+.cz-token-hp::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+  border-radius: inherit;
+  background: rgb(0 0 0 / 0.45);
+  z-index: -1;
+}
+
 .cz-token-hp.horde {
   background: #e5484d;
+}
+
+/*
+ * Something that is changing, and how far along it is.
+ *
+ * A mutating creature spends two turns motionless and comes out of it worse, so
+ * the survivors have exactly two turns to decide whether to spend them killing
+ * it. That decision only exists if the change is visible while it is happening.
+ */
+.cz-token-mutating {
+  position: absolute;
+  inset: -6% -6% auto auto;
+  padding: 0 3px;
+  border-radius: var(--radius-pill);
+  background: rgb(0 0 0 / 0.75);
+  font-size: 0.62rem;
+  line-height: 1.5;
+  animation: cz-mutating 900ms ease-in-out infinite alternate;
+}
+
+@keyframes cz-mutating {
+  from {
+    opacity: 0.55;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cz-token-mutating {
+    animation: none;
+  }
 }
 
 /* ----------------------------------- TV ----------------------------------- */

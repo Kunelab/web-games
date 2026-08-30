@@ -17,11 +17,13 @@ import {
   type Room
 } from './map.js';
 import { SHINY_LOOT } from './mapgen/programs.js';
-import { chance, randInt } from './rng.js';
+import { chance, rand, randInt } from './rng.js';
 import { raidPaused, startRaidPresence } from './presence.js';
 import {
   activeHeroes,
   bagCapacity,
+  MUTATION_GAIN,
+  MUTATION_LIMIT,
   HERO_AP,
   partyPressure,
   hasTorch,
@@ -513,7 +515,22 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
 
     case 'pickupKey': {
       const room = getRoom(state.board, hero.roomId);
-      if (!room.hasKey) return { ok: false, error: 'Pas de clé ici' };
+      if (!room.hasKey) return { ok: false, error: msg('cz.refuse.noKeyHere') };
+      /**
+       * Not while they are standing on it.
+       *
+       * A key used to be lifted out from under any number of creatures for one
+       * action point, which is why routing was the whole of the objective game:
+       * the horde could be walked around, never through. Now a guarded key has
+       * to be *taken* — the room cleared to one creature or none — and a den
+       * that grew up around a key becomes a place you plan for.
+       *
+       * One is allowed on purpose. Two is a fight; one is a risk, and a
+       * survivor who wants to grab and run should be able to.
+       */
+      if (zombiesInRoom(state, room.id).length > 1) {
+        return { ok: false, error: msg('cz.refuse.keyGuarded') };
+      }
       spend();
       room.hasKey = false;
       state.keysCollected += 1;
@@ -535,6 +552,24 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
       if (state.config.scenario === 'escape' && !objectivesDone(state)) {
         const pending = state.objectives.find((objective) => !objective.done);
         return { ok: false, error: msg('cz.refuse.objectiveFirst', { label: pending?.label ?? '' }) };
+      }
+
+      /**
+       * And not through a crowd.
+       *
+       * The ending was paperwork. Every key found, every quest done, walk into
+       * the exit room and spend one point — and the creatures standing in that
+       * room, however many, counted for nothing at all. It is the one moment
+       * where the horde should matter most and it was the one moment it could
+       * not act, which is a large part of why difficulty here was a damage race
+       * with no clock in it: the raid ended when the survivors decided it did.
+       *
+       * Two or more and the door is held. Clear it, or hold it while somebody
+       * else clears it, and the last turn of the raid becomes a fight instead of
+       * a formality.
+       */
+      if (zombiesInRoom(state, room.id).length > 1) {
+        return { ok: false, error: msg('cz.refuse.exitBlocked') };
       }
       spend();
       hero.escaped = true;
@@ -828,6 +863,43 @@ export function gmIncome(state: CzState): number {
   );
 }
 
+/** Two turns of stillness buys one change. */
+const MUTATION_TURNS = 2;
+
+/**
+ * Whether this creature starts changing now.
+ *
+ * Only away from the survivors: a creature standing next to somebody has better
+ * things to do than improve itself, and a horde that stopped mid-fight to grow
+ * would read as a bug rather than a threat. Everything else is the roll it was
+ * born with and the ceiling.
+ */
+function canStartMutating(state: CzState, zombie: ZombieState): boolean {
+  if (!zombie.canMutate) return false;
+  if ((zombie.mutations ?? 0) >= MUTATION_LIMIT) return false;
+  if (heroesInRoom(state, zombie.roomId).length > 0) return false;
+  return true;
+}
+
+/** The change itself, on whichever axis it chose two turns ago. */
+function applyMutation(state: CzState, zombie: ZombieState): void {
+  const into = zombie.mutatingInto ?? 'hp';
+  zombie.mutations = (zombie.mutations ?? 0) + 1;
+
+  if (into === 'hp') {
+    const gain = Math.max(10, Math.round(zombie.maxHp * MUTATION_GAIN));
+    zombie.maxHp += gain;
+    // A creature that grew is a whole creature: the new flesh comes with it.
+    zombie.hp += gain;
+  } else {
+    const base = zombieDef(zombie.def).damage + zombie.bonusDmg;
+    zombie.bonusDmg += Math.max(1, Math.round(base * MUTATION_GAIN));
+  }
+
+  zombie.mutatingInto = undefined;
+  log(state, msg('cz.log.mutated', { name: msg(zombieDef(zombie.def).name) }));
+}
+
 export function beginEnemyPhase(state: CzState, now = Date.now()): void {
   if (state.phase !== 'heroes') return;
   state.phase = 'enemy';
@@ -835,6 +907,44 @@ export function beginEnemyPhase(state: CzState, now = Date.now()): void {
   const mutated = mutationEffects(state.config.mutations);
   for (const zombie of Object.values(state.zombies)) {
     zombie.ap = zombieDef(zombie.def).ap + mutated.ap;
+
+    /**
+     * Some of them are changing, and changing costs everything.
+     *
+     * A creature left alone becomes a worse creature. It spends two whole turns
+     * standing still — no steps, no bites, all of its points — and comes out of
+     * it thirty per cent tougher or thirty per cent harder to survive.
+     *
+     * The trade is the point, and it is the survivors' trade rather than the
+     * horde's: a mutating creature is *free damage* for two turns, and killing
+     * it is two turns you did not spend on the keys. Ignore it and the room you
+     * have to come back through is worse. Twice at most, so a corner of the map
+     * left alone all raid cannot produce something unanswerable.
+     *
+     * Deliberately visible: a screen that does not show this happening turns a
+     * decision into an ambush, which is a different and worse game.
+     */
+    if (zombie.mutating && zombie.mutating > 0) {
+      zombie.mutating -= 1;
+      if (zombie.mutating === 0) applyMutation(state, zombie);
+      // Either way it does nothing this phase: the change is the whole turn.
+      zombie.ap = 0;
+      continue;
+    }
+
+    if (canStartMutating(state, zombie)) {
+      zombie.mutating = MUTATION_TURNS;
+      /**
+       * Which way it goes, decided when it starts rather than when it finishes.
+       *
+       * So the survivors can see what is coming while there is still time to
+       * decide whether to stop it — the whole tension is in that window.
+       */
+      zombie.mutatingInto = rand(state.rng) < 0.5 ? 'hp' : 'damage';
+      zombie.ap = 0;
+      log(state, msg('cz.log.mutating', { name: msg(zombieDef(zombie.def).name) }));
+      continue;
+    }
     /**
      * The Tracker's creatures quicken where guns were fired.
      *

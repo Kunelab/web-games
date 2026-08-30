@@ -226,6 +226,9 @@ export const atelierFr: Catalogue = {
   'launch.chronological.hint': 'Selon la date de chaque média.',
   'launch.autoAdvance': 'Enchaîner automatiquement',
   'launch.autoAdvance.hint': 'Sinon, vous avancez manuellement après chaque révélation.',
+  'launch.tv': 'Il y a une télé',
+  'launch.tv.hint':
+    'Le clip passe sur le grand écran seulement. Laissez décoché et chaque téléphone a l’image et le son.',
   'launch.oral': 'Sans téléphones, à l’oral',
   'launch.oral.hint':
     'Seule la télé affiche quelque chose, les réponses se disent à voix haute et rien n’est compté. C’est aussi le mode pour essayer une playlist seul.',
