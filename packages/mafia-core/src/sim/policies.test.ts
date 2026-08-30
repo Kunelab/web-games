@@ -4,7 +4,15 @@ import { describe, it } from 'node:test';
 import { toPublicInfo } from '../observe.js';
 import type { RoleId } from '../roles.js';
 import { createMafiaGame, playerBySlot, type MafiaPlayer, type MafiaState } from '../state.js';
-import { contradicted, feelPressure, losingClock, makeBrain, type Claim, type PublicInfo } from './policies.js';
+import {
+  buddyScore,
+  contradicted,
+  feelPressure,
+  losingClock,
+  makeBrain,
+  type Claim,
+  type PublicInfo
+} from './policies.js';
 
 /** A table of the given roles, already mid-game on day `day`. */
 function table(roles: RoleId[], day = 2): MafiaState {
@@ -129,6 +137,64 @@ describe('desperation in play', () => {
     const wanted = losingClock(jester, 'jester', toPublicInfo(state, [], []), new Set());
 
     assert.ok(ignored > wanted, 'attention is what he is short of, not safety');
+  });
+
+  /**
+   * The buddy tell only means anything if it fires on a real pair and stays
+   * quiet on a coincidence, so both halves are worth a test: a nudge that never
+   * triggers is dead weight in the scoring, and one that triggers on two days of
+   * agreement is how a town lynches itself for no reason.
+   */
+  it('reads two seats who never vote for each other and often vote together', () => {
+    const state = table(['mafioso', 'mafioso', 'citizen', 'citizen', 'citizen', 'doctor'], 5);
+    // Slots 1 and 2 spent four days agreeing and never once crossed.
+    const voteHistory = [
+      { day: 1, voterSlot: 1, targetSlot: 5 },
+      { day: 1, voterSlot: 2, targetSlot: 5 },
+      { day: 2, voterSlot: 1, targetSlot: 4 },
+      { day: 2, voterSlot: 2, targetSlot: 4 },
+      { day: 3, voterSlot: 1, targetSlot: 6 },
+      { day: 3, voterSlot: 2, targetSlot: 3 },
+      { day: 4, voterSlot: 1, targetSlot: 3 },
+      { day: 4, voterSlot: 2, targetSlot: 3 }
+    ];
+    const info = { ...toPublicInfo(state, [], []), voteHistory };
+
+    assert.ok(buddyScore(1, info) > 0.5, 'a bonded pair shows up');
+    assert.ok(buddyScore(2, info) > 0.5, 'and it shows up from either side');
+  });
+
+  it('does not call a pair on one afternoon of agreement', () => {
+    const state = table(['mafioso', 'mafioso', 'citizen', 'citizen', 'citizen', 'doctor'], 5);
+    const info = {
+      ...toPublicInfo(state, [], []),
+      voteHistory: [
+        { day: 1, voterSlot: 1, targetSlot: 5 },
+        { day: 1, voterSlot: 2, targetSlot: 5 },
+        { day: 2, voterSlot: 1, targetSlot: 4 },
+        { day: 2, voterSlot: 2, targetSlot: 4 }
+      ]
+    };
+    assert.equal(buddyScore(1, info), 0, 'two days is a coincidence, not a pattern');
+  });
+
+  it('clears a pair the moment one of them votes the other', () => {
+    const state = table(['citizen', 'citizen', 'citizen', 'citizen', 'citizen', 'doctor'], 5);
+    const info = {
+      ...toPublicInfo(state, [], []),
+      voteHistory: [
+        { day: 1, voterSlot: 1, targetSlot: 5 },
+        { day: 1, voterSlot: 2, targetSlot: 5 },
+        { day: 2, voterSlot: 1, targetSlot: 4 },
+        { day: 2, voterSlot: 2, targetSlot: 4 },
+        { day: 3, voterSlot: 1, targetSlot: 6 },
+        { day: 3, voterSlot: 2, targetSlot: 6 },
+        // And then one of them turned on the other, which is the whole point.
+        { day: 4, voterSlot: 1, targetSlot: 2 },
+        { day: 4, voterSlot: 2, targetSlot: 3 }
+      ]
+    };
+    assert.equal(buddyScore(1, info), 0, 'they crossed, so they are not a pair');
   });
 
   it('a thinning family feels the board even with nothing pointed at it', () => {

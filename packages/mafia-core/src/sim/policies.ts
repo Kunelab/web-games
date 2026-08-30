@@ -413,6 +413,50 @@ export function provenLiar(slot: number, info: PublicInfo): boolean {
   );
 }
 
+/**
+ * Two seats who have spent the whole game never voting for each other.
+ *
+ * The oldest read in Mafia and the one the model never made, despite the data
+ * sitting in `voteHistory` untouched since it was added: a family votes
+ * together and, far more tellingly, *never votes for its own*. Across eight
+ * days the town will have scattered its votes everywhere, and the two seats
+ * whose lines never once crossed are worth a look.
+ *
+ * Deliberately conservative. Three days of evidence minimum and two actual
+ * co-votes, because on day two everybody looks like everybody's partner and a
+ * confident accusation built on one coincidence is how a town lynches itself.
+ * The number it returns is a nudge, not a verdict — it sits alongside the
+ * evidence in `suspicion` rather than above it.
+ */
+export function buddyScore(targetSlot: number, info: PublicInfo): number {
+  const days = new Set(info.voteHistory.map((entry) => entry.day));
+  if (days.size < 3) return 0;
+
+  let best = 0;
+  for (const other of info.aliveSlots) {
+    if (other === targetSlot) continue;
+
+    let together = 0;
+    let against = 0;
+    let bothVoted = 0;
+
+    for (const day of days) {
+      const mine = info.voteHistory.find((entry) => entry.day === day && entry.voterSlot === targetSlot);
+      const theirs = info.voteHistory.find((entry) => entry.day === day && entry.voterSlot === other);
+      if (!mine || !theirs) continue;
+      bothVoted++;
+      if (mine.targetSlot === theirs.targetSlot) together++;
+      if (mine.targetSlot === other || theirs.targetSlot === targetSlot) against++;
+    }
+
+    if (bothVoted < 3 || against > 0 || together < 2) continue;
+    // How much of their shared record was spent agreeing.
+    best = Math.max(best, together / bothVoted);
+  }
+
+  return best * 1.2;
+}
+
 /** Public suspicion of a slot, as a town-aligned seat computes it. */
 export function suspicion(targetSlot: number, self: MafiaPlayer, info: PublicInfo, rng: () => number): number {
   let score = 0;
@@ -464,6 +508,9 @@ export function suspicion(targetSlot: number, self: MafiaPlayer, info: PublicInf
     if (entry.kind === 'role') score += isEvilRole(entry.value as RoleId) ? 4 : -4;
     if (entry.kind === 'saved') score -= 2; // an attacked patient is rarely the killer
   }
+
+  // Never once voted for each other, and often together. See `buddyScore`.
+  score += buddyScore(targetSlot, info);
 
   // The wagon: herd instinct, weighted by personality.
   const wagon = [...info.votes.values()].filter((voted) => voted === targetSlot).length;
@@ -981,8 +1028,23 @@ function pickVote(
       // A short shortlist is itself evidence: it must be one of you.
       if (possible && possible.size <= 3 && possible.has(slot)) score += 1;
       if (isMafiaSeat) {
-        // The family votes as one: quietly join a brother's wagon, never his trial.
-        if (familyKnownEvil.has(slot)) return { slot, score: -10 };
+        /**
+         * Never your own brother — unless he is already gone.
+         *
+         * A wagon that has reached the threshold is going to hang whoever it is
+         * standing on, and a mafioso who is the *only* seat at the table not
+         * voting for the obvious lynch has told the room exactly as much as a
+         * confession would. Bussing is the standard answer: join the wagon on a
+         * brother you cannot save, spend nothing, and buy a day of credit.
+         *
+         * Gated on temperament, because it is a cold thing to do and not every
+         * seat is cold. An ally who could still be saved is never sold.
+         */
+        if (familyKnownEvil.has(slot)) {
+          const doomed = votesAgainst(slot, info) >= Math.floor(info.aliveSlots.length / 2) + 1 - 1;
+          const coldEnough = brain.personality.deceit > 0.55;
+          return { slot, score: doomed && coldEnough ? 0.5 : -10 };
+        }
         if (teammateWagons.has(slot)) score += 1.5;
         // A rampaging solo killer threatens the family too: for a while, the
         // mafia votes with the town against whoever the evidence points at.

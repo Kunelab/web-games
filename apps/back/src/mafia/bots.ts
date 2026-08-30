@@ -6,6 +6,7 @@ import {
   decideDay,
   decideNightTarget,
   legalNightAction,
+  parityPressure,
   playerFamily,
   ROLE,
   ROLES,
@@ -460,6 +461,22 @@ const SPEAK: Record<Locale, string> = {
 const SHAPE = `You ALWAYS answer with a single JSON object, nothing before it, nothing after it, with exactly these keys:
 {"say": string|null, "targetSlot": integer|null, "verdict": "guilty"|"innocent"|"abstain"|null, "claim": "accuse"|"clear"|"question"|"account-home"|"account-visited"|"role-claim"|"sighting"|"taunt"|null, "claimSlot": integer|null, "claimRole": string|null}`;
 
+/**
+ * Which rungs a given kind of question is allowed to use.
+ *
+ * Not every question deserves the best model on the chain. Writing one line of
+ * chat is the easy job — the brain has already decided everything — and the
+ * difference between a 120B and a 20B on it is a shade of phrasing, while the
+ * difference in latency is 465ms against 181ms and the difference in tokens
+ * comes straight out of the same per-minute allowance. Taking notes is the hard
+ * job, because a misread claim goes on the board and stays there.
+ *
+ * So the mouth starts one rung down where there is a rung to start down from,
+ * and the ear always gets the front of the chain. Both still walk the whole way
+ * to the played brain: this is about where they *begin*.
+ */
+type Errand = 'decide' | 'speak' | 'listen';
+
 export class MafiaBotDriver {
   private readonly timers = new Map<string, NodeJS.Timeout[]>();
   /** phase+day+stage last scheduled per table, so votes don't re-trigger planning. */
@@ -577,6 +594,7 @@ export class MafiaBotDriver {
     if (this.chain.includes('ollama')) void this.probeLocal();
   }
 
+
   /**
    * The first rung willing to take a turn right now.
    *
@@ -585,9 +603,9 @@ export class MafiaBotDriver {
    * daemon is skipped until a probe says it is there. `null` means the played
    * brain, which is a perfectly good answer.
    */
-  private nextRung(): Rung | null {
+  private nextRung(from = 0): Rung | null {
     const now = Date.now();
-    for (const rung of this.chain) {
+    for (const rung of this.chain.slice(from)) {
       if (rung === 'scripted') return null;
       if ((this.benched.get(rung) ?? 0) > now) continue;
       if (rung === 'ollama') {
@@ -944,7 +962,8 @@ export class MafiaBotDriver {
           // same notes twice running.
           temperature: 0.2
         },
-        { code, task: 'listen', lines: lines.length }
+        { code, task: 'listen', lines: lines.length },
+        'listen'
       );
 
       // Whether or not anything answered, these lines have had their chance:
@@ -1194,7 +1213,8 @@ export class MafiaBotDriver {
         maxTokens: 400,
         temperature: 0.9
       },
-      { code: state.code, botId, task: 'speak' }
+      { code: state.code, botId, task: 'speak' },
+      'speak'
     );
 
     return { ...decision, say: answer ? readLine(answer, intent) : intent.fallback };
@@ -1247,12 +1267,22 @@ export class MafiaBotDriver {
    */
   private async walk<T>(
     attempt: (rung: Rung) => Promise<T>,
-    context: Record<string, unknown>
+    context: Record<string, unknown>,
+    errand: Errand = 'decide'
   ): Promise<T | null> {
     const deadline = Date.now() + env.MAFIA_BOT_TURN_MS;
+    /**
+     * Where this errand starts its walk.
+     *
+     * One rung down for the mouth, but only while there is more than one API in
+     * front of the local model — on a chain of `api1,ollama` skipping the API
+     * would send every line to a twelve-second local call to save nothing.
+     */
+    const apis = this.chain.filter(isApiRung).length;
+    const start = errand === 'speak' && apis >= 2 ? 1 : 0;
 
     for (let round = 0; round < this.chain.length; round++) {
-      const rung = this.nextRung();
+      const rung = this.nextRung(round === 0 ? start : 0);
       if (rung === null) return null;
       if (Date.now() >= deadline) {
         this.log.warn({ ...context, rung }, 'mafia bots: ran out of time, falling back');
@@ -1292,8 +1322,12 @@ export class MafiaBotDriver {
    * answered, which every caller has to have a plan for — the whole design of
    * this driver is that the game continues perfectly well when it does.
    */
-  async askChain(request: Ask, context: Record<string, unknown>): Promise<Record<string, unknown> | null> {
-    return this.walk((rung) => this.ask(rung, request), context);
+  async askChain(
+    request: Ask,
+    context: Record<string, unknown>,
+    errand: Errand = 'decide'
+  ): Promise<Record<string, unknown> | null> {
+    return this.walk((rung) => this.ask(rung, request), context, errand);
   }
 
   private apply(state: MafiaState, botId: string, task: BotTask, channel: string, decision: Decision): void {
@@ -1355,8 +1389,19 @@ export class MafiaBotDriver {
          * mostly bots can still act on it. Before this, a lone player voting to
          * hang nobody could not reach a majority against a dozen silent seats and
          * the clock was the day's only exit after all.
+         *
+         * Except at the parity clock. When one more wasted day hands the game
+         * to whoever is left killing at night, a town seat that shrugs and
+         * joins a skip is voting to lose — so past that point a bot with
+         * nobody to accuse stays silent and lets the clock run rather than
+         * actively helping the day end early.
          */
-        this.hooks.vote(code, botId, 'skip');
+        const brain = this.minds.mind(state, botId)?.brain;
+        const mine = state.players[botId]?.role;
+        const townish = mine ? ROLES[mine].faction === 'town' : false;
+        if (!(townish && brain && parityPressure(this.minds.board(state)) >= 0.6)) {
+          this.hooks.vote(code, botId, 'skip');
+        }
       }
     }
     if (task === 'judgement' && decision.verdict) {

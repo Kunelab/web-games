@@ -207,6 +207,55 @@ absent.
 | `OLLAMA_KEEP_ALIVE`     | `30m`                      | How long weights stay resident.                     |
 | `OLLAMA_NUM_PARALLEL`   | `2`                        | Concurrent requests. The driver caps its own in-flight count too. |
 
+## What each model is actually asked
+
+Three different jobs, three different prompts, three different costs.
+
+| | job | prompt | when |
+| --- | --- | --- | --- |
+| **brain** | decide the turn | none — deterministic policy | always, first |
+| **mouth** | write one line | ~380 tok | when a rung is up |
+| **ear** | read the humans | ~550 tok | twice a day phase, once at dusk |
+
+The **brain** is `packages/mafia-core/src/sim/policies.ts` and calls nothing. It
+reads the claims ledger, the intel and the vote history directly, so it cannot
+hallucinate and cannot contradict itself, and eight hundred games of it run in
+two seconds — which is how the game gets balanced at all.
+
+The **mouth** is handed an *intention* — accuse house 11, because they swore
+they never left and house 3 puts them on a doorstep — and asked for one
+sentence. It never sees the board, never picks a target, never gets an opinion.
+If it declines or rambles, the phrasebook line the brain already wrote is used
+and the turn is identical. That is why the expensive, fallible part of the
+system can only ever affect wording.
+
+The **ear** is the one job that genuinely needs a model: turning free-form human
+sentences into structured claims. One call per table per phase — a nine-day game
+costs about twenty. It only ever *adds* claims, and its output is enum-typed and
+validated against the living roster, which bounds the blast radius of the one
+place that deliberately reads untrusted player text.
+
+`MAFIA_BOT_MIND=model` restores the original arrangement, where the model decides
+the whole turn from a full briefing (~1700 tok). Kept for comparison, and because
+letting a model *plan* is worth revisiting once there is a way to tell a good
+plan from a confidently invented one.
+
+## Where each errand starts on the chain
+
+Writing a line is the easy job and the brain has already done the hard part, so
+the mouth starts one rung down when there are two or more APIs in front of the
+local model — 181ms against 465ms, out of the same per-minute allowance. Taking
+notes is the hard job, because a misread claim goes on the board and stays there,
+so the ear always gets the front of the chain. Both still walk all the way down
+to the played brain.
+
+## Keeping it honest
+
+`pnpm --filter back mafia:budget` renders a real briefing for each scenario and
+fails if any has grown past its ceiling. The same check runs in the smoke suite,
+because a prompt grows the way a prompt grows: one reasonable sentence at a time,
+with nobody watching the total.
+
 ## What the model is actually asked
 
 Not "write a message". It is handed a briefing — the roles dealt, who is hot,
