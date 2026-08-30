@@ -54,34 +54,34 @@ export const blindtest = defineKind<BlindtestPayload>({
   formFields: [
     {
       name: 'code',
-      label: 'Vidéo YouTube',
+      label: 'field.youtube',
       control: 'youtube',
-      placeholder: 'Lien YouTube ou identifiant',
-      help: 'Collez un lien : le titre et l’artiste seront proposés automatiquement.',
+      placeholder: 'field.youtubeHint',
+      help: 'field.youtubeHelp',
       width: 'full'
     },
     {
       name: 'startGuess',
-      label: 'Début',
+      label: 'field.start',
       control: 'seconds',
-      group: 'Extrait à deviner',
+      group: 'field.guessClip',
       width: 'half'
     },
-    { name: 'endGuess', label: 'Fin', control: 'seconds', group: 'Extrait à deviner', width: 'half' },
+    { name: 'endGuess', label: 'field.end', control: 'seconds', group: 'field.guessClip', width: 'half' },
     {
       name: 'startReveal',
-      label: 'Début',
+      label: 'field.start',
       control: 'seconds',
-      group: 'Extrait de révélation',
+      group: 'field.revealClip',
       width: 'half'
     },
-    { name: 'endReveal', label: 'Fin', control: 'seconds', group: 'Extrait de révélation', width: 'half' }
+    { name: 'endReveal', label: 'field.end', control: 'seconds', group: 'field.revealClip', width: 'half' }
   ],
 
   // Title and artist carry most of the value; year and country are the bonuses.
   defaultAnswers: [
-    { key: 'title', label: 'Titre', value: '', aliases: [], points: 3, tolerance: 0.17, directBonus: 0 },
-    { key: 'artist', label: 'Artiste', value: '', aliases: [], points: 2, tolerance: 0.17, directBonus: 0 }
+    { key: 'title', label: 'field.title', value: '', aliases: [], points: 3, tolerance: 0.17, directBonus: 0 },
+    { key: 'artist', label: 'field.artist', value: '', aliases: [], points: 2, tolerance: 0.17, directBonus: 0 }
   ],
   answersEditable: true,
 

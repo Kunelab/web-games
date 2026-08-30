@@ -1,7 +1,10 @@
+import { msg, type Msg } from 'i18n';
 import { ANSWER_TOLERANCE, maxFieldPoints, toleranceName, type AnswerField, type AnswerToleranceName } from 'game-core';
 import { useState } from 'react';
 
 import { Button, Field, IconButton, Input, Select, Switch } from '../ui';
+import { fieldText } from './fieldText';
+import { useT } from '../i18n/locale-context';
 import './forms.css';
 
 /**
@@ -106,25 +109,25 @@ interface AnswerCardProps {
 }
 
 const TOLERANCE_OPTIONS: Array<{ value: AnswerToleranceName; label: string }> = [
-  { value: 'exact', label: 'Exacte' },
-  { value: 'normal', label: 'Normale' },
-  { value: 'loose', label: 'Souple' }
+  { value: 'exact', label: 'ans.tolerance.exact' },
+  { value: 'normal', label: 'ans.tolerance.normal' },
+  { value: 'loose', label: 'ans.tolerance.loose' }
 ];
 
 /** What the matcher will actually forgive, said plainly for the host. */
-function toleranceHint(answer: AnswerField): string {
+function toleranceHint(answer: AnswerField, t: (message: Msg) => string): string {
   const digits = /\d/.test(answer.value);
 
   switch (toleranceName(answer.tolerance)) {
     case 'exact':
-      return 'Doit être écrit exactement, à la casse, aux accents et à la ponctuation près.';
+      return t(msg('ans.exact'));
     case 'loose':
       return digits
-        ? 'Les chiffres restent exacts. Le reste est très permissif.'
-        : 'Très permissif : plusieurs fautes, l’orthographe phonétique, les lettres inversées.';
+        ? t(msg('ans.numbersExact'))
+        : t(msg('ans.veryLoose'));
     default:
       return digits
-        ? 'Les chiffres doivent être exacts. Le reste tolère la casse, les accents et une faute.'
+        ? t(msg('ans.numbersStrict'))
         : 'Casse, accents et ponctuation ignorés. Une faute par mot un peu long, les lettres inversées et l’orthographe phonétique sont tolérées.';
   }
 }
@@ -138,6 +141,7 @@ function parseAliases(text: string): string[] {
 }
 
 function AnswerCard({ answer, onChange, onRemove }: AnswerCardProps) {
+  const t = useT();
   const hasChoices = Boolean(answer.choices?.length);
 
   /**
@@ -180,12 +184,16 @@ function AnswerCard({ answer, onChange, onRemove }: AnswerCardProps) {
             )}
           </Field>
         </div>
-        <IconButton icon={<TrashIcon />} label={`Supprimer ${answer.label || 'cette réponse'}`} onClick={onRemove} />
+        <IconButton
+          icon={<TrashIcon />}
+          label={t(msg('ans.remove', { what: fieldText(t, answer.label) || t(msg('ans.thisAnswer')) }))}
+          onClick={onRemove}
+        />
       </div>
 
       <div className="answer-row">
         <div className="grow">
-          <Field label="Bonne réponse" hint={toleranceHint(answer)}>
+          <Field label={t(msg('ans.correct'))} hint={toleranceHint(answer, t)}>
             {({ id, describedBy }) => (
               <Input
                 id={id}
@@ -213,8 +221,8 @@ function AnswerCard({ answer, onChange, onRemove }: AnswerCardProps) {
       </div>
 
       <Field
-        label="Autres formulations acceptées"
-        hint="Séparées par une virgule. Pour les vrais autres noms, pas les fautes de frappe."
+        label={t(msg('ans.aliases'))}
+        hint={t(msg('ans.aliasesHint'))}
       >
         {({ id, describedBy }) => (
           <Input
@@ -234,8 +242,8 @@ function AnswerCard({ answer, onChange, onRemove }: AnswerCardProps) {
       </Field>
 
       <Switch
-        label="Proposer des choix"
-        hint="Le joueur peut répondre à l’aveugle pour plus de points, ou révéler les choix pour moins."
+        label={t(msg('ans.offerChoices'))}
+        hint={t(msg('ans.offerChoicesHint'))}
         checked={hasChoices}
         onCheckedChange={(checked) =>
           onChange(
@@ -248,7 +256,7 @@ function AnswerCard({ answer, onChange, onRemove }: AnswerCardProps) {
 
       {hasChoices && (
         <div className="stack-3">
-          <Field label="Choix proposés" hint="La bonne réponse doit figurer à l’identique dans la liste.">
+          <Field label={t(msg('ans.choices'))} hint={t(msg('ans.choicesHint'))}>
             {({ id, describedBy }) => (
               <div className="stack-2" id={id} aria-describedby={describedBy}>
                 {(answer.choices ?? []).map((choice, index) => (
@@ -282,7 +290,7 @@ function AnswerCard({ answer, onChange, onRemove }: AnswerCardProps) {
             )}
           </Field>
 
-          <Field label="Bonus réponse directe" hint="Points supplémentaires si le joueur ne révèle pas les choix.">
+          <Field label={t(msg('ans.directBonus'))} hint={t(msg('ans.directBonusHint'))}>
             {({ id }) => (
               <Input
                 id={id}

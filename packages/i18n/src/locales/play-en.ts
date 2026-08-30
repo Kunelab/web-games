@@ -69,6 +69,7 @@ export const playEn: Catalogue = {
   'host.joinWithCode': 'Join with this code',
   'host.remove': 'Remove {name}',
   'host.answersToFind': '{count} answers to find',
+  'play.tapForSound': 'Tap for sound',
   'host.memorising': 'Memorising',
   'host.yourTurn': 'Over to you. Show the answer once the room has said theirs.',
   'host.closeAnswers': 'Close the answers',

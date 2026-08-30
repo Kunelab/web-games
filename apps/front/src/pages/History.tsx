@@ -1,4 +1,5 @@
 import { msg, type Msg } from 'i18n';
+import { Link } from 'react-router';
 
 import { api, type CzCareer } from '../api/client';
 import { awardMeta } from '../app/awards';
@@ -37,6 +38,10 @@ export default function History() {
 
   return (
     <>
+      <Link to="/" className="backlink">
+        {t(msg('nav.backHome'))}
+      </Link>
+
       <div className="page-head">
         <div>
           <h1 className="page-title">{t(msg('hist.title'))}</h1>

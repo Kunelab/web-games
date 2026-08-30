@@ -87,6 +87,10 @@ export default function Playlists() {
 
   return (
     <>
+      <Link to="/" className="backlink">
+        {t(msg('nav.backHome'))}
+      </Link>
+
       <div className="page-head">
         <div>
           <h1 className="page-title">{t(msg('pl.title'))}</h1>

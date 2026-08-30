@@ -12,15 +12,51 @@ import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 
 import { api, type MediaItem, type Playlist } from '../api/client';
+import { useAuth } from '../hooks/useAuth';
 import { useT } from '../i18n/locale-context';
 import { kindColor, kindKey } from '../app/kinds';
 import { useAsync } from '../hooks/useAsync';
 import { Badge, Button, Chip, Field, IconButton, Input, Loading, Switch } from '../ui';
 import './library.css';
 import './playlists.css';
+
+/**
+ * What a shared quiz looks like when it is not yours: its contents, and nothing
+ * you can press.
+ *
+ * Deliberately not a disabled copy of the editor. A greyed-out drag handle and a
+ * dead "Save" button invite the same misunderstanding the editor did — that this
+ * is nearly editable and something is merely broken. A plain list says what it
+ * is, and the one action on the screen is the one that works.
+ */
+function PlaylistPreview({ playlist }: { playlist: Playlist }) {
+  const t = useT();
+  const items = playlist.items ?? [];
+
+  return (
+    <section className="pl-panel">
+      <header className="pl-panel-head">
+        <h2 className="pl-panel-title">{t(msg('ple.inPlaylist'))}</h2>
+        <span className="pl-panel-count">{items.length}</span>
+      </header>
+      {items.length === 0 ? (
+        <p className="pl-panel-empty">{t(msg('ple.addFromLibrary'))}</p>
+      ) : (
+        <ul className="pl-list">
+          {items.map((item) => (
+            <li className="pl-row" key={item.id}>
+              <span className="pl-row-title">{item.title}</span>
+              <Badge>{t(msg(kindKey(item.kind)))}</Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
 
 /**
  * Contents on the left, library on the right.
@@ -31,8 +67,11 @@ import './playlists.css';
  */
 export default function PlaylistEditor() {
   const t = useT();
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const playlistId = Number(id);
+  const [copying, setCopying] = useState(false);
 
   const playlist = useAsync(() => api.getPlaylist(playlistId), [playlistId]);
   const library = useAsync(() => api.listMedia(), []);
@@ -46,6 +85,55 @@ export default function PlaylistEditor() {
           {t(msg('ple.back'))}
         </Link>
         <p className="field-error">{playlist.error ?? t(msg('launch.notFound'))}</p>
+      </>
+    );
+  }
+
+  /**
+   * Somebody else's public quiz opens as a copy, not as an editor.
+   *
+   * The server has always refused the write — `PATCH /playlists/:id` checks
+   * ownership, and public means readable, not editable — but this screen had no
+   * idea whose playlist it was showing. So it offered the full editor on a quiz
+   * you do not own, let you rename it, reorder it, add to it, and then failed
+   * the save silently. Nothing was ever at risk; it simply lied about what it
+   * could do.
+   *
+   * Duplicating is the real answer and already exists on both sides, so the
+   * screen offers that instead of a save it cannot perform.
+   */
+  const mine = playlist.data.user_id === user?.id;
+  if (!mine) {
+    return (
+      <>
+        <Link to="/playlists" className="backlink">
+          {t(msg('ple.back'))}
+        </Link>
+        <div className="page-head">
+          <div>
+            <h1 className="page-title">{playlist.data.name}</h1>
+            <p className="page-sub">{t(msg('ple.readOnly'))}</p>
+          </div>
+          <div className="page-actions">
+            <Button
+              variant="primary"
+              busy={copying}
+              onClick={() => {
+                setCopying(true);
+                void api
+                  .duplicatePlaylist(playlistId)
+                  .then((copy) => navigate(`/playlists/${copy.id}`))
+                  .finally(() => setCopying(false));
+              }}
+            >
+              {t(msg('ple.duplicateToEdit'))}
+            </Button>
+          </div>
+        </div>
+        <p className="field-hint">
+          {t(msg('ple.readOnlyHint', { owner: playlist.data.owner?.login ?? '—' }))}
+        </p>
+        <PlaylistPreview playlist={playlist.data} />
       </>
     );
   }

@@ -48,22 +48,22 @@ export const imageMemory = defineKind<ImageMemoryPayload>({
   formFields: [
     {
       name: 'cells',
-      label: 'Grille',
+      label: 'field.grid',
       control: 'panel',
-      help: 'Composez une grille par thème, ou laissez vide et donnez une image unique ci-dessous.',
+      help: 'field.gridHelp',
       width: 'full'
     },
     {
       name: 'src',
-      label: 'Ou une seule image de panel',
+      label: 'field.singlePanel',
       control: 'image',
-      placeholder: 'https://…',
-      help: 'Utilisée seulement si la grille est vide.',
+      placeholder: 'field.urlHint',
+      help: 'field.singlePanelHelp',
       width: 'full'
     },
     {
       name: 'studyMs',
-      label: 'Temps de mémorisation',
+      label: 'field.studyTime',
       control: 'duration',
       min: 3_000,
       max: 180_000,
@@ -72,9 +72,9 @@ export const imageMemory = defineKind<ImageMemoryPayload>({
     },
     {
       name: 'keepVisible',
-      label: 'Garder l’image visible pendant les réponses',
+      label: 'field.keepVisible',
       control: 'switch',
-      help: 'Désactivé, le jeu est bien plus difficile.',
+      help: 'field.keepVisibleHelp',
       width: 'half'
     }
   ],

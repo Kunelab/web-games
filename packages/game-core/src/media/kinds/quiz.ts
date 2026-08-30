@@ -37,24 +37,24 @@ export const quiz = defineKind<QuizPayload>({
   formFields: [
     {
       name: 'question',
-      label: 'Question',
+      label: 'field.question',
       control: 'textarea',
-      placeholder: 'Quelle est la capitale de la Mongolie ?',
+      placeholder: 'field.questionEg',
       width: 'full'
     },
     {
       name: 'imageUrl',
-      label: 'Image (optionnelle)',
+      label: 'field.imageOptional',
       control: 'image',
-      placeholder: 'https://…',
-      help: 'Affichée à côté de la question.',
+      placeholder: 'field.urlHint',
+      help: 'field.besideQuestion',
       width: 'full'
     },
     {
       name: 'explanation',
-      label: 'Explication (optionnelle)',
+      label: 'field.explanation',
       control: 'textarea',
-      placeholder: 'Affichée après la révélation',
+      placeholder: 'field.explanationHint',
       width: 'full'
     }
   ],
@@ -62,7 +62,7 @@ export const quiz = defineKind<QuizPayload>({
   defaultAnswers: [
     {
       key: 'answer',
-      label: 'Réponse',
+      label: 'field.answer',
       value: '',
       aliases: [],
       points: 3,

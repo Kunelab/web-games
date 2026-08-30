@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, type CSSProperties } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 export interface UseYoutubeOptions {
   videoId?: string | null;
@@ -65,6 +65,21 @@ function loadIframeApi(): Promise<void> {
 
 export function useYoutubePlayer(options: UseYoutubeOptions) {
   const playerRef = useRef<YT.Player | undefined>(undefined);
+  /**
+   * Whether the iframe exists yet, as state rather than only a ref.
+   *
+   * Every method below is a no-op until the player is built, and building it
+   * means loading a remote script and waiting for YouTube to call back — so a
+   * caller that loads a clip in an effect on mount was talking to nothing, and
+   * its call was *dropped*, not queued. Nothing said so.
+   *
+   * The blind test is where that showed: the clip was loaded once on mount, went
+   * nowhere, and the room sat in silence until the reveal happened to change the
+   * effect's inputs and run it again — by which time the player existed. It read
+   * exactly like "the music only starts at the reveal", because that is what it
+   * did. Publishing readiness lets a caller depend on it and load again.
+   */
+  const [ready, setReady] = useState(false);
 
   // A unique element id per hook instance. The old version derived it from
   // `options.videoId`, which callers never pass, so every player on the page
@@ -113,7 +128,12 @@ export function useYoutubePlayer(options: UseYoutubeOptions) {
         height: current.height ?? 390,
         width: current.width ?? 640,
         events: {
-          onReady: (event) => current.events?.onReady?.(event),
+          onReady: (event) => {
+            // Not a render-phase update: this is YouTube calling us back long
+            // after the effect that built the player has returned.
+            setReady(true);
+            current.events?.onReady?.(event);
+          },
           onStateChange: (event) => current.events?.onStateChange?.(event),
           onError: (event) => current.events?.onError?.(event)
         }
@@ -134,6 +154,7 @@ export function useYoutubePlayer(options: UseYoutubeOptions) {
 
     return () => {
       cancelled = true;
+      setReady(false);
       playerRef.current?.destroy();
       playerRef.current = undefined;
       // Deliberately not clearing `window.YT`. The old cleanup did, and it also
@@ -150,9 +171,10 @@ export function useYoutubePlayer(options: UseYoutubeOptions) {
     return player ? (fn(player) ?? fallback) : fallback;
   }, []);
 
-  return useMemo<{ YoutubePlayer: typeof YoutubePlayer; player: YoutubePlayerApi }>(
+  return useMemo<{ YoutubePlayer: typeof YoutubePlayer; player: YoutubePlayerApi; ready: boolean }>(
     () => ({
       YoutubePlayer,
+      ready,
       player: {
         loadVideoById: (...args) => call((p) => p.loadVideoById?.(...args), undefined),
         cueVideoById: (...args) => call((p) => p.cueVideoById?.(...args), undefined),
@@ -169,6 +191,6 @@ export function useYoutubePlayer(options: UseYoutubeOptions) {
         raw: () => playerRef.current
       }
     }),
-    [YoutubePlayer, call]
+    [YoutubePlayer, call, ready]
   );
 }

@@ -13,6 +13,8 @@ import {
   type YoutubeMetadata
 } from '../api/client';
 import { Button, Chip, Field, IconButton, Input, Select, Switch, Textarea } from '../ui';
+import { fieldText } from './fieldText';
+import { useT } from '../i18n/locale-context';
 import './forms.css';
 
 /**
@@ -60,13 +62,14 @@ export function PayloadFields({
   onWikiSubject,
   panel
 }: PayloadFieldsProps) {
+  const t = useT();
   const groups = groupFields(fields);
 
   return (
     <div className="form-groups">
       {groups.map((group) => (
         <fieldset className="form-group" key={group.name ?? '__ungrouped'}>
-          {group.name && <legend className="form-legend">{group.name}</legend>}
+          {group.name && <legend className="form-legend">{fieldText(t, group.name)}</legend>}
           <div className="form-grid">
             {group.fields.map((field) => (
               <div className={field.width === 'half' ? 'span-half' : 'span-full'} key={field.name}>
@@ -120,11 +123,12 @@ interface PayloadFieldProps {
 }
 
 function PayloadField({ field, value, error, onChange, onYoutubeMetadata, onWikiSubject, panel }: PayloadFieldProps) {
+  const t = useT();
   if (field.control === 'switch') {
     return (
       <Switch
-        label={field.label}
-        hint={field.help}
+        label={fieldText(t, field.label)}
+        hint={fieldText(t, field.help)}
         checked={Boolean(value)}
         onCheckedChange={(checked) => onChange(checked)}
       />
@@ -132,7 +136,7 @@ function PayloadField({ field, value, error, onChange, onYoutubeMetadata, onWiki
   }
 
   return (
-    <Field label={field.label} hint={field.help} error={error}>
+    <Field label={fieldText(t, field.label)} hint={fieldText(t, field.help)} error={error}>
       {({ id, describedBy, invalid }) => {
         const shared = { id, 'aria-describedby': describedBy, 'aria-invalid': invalid || undefined };
 
@@ -142,7 +146,7 @@ function PayloadField({ field, value, error, onChange, onYoutubeMetadata, onWiki
               <Textarea
                 {...shared}
                 value={asString(value)}
-                placeholder={field.placeholder}
+                placeholder={fieldText(t, field.placeholder)}
                 onChange={(event) => onChange(event.target.value)}
               />
             );
@@ -156,7 +160,7 @@ function PayloadField({ field, value, error, onChange, onYoutubeMetadata, onWiki
                 max={field.max}
                 step={field.step ?? 1}
                 value={typeof value === 'number' ? String(value) : asString(value)}
-                placeholder={field.placeholder}
+                placeholder={fieldText(t, field.placeholder)}
                 onChange={(event) => onChange(event.target.value === '' ? null : Number(event.target.value))}
               />
             );
@@ -189,7 +193,7 @@ function PayloadField({ field, value, error, onChange, onYoutubeMetadata, onWiki
                 value={asString(value)}
                 onValueChange={(next) => onChange(next)}
                 options={(field.options ?? []).map((option) => ({ value: option.value, label: option.label }))}
-                placeholder={field.placeholder}
+                placeholder={fieldText(t, field.placeholder)}
               />
             );
 
@@ -198,7 +202,7 @@ function PayloadField({ field, value, error, onChange, onYoutubeMetadata, onWiki
               <YoutubeInput
                 {...shared}
                 value={asString(value)}
-                placeholder={field.placeholder}
+                placeholder={fieldText(t, field.placeholder)}
                 onChange={onChange}
                 onMetadata={onYoutubeMetadata}
               />
@@ -209,12 +213,12 @@ function PayloadField({ field, value, error, onChange, onYoutubeMetadata, onWiki
               <WikiImageInput
                 {...shared}
                 value={asString(value)}
-                placeholder={field.placeholder}
+                placeholder={fieldText(t, field.placeholder)}
                 onChange={onChange}
                 onSubject={onWikiSubject}
               />
             ) : (
-              <ImageInput {...shared} value={asString(value)} placeholder={field.placeholder} onChange={onChange} />
+              <ImageInput {...shared} value={asString(value)} placeholder={fieldText(t, field.placeholder)} onChange={onChange} />
             );
 
           case 'list':
@@ -233,7 +237,7 @@ function PayloadField({ field, value, error, onChange, onYoutubeMetadata, onWiki
                 {...shared}
                 type="text"
                 value={asString(value)}
-                placeholder={field.placeholder}
+                placeholder={fieldText(t, field.placeholder)}
                 onChange={(event) => onChange(event.target.value)}
               />
             );

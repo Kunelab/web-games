@@ -29,6 +29,17 @@ import {
 /** A session with no activity for this long is dropped. */
 const IDLE_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+/**
+ * How long a *finished* game is kept before it is let go.
+ *
+ * The idle timeout is six hours, which is the right answer for a session
+ * somebody might still come back to. A game whose ceremony has been read is not
+ * that: it holds memory, and it keeps announcing itself to its host as being in
+ * progress. Long enough that a phone reopening the standings still finds them;
+ * short enough that a host who plays two games in an evening is never shown the
+ * first one during the second.
+ */
+const FINISHED_GRACE_MS = 20 * 60 * 1000;
 
 export type TransitionListener = (state: SessionState) => void;
 
@@ -97,9 +108,11 @@ export class GameManager {
 
   private async sweep(): Promise<void> {
     const cutoff = Date.now() - IDLE_TIMEOUT_MS;
+    const finished = Date.now() - FINISHED_GRACE_MS;
 
     for (const [code, state] of this.sessions) {
-      if (state.lastActivityAt < cutoff) {
+      const over = state.phase === 'finished';
+      if (state.lastActivityAt < cutoff || (over && state.lastActivityAt < finished)) {
         this.drop(code);
       }
     }

@@ -49,47 +49,47 @@ export const imageReveal = defineKind<ImageRevealPayload>({
   formFields: [
     {
       name: 'src',
-      label: 'Image',
+      label: 'field.image',
       control: 'image',
-      placeholder: 'https://… ou /guess_img/…',
+      placeholder: 'field.imageHint',
       width: 'full',
       // "tour eiffel" becomes a source image plus a prefilled answer.
       wikiSearch: true
     },
     {
       name: 'mode',
-      label: 'Effet',
+      label: 'field.effect',
       control: 'select',
       options: [
-        { value: 'pixelate', label: 'Pixelisation' },
-        { value: 'blur', label: 'Flou' }
+        { value: 'pixelate', label: 'field.pixelate' },
+        { value: 'blur', label: 'field.blur' }
       ],
       width: 'half'
     },
     {
       name: 'intensity',
-      label: 'Intensité de départ',
+      label: 'field.startStrength',
       control: 'number',
       min: 2,
       max: 120,
       step: 1,
-      help: 'Plus la valeur est haute, plus l’image est illisible au début.',
+      help: 'field.strengthHelp',
       width: 'half'
     },
     {
       name: 'startZoom',
-      label: 'Zoom de départ',
+      label: 'field.startZoom',
       control: 'number',
       min: 1,
       max: 4,
       step: 0.25,
-      help: '1 pour désactiver.',
+      help: 'field.oneToDisable',
       width: 'half'
     }
   ],
 
   defaultAnswers: [
-    { key: 'subject', label: 'Qui / quoi ?', value: '', aliases: [], points: 3, tolerance: 0.17, directBonus: 0 }
+    { key: 'subject', label: 'field.whoWhat', value: '', aliases: [], points: 3, tolerance: 0.17, directBonus: 0 }
   ],
   answersEditable: true,
 
