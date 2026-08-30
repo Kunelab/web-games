@@ -74,11 +74,20 @@ const mafiaRoutes: FastifyPluginAsyncZod = async (app) => {
     }
   );
 
-  /** Live tables this account hosts, for the reattach banner. */
+  /**
+   * Live tables this account hosts, for the reattach banner.
+   *
+   * *Live*, which a finished game is not. A table sits in memory for six hours
+   * of idleness before the sweeper takes it, and for every one of those hours it
+   * was being offered back as something to resume — so the setup screen grew a
+   * row of buttons leading into games that were already over. The phase is right
+   * there on the state; the filter was simply missing.
+   */
   app.get('/mafia/mine', { preHandler: app.requireAuth }, async (request) => {
     const mine: { code: string; hostToken: string; phase: string; players: number }[] = [];
     for (const code of app.mafia.activeCodes()) {
       const state = app.mafia.get(code);
+      if (state?.phase === 'ended') continue;
       if (state?.hostUserId === request.currentUser.id) {
         mine.push({
           code: state.code,

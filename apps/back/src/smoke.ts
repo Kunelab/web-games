@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { answerFieldSchema, blindtest, defaultSessionConfig, quiz, sessionConfigSchema } from 'game-core';
 
 import { buildApp } from './app.js';
+import { measureBudget } from './mafia/budget.js';
 import { closeDb } from './db/index.js';
 import { clearAssets, resolveAsset } from './game/assets.js';
 import {
@@ -1100,6 +1101,17 @@ const withNew = await app.inject({
   headers: { cookie: `kune.sid=${reissued}` }
 });
 check('which still works', withNew.statusCode === 200, withNew.statusCode);
+
+/**
+ * The Mafia bots are rate-limited by tokens per minute, so the size of a
+ * briefing is a budgeted resource and not an implementation detail. Checked
+ * here because a prompt grows the way a prompt grows: one reasonable sentence
+ * at a time, with nobody watching the total.
+ */
+section('the bot prompt budget');
+for (const row of measureBudget()) {
+  check(`${row.scenario} fits its budget`, row.prompt <= row.ceiling, `${row.prompt} tok > ${row.ceiling}`);
+}
 
 await app.close();
 // Same order as the real shutdown in server.ts. Closing the database matters
