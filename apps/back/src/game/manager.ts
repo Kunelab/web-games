@@ -108,6 +108,19 @@ export class GameManager {
     sweepAssets();
   }
 
+  /**
+   * Puts an already-built session under this manager.
+   *
+   * Exists for the smoke test, which builds sessions with the pure engine
+   * functions and needs them to go through the real ending — the one that banks
+   * tokens — rather than a reimplementation of it. Named rather than done by
+   * reaching into the private map, so the test exercises the same object graph
+   * the server does.
+   */
+  adopt(state: SessionState): void {
+    this.sessions.set(state.code, state);
+  }
+
   get(code: string): SessionState | undefined {
     return this.sessions.get(code);
   }
@@ -209,23 +222,44 @@ export class GameManager {
      * and this is the only transition at which the full standings still exist.
      * Oral games score nothing, and a game nobody joined has nothing to keep.
      */
-    if (
-      state.phase === 'finished' &&
-      !state.resultsRecorded &&
-      !state.config.oral &&
-      Object.keys(state.players).length > 0
-    ) {
-      state.resultsRecorded = true;
-      try {
-        await resultsService.record(state);
-      } catch (error) {
-        this.log.error({ err: error, code: state.code }, 'could not record game result');
-      }
-    }
+    await this.bank(state);
 
     await this.persist(state);
     this.listener?.(state);
     this.scheduleNext(state);
+  }
+
+  /**
+   * Writes the permanent trace of a game: the history row, and the wallets.
+   *
+   * Called from both endings, which is the fix rather than the tidy-up. It used
+   * to live inline in `afterTransition` and therefore ran only when a session
+   * reached `finished` of its own accord — by the host advancing past the last
+   * round. The other ending, the "Terminer" button, goes through `destroy`,
+   * which dropped the session and deleted its row without ever coming past here.
+   *
+   * So a host who ended a game early — the normal thing to do when everyone has
+   * had enough, and the only thing to do when the last round drags — threw away
+   * the standings *and* every token every player had just won. The comment
+   * above this code even said the row is deleted the moment "Terminer" is
+   * pressed; what it did not say was that nothing banked anything first.
+   *
+   * The gates are unchanged. An oral game scores nothing by design, a game
+   * nobody joined has nothing to keep, and a lobby that never started is not a
+   * game. `resultsRecorded` makes it idempotent, so the two callers cannot
+   * double-credit a wallet between them.
+   */
+  private async bank(state: SessionState): Promise<void> {
+    const played = state.phase === 'finished' || state.currentRoundIndex >= 0;
+    if (state.resultsRecorded || state.config.oral || !played) return;
+    if (Object.keys(state.players).length === 0) return;
+
+    state.resultsRecorded = true;
+    try {
+      await resultsService.record(state);
+    } catch (error) {
+      this.log.error({ err: error, code: state.code }, 'could not record game result');
+    }
   }
 
   /** Called on every answer: cheap, and keeps the session from being swept. */
@@ -319,7 +353,17 @@ export class GameManager {
     this.mediaBySession.delete(code);
   }
 
+  /**
+   * The host's way out, from any phase.
+   *
+   * Banks first. A game ended early is still a game that was played, and the
+   * points on the screen when the button was pressed are the points the players
+   * believe they won.
+   */
   async destroy(code: string): Promise<void> {
+    const state = this.sessions.get(code);
+    if (state) await this.bank(state);
+
     this.drop(code);
     await db.delete(gameSessions).where(eq(gameSessions.code, code));
   }
