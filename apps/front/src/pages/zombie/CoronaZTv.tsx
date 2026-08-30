@@ -245,7 +245,7 @@ export default function CoronaZTv() {
           <aside className="cz-side">
             <div>
               <p className={`cz-phase ${view.phase === 'enemy' ? 'enemy' : ''}`}>
-                {view.phase === 'heroes' ? 'Aux survivants' : 'La horde joue'}
+                {t(msg(view.phase === 'heroes' ? 'cz.tv.toSurvivors' : 'cz.tv.hordePlays'))}
               </p>
               {view.phaseEndsAt !== null && (
                 <p className={`cz-timer tabular ${remaining <= 5 ? 'urgent' : ''}`}>{remaining}</p>

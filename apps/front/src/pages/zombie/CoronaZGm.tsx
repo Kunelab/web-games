@@ -502,7 +502,7 @@ export default function CoronaZGm() {
             else setConcedeAsked(true);
           }}
         >
-          {concedeAsked ? 'Laisser la victoire aux survivants ?' : '🏳️ Abandonner la horde'}
+          {t(msg(concedeAsked ? 'cz.gm.concedeSure' : 'cz.gm.concede'))}
         </Button>
 
         {feedback && <p className="play-error">{feedback}</p>}

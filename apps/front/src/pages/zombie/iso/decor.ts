@@ -83,34 +83,43 @@ const WALLPAPER_BY_PROGRAM: Partial<Record<CzRoomView['program'], readonly Wallp
  * how many distinct families, how eager it is) are what make a street look like a
  * street rather than a living room with the roof off.
  */
+/**
+ * Props per cell, and how many families of them, per kind of room.
+ *
+ * Trimmed across the board after play-testing said most rooms were too busy to
+ * read. "Lived-in" was the goal and these numbers overshot it: a room you cannot
+ * find your own survivor in is not atmospheric, it is noise — and this is a game
+ * whose whole decision is *where is everything standing*. See `throughRoom` in
+ * `furnishRoom` for the other half, which empties the junctions specifically.
+ */
 const DENSITY: Record<CzRoomView['program'], { props: number; families: number }> = {
-  /* Interiors: crowded, because a lived-in room is crowded. */
-  living: { props: 1.8, families: 5 },
-  bedroom: { props: 1.7, families: 4 },
-  kitchen: { props: 1.9, families: 5 },
-  bath: { props: 1.5, families: 4 },
-  office: { props: 1.7, families: 5 },
-  archive: { props: 1.8, families: 3 },
-  lab: { props: 1.7, families: 4 },
-  server: { props: 1.5, families: 3 },
-  workshop: { props: 1.9, families: 5 },
-  storage: { props: 2, families: 3 },
-  lobby: { props: 1, families: 3 },
-  corridor: { props: 0.5, families: 2 },
-  hall: { props: 1.1, families: 4 },
-  bar: { props: 1.8, families: 4 },
-  restroom: { props: 1.5, families: 3 },
-  backstage: { props: 1.6, families: 4 },
-  dorm: { props: 1.6, families: 3 },
-  canteen: { props: 1.6, families: 4 },
-  reception: { props: 1.2, families: 4 },
-  ward: { props: 1.6, families: 4 },
-  surgery: { props: 1.6, families: 4 },
-  pharmacy: { props: 1.9, families: 4 },
-  morgue: { props: 1.3, families: 3 },
-  cell: { props: 0.8, families: 2 },
-  evidence: { props: 1.9, families: 3 },
-  armoury: { props: 1.8, families: 3 },
+  /* Interiors: furnished, but you can still see the floor. */
+  living: { props: 1.25, families: 4 },
+  bedroom: { props: 1.2, families: 3 },
+  kitchen: { props: 1.35, families: 4 },
+  bath: { props: 1.1, families: 3 },
+  office: { props: 1.2, families: 4 },
+  archive: { props: 1.3, families: 3 },
+  lab: { props: 1.2, families: 3 },
+  server: { props: 1.1, families: 3 },
+  workshop: { props: 1.35, families: 4 },
+  storage: { props: 1.45, families: 3 },
+  lobby: { props: 0.7, families: 2 },
+  corridor: { props: 0.3, families: 1 },
+  hall: { props: 0.75, families: 3 },
+  bar: { props: 1.25, families: 3 },
+  restroom: { props: 1.1, families: 3 },
+  backstage: { props: 1.15, families: 3 },
+  dorm: { props: 1.15, families: 3 },
+  canteen: { props: 1.15, families: 3 },
+  reception: { props: 0.85, families: 3 },
+  ward: { props: 1.15, families: 3 },
+  surgery: { props: 1.15, families: 3 },
+  pharmacy: { props: 1.35, families: 3 },
+  morgue: { props: 0.95, families: 3 },
+  cell: { props: 0.6, families: 2 },
+  evidence: { props: 1.35, families: 3 },
+  armoury: { props: 1.3, families: 3 },
 
   /* Outdoors. A road is the emptiest thing on the map, on purpose. */
   street: { props: 0.14, families: 1 },
@@ -235,14 +244,55 @@ function furnishRoom(
    * showroom-empty.
    */
   const density = DENSITY[room.program];
-  const familyBudget = Math.min(density.families, 2 + Math.ceil(cells.length / 2));
+
+  /**
+   * How much of this room is doorway.
+   *
+   * A room that three corridors open onto is not a room you furnish, it is a
+   * place people walk through — and every prop in it lands in somebody's lane,
+   * hides a creature standing behind it, or breaks a sightline you were trying
+   * to read before deciding where to move. Play-testing put it plainly: the
+   * junctions were the worst rooms on the board to look at.
+   *
+   * Counted as gaps in the room's own perimeter, which is exactly what a doorway
+   * is, and applied as a multiplier rather than a special case: a dead-end
+   * bedroom furnishes as it always did, a two-door room thins a little, and a
+   * four-way crossing comes out nearly bare.
+   */
+  const own = new Set(room.cells);
+  let perimeter = 0;
+  let openings = 0;
+  for (const cell of cells) {
+    for (const [side, neighbour] of [
+      ['north', cell.cell - width],
+      ['south', cell.cell + width],
+      ['east', cell.cell + 1],
+      ['west', cell.cell - 1]
+    ] as const) {
+      // Only the room's outer edge counts: the boundary between two of its own
+      // cells is not a way in or out of it.
+      if (own.has(neighbour)) continue;
+      perimeter++;
+      if (!cell.walls[side]) openings++;
+    }
+  }
+  /** 1 for a sealed room, falling towards a third as the walls open up. */
+  const throughRoom = perimeter === 0 ? 1 : Math.max(0.35, 1 - (openings / perimeter) * 1.6);
+
+  const familyBudget = Math.max(
+    1,
+    Math.round(Math.min(density.families, 2 + Math.ceil(cells.length / 2)) * throughRoom)
+  );
   const families = new Set<string>();
   /**
    * No floor of two any more. A two-cell piece of road wants nothing on it at all,
    * and forcing a minimum is exactly how the outdoors filled up: every empty place
    * on the map was told to find something to hold.
    */
-  const total = Math.max(0, Math.round(cells.length * density.props + (randInt(rng, 3) - 1) * density.props));
+  const total = Math.max(
+    0,
+    Math.round((cells.length * density.props + (randInt(rng, 3) - 1) * density.props) * throughRoom)
+  );
 
   const radiusOf = (kind: string) => propDef(kind)?.radius ?? 0.2;
   /**
@@ -400,7 +450,7 @@ function furnishRoom(
    * quietly undoing the discipline of the pass above it.
    */
   const clutter = wanted.filter((prop) => prop.clutter);
-  const litterRoom = Math.round(total + density.props * 2);
+  const litterRoom = Math.round(total + density.props * 2 * throughRoom);
   if (clutter.length > 0 && litterRoom > 0) {
     for (const spot of shuffled(
       rng,

@@ -194,7 +194,7 @@ function FavouriteWeapon({ biome, role }: { biome: string; role: ItemRole }) {
       className="cz-favourite"
       title={t(msg('cz.favourite', { role: msg(roleDef(role).label), item: msg(def.name) }))}
     >
-      {art ? <img className="cz-item-sprite" src={art} alt="" /> : def.emoji} {def.name}
+      {art ? <img className="cz-item-sprite" src={art} alt="" /> : def.emoji} {t(msg(def.name))}
       {stats && (
         <span className="cz-favourite-stats">
           {stats.melee ? '⚔️' : `🎯${stats.range}`} 🎲{stats.dice} 💥{stats.damage}
