@@ -1,3 +1,4 @@
+import { msg } from 'i18n';
 import { ANSWER_TOLERANCE, mediaReadiness, normalizeAnswer, type AnswerField, type KindTiming } from 'game-core';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -14,6 +15,7 @@ import {
 import { kindColor } from '../app/kinds';
 import { AnswersEditor } from '../forms/AnswersEditor';
 import { PayloadFields } from '../forms/PayloadFields';
+import { useT } from '../i18n/locale-context';
 import { useAsync } from '../hooks/useAsync';
 import { Badge, Button, Field, Input, Loading } from '../ui';
 import './library.css';
@@ -30,6 +32,7 @@ import './library.css';
  * refresh threw the work away.
  */
 export default function MediaEditor() {
+  const t = useT();
   const { id } = useParams<{ id: string }>();
   const mediaId = id === undefined ? null : Number(id);
 
@@ -44,7 +47,7 @@ export default function MediaEditor() {
     return (
       <>
         <Link to="/bibliotheque" className="backlink">
-          ← Bibliothèque
+          {t(msg('me.back'))}
         </Link>
         <p className="field-error">{existing.error}</p>
       </>
@@ -66,6 +69,7 @@ interface EditorProps {
 }
 
 function Editor({ item, kinds, mediaId }: EditorProps) {
+  const t = useT();
   const navigate = useNavigate();
 
   const [kind, setKind] = useState<string | null>(item?.kind ?? null);
@@ -192,7 +196,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
 
     const body = {
       kind,
-      title: title.trim() || 'Sans titre',
+      title: title.trim() || t(msg('me.untitled')),
       category: category.trim() || null,
       date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null,
       answers,
@@ -223,12 +227,12 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
     return (
       <>
         <Link to="/bibliotheque" className="backlink">
-          ← Bibliothèque
+          {t(msg('me.back'))}
         </Link>
         <div className="page-head">
           <div>
-            <h1 className="page-title">Nouveau média</h1>
-            <p className="page-sub">Quel genre de chose faut-il deviner ?</p>
+            <h1 className="page-title">{t(msg('me.new'))}</h1>
+            <p className="page-sub">{t(msg('me.whatKind'))}</p>
           </div>
         </div>
         <div className="kind-picker">
@@ -257,12 +261,12 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
   return (
     <>
       <Link to="/bibliotheque" className="backlink">
-        ← Bibliothèque
+        {t(msg('me.back'))}
       </Link>
 
       <div className="page-head">
         <div>
-          <h1 className="page-title">{mediaId === null ? 'Nouveau média' : title || 'Sans titre'}</h1>
+          <h1 className="page-title">{mediaId === null ? t(msg('me.new')) : title || t(msg('me.untitled'))}</h1>
           <p className="page-sub">{descriptor?.label.fr}</p>
         </div>
       </div>
@@ -276,7 +280,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
       <div className="editor-layout">
         <div className="stack-5">
           <section className="editor-section">
-            <h2 className="editor-section-title">Contenu</h2>
+            <h2 className="editor-section-title">{t(msg('me.content'))}</h2>
             {descriptor && (
               <PayloadFields
                 fields={descriptor.formFields}
@@ -295,13 +299,13 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
           </section>
 
           <section className="editor-section">
-            <h2 className="editor-section-title">Réponses et points</h2>
+            <h2 className="editor-section-title">{t(msg('me.answers'))}</h2>
             <AnswersEditor
               answers={answers}
               onChange={setAnswers}
               hint={
                 kind === 'image-memory'
-                  ? 'Une réponse par élément à retrouver. Le joueur cite ce qu’il veut, le serveur devine de quel élément il parle.'
+                  ? t(msg('me.answersHint'))
                   : undefined
               }
             />
@@ -310,9 +314,9 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
 
         <div className="stack-5">
           <section className="editor-section">
-            <h2 className="editor-section-title">Classement</h2>
+            <h2 className="editor-section-title">{t(msg('me.filing'))}</h2>
 
-            <Field label="Titre interne" hint="Pour retrouver ce média. Jamais montré aux joueurs.">
+            <Field label={t(msg('me.internalTitle'))} hint={t(msg('me.internalTitleHint'))}>
               {({ id: fieldId, describedBy }) => (
                 <Input
                   id={fieldId}
@@ -323,7 +327,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
               )}
             </Field>
 
-            <Field label="Catégorie" hint="Libre : « années 80 », « cinéma »…">
+            <Field label={t(msg('me.category'))} hint={t(msg('me.categoryHint'))}>
               {({ id: fieldId, describedBy }) => (
                 <Input
                   id={fieldId}
@@ -334,7 +338,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
               )}
             </Field>
 
-            <Field label="Date" hint="Sert au mode chronologique.">
+            <Field label={t(msg('me.date'))} hint={t(msg('me.dateHint'))}>
               {({ id: fieldId, describedBy }) => (
                 <Input
                   id={fieldId}
@@ -349,7 +353,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
 
           {descriptor && (
             <section className="editor-section">
-              <h2 className="editor-section-title">Minutage</h2>
+              <h2 className="editor-section-title">{t(msg('me.timing'))}</h2>
               <p className="field-hint">
                 Par défaut : {Math.round(descriptor.defaultTiming.answerMs / 1000)} s pour répondre,{' '}
                 {Math.round(descriptor.defaultTiming.revealMs / 1000)} s de révélation.
@@ -360,7 +364,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
                 </Button>
               ) : (
                 <div className="stack-3">
-                  <Field label="Temps de réponse">
+                  <Field label={t(msg('me.answerTime'))}>
                     {({ id: fieldId }) => (
                       <div className="input-suffixed">
                         <Input
@@ -377,7 +381,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
                       </div>
                     )}
                   </Field>
-                  <Field label="Durée de révélation">
+                  <Field label={t(msg('me.revealTime'))}>
                     {({ id: fieldId }) => (
                       <div className="input-suffixed">
                         <Input

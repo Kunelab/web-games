@@ -41,25 +41,25 @@ export const estimation = defineKind<EstimationPayload>({
   formFields: [
     {
       name: 'question',
-      label: 'Question',
+      label: 'field.question',
       control: 'textarea',
-      placeholder: 'Combien de kilomètres sépare la Terre de la Lune ?',
+      placeholder: 'field.estimateEg',
       width: 'full'
     },
     {
       name: 'unit',
-      label: 'Unité (optionnelle)',
+      label: 'field.unit',
       control: 'text',
-      placeholder: 'km',
-      help: 'Affichée à côté du champ de saisie des joueurs.',
+      placeholder: 'field.unitEg',
+      help: 'field.besideInput',
       width: 'half'
     },
     {
       name: 'imageUrl',
-      label: 'Image (optionnelle)',
+      label: 'field.imageOptional',
       control: 'image',
-      placeholder: 'https://…',
-      help: 'Affichée à côté de la question.',
+      placeholder: 'field.urlHint',
+      help: 'field.besideQuestion',
       width: 'full'
     }
   ],

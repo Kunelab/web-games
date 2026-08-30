@@ -210,11 +210,21 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   /** Live sessions the caller hosts, so a reload can reattach to their game. */
+  /**
+   * Games this account is hosting *now*, for the "in progress" banner.
+   *
+   * A finished game is not one of them. Sessions live in memory for six hours of
+   * idleness before the sweeper takes them, and for every one of those hours a
+   * game whose standings had already been read was still being announced on the
+   * playlists page as in progress — three of them at once, in testing. The
+   * phase was right there and simply never consulted.
+   */
   app.get('/play/mine', { preHandler: app.requireAuth }, async (request) => {
     const mine: { code: string; hostToken: string; phase: string; playlistName: string }[] = [];
 
     for (const code of app.games.activeCodes()) {
       const state = app.games.get(code);
+      if (state?.phase === 'finished') continue;
       if (state?.hostUserId === request.currentUser.id) {
         mine.push({
           code: state.code,

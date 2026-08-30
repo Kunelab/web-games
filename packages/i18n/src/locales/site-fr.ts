@@ -11,6 +11,7 @@ import type { Catalogue } from '../index.js';
 export const siteFr: Catalogue = {
   /* -------------------------------- la barre -------------------------------- */
   'site.nav.main': 'Navigation principale',
+  'nav.backHome': '← Accueil',
   'site.nav.games': 'Jeux',
   'site.nav.signIn': 'Connexion',
   'site.nav.join': 'Rejoindre une partie',

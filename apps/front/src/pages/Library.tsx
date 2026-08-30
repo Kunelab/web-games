@@ -98,6 +98,10 @@ export default function Library() {
 
   return (
     <>
+      <Link to="/" className="backlink">
+        {t(msg('nav.backHome'))}
+      </Link>
+
       <div className="page-head">
         <div>
           <h1 className="page-title">{t(msg('lib.title'))}</h1>

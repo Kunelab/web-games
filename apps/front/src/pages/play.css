@@ -127,6 +127,28 @@
   opacity: 0.01;
   pointer-events: none;
 }
+/*
+ * The one tap that buys sound.
+ *
+ * Fixed rather than in flow, because during the guess phase its parent is a
+ * one-pixel square — the button has to escape it to be pressable, which is the
+ * one thing it must be. It removes itself the moment it is used.
+ */
+.yt-unmute {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  z-index: 60;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--accent, #6ee7b7);
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.82);
+  color: #fff;
+  font: 600 0.9rem/1.2 system-ui, sans-serif;
+  cursor: pointer;
+}
+
 .yt-visible {
   max-width: 100%;
 }
@@ -232,12 +254,24 @@
   color: var(--accent);
 }
 
+/*
+ * The round, as a column that stops growing.
+ *
+ * A phone has no room to spare and needs no limit; a desktop has plenty and
+ * uses it badly — a question, an image and four answers spread across 1400
+ * pixels are further apart than they are readable. Same measure as the rest of
+ * the app's prose, centred, so the same layout serves a phone in a pocket and a
+ * laptop on a table without either being a special case.
+ */
 .player-round {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
   min-height: 0;
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
 }
 
 .player-round-head {
@@ -265,9 +299,29 @@
   letter-spacing: -0.02em;
 }
 
+/*
+ * The player's copy of whatever the round is about.
+ *
+ * This was `width: 100%` and nothing else, which is a phone assumption wearing
+ * a percentage. On a phone the viewport is narrow and a portrait photograph
+ * comes out tall-but-bearable; on a laptop the same rule stretches it to the
+ * full column and the height goes with it, so the answer box lands a screen and
+ * a half below the fold and the round is spent scrolling. The television has
+ * capped on viewport height since it was written (`.host-image`); the player
+ * screen simply never got the same treatment.
+ *
+ * Capped on both axes now: never taller than half the viewport, never wider
+ * than a comfortable reading column, and `object-fit: contain` so a wide image
+ * shrinks rather than cropping. The answers stay on screen at every size, which
+ * is the whole requirement.
+ */
 .player-image {
+  display: block;
   width: 100%;
+  max-height: 46vh;
+  object-fit: contain;
   border-radius: var(--radius-md);
+  margin: 0 auto;
 }
 
 .reveal-frame {
@@ -365,6 +419,17 @@
   background: var(--bg-sunken);
 }
 /* Contained, not cropped: a cropped flag can lose the stripe that names it. */
+.panel-grid {
+  /*
+   * Capped for the same reason as `.player-image`: a generated panel is a grid
+   * of squares, so left to itself its height tracks its width and a wide screen
+   * turns it into a wall. Bounded by the shorter of a readable width and half
+   * the viewport, so the answers underneath stay visible.
+   */
+  max-width: min(100%, 34rem);
+  margin-inline: auto;
+}
+
 .panel-grid img {
   width: 100%;
   height: 100%;
