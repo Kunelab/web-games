@@ -179,30 +179,6 @@
   background: color-mix(in srgb, var(--accent) 22%, var(--panel));
 }
 
-/*
- * The count riding on a corner icon.
- *
- * The skip vote gathers weight whether or not anybody has the panel open, and
- * the whole reason it moved up here is that a vote you have to go looking for
- * is a vote nobody casts — so the tally has to be visible from the button.
- */
-.mz-corner-btn {
-  position: relative;
-}
-
-.mz-corner-tally {
-  position: absolute;
-  right: -3px;
-  top: -3px;
-  min-width: 16px;
-  padding: 0 3px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--panel);
-  font: 700 0.65rem/16px system-ui, sans-serif;
-  text-align: center;
-}
-
 /* The wills panel, as two sides of the same document. */
 .mz-will-tabs {
   display: flex;
@@ -244,10 +220,26 @@
   margin: 0;
 }
 
-/* A corner button that is about to do something irreversible. */
-.mz-corner-btn--danger {
-  border-color: var(--bad, #c0392b);
-  background: color-mix(in srgb, var(--bad, #c0392b) 25%, var(--panel));
+/*
+ * The one destructive control on the screen, kept away from the others.
+ *
+ * A rule above it and dimmed until you mean it: this ends the evening for
+ * everybody at the table, and it should never be the thing somebody finds
+ * while looking for something routine.
+ */
+.mz-role-danger {
+  margin-top: 0.8rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--edge);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  opacity: 0.75;
+}
+
+.mz-role-danger:hover,
+.mz-role-danger:focus-within {
+  opacity: 1;
 }
 
 /* ------------------------------ the role list ------------------------------ */

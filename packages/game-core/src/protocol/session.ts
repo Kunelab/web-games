@@ -217,6 +217,26 @@ export const sessionConfigSchema = z.object({
   public: z.boolean().default(false),
 
   /**
+   * There is a television, and it is the only screen showing the media.
+   *
+   * Opt *in*, and that inversion is the whole point. It used to be implicit —
+   * a launched game always assumed a big screen somebody was sitting at, and
+   * the media went there and nowhere else. Every phone in the room got a
+   * question with no picture and no sound, and there was no setting to say
+   * otherwise, because the "no television" case only existed inside quick
+   * match, unnamed, as a side effect of having no host.
+   *
+   * That is backwards. Most rooms are people on a sofa with phones; a shared
+   * screen is the special case and the one worth asking about. So off by
+   * default: without a television, every device is its own stage and everybody
+   * gets the clip — while guessing and at the reveal.
+   *
+   * The host screen still exists either way. This is about where the *media*
+   * plays, not about who presses "next".
+   */
+  tv: z.boolean().default(false),
+
+  /**
    * Nobody is driving.
    *
    * A quick match has no host: no one chose the playlist, and no one is sitting at

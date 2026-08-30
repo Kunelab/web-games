@@ -230,6 +230,9 @@ export const atelierEn: Catalogue = {
   'launch.chronological.hint': 'By each media’s date.',
   'launch.autoAdvance': 'Advance automatically',
   'launch.autoAdvance.hint': 'Otherwise you move on by hand after every reveal.',
+  'launch.tv': 'There is a television',
+  'launch.tv.hint':
+    'The clip plays on the big screen only. Leave it off and every phone gets the picture and the sound.',
   'launch.oral': 'No phones, out loud',
   'launch.oral.hint':
     'Only the TV shows anything, answers are said out loud and nothing is scored. It is also the mode for trying a playlist out alone.',

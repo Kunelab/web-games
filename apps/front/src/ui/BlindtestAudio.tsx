@@ -78,13 +78,21 @@ export function BlindtestAudio({ code, payload, phase }: { code: string; payload
   }, [code, start, end, ready, audible]);
 
   return (
-    <div className={revealing ? 'yt-visible' : 'yt-hidden'}>
-      <YoutubePlayer />
+    <>
+      <div className={revealing ? 'yt-visible' : 'yt-hidden'}>
+        <YoutubePlayer />
+      </div>
       {!audible && (
         /**
-         * Deliberately outside the hidden wrapper, because during the guess
-         * phase that wrapper is a one-pixel square: a button inside it would be
-         * unclickable, which is the one thing this button must not be.
+         * A sibling of the wrapper, not a child of it — and that is the whole
+         * point of the fragment.
+         *
+         * `.yt-hidden` carries `pointer-events: none`, which every descendant
+         * inherits. The button was drawn, floated over the page, looked
+         * perfectly pressable, and swallowed every tap: `audible` stayed false,
+         * the effect below kept calling `mute()` on each phase change, and the
+         * clip was silent for the whole round *including the reveal*. Moving it
+         * out of that subtree is the fix; nothing else about it changes.
          */
         <button
           type="button"
@@ -99,6 +107,6 @@ export function BlindtestAudio({ code, payload, phase }: { code: string; payload
           🔇 {t(msg('play.tapForSound'))}
         </button>
       )}
-    </div>
+    </>
   );
 }

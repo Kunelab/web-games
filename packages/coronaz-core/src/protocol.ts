@@ -103,6 +103,18 @@ export interface CzZombieView {
   ap: number;
   /** Above the def's printed damage: elites and clawed-up GM spawns. */
   bonusDmg: number;
+  /**
+   * Changing right now, and which way.
+   *
+   * On the wire because it has to be *seen*. The whole decision a mutation asks
+   * — spend two turns killing this thing, or come back later to something
+   * worse — only exists if the survivors can watch it happen. A creature that
+   * quietly improved itself off-screen would be an ambush, which is a different
+   * and much worse game.
+   */
+  mutating?: 'hp' | 'damage';
+  /** How many times it has already changed, so a veteran reads as one. */
+  mutations?: number;
 }
 
 /** The acting player's own belongings, uid included so they can be moved. */
@@ -340,7 +352,9 @@ export function toView(state: CzState, role: CzRole, now = Date.now()): CzView {
       hp: zombie.hp,
       maxHp: zombie.maxHp,
       ap: zombie.ap,
-      bonusDmg: zombie.bonusDmg
+      bonusDmg: zombie.bonusDmg,
+      ...(zombie.mutating ? { mutating: zombie.mutatingInto ?? 'hp' } : {}),
+      ...(zombie.mutations ? { mutations: zombie.mutations } : {})
     }));
 
   const heroes: CzHeroView[] = Object.values(state.heroes).map((hero) => ({

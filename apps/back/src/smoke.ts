@@ -818,6 +818,53 @@ section('estimation');
   check('history requires a login', anonymousHistory.statusCode === 401, anonymousHistory.statusCode);
 }
 
+/* ------------------- the stage reaches the people playing ----------------- */
+section('who gets the media');
+{
+  /**
+   * A television is opt-in now, and this is the check that says so.
+   *
+   * It used to be assumed: a launched game always behaved as though somebody
+   * were sitting at a big screen, the clip played there and nowhere else, and
+   * every phone in the room got a question with no picture and no sound. There
+   * was no setting to say otherwise — the no-television case existed only
+   * inside quick match, unnamed, as a side effect of having no host.
+   */
+  const item: MediaView = {
+    ...quizItem,
+    id: 9_100,
+    kind: 'blindtest',
+    answers: [answerFieldSchema.parse({ key: 'title', value: 'Africa', points: 3 })],
+    payload: { code: 'dQw4w9WgXcQ', startGuess: 0, endGuess: 20, startReveal: 40, endReveal: 60 }
+  };
+
+  const noTv = createSession({
+    playlistName: 'no telly',
+    playlistId: null,
+    hostUserId: 1,
+    items: [item],
+    config: defaultSessionConfig,
+    existingCodes: new Set()
+  });
+  joinSession(noTv, 'Phone', undefined);
+  advance(noTv, () => item);
+  const phone = toSessionView(noTv, null, false, { imageUrl: () => '' });
+  check('with no television, every phone is a stage', phone.stageRound?.kind === 'blindtest', phone.stageRound);
+
+  const withTv = createSession({
+    playlistName: 'telly',
+    playlistId: null,
+    hostUserId: 1,
+    items: [item],
+    config: { ...defaultSessionConfig, tv: true },
+    existingCodes: new Set()
+  });
+  joinSession(withTv, 'Phone', undefined);
+  advance(withTv, () => item);
+  const withScreen = toSessionView(withTv, null, false, { imageUrl: () => '' });
+  check('with one, the clip belongs to it alone', withScreen.stageRound === undefined, withScreen.stageRound);
+}
+
 /* -------------------- ending a game early still pays ---------------------- */
 section('a game ended early still banks its tokens');
 {

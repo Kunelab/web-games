@@ -1,4 +1,4 @@
-import { splitArtistTitle } from 'game-core';
+import { creditFromDescription, splitArtistTitle } from 'game-core';
 import { z } from 'zod';
 
 import { env } from '../env.js';
@@ -58,6 +58,7 @@ const videoResponseSchema = z.object({
       z.object({
         snippet: z.object({
           title: z.string(),
+          description: z.string().optional(),
           channelTitle: z.string().optional(),
           publishedAt: z.string().optional()
         }),
@@ -113,7 +114,22 @@ export async function fetchVideoMetadata(videoId: string): Promise<YoutubeVideoM
   }
 
   const item = parsed.data.items[0];
-  const { artist, title } = splitArtistTitle(item.snippet.title);
+
+  /**
+   * The description wins when it actually credits a track.
+   *
+   * For anything whose title describes the *video* rather than the music — an
+   * AMV, a montage, a fan edit — splitting the title cannot work, because the
+   * song is not in it. "AMV - Nostromo - Pure Thrust" is an editor and an edit;
+   * the description says "Music: Yuksek – Tonight", which is the answer.
+   *
+   * Preferred rather than merely used as a fallback, and the precedence is the
+   * point: a labelled credit is somebody stating what the music was, while a
+   * title split is this code guessing. When somebody has bothered to write it
+   * down, believe them.
+   */
+  const credited = creditFromDescription(item.snippet.description ?? '');
+  const { artist, title } = credited ?? splitArtistTitle(item.snippet.title);
 
   return {
     videoId,

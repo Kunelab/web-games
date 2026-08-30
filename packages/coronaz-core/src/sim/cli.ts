@@ -37,6 +37,28 @@ function has(name: string): boolean {
 const games = Number(arg('games', '400'));
 const scenario = arg('scenario', 'escape');
 const heroCount = Number(arg('heroes', '3'));
+
+/**
+ * Extra bodies the horde is not told about.
+ *
+ * `--ghosts` runs half again as many bots as the party being measured while
+ * pinning the horde's difficulty to the smaller number. It exists because the
+ * bench's targets are calibrated against `expert` bots and real people beat
+ * those bots comfortably — two of them walked out of "difficile" untouched
+ * against a bench that says eighty per cent and half a death a game.
+ *
+ * So a winrate measured from bots is not the winrate of a table, and tuning
+ * difficulty against it tunes for the wrong room. Three bots at the pressure
+ * meant for two is a rough stand-in for two people who pass each other things,
+ * cover each other, and never waste a turn.
+ *
+ * A calibration instrument and nothing else: it changes no default, it is
+ * unreachable from the game, and a number produced with it is only comparable
+ * to another number produced with it.
+ */
+const ghosts = has('ghosts');
+const bodies = ghosts ? Math.max(heroCount + 1, Math.round(heroCount * 1.5)) : heroCount;
+const hordeParty = ghosts ? heroCount : undefined;
 /** One core, for when a run has to be compared against an older one exactly. */
 const serial = has('serial');
 
@@ -104,7 +126,7 @@ function parseTeam(raw: string): PartyMember[] {
 
 function chosenParty(): PartyMember[] {
   const team = arg('team', '');
-  const base = team ? parseTeam(team) : uniformParty(heroCount, arg('mindset', 'balanced'), arg('skill', 'expert'));
+  const base = team ? parseTeam(team) : uniformParty(bodies, arg('mindset', 'balanced'), arg('skill', 'expert'));
   // --luck and --noperks apply to the whole table: what they measure is a run
   // of loot or a table that refused its perks, not one seat's story.
   const luck = has('luck') ? (arg('luck', 'lucky') as 'lucky' | 'unlucky') : undefined;
@@ -223,12 +245,13 @@ if (has('seed')) {
     games,
     config: { ...DIFFICULTY_PRESETS[preset], ...escalation, ...events, scenario: scenario as never, gmClass },
     party: chosenParty(),
+    hordeParty,
     gmMindset: gm,
     heroPerks,
     gmPerks
   });
   row(
-    `${scenario}/${preset}/${arg('team', '') ? 'team' : `${arg('mindset', 'balanced')}/${arg('skill', 'expert')}`}${gm ? `/MJ:${gm}:${gmClass}` : ''}${heroPerks ? '+perks' : ''}${gmPerks ? '+gmperks' : ''}${has('luck') ? `/${arg('luck', 'lucky')}` : ''}${has('noperks') ? '/sans-atout' : ''}${has('events') ? `/evts:${arg('events', 'true')}` : ''}`,
+    `${scenario}/${preset}/${arg('team', '') ? 'team' : `${arg('mindset', 'balanced')}/${arg('skill', 'expert')}`}${gm ? `/MJ:${gm}:${gmClass}` : ''}${heroPerks ? '+perks' : ''}${gmPerks ? '+gmperks' : ''}${has('luck') ? `/${arg('luck', 'lucky')}` : ''}${has('noperks') ? '/sans-atout' : ''}${has('events') ? `/evts:${arg('events', 'true')}` : ''}${ghosts ? `/fantomes:${bodies}v${heroCount}` : ''}`,
     summary
   );
 } else {

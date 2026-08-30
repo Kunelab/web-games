@@ -446,7 +446,7 @@ export function CzMap({
                 >
                   <span className="cz-token-face">{heroDef(hero.heroId).emoji}</span>
                   <span className="cz-token-hp" style={{ width: `${Math.max(6, (hero.hp / hero.maxHp) * 100)}%` }} />
-                  <span className="cz-token-foot" />
+                <span className="cz-token-foot" />
                 </div>
               );
             })}
@@ -494,6 +494,23 @@ export function CzMap({
                   className="cz-token-hp horde"
                   style={{ width: `${Math.max(6, (zombie.hp / zombie.maxHp) * 100)}%` }}
                 />
+                {/*
+                  Changing, and which way.
+
+                  Two turns of standing still buys a creature thirty per cent
+                  more flesh or thirty per cent more bite, so the survivors get
+                  exactly two turns to decide whether to spend them on it. The
+                  badge is that decision being offered — without it the change
+                  is an ambush, which is a different and much worse game.
+                */}
+                {zombie.mutating && (
+                  <span
+                    className="cz-token-mutating"
+                    title={t(msg(zombie.mutating === 'hp' ? 'cz.map.mutatingHp' : 'cz.map.mutatingDmg'))}
+                  >
+                    {zombie.mutating === 'hp' ? '🧬' : '🦷'}
+                  </span>
+                )}
                 <span className="cz-token-foot" />
                 {/* The horde's action points, on the piece. The game master used to
                     have to select a creature to learn whether it had already moved,

@@ -155,6 +155,21 @@ export default function Launch() {
             onChange={(checked) => setConfig({ ...config, public: checked })}
           />
 
+          {/*
+            Asked here, with the rest of the setup, and never afterwards.
+
+            A television is a decision about the room you are sitting in, and the
+            room is arranged before anybody presses start. Offering it later —
+            as a button on the host screen — would mean the first round plays to
+            the wrong screens while somebody hunts for the toggle.
+          */}
+          <Switch
+            label={t(msg('launch.tv'))}
+            hint={t(msg('launch.tv.hint'))}
+            checked={config.tv}
+            onCheckedChange={(checked) => setConfig({ ...config, tv: checked })}
+          />
+
           <Switch
             label={t(msg('launch.shuffle'))}
             checked={config.shuffle}

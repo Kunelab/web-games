@@ -115,6 +115,13 @@ export function runGame(options: {
   heroPerks?: string[];
   gmPerks?: string[];
   captureLog?: boolean;
+  /**
+   * Pin the horde's difficulty to a party size other than the one playing.
+   *
+   * See `CzState.hordeParty`. Passing the *nominal* count here while sending a
+   * larger `party` is how the bench approximates players rather than bots.
+   */
+  hordeParty?: number;
 }): GameOutcome {
   const config = gameConfigSchema.parse({
     ...options.config,
@@ -134,6 +141,10 @@ export function runGame(options: {
     gmPerks: options.gmPerks,
     now: 0
   });
+
+  // Set before anything reads it: `seedZombies` runs during the first turn and
+  // must already know how many survivors the horde is being sized for.
+  if (options.hordeParty !== undefined) state.hordeParty = options.hordeParty;
 
   // The bot game master picks a loadout like a human would; deterministic per
   // seed, so the bench stays replayable.
@@ -267,6 +278,8 @@ export function runMany(options: {
   heroPerks?: string[];
   gmPerks?: string[];
   seedBase?: number;
+  /** See `CzState.hordeParty`: size the horde for a different party. */
+  hordeParty?: number;
 }): SimSummary {
   let wins = 0;
   let turns = 0;
@@ -276,6 +289,7 @@ export function runMany(options: {
 
   for (let i = 0; i < options.games; i++) {
     const outcome = runGame({
+      hordeParty: options.hordeParty,
       config: options.config,
       seed: (options.seedBase ?? 1000) + i * 7919,
       party: options.party,

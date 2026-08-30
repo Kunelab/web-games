@@ -164,6 +164,21 @@ export interface ZombieState {
   ap: number;
   /** Added to the def's damage: late spawns and GM claws hit harder. */
   bonusDmg: number;
+  /**
+   * This one can change, and whether it is changing right now.
+   *
+   * A fifth of the horde, rolled at spawn and independent of species — a walker
+   * may be capable of it and an abomination may not, which is what makes it a
+   * thing the survivors have to *look at* rather than a stat line they can
+   * memorise. See `beginEnemyPhase` for what it costs and buys.
+   */
+  canMutate?: boolean;
+  /** Turns of stillness left before the change takes. */
+  mutating?: number;
+  /** Which way this one is changing: tougher, or harder-hitting. */
+  mutatingInto?: 'hp' | 'damage';
+  /** How many times it has already changed. Two is the ceiling. */
+  mutations?: number;
 }
 
 /** What a side quest can ask for. */
@@ -234,6 +249,27 @@ export interface CzState {
   gmToken: string;
   hostUserId: number | null;
   config: GameConfig;
+  /**
+   * How many survivors the *horde* should believe it is facing.
+   *
+   * Absent everywhere except the balance bench, where it is the whole point:
+   * the difficulty targets are calibrated against `expert` bots, and real
+   * people beat those bots comfortably — two of them clearing "difficile"
+   * untouched against a bench that says eighty per cent. A winrate measured
+   * from bots is therefore not a winrate, and tuning against it tunes for the
+   * wrong table.
+   *
+   * The cheapest correction is to let the bench run more bodies than the party
+   * it is measuring, and pin the horde to the smaller number: three bots at the
+   * pressure meant for two are a rough stand-in for two people who pass each
+   * other things, cover each other, and do not waste a turn.
+   *
+   * Deliberately on the state and not in `GameConfig`. Config is parsed from
+   * whatever a client sends, and a difficulty dial reachable from a browser is
+   * a cheat, not a knob. The bench sets this after `createGame`; nothing else
+   * ever does, and the live game leaves it undefined.
+   */
+  hordeParty?: number;
   seed: number;
   rng: RngState;
   board: Board;
@@ -326,6 +362,27 @@ export function createGame(options: {
   gmToken: string;
   hostUserId: number | null;
   config: GameConfig;
+  /**
+   * How many survivors the *horde* should believe it is facing.
+   *
+   * Absent everywhere except the balance bench, where it is the whole point:
+   * the difficulty targets are calibrated against `expert` bots, and real
+   * people beat those bots comfortably — two of them clearing "difficile"
+   * untouched against a bench that says eighty per cent. A winrate measured
+   * from bots is therefore not a winrate, and tuning against it tunes for the
+   * wrong table.
+   *
+   * The cheapest correction is to let the bench run more bodies than the party
+   * it is measuring, and pin the horde to the smaller number: three bots at the
+   * pressure meant for two are a rough stand-in for two people who pass each
+   * other things, cover each other, and do not waste a turn.
+   *
+   * Deliberately on the state and not in `GameConfig`. Config is parsed from
+   * whatever a client sends, and a difficulty dial reachable from a browser is
+   * a cheat, not a knob. The bench sets this after `createGame`; nothing else
+   * ever does, and the live game leaves it undefined.
+   */
+  hordeParty?: number;
   seed: number;
   gmPerks?: string[];
   gmLoadout?: string[];
@@ -400,10 +457,30 @@ export function createGame(options: {
  * for being long, and again for having reached turn twelve while doing it. Stretch
  * the arc to the world and a preset means the same evening on either.
  */
+/**
+ * How much harder the district gets once there is nothing left to do but leave.
+ *
+ * The last stretch of a raid used to be its safest: objectives done, keys in
+ * hand, and a walk to the door against a horde that had stopped mattering. This
+ * is the answer to that — the district notices, and the walk back is the part
+ * you plan for.
+ *
+ * It also creates the axis the difficulty presets never had. Everything else
+ * scales the horde's *damage*; this scales with the survivors' own *progress*,
+ * so dawdling once the job is done costs something, and a party that finishes
+ * and runs is rewarded for it.
+ */
+const ENDGAME_SURGE = 1.35;
+
 export function threat(state: CzState): number {
   const pace = state.config.scenario === 'endless' ? 1.6 : 1;
   const progress = state.turn / (boardPressure(state) * partyPace(state));
-  return progress * (1 + progress / 12) * state.config.escalation * pace;
+  // Nothing left to do but leave: the district closes in. See ENDGAME_SURGE.
+  const endgame =
+    state.config.scenario === 'escape' && objectivesDone(state) && state.keysCollected >= state.config.keys
+      ? ENDGAME_SURGE
+      : 1;
+  return progress * (1 + progress / 12) * state.config.escalation * pace * endgame;
 }
 
 /**
@@ -690,7 +767,7 @@ export function partyPressure(state: CzState): number {
 }
 
 function seatedHeroes(state: CzState): number {
-  return Math.max(1, Object.keys(state.heroes).length);
+  return Math.max(1, state.hordeParty ?? Object.keys(state.heroes).length);
 }
 
 /**
@@ -724,7 +801,7 @@ export function seedZombies(state: CzState): void {
   const spawns = state.board.rooms.filter((room) => room.kind === 'spawn');
   if (spawns.length === 0) return;
 
-  const heroCount = Math.max(1, Object.keys(state.heroes).length);
+  const heroCount = seatedHeroes(state);
   const count = Math.round((state.config.startingZombies * (2 + heroCount)) / 5);
 
   for (let i = 0; i < count; i++) {
@@ -742,6 +819,19 @@ export function seedZombies(state: CzState): void {
  * income instead, and the permanent `hide`/`claws` upgrades he bought apply to
  * everything he fields. Both paths climb; the heroes' gear does not.
  */
+/**
+ * How much of the horde can change, and how far.
+ *
+ * A fifth is deliberately a minority: the threat is that you cannot tell which
+ * fifth, so every creature left alone for two turns is a question. Make it half
+ * and the survivors stop reading the board and start clearing it uniformly,
+ * which is the opposite of the intent.
+ */
+export const MUTATION_CHANCE = 0.2;
+export const MUTATION_LIMIT = 2;
+/** What one change is worth, on whichever axis it picks. */
+export const MUTATION_GAIN = 0.3;
+
 export function spawnZombie(state: CzState, roomId: string, def: string): ZombieState {
   const definition = zombieDef(def);
   const mutated = mutationEffects(state.config.mutations);
@@ -776,7 +866,9 @@ export function spawnZombie(state: CzState, roomId: string, def: string): Zombie
     hp: maxHp,
     maxHp,
     ap: 0,
-    bonusDmg
+    bonusDmg,
+    // Rolled here, from the state's own rng, so a seed replays exactly.
+    canMutate: rand(state.rng) < MUTATION_CHANCE
   };
   state.zombies[zombie.id] = zombie;
 

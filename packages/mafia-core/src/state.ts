@@ -113,8 +113,20 @@ export const DEFAULT_CONFIG: MafiaConfig = {
   dayMs: 120_000,
   firstDayMs: 35_000,
   nightMs: 40_000,
-  defenseMs: 25_000,
-  judgementMs: 20_000,
+  /**
+   * The trial, at a length somebody can actually use.
+   *
+   * Half again as long as it was, both halves. Twenty-five seconds is enough
+   * to type one sentence, and a defence is not one sentence: it is a role
+   * claim, an account of the nights, and a reason to doubt whoever is pushing
+   * — the accused has to say all of it and the room has to read it. Judgement
+   * grew with it for the same reason: the ballot is the one moment the words
+   * are supposed to change something, which they now do (see
+   * `defenceStrength`), and a room voting before it has read them is a room
+   * where the defence may as well not have happened.
+   */
+  defenseMs: 38_000,
+  judgementMs: 30_000,
   aftermathMs: 45_000,
   trialsPerDay: 3,
   maxDays: 20,

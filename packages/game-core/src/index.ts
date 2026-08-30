@@ -44,7 +44,7 @@ export { imageReveal, imageRevealPayloadSchema, type ImageRevealPayload } from '
 export { imageMemory, imageMemoryPayloadSchema, type ImageMemoryPayload } from './media/kinds/image-memory.js';
 export { estimation, estimationPayloadSchema, type EstimationPayload } from './media/kinds/estimation.js';
 
-export { normalizeAnswer, splitArtistTitle } from './matching/normalize.js';
+export { creditFromDescription, normalizeAnswer, splitArtistTitle } from './matching/normalize.js';
 export { boundedLevenshtein } from './matching/levenshtein.js';
 export { phoneticFold } from './matching/phonetic.js';
 export { matchAnswer, matchAnyField, typoBudget, type MatchResult, type MatchRoute } from './matching/match.js';

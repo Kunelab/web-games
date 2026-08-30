@@ -21,6 +21,7 @@ import { PauseOverlay, RecoveringMark } from '../../components/presence/PauseOve
 import { useHeartbeat } from '../../hooks/useHeartbeat';
 import { useMafiaSocket } from '../../hooks/useMafiaSocket';
 import { useCountdown } from '../../hooks/useServerClock';
+import { authorColour } from '../../ui/authorHue';
 import { cx } from '../../ui/cx';
 import { Button, Field, Input, Loading } from '../../ui';
 import { QuickEnd } from '../../ui/QuickEnd';
@@ -356,7 +357,29 @@ export default function MafiaPlayer() {
     }
 
     if (canVote) {
-      if (player.slot === me.slot) return null;
+      /**
+       * Your own row is where "hang nobody" belongs.
+       *
+       * Every other row offers an accusation; yours cannot, because you cannot
+       * accuse yourself — so the slot sits empty on the one row you look at
+       * most. Voting to hang nobody is the same vote as an accusation, aimed at
+       * no one, and it is the only vote that has nowhere else to live.
+       *
+       * It was in the corner bar for a while, beside the role card and the
+       * wills, where it was both hard to find and sitting next to the button
+       * that closes the table — which somebody duly pressed while hunting for
+       * this one, ending the game. A destructive control should not be the
+       * thing you find while looking for a routine one.
+       */
+      if (player.slot === me.slot) {
+        return {
+          label: me.votedSkip
+            ? `✓ ${tk('mafia.ui.skipTally', { count: view.skipVotes, needed: view.voteThreshold })}`
+            : `⏭️ ${tk('mafia.ui.skip')}${view.skipVotes > 0 ? ` (${view.skipVotes}/${view.voteThreshold})` : ''}`,
+          chosen: me.votedSkip,
+          run: () => socket.emit('mafia:vote', { targetSlot: me.votedSkip ? null : 'skip' }, fail)
+        };
+      }
       const chosen = me.voteTargetSlot === player.slot;
       return {
         label: chosen ? tk('mafia.ui.withdraw') : tk('mafia.ui.accuse'),
@@ -541,59 +564,6 @@ export default function MafiaPlayer() {
         >
           {me.role ? roleIcon(me.role.id) : '❔'}
         </button>
-        {/*
-          The day's second exit, up here with the rest of what you can do.
-
-          It was a full-width button under the roster, which is the part of the
-          screen you scroll past — and a vote you have to go looking for is a
-          vote nobody casts. The tally rides on it so the room can see the
-          option gathering weight without anybody opening anything.
-        */}
-        {/*
-          The host's way out, at any point in the evening.
-
-          There has never been one. `mafiaEnd` existed on the API client and was
-          called from nowhere, so a table could only be left by abandoning it and
-          waiting six hours for the sweeper — which is also why finished games
-          piled up in the "resume" list. A host can end a game that has gone
-          wrong, or tidy up one that has finished, without leaving the table.
-        */}
-        {hostToken && (
-          <button
-            type="button"
-            className={cx('mz-corner-btn', closeAsked && 'mz-corner-btn--danger')}
-            title={closeAsked ? tk('mafia.ui.closeTableSure') : tk('mafia.ui.closeTable')}
-            onClick={() => {
-              if (!closeAsked) {
-                setCloseAsked(true);
-                return;
-              }
-              void api
-                .mafiaEnd(code)
-                .then(() => navigate('/mafia'))
-                .catch(() => setCloseAsked(false));
-            }}
-          >
-            {closeAsked ? '⚠️' : '🚪'}
-          </button>
-        )}
-
-        {canVote && me.alive && (
-          <button
-            type="button"
-            className={cx('mz-corner-btn', me.votedSkip && 'mz-corner-btn--on')}
-            aria-pressed={me.votedSkip}
-            title={
-              me.votedSkip
-                ? tk('mafia.ui.skipTally', { count: view.skipVotes, needed: view.voteThreshold })
-                : tk('mafia.ui.skipIcon')
-            }
-            onClick={() => socket?.emit('mafia:vote', { targetSlot: me.votedSkip ? null : 'skip' }, fail)}
-          >
-            ⏭️
-            {view.skipVotes > 0 && <span className="mz-corner-tally">{view.skipVotes}</span>}
-          </button>
-        )}
       </div>
 
       {panel === 'wills' && (
@@ -705,6 +675,42 @@ export default function MafiaPlayer() {
                 .map((line, index) => (
                   <p key={`${index}-${line.k}`}>{t(line)}</p>
                 ))}
+            </div>
+          )}
+
+          {/*
+            The host's way out, behind a panel nobody opens by accident.
+
+            It was a corner icon beside the wills and the role card, which is
+            where the *play* controls live — and somebody hunting for the skip
+            vote found it instead and ended the game for the whole table. A
+            control that closes an evening should not be adjacent to the ones
+            you press every turn.
+
+            Here it takes two deliberate acts to reach: open your own role card,
+            then confirm. Still available at any point in the evening, which was
+            the reason for adding it — a game that has gone wrong should be
+            endable without waiting six hours for the sweeper.
+          */}
+          {hostToken && (
+            <div className="mz-role-danger">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  if (!closeAsked) {
+                    setCloseAsked(true);
+                    return;
+                  }
+                  void api
+                    .mafiaEnd(code)
+                    .then(() => navigate('/mafia'))
+                    .catch(() => setCloseAsked(false));
+                }}
+              >
+                {closeAsked ? `⚠️ ${tk('mafia.ui.closeTableSure')}` : `🚪 ${tk('mafia.ui.closeTable')}`}
+              </Button>
+              <p className="mz-muted">{tk('mafia.ui.closeTableNote')}</p>
             </div>
           )}
         </FloatingPanel>
@@ -896,7 +902,15 @@ export default function MafiaPlayer() {
                     <span className="mz-seat-no">{player.slot}</span>
 
                     <span className="mz-seat-id">
-                      <span className="mz-seat-name">
+                      {/*
+                        The same colour the chat gives this voice.
+
+                        Following an argument means tying a line in the log to a
+                        row in the roster, and doing that by reading names is
+                        exactly the work the colour was invented to save. Both
+                        sides hash the display name now, so they agree.
+                      */}
+                      <span className="mz-seat-name" style={{ color: authorColour(player.name) }}>
                         {player.name}
                         {player.isBot && <span className="mz-flag" title={tk('mafia.ui.bot')}> 🤖</span>}
                         {player.revealedMayor && <span className="mz-flag" title={tk('mafia.ui.revealed')}> 🎗️</span>}
@@ -1055,7 +1069,17 @@ export default function MafiaPlayer() {
                  * as an accusation, aimed at nobody, and it carries on the same
                  * majority.
                  */}
-                {inDiscussion && me.alive && me.role?.id === 'jailor' && (
+                {/*
+                  The cell is chosen during the day — the whole day.
+
+                  This was gated on the discussion stage, so the moment a trial
+                  opened the jailor lost the button and could no longer pick a
+                  prisoner for the coming night. The engine never had that rule:
+                  `jailTarget` asks only that it is daytime. Watching a trial and
+                  deciding *because of it* who to lock up is the jailor playing
+                  well, and the screen was the only thing forbidding it.
+                */}
+                {view.phase === 'day' && me.alive && me.role?.id === 'jailor' && (
                   <Button variant="ghost" onClick={() => setJailMode((mode) => !mode)}>
                     {jailMode
                       ? tk('mafia.ui.backToAccusations')
