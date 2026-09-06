@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { msg, type Msg } from 'i18n';
 import {
+  chatLineFor,
   chatRules,
   NO,
   refusalOf,
@@ -255,7 +256,10 @@ export function registerRealtime(
       const data = socket.data;
       if (data.mafiaCode !== state.code) continue;
       if (data.mafiaPlayerId) {
-        if (rules.canRead(message.channel, data.mafiaPlayerId, state)) socket.emit('mafia:message', message);
+        // Per recipient, byline included: the spy reads the family room, never
+        // the name on the door.
+        if (rules.canRead(message.channel, data.mafiaPlayerId, state))
+          socket.emit('mafia:message', chatLineFor(state, data.mafiaPlayerId, message));
       } else if ((data.mafiaHost || data.mafiaSpectator) && message.channel === 'day') {
         // A screen in the room hears the square and nothing else, ever.
         socket.emit('mafia:message', message);

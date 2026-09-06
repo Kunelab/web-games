@@ -338,8 +338,33 @@ const CHAT_NO: Record<PostRefusal, () => Msg> = {
   flood: NO.slowDown
 };
 
+/**
+ * One chat line as this reader is allowed to see it.
+ *
+ * The spy hears the families and never sees their faces, so the byline comes off
+ * at delivery rather than in the view projection. The same line reaches a phone
+ * twice: inside a broadcast view, and as an incremental `mafia:message` push in
+ * between. Muffling only the projection left the push carrying the real name,
+ * so the spy read the author for as long as it took the next transition to
+ * rewrite the log under him. This is the one place both paths share.
+ *
+ * `ANONYMOUS` and not a key: `authorName` is the byline a player's own nickname
+ * travels in, and the log has no notion of a translatable author. A symbol says
+ * "somebody, and you do not get to know who" in every language.
+ */
+export function chatLineFor(state: MafiaState, playerId: string, message: ChatMessage): ChatMessage {
+  // At the whistle the masks come off, transcript included.
+  if (state.phase === 'ended') return message;
+  const reader = state.players[playerId];
+  if (reader?.role !== 'spy' || !message.authorId) return message;
+  if (message.channel !== 'mafia' && message.channel !== 'triad') return message;
+  return { ...message, authorId: null, authorName: ANONYMOUS };
+}
+
 export function chatVisibleTo(state: MafiaState, playerId: string): ChatMessage[] {
-  return visibleTo(state.chat, playerId, state, chatRules());
+  return visibleTo(state.chat, playerId, state, chatRules()).map((message) =>
+    chatLineFor(state, playerId, message)
+  );
 }
 
 /**
@@ -1070,7 +1095,19 @@ export function advanceMafia(state: MafiaState, now: number, rng: () => number):
   }
   if (state.phase === 'night') {
     const announcements = resolveNight(state, rng);
-    if (checkVictory(state, now)) return;
+    /**
+     * The dawn report goes out even when there is no morning after it.
+     *
+     * `beginDay` prints the night's bodies, and a game that ended *on* that
+     * night never reached it: victory was decided first and returned, so the
+     * two corpses that finished the game, their wills and the weapons that made
+     * them went straight into the bin. The table read "Night 8 falls" and then,
+     * with nothing in between, the headline — the one death everybody wanted to
+     * see explained was the one nobody was told about. Reported from a real
+     * table, twice over: the last Serial Killer and the last Poisoner killed
+     * each other in silence.
+     */
+    if (checkVictory(state, now, announcements)) return;
     if (state.day >= state.config.maxDays) {
       endGame(state, now, M.winDraw(), 'draw');
       return;
@@ -2125,7 +2162,7 @@ function endGame(state: MafiaState, now: number, headline: Msg, ending: Ending):
 }
 
 /** True when the game just ended; the caller stops scheduling. */
-export function checkVictory(state: MafiaState, now: number): boolean {
+export function checkVictory(state: MafiaState, now: number, pending: Announcement[] = []): boolean {
   if (state.phase === 'ended') return true;
   const alive = alivePlayers(state);
   const families: FamilyId[] = ['mafia', 'triad', 'cult'];
@@ -2133,6 +2170,21 @@ export function checkVictory(state: MafiaState, now: number): boolean {
     families.map((familyId) => [familyId, alive.filter((player) => playerFamily(player) === familyId)])
   );
   const soloKillers = alive.filter((player) => player.role !== null && isSoloKiller(player.role));
+
+  /**
+   * The last night's report, said before the last word about the game.
+   *
+   * Empty for every call that is not the end of a night — a lynch has already
+   * announced its own body — and printed exactly once, immediately before the
+   * headline that ends the table, so the story reads in the order it happened.
+   */
+  const report = (): void => {
+    for (const line of pending) {
+      if (line.reveals) announceReveal(state, line.line, now);
+      else announce(state, line.line, now);
+    }
+    pending.length = 0;
+  };
 
   const crownFamily = (familyId: FamilyId): void => {
     const win = FAMILY_WIN[familyId];
@@ -2142,6 +2194,7 @@ export function checkVictory(state: MafiaState, now: number): boolean {
         addPoints(state, player.playerId, 'win');
       }
     }
+    report();
     endGame(state, now, win.headline, 'family');
   };
 
@@ -2149,12 +2202,31 @@ export function checkVictory(state: MafiaState, now: number): boolean {
 
   // The town wins when every family and every lone killer is in the ground.
   if (familiesAlive.length === 0 && soloKillers.length === 0) {
+    /**
+     * And when there is a town left to win it.
+     *
+     * The last three seats were a Poisoner, a Serial Killer and a Judge; the
+     * killers took each other on night 8 and the Judge, alone in an empty town,
+     * was told the Town had won — which cost it the game, because a Judge wins
+     * exactly when the town does not. "Every enemy is dead" is not the town's
+     * victory condition on its own: somebody has to have survived to be the
+     * town. Nobody did, so nobody carried it, and the seats that live off the
+     * town's failure are paid by `endGame` as they should be. Reported from a
+     * real table.
+     */
+    const townStanding = alive.some((player) => player.role && roleDef(player.role).faction === 'town');
+    if (!townStanding) {
+      report();
+      endGame(state, now, M.winHollow(), 'draw');
+      return true;
+    }
     for (const player of Object.values(state.players)) {
       if (player.role && roleDef(player.role).faction === 'town') {
         state.winners.push({ playerId: player.playerId, reason: M.winReason('town'), kind: 'town' });
         addPoints(state, player.playerId, 'win');
       }
     }
+    report();
     endGame(state, now, M.winTown(), 'town');
     return true;
   }
@@ -2169,6 +2241,7 @@ export function checkVictory(state: MafiaState, now: number): boolean {
         state.winners.push({ playerId: player.playerId, reason: win.reason, kind: 'solo-killer' });
         addPoints(state, player.playerId, 'solo-win');
       }
+      report();
       endGame(state, now, win.headline, 'solo-killer');
       return true;
     }

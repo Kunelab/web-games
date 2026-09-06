@@ -116,6 +116,7 @@ export const fr: Catalogue = {
   'mafia.win.poisoner': 'Tout le monde avait bu quelque chose, un jour. L’Empoisonneur l’emporte.',
   'mafia.win.electromaniac': 'La ville grésille encore. L’Électromane l’emporte.',
   'mafia.win.draw': 'La ville, épuisée, déclare un match nul.',
+  'mafia.win.hollow': 'Les tueurs ont emporté la ville avec eux. Il ne reste personne à sauver, et personne pour la sauver.',
   'mafia.end.unmasked': 'Les masques tombent : {roster}'
 };
 

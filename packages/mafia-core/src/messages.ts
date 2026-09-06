@@ -275,6 +275,8 @@ export const M = {
   winJester: (): Msg => msg('mafia.win.jester'),
   winSolo: (role: RoleId): Msg => msg(SOLO_WIN_KEY[role] ?? 'mafia.win.serialKiller'),
   winDraw: (): Msg => msg('mafia.win.draw'),
+  /** Every enemy dead, and every townsman with them: nobody carried it. */
+  winHollow: (): Msg => msg('mafia.win.hollow'),
   unmasked: (roster: string): Msg => msg('mafia.end.unmasked', { roster }),
 
   /**

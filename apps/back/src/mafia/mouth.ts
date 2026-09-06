@@ -169,7 +169,7 @@ export function mouthPrompt(
  * narration gets ignored in favour of the phrasebook — which always has an
  * answer, so there is never a turn that fails to produce a sentence.
  */
-export function readLine(raw: Record<string, unknown>, intent: Intent): string {
+export function readLine(raw: Record<string, unknown>, intent: Intent, self: { name: string; slot: number }): string {
   const line = typeof raw.line === 'string' ? raw.line.replace(/\s+/g, ' ').trim() : '';
   if (!line) return intent.fallback;
 
@@ -179,7 +179,30 @@ export function readLine(raw: Record<string, unknown>, intent: Intent): string {
   if (!cleaned || cleaned.length > 180) return intent.fallback;
   if (/^\s*[([*]/.test(cleaned)) return intent.fallback;
   if (intent.vote && denies(cleaned)) return intent.fallback;
+  if (addressesSelf(cleaned, self)) return intent.fallback;
   return cleaned;
+}
+
+/**
+ * A seat calling out its own house.
+ *
+ * Small models fill a blank with whatever is nearest, and the nearest number on
+ * this sheet is always the speaker's own: told to push back at a wagon it was
+ * not given the names of, house 23 wrote "23, you voted? Explain what you
+ * actually did". A line addressed to the seat it comes from is not a bad line,
+ * it is a broken one, and the phrasebook always has an answer.
+ *
+ * Only the vocative: the seat's own number or name, then punctuation or a
+ * space, then a second person pronoun. "I'm 23 and you all know it" is somebody
+ * introducing themselves and survives; "23, you voted?" does not.
+ */
+function addressesSelf(line: string, self: { name: string; slot: number }): boolean {
+  const name = self.name.replace(/[.*+?^${}()|[\]\\]/g, (char) => `\\${char}`);
+  const vocative = new RegExp(
+    `(?:^|[^\\p{L}\\p{N}])(?:${self.slot}|${name})[\\s,:.!?-]+(?:you|your|u|tu|t['’]|toi|te|vous|votre)\\b`,
+    'iu'
+  );
+  return vocative.test(line);
 }
 
 /**
