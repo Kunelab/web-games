@@ -13,6 +13,7 @@ import { ROLE } from './messages.js';
 import { roleDef, type Faction, type RoleId } from './roles.js';
 import type { SlotToken } from './setups.js';
 import {
+  ANONYMOUS,
   chatRules,
   isLodgeMate,
   isMason,
@@ -252,7 +253,7 @@ const CHANNEL_KINDS: Record<string, MafiaChannelKind> = {
  * of a translatable author. A symbol says "somebody, and you do not get to know
  * who" in every language, which is exactly the rule being enforced.
  */
-const MUFFLED = '· · ·';
+const MUFFLED = ANONYMOUS;
 
 export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.now()): MafiaView {
   const ended = state.phase === 'ended';

@@ -1,5 +1,5 @@
-import type { Claim, PublicInfo, VoteRecord } from './sim/policies.js';
-import { roleDef, type RoleId } from './roles.js';
+import { isEvilRole, type Claim, type PublicInfo, type VoteRecord } from './sim/policies.js';
+import { roleDef, ROLES, type RoleId } from './roles.js';
 import type { DeathSource } from './messages.js';
 import type { MafiaState } from './state.js';
 
@@ -40,12 +40,28 @@ function campStandIn(role: RoleId): RoleId {
   return 'citizen';
 }
 
-export function toPublicInfo(state: MafiaState, claims: Claim[], voteHistory: VoteRecord[]): PublicInfo {
+export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: VoteRecord[]): PublicInfo {
   const players = Object.values(state.players);
   const slotOf = (playerId: string): number | undefined => state.players[playerId]?.slot;
 
+  const deaths = state.deaths
+    .map((death) => ({
+      slot: slotOf(death.playerId),
+      day: death.day,
+      phase: death.phase,
+      source: death.source ?? null
+    }))
+    .filter((death): death is { slot: number; day: number; phase: 'day' | 'night'; source: DeathSource | null } =>
+      death.slot !== undefined
+    );
+
+  // What the dead said, joined with what was spoken while they lived.
+  const claims = [...spoken, ...testamentClaims(state, spoken)];
+
   return {
     day: state.day,
+    deaths,
+    provenRoles: provenRoles(state, claims, deaths),
     aliveSlots: players.filter((player) => player.alive).map((player) => player.slot),
     /**
      * A janitor-cleaned corpse keeps its secret from the public board, and so
@@ -121,4 +137,142 @@ export function toPublicInfo(state: MafiaState, claims: Claim[], voteHistory: Vo
     trialSlot: state.trial ? (slotOf(state.trial.accusedId) ?? null) : null,
     claims
   };
+}
+
+/**
+ * A dead bot's will, as claims on the board.
+ *
+ * A bot's will is rendered from its own structured record, so the record *is*
+ * the will and can be read back without a model: a Sheriff's "night 2, checked
+ * 7, came back bad" is an accusation of 7 by the Sheriff, a Lookout's "4 had
+ * callers: 6, 9" is a sighting of 6 and of 9, "I went to 5" is an account of
+ * having visited 5. Filed under the dead seat's own number, so `claimerWeight`
+ * reads them against what the corpse turned out to be: gospel from a town body,
+ * kindling from a revealed liar.
+ *
+ * Only bots, and only wills the town was shown. A person's record is not their
+ * will: they may have written none, or lied in it, and what they actually
+ * learned is theirs. Their wills reach the board the way their speech does,
+ * through the ear.
+ */
+function testamentClaims(state: MafiaState, spoken: Claim[]): Claim[] {
+  const filed: Claim[] = [];
+  const already = (claim: Claim): boolean =>
+    [...spoken, ...filed].some(
+      (other) =>
+        other.claimerSlot === claim.claimerSlot &&
+        other.targetSlot === claim.targetSlot &&
+        other.kind === claim.kind &&
+        other.day === claim.day
+    );
+  const file = (claim: Claim): void => {
+    if (!already(claim)) filed.push(claim);
+  };
+
+  for (const player of Object.values(state.players)) {
+    if (player.alive || !player.isBot || !player.lastWill) continue;
+    const record = state.deaths.find((death) => death.playerId === player.playerId);
+    if (!record || record.hidden) continue;
+
+    for (const entry of player.intel) {
+      const base = { day: entry.night, claimerSlot: player.slot, truthful: false } as const;
+      switch (entry.kind) {
+        case 'sheriff':
+          file({ ...base, targetSlot: entry.targetSlot, kind: entry.value === 'suspect' ? 'accuse' : 'clear' });
+          break;
+        case 'role':
+          // Guarded, so a stray string in a record cannot become a claim.
+          if (entry.value in ROLES) {
+            file({ ...base, targetSlot: entry.targetSlot, kind: isEvilRole(entry.value as RoleId) ? 'accuse' : 'clear' });
+          }
+          break;
+        case 'visitors':
+          for (const visitor of entry.slots ?? []) file({ ...base, targetSlot: visitor, kind: 'sighting' });
+          break;
+        case 'tracked':
+          file({ ...base, targetSlot: entry.targetSlot, kind: 'sighting' });
+          break;
+        case 'went':
+          file({ ...base, targetSlot: entry.targetSlot, kind: 'account', account: 'visited' });
+          break;
+        default:
+          break;
+      }
+    }
+  }
+  return filed;
+}
+
+/**
+ * The deaths whose weapon names a role, and which role.
+ *
+ * Only the ones where the *victim's own journey* identifies the killer: the
+ * Veteran shoots whoever calls on him, so the house the corpse visited that
+ * night is the Veteran's. A mafia kill or a vigilante's bullet says nothing
+ * about where the victim went, and the jailor's execution needs no deduction,
+ * so those are not here.
+ */
+const PORCH_KILLS: Partial<Record<DeathSource, RoleId>> = { veteran: 'veteran' };
+
+/**
+ * What the record proves about the living. See `PublicInfo.provenRoles`.
+ *
+ * Two sources, both deliberately narrow.
+ *
+ * **The porch.** A seat died at night to a weapon that only fires at visitors,
+ * and its will says where it went that night. That house holds the role. Read
+ * off the *claims* rather than off the corpse's private record, so a person's
+ * will counts only if they wrote it and a bot's counts because it always does:
+ * the town knows exactly what the town was told.
+ *
+ * **The badge.** A living seat that claimed an investigative town role, and
+ * whose accusation has since put a revealed evil in the ground, with no
+ * accusation of theirs having hanged a townie. The graveyard corroborated the
+ * claim; the room may treat the seat as what it says it is.
+ */
+function provenRoles(
+  state: MafiaState,
+  claims: Claim[],
+  deaths: PublicInfo['deaths']
+): Map<number, RoleId> {
+  const proven = new Map<number, RoleId>();
+  const alive = new Set(
+    Object.values(state.players)
+      .filter((player) => player.alive)
+      .map((player) => player.slot)
+  );
+
+  // The porch.
+  for (const death of deaths) {
+    const role = death.source ? PORCH_KILLS[death.source] : undefined;
+    if (!role || death.phase !== 'night') continue;
+    const journeys = claims.filter(
+      (claim) => claim.claimerSlot === death.slot && claim.kind === 'account' && claim.account === 'visited'
+    );
+    // The exact night when the will was precise about it; the last journey otherwise.
+    const thatNight = journeys.filter((claim) => claim.day === death.day);
+    const journey = (thatNight.length > 0 ? thatNight : journeys).at(-1);
+    if (journey && alive.has(journey.targetSlot)) proven.set(journey.targetSlot, role);
+  }
+
+  // The badge.
+  const deadRoleOf = (slot: number): RoleId | null => {
+    const player = Object.values(state.players).find((entry) => entry.slot === slot);
+    if (!player || player.alive || !player.role) return null;
+    if ((state.config.revealOnDeath ?? 'role') === 'none') return null;
+    if (state.deaths.some((death) => death.playerId === player.playerId && death.hidden)) return null;
+    return player.role;
+  };
+  const badgeRoles = new Set<RoleId>(['sheriff', 'investigator', 'lookout', 'detective', 'coroner', 'spy']);
+  for (const claim of claims) {
+    if (claim.kind !== 'role-claim' || !claim.claimedRole || !alive.has(claim.claimerSlot)) continue;
+    if (!badgeRoles.has(claim.claimedRole) || proven.has(claim.claimerSlot)) continue;
+    const accused = claims.filter((other) => other.claimerSlot === claim.claimerSlot && other.kind === 'accuse');
+    const outcomes = accused.map((other) => deadRoleOf(other.targetSlot)).filter((role): role is RoleId => role !== null);
+    const hangedEvil = outcomes.some((role) => isEvilRole(role));
+    const hangedTown = outcomes.some((role) => roleDef(role).faction === 'town');
+    if (hangedEvil && !hangedTown) proven.set(claim.claimerSlot, claim.claimedRole);
+  }
+
+  return proven;
 }

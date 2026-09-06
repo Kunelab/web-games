@@ -21,7 +21,9 @@ import { en } from 'i18n/locales/en';
 import { fr } from 'i18n/locales/fr';
 
 import type { RoleId } from './roles.js';
-import { createMafiaGame, playerBySlot, type MafiaState } from './state.js';
+import {
+  chatRules,
+  ANONYMOUS, createMafiaGame, playerBySlot, type MafiaState } from './state.js';
 import { toMafiaView } from './view.js';
 
 /**
@@ -558,6 +560,59 @@ describe('mafia engine', () => {
     assert.equal(bySlot(state, 2).alive, false, 'the sheriff walked onto the porch');
     assert.equal(bySlot(state, 3).alive, false, 'so did the lookout');
     assert.equal(veteran.alive, true);
+  });
+
+  it('records every visitor’s journey, result or none', () => {
+    const state = table(['veteran', 'sheriff', 'doctor', 'citizen', 'mafioso']);
+    advanceMafia(state, 0, lcg(3)); // night
+    const veteran = bySlot(state, 1);
+
+    setNightAction(state, veteran.playerId, veteran.slot); // on alert
+    setNightAction(state, bySlot(state, 2).playerId, veteran.slot); // the sheriff calls
+    setNightAction(state, bySlot(state, 3).playerId, bySlot(state, 4).slot); // the doctor goes elsewhere
+    advanceMafia(state, 1, lcg(3));
+
+    const sheriff = bySlot(state, 2);
+    assert.equal(sheriff.alive, false, 'the porch is still the porch');
+    assert.ok(
+      sheriff.intel.some((entry) => entry.kind === 'went' && entry.targetSlot === 1),
+      'the dead sheriff still carries where it went, which is what its will needs'
+    );
+    // A doctor who healed nobody used to leave no trace of the night at all.
+    assert.ok(bySlot(state, 3).intel.some((entry) => entry.kind === 'went' && entry.targetSlot === 4));
+  });
+
+  it('the crier speaks into the night without a name', () => {
+    const state = table(['crier', 'citizen', 'citizen', 'mafioso']);
+    advanceMafia(state, 0, lcg(7)); // night
+    const crier = bySlot(state, 1);
+
+    const result = sayInChat(state, crier.playerId, 'day', 'Somebody here is lying.', 5);
+    assert.equal(result.ok, true, 'the crier may speak after dark');
+    if (!result.ok) return;
+    assert.equal(result.message.authorId, null, 'and nobody learns which house');
+    assert.equal(result.message.authorName, ANONYMOUS);
+    assert.equal(result.message.text, 'Somebody here is lying.');
+
+    const stored = state.chat.messages.find((message) => message.id === result.message.id);
+    assert.equal(stored?.authorId, null, 'stripped in the log itself, not only in the reply');
+  });
+
+  it('echoes a seat’s night results into a channel only that seat can read', () => {
+    const state = table(['sheriff', 'citizen', 'mafioso', 'doctor']);
+    advanceMafia(state, 0, lcg(9)); // night
+    const sheriff = bySlot(state, 1);
+    setNightAction(state, sheriff.playerId, 3); // checks the mafioso
+    advanceMafia(state, 1, lcg(9)); // dawn
+
+    const own = state.chat.messages.filter((message) => message.channel === `self:${sheriff.playerId}`);
+    assert.ok(own.length > 0, 'the result reached the square, privately');
+    assert.ok(own.every((message) => message.kind === 'system'));
+
+    const rules = chatRules();
+    assert.equal(rules.canRead(`self:${sheriff.playerId}`, sheriff.playerId, state), true);
+    assert.equal(rules.canRead(`self:${sheriff.playerId}`, bySlot(state, 2).playerId, state), false, 'nobody else');
+    assert.equal(rules.canWrite(`self:${sheriff.playerId}`, sheriff.playerId, state), false, 'and nobody writes there');
   });
 
   it('the mass murderer kills everyone who visits the house he rampages', () => {

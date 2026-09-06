@@ -30,6 +30,7 @@ import {
   type RoleId
 } from './roles.js';
 import {
+  ANONYMOUS,
   alivePlayers,
   assignRoles,
   chatRules,
@@ -107,7 +108,38 @@ function addProtector(byHouse: Map<string, string[]>, houseId: string, protector
 function notify(player: MafiaPlayer, text: Msg): void {
   player.notifications.push(text);
   // The feed is private and unbounded otherwise; a phone needs the recent past only.
-  if (player.notifications.length > 60) player.notifications.splice(0, player.notifications.length - 60);
+  if (player.notifications.length > 60) {
+    const dropped = player.notifications.length - 60;
+    player.notifications.splice(0, dropped);
+    // The echo watermark points into this array; keep it pointing at the same line.
+    player.notifiedUpTo = Math.max(0, (player.notifiedUpTo ?? 0) - dropped);
+  }
+}
+
+/**
+ * Echoes every note a seat has not yet seen in its chat into its own channel.
+ *
+ * The private feed has always been the role card's journal, which is the wrong
+ * place for the one line a night that matters: a sheriff who checked somebody
+ * had to leave the square, open the card and read the result off a side panel,
+ * while the square went on without them. The result now also lands in the chat,
+ * on a channel only that seat can read, so it sits in the conversation at the
+ * moment it happened. The journal stays; this is the same line twice, once
+ * where it is filed and once where it is read.
+ *
+ * Called from the places that own a clock rather than from `notify`, which is
+ * called fifty times from code that has no `now` to give a message. A note is
+ * therefore echoed at the next phase edge, which for night results is dawn,
+ * which is when a person would read it anyway.
+ */
+function echoNotes(state: MafiaState, now: number): void {
+  for (const player of Object.values(state.players)) {
+    const from = player.notifiedUpTo ?? 0;
+    for (const line of player.notifications.slice(from)) {
+      systemPost(state.chat, `self:${player.playerId}`, line, now);
+    }
+    player.notifiedUpTo = player.notifications.length;
+  }
 }
 
 function announce(state: MafiaState, line: Msg, now: number): ChatMessage {
@@ -220,6 +252,8 @@ export function startMafia(state: MafiaState, now: number, rng: () => number): v
 
   startPresenceFresh(state, now);
   beginDay(state, now, [{ line: M.gameStart() }]);
+
+  echoNotes(state, now);
 }
 
 /**
@@ -260,8 +294,31 @@ export function sayInChat(
     return { ok: false, error: NO.cannotSpeakHere() };
   }
 
+  /**
+   * A voice in the square at night is the crier's, and the crier is anonymous.
+   *
+   * `canWrite` already lets only the crier speak there after dark; what it did
+   * not do was hide who was speaking. The line went into the log with the
+   * crier's own name and id, every phone printed it, and a role whose entire
+   * value is that nobody knows which house it lives in had told the table on
+   * its first night. Stripped at the source, so no projection and no live push
+   * can forget to.
+   */
   const result = post(state.chat, { channel, authorId: playerId, authorName: player.name, text, at: now });
-  return result.ok ? result : { ok: false, error: CHAT_NO[result.reason]() };
+  if (!result.ok) return { ok: false, error: CHAT_NO[result.reason]() };
+
+  if (channel === 'day' && state.phase === 'night') {
+    /**
+     * Stripped after posting rather than posted anonymous, because the log's
+     * flood control keys on the author: a crier has to be rate-limited as the
+     * crier, not pooled with every announcement the game itself makes. `post`
+     * hands back the very object it stored, so the identity comes off the log
+     * entry itself, not off a copy.
+     */
+    result.message.authorId = null;
+    result.message.authorName = ANONYMOUS;
+  }
+  return result;
 }
 
 /** The log's own refusals, in the reader's language rather than the log's. */
@@ -860,6 +917,7 @@ export interface MafiaPresenceView {
 /* ------------------------------ transitions ----------------------------- */
 
 function beginDay(state: MafiaState, now: number, announcements: Announcement[]): void {
+  echoNotes(state, now);
   state.day += 1;
   state.phase = 'day';
   state.stage = 'discussion';
@@ -879,6 +937,7 @@ function beginDay(state: MafiaState, now: number, announcements: Announcement[])
 }
 
 function beginNight(state: MafiaState, now: number): void {
+  echoNotes(state, now);
   state.phase = 'night';
   state.stage = null;
   state.trial = null;
@@ -1520,6 +1579,27 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     if (alerted.has(targetId) && visitorId !== targetId) {
       attacks.push({ attackerId: targetId, targetId: visitorId, power: 2, source: 'veteran' });
     }
+  }
+
+  /**
+   * Every journey goes on its traveller's own record.
+   *
+   * Before this, only powers that came back with a *result* left a trace: the
+   * sheriff's verdict, the lookout's list. A doctor, an escort, a bodyguard who
+   * visited somebody and learned nothing had no entry for the night at all, and
+   * a seat with no entry for its last night is a corpse whose will cannot say
+   * where it died. Recorded before the attacks resolve, so the traveller who
+   * does not come home still has the line.
+   */
+  for (const { visitorId, targetId } of visits) {
+    if (visitorId === targetId) continue;
+    const traveller = state.players[visitorId];
+    const house = state.players[targetId];
+    if (!traveller || !house) continue;
+    if (traveller.intel.some((entry) => entry.night === state.day && entry.kind === 'went' && entry.targetSlot === house.slot)) {
+      continue;
+    }
+    traveller.intel.push({ night: state.day, kind: 'went', targetSlot: house.slot, value: 'went' });
   }
 
   // Resolution, one attack at a time.

@@ -360,6 +360,10 @@ export const screenEn: Catalogue = {
   'mafia.bot.dump.role': 'Night {night}: {who} is the {role}. That is what I have been doing.',
   'mafia.bot.dump.saved': 'Night {night}: somebody came for {who} and I stopped it.',
   'mafia.bot.dump.tracked': 'Night {night}: {who} went out. I followed.',
+  'mafia.bot.dump.went': 'Night {night}: I went to {who}.',
+  'mafia.bot.dump.going': 'Night {night}: I am going to {who}.',
+  'mafia.bot.crier.suspect': 'A voice in the dark: {who} has not been straight with anyone.',
+  'mafia.bot.crier.quiet': 'Sleep light. Somebody here is lying.',
   'mafia.bot.dump.nothing': 'Quiet nights, all of them. That is all I have, and it is the truth.',
   'mafia.bot.dump.closing': 'That is everything I have. Hang me and it dies with me.',
   /* ------------------------- a night in the cell ------------------------- */

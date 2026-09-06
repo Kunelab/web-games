@@ -7,10 +7,13 @@ import { createMafiaGame, playerBySlot, type MafiaPlayer, type MafiaState } from
 import {
   bindPersonalities,
   buddyScore,
+  claimerWeight,
   contradicted,
+  decideNightTarget,
   feelPressure,
   losingClock,
   makeBrain,
+  steadyVote,
   suspicionParts,
   type Claim,
   type PublicInfo
@@ -288,5 +291,246 @@ describe('two seats claiming one unique role', () => {
     const claims: Claim[] = [claim({ claimerSlot: 2, targetSlot: 2, kind: 'role-claim', claimedRole: 'jailor' })];
     bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
     assert.ok(suspicionParts(2, judge, toPublicInfo(state, claims, []), () => 0).evidence >= 3);
+  });
+});
+
+describe('a second look at the ballot', () => {
+  /**
+   * The complaint this answers: a bot never switched its vote, and could not be
+   * argued with before the trial.
+   *
+   * Nothing about the decision was ever sticky. `pickVote` holds no state and
+   * never consults the seat's own standing vote, so it would happily change its
+   * mind. It was simply never asked again: the one guaranteed day turn lands
+   * between 5% and 45% of the phase, which is before the ear has turned a single
+   * human sentence into a claim, and the second turn was a 40% coin flip.
+   */
+  function board(state: MafiaState, claims: Claim[], votes: Record<string, string> = {}): PublicInfo {
+    state.votes = votes;
+    return toPublicInfo(state, claims, []);
+  }
+
+  function seat(state: MafiaState, slot: number): MafiaPlayer {
+    const player = playerBySlot(state, slot);
+    if (!player) throw new Error('no seat ' + slot);
+    bindPersonalities([makeBrain(player.slot, HERD_HALF)]);
+    return player;
+  }
+
+  it('casts a vote when the seat has none standing', () => {
+    const state = table(['sheriff', 'citizen', 'mafioso', 'doctor', 'citizen']);
+    const self = seat(state, 1);
+    assert.deepEqual(steadyVote(self, board(state, []), null, 3, () => 0), { slot: 3, skip: false });
+  });
+
+  it('leaves a standing vote alone when the proposal is no better', () => {
+    const state = table(['sheriff', 'citizen', 'mafioso', 'doctor', 'citizen']);
+    const self = seat(state, 1);
+    // Nothing on the board, so 3 and 4 look identical: jitter must not move it.
+    assert.deepEqual(
+      steadyVote(self, board(state, []), 4, 3, () => 0),
+      { slot: null, skip: false },
+      'a weathervane is worse than a stubborn seat'
+    );
+  });
+
+  it('switches when the board turns up a real case', () => {
+    const state = table(['sheriff', 'citizen', 'mafioso', 'doctor', 'citizen']);
+    const self = seat(state, 1);
+    const claims: Claim[] = [
+      claim({ claimerSlot: 2, targetSlot: 3, kind: 'accuse' }),
+      claim({ claimerSlot: 5, targetSlot: 3, kind: 'accuse' })
+    ];
+    assert.deepEqual(steadyVote(self, board(state, claims), 4, 3, () => 0), { slot: 3, skip: false });
+  });
+
+  /**
+   * The deadlock, which is the one case worth crossing the floor for: two seats
+   * level at the bell means nobody hangs and the night side keeps a free day.
+   */
+  it('breaks a tie towards the seat it actually suspects', () => {
+    const state = table(['sheriff', 'citizen', 'mafioso', 'doctor', 'citizen']);
+    const self = seat(state, 1);
+    const claims: Claim[] = [
+      claim({ claimerSlot: 2, targetSlot: 3, kind: 'accuse' }),
+      claim({ claimerSlot: 5, targetSlot: 3, kind: 'accuse' })
+    ];
+    // 3 and 4 are level on two votes each, and only 3 has a case against it.
+    const votes = { s2: 's3', s5: 's3', s3: 's4', s4: 's4' };
+    assert.deepEqual(
+      steadyVote(self, board(state, claims, votes), 4, 4, () => 0),
+      { slot: 3, skip: false },
+      'the tie should break towards the evidence'
+    );
+  });
+
+  it('does not break a tie towards a seat nobody has a case against', () => {
+    const state = table(['sheriff', 'citizen', 'mafioso', 'doctor', 'citizen']);
+    const self = seat(state, 1);
+    const votes = { s2: 's3', s5: 's3', s3: 's4', s4: 's4' };
+    assert.equal(
+      steadyVote(self, board(state, [], votes), 4, 3, () => 0).slot,
+      null,
+      'a tie-break is not a licence to guess'
+    );
+  });
+
+  /**
+   * And the other half of it: they do not pass often enough when the square has
+   * found nothing at all.
+   */
+  it('votes to hang nobody when the board holds no case against anyone', () => {
+    // Twelve alive, so the parity clock is not pressing and a skip is honest.
+    const state = table([
+      'sheriff', 'citizen', 'mafioso', 'doctor', 'citizen', 'lookout',
+      'escort', 'citizen', 'godfather', 'citizen', 'jailor', 'citizen'
+    ]);
+    const self = seat(state, 1);
+    assert.deepEqual(steadyVote(self, board(state, []), null, null, () => 0), { slot: null, skip: true });
+  });
+
+  it('but never at the parity clock, where a wasted day loses the game', () => {
+    // Three alive, so one more empty afternoon hands it to whoever kills at night.
+    const state = table(['sheriff', 'citizen', 'mafioso', 'doctor', 'citizen']);
+    for (const slot of [4, 5]) {
+      const dead = playerBySlot(state, slot);
+      if (dead) dead.alive = false;
+    }
+    const self = seat(state, 1);
+    assert.equal(
+      steadyVote(self, board(state, []), null, null, () => 0).skip,
+      false,
+      'a town seat at the parity clock must not help the day end early'
+    );
+  });
+
+  it('holds its vote rather than passing once it has already accused somebody', () => {
+    const state = table(['sheriff', 'citizen', 'mafioso', 'doctor', 'citizen']);
+    const self = seat(state, 1);
+    assert.deepEqual(
+      steadyVote(self, board(state, []), 3, null, () => 0),
+      { slot: null, skip: false },
+      'an empty proposal is not a retraction'
+    );
+  });
+});
+
+describe('what the record proves', () => {
+  /**
+   * The deduction a person makes without thinking and the bots never made: the
+   * dawn report says the Veteran shot the Sheriff, the Sheriff’s will says
+   * "night 2: I went to 4", so 4 is the Veteran. Read off the board, so it works
+   * from a bot’s rendered will and from a person’s will once the ear has read it.
+   */
+  function porch(): { state: MafiaState; info: PublicInfo } {
+    const state = table(['citizen', 'sheriff', 'veteran', 'citizen', 'mafioso', 'doctor'], 3);
+    const sheriff = playerBySlot(state, 2);
+    if (!sheriff) throw new Error('no sheriff');
+    sheriff.alive = false;
+    sheriff.isBot = true;
+    sheriff.lastWill = 'rendered from intel';
+    sheriff.intel.push({ night: 2, kind: 'went', targetSlot: 4, value: 'went' });
+    state.deaths.push({
+      playerId: sheriff.playerId,
+      day: 2,
+      phase: 'night',
+      cause: { k: 'mafia.cause.killedBy' },
+      source: 'veteran',
+      role: 'sheriff',
+      hidden: false
+    });
+    return { state, info: toPublicInfo(state, [], []) };
+  }
+
+  it('names the veteran from a corpse’s last journey', () => {
+    const { info } = porch();
+    assert.equal(info.provenRoles.get(4), 'veteran');
+  });
+
+  it('and then nobody visits that porch', () => {
+    const { state, info } = porch();
+    const doctor = playerBySlot(state, 6);
+    if (!doctor) throw new Error('no doctor');
+    bindPersonalities([makeBrain(doctor.slot, HERD_HALF)]);
+    const brain = makeBrain(doctor.slot, HERD_HALF);
+    for (let i = 0; i < 20; i++) {
+      const target = decideNightTarget(doctor, brain, info, [1, 4, 5], 'heal', new Set(), [], () => i / 20);
+      assert.notEqual(target, 4, 'the proven veteran is never a night target');
+    }
+  });
+
+  it('a dead sheriff’s record accuses for it', () => {
+    const state = table(['citizen', 'sheriff', 'mafioso', 'citizen'], 3);
+    const sheriff = playerBySlot(state, 2);
+    if (!sheriff) throw new Error('no sheriff');
+    sheriff.alive = false;
+    sheriff.isBot = true;
+    sheriff.lastWill = 'rendered from intel';
+    sheriff.intel.push({ night: 2, kind: 'sheriff', targetSlot: 3, value: 'suspect' });
+    state.deaths.push({
+      playerId: sheriff.playerId,
+      day: 2,
+      phase: 'night',
+      cause: { k: 'mafia.cause.killedBy' },
+      source: 'mafia',
+      role: 'sheriff',
+      hidden: false
+    });
+
+    const info = toPublicInfo(state, [], []);
+    const accusation = info.claims.find((claim) => claim.claimerSlot === 2 && claim.kind === 'accuse');
+    assert.equal(accusation?.targetSlot, 3, 'the will is on the board under the dead seat');
+
+    const judge = playerBySlot(state, 1);
+    if (!judge) throw new Error('no judge');
+    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
+    assert.ok(suspicionParts(3, judge, info, () => 0).evidence >= 3, 'and it is read as a town corpse’s testimony');
+  });
+
+  it('a person’s private record is not their will', () => {
+    const state = table(['citizen', 'sheriff', 'mafioso', 'citizen'], 3);
+    const sheriff = playerBySlot(state, 2);
+    if (!sheriff) throw new Error('no sheriff');
+    sheriff.alive = false;
+    sheriff.isBot = false;
+    sheriff.lastWill = 'I saw nothing.';
+    sheriff.intel.push({ night: 2, kind: 'sheriff', targetSlot: 3, value: 'suspect' });
+    state.deaths.push({
+      playerId: sheriff.playerId,
+      day: 2,
+      phase: 'night',
+      cause: { k: 'mafia.cause.killedBy' },
+      source: 'mafia',
+      role: 'sheriff',
+      hidden: false
+    });
+    const info = toPublicInfo(state, [], []);
+    assert.equal(
+      info.claims.some((claim) => claim.claimerSlot === 2),
+      false,
+      'what a person learned and did not write down stays theirs'
+    );
+  });
+
+  it('a living sheriff whose accusation hanged a mafioso is a proven sheriff', () => {
+    const state = table(['citizen', 'sheriff', 'mafioso', 'citizen'], 3);
+    const wolf = playerBySlot(state, 3);
+    if (!wolf) throw new Error('no wolf');
+    wolf.alive = false;
+    state.deaths.push({
+      playerId: wolf.playerId,
+      day: 2,
+      phase: 'day',
+      cause: { k: 'mafia.cause.lynched' },
+      role: 'mafioso',
+      hidden: false
+    });
+    const claims: Claim[] = [
+      claim({ claimerSlot: 2, targetSlot: 2, kind: 'role-claim', claimedRole: 'sheriff' }),
+      claim({ claimerSlot: 2, targetSlot: 3, kind: 'accuse' })
+    ];
+    const info = toPublicInfo(state, claims, []);
+    assert.equal(info.provenRoles.get(2), 'sheriff');
+    assert.ok(claimerWeight(2, info) >= 2, 'and the badge is the loudest voice in the room');
   });
 });

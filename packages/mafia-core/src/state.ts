@@ -28,6 +28,17 @@ export type MafiaPhase = 'lobby' | 'day' | 'night' | 'ended';
  */
 export const SKIP_VOTE = '@skip';
 
+/**
+ * The byline on a line whose author must not be named.
+ *
+ * The spy hearing the family, and the crier's voice carrying through the night:
+ * both are cases where the *words* are public to somebody and the *mouth* is
+ * not. One glyph for both, defined once, because the crier's was missing and a
+ * night line in the square went out under the crier's own name, which is the
+ * single thing that role exists to hide.
+ */
+export const ANONYMOUS = '· · ·';
+
 /** Sub-state of a day: open discussion, or a trial in one of its two beats. */
 export type DayStage = 'discussion' | 'defense' | 'judgement';
 
@@ -143,7 +154,27 @@ export const DEFAULT_CONFIG: MafiaConfig = {
  */
 export interface IntelEntry {
   night: number;
-  kind: 'sheriff' | 'trade' | 'role' | 'visitors' | 'tracked' | 'saved' | 'doused' | 'spied' | 'blocked' | 'swapped';
+  /**
+   * `went` is the one entry every visitor gets, result or no result.
+   *
+   * The others are what a power *found out*. This is merely where its holder
+   * was, and it exists because a corpse's last night is evidence the town used
+   * to lose: a doctor who healed nobody and died on a veteran's porch left a will
+   * with no nights in it, and the porch stayed anonymous. With the journey on
+   * record the board can join the two, and so can a person reading the will.
+   */
+  kind:
+    | 'sheriff'
+    | 'trade'
+    | 'role'
+    | 'visitors'
+    | 'tracked'
+    | 'saved'
+    | 'doused'
+    | 'spied'
+    | 'blocked'
+    | 'swapped'
+    | 'went';
   targetSlot: number;
   /** sheriff: 'suspect' | 'clear'; trade: the trade line; role: a RoleId; saved/doused: constants. */
   value: string;
@@ -203,6 +234,12 @@ export interface MafiaPlayer {
   notifications: Msg[];
   /** The same night results, structured. Same privacy as the notifications. */
   intel: IntelEntry[];
+  /**
+   * How many of `notifications` have already been echoed into this seat's
+   * private chat channel. Absent on a table persisted before the channel
+   * existed, and read as zero.
+   */
+  notifiedUpTo?: number;
   /**
    * What wrote this seat's last line, when this seat is a bot.
    *
@@ -571,6 +608,8 @@ export function pmParticipants(channel: string): [string, string] | null {
  *  - `dead`   — the graveyard. Only the dead read and write, until game end.
  *  - `mafia`  — the family. Mafia members read always, write at night.
  *  - `jail:N` — night N's cell. The jailor and that night's prisoner.
+ *  - `self:ID` — one seat's own night results, readable by that seat alone.
+ *                 Nobody writes here; the engine echoes the private feed into it.
  */
 export function chatRules(): ChannelRules<MafiaState> {
   return {
@@ -589,6 +628,8 @@ export function chatRules(): ChannelRules<MafiaState> {
       if (channel.startsWith('jail:')) {
         return member.role === 'jailor' || (channel === jailChannel(state.day) && state.jailedId === memberId);
       }
+      // Your own results, and nobody else's.
+      if (channel.startsWith('self:')) return channel === `self:${memberId}`;
       const pm = pmParticipants(channel);
       if (pm) return pm.includes(memberId);
       return false;

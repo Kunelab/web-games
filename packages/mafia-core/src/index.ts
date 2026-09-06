@@ -142,6 +142,7 @@ export {
   makePersonality,
   parityPressure,
   provenLiar,
+  steadyVote,
   suspicion,
   suspicionParts,
   trustOf,
@@ -150,6 +151,7 @@ export {
   type ClaimKind,
   type Personality,
   type PublicInfo,
+  type SteadyVote,
   type VoteRecord
 } from './sim/policies.js';
 export {
