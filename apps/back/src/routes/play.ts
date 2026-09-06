@@ -213,29 +213,47 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
   /**
    * Games this account is hosting *now*, for the "in progress" banner.
    *
-   * A finished game is not one of them. Sessions live in memory for six hours of
-   * idleness before the sweeper takes them, and for every one of those hours a
-   * game whose standings had already been read was still being announced on the
-   * playlists page as in progress — three of them at once, in testing. The
-   * phase was right there and simply never consulted.
+   * A finished one is included, and says so.
+   *
+   * It used to be filtered out, because it had been listed as *in progress*: a
+   * game whose standings had already been read announced itself on the playlists
+   * page for hours, three at once in testing. Hiding it fixed the wrong half.
+   * The phase travels now, so the page can label it, which also gives the host
+   * the way back to a ceremony they closed the tab on.
+   *
+   * The connected count comes too, because it is what tells a host which of
+   * these is a game and which is a room everybody left.
    */
   app.get('/play/mine', { preHandler: app.requireAuth }, async (request) => {
-    const mine: { code: string; hostToken: string; phase: string; playlistName: string }[] = [];
+    const mine: {
+      code: string;
+      hostToken: string;
+      phase: string;
+      playlistName: string;
+      players: number;
+      connected: number;
+    }[] = [];
 
     for (const code of app.games.activeCodes()) {
       const state = app.games.get(code);
-      if (state?.phase === 'finished') continue;
-      if (state?.hostUserId === request.currentUser.id) {
-        mine.push({
-          code: state.code,
-          hostToken: state.hostToken,
-          phase: state.phase,
-          playlistName: state.playlistName
-        });
-      }
+      if (state?.hostUserId !== request.currentUser.id) continue;
+
+      const seated = Object.values(state.players);
+      mine.push({
+        code: state.code,
+        hostToken: state.hostToken,
+        phase: state.phase,
+        playlistName: state.playlistName,
+        players: seated.length,
+        connected: seated.filter((player) => player.connected).length
+      });
     }
 
-    return mine;
+    // Most recent first: with several open at once, the one being played is the
+    // one just touched.
+    return mine.sort(
+      (a, b) => (app.games.get(b.code)?.lastActivityAt ?? 0) - (app.games.get(a.code)?.lastActivityAt ?? 0)
+    );
   });
 
   /**

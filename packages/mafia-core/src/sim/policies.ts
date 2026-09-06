@@ -522,6 +522,36 @@ export function suspicionParts(
     if ([...info.deadRoles.entries()].some(([slot, role]) => role === roleClaim.claimedRole && roleDef(role).unique && slot !== targetSlot)) {
       score += 3; // claiming a role that is already in the ground
     }
+
+    /**
+     * A contested claim that the graveyard has now settled, in your favour.
+     *
+     * Two seats both claim Jailor, so at least one is lying and both look bad:
+     * that is the +1.5 above, and it is right. The town hangs one of them, and
+     * the corpse turns out to be Triad. The question the room was arguing about
+     * has now been *answered*. The liar has been found and it was not this seat.
+     *
+     * Nothing said so. The penalty merely stopped applying, because `rivals`
+     * only counts the living, which returned the survivor to the middle of the
+     * pack with a warm wagon still parked on them, and they got hanged second.
+     * That was reported from a real table, and it is the wrong read twice over:
+     * the evidence does not merely evaporate, it reverses.
+     *
+     * Read off the graveyard, so it needs no memory of who argued what: a dead
+     * seat that claimed the same unique role, revealed as evil, is a claim
+     * contest this seat won. Worth more than the contest cost, and less than an
+     * investigator's own report, so a second liar is still catchable.
+     */
+    for (const [deadSlot, deadRole] of info.deadRoles) {
+      if (deadSlot === targetSlot) continue;
+      const claimedTheSame = info.claims.some(
+        (claim) =>
+          claim.kind === 'role-claim' &&
+          claim.claimerSlot === deadSlot &&
+          claim.claimedRole === roleClaim.claimedRole
+      );
+      if (claimedTheSame && isEvilRole(deadRole)) score -= 2.5;
+    }
   }
 
   // Own hard evidence outweighs the rumour mill.

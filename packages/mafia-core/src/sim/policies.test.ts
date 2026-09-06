@@ -5,11 +5,13 @@ import { toPublicInfo } from '../observe.js';
 import type { RoleId } from '../roles.js';
 import { createMafiaGame, playerBySlot, type MafiaPlayer, type MafiaState } from '../state.js';
 import {
+  bindPersonalities,
   buddyScore,
   contradicted,
   feelPressure,
   losingClock,
   makeBrain,
+  suspicionParts,
   type Claim,
   type PublicInfo
 } from './policies.js';
@@ -203,5 +205,88 @@ describe('desperation in play', () => {
     const alone = losingClock(lonely, 'family', toPublicInfo(state, [], []), new Set());
     const supported = losingClock(lonely, 'family', toPublicInfo(state, [], []), new Set([2, 3]));
     assert.ok(alone > supported, 'numbers are the family clock');
+  });
+});
+
+/** A middling personality: the herd factor is all `suspicionParts` reads off it. */
+const HERD_HALF = { aggression: 0.5, herd: 0.5, claimRate: 0.5, deceit: 0.5, courage: 0.5 };
+
+describe('two seats claiming one unique role', () => {
+  /**
+   * The table that prompted this: two Jailor claims, the town hangs one of them
+   * and it is a Triad, then the town hangs the other one, who was the real
+   * Jailor.
+   *
+   * The second hanging is the defect. Once the graveyard has shown that one of
+   * the two was lying, and which one, the question the room was arguing about
+   * has been answered: the survivor's claim is corroborated, not merely no
+   * longer contested. Before this the penalty simply stopped applying, which
+   * returned them to the middle of the pack with a warm wagon still on them.
+   */
+  function suspicionOfSurvivor(deadRole: RoleId | null): number {
+    // Slot 1 judges. Slots 2 and 3 both claim Jailor; 3 is dead when given a role.
+    const state = table(['sheriff', 'jailor', 'consigliere', 'citizen', 'citizen']);
+    const judge = playerBySlot(state, 1);
+    const corpse = playerBySlot(state, 3);
+    if (!judge || !corpse) throw new Error('the table is missing a seat');
+
+    if (deadRole !== null) {
+      corpse.alive = false;
+      corpse.role = deadRole;
+      state.deaths.push({
+        playerId: corpse.playerId,
+        day: 2,
+        phase: 'day',
+        cause: { k: 'mafia.cause.lynched' },
+        role: deadRole,
+        hidden: false
+      });
+    }
+
+    const claims: Claim[] = [
+      claim({ claimerSlot: 2, targetSlot: 2, kind: 'role-claim', claimedRole: 'jailor' }),
+      claim({ claimerSlot: 3, targetSlot: 3, kind: 'role-claim', claimedRole: 'jailor' })
+    ];
+
+    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
+    return suspicionParts(2, judge, toPublicInfo(state, claims, []), () => 0).evidence;
+  }
+
+  it('makes a claimant look bad while the rival is still alive', () => {
+    assert.ok(suspicionOfSurvivor(null) > 1, 'a contested unique claim is evidence against both of them');
+  });
+
+  it('clears the survivor once the rival is hanged and turns out to be evil', () => {
+    const contested = suspicionOfSurvivor(null);
+    const settled = suspicionOfSurvivor('consigliere');
+    assert.ok(settled < contested, 'the cost of the contest has to be gone');
+    assert.ok(settled < 0, `and the survivor should read as cleared, got ${settled}`);
+  });
+
+  it('does not clear them when the rival turned out to be town', () => {
+    // A town seat that fake-claimed proves nothing about the other claimant.
+    assert.ok(suspicionOfSurvivor('doctor') >= 0, 'an innocent corpse is not corroboration');
+  });
+
+  it('still condemns a seat claiming a role that is already in the ground', () => {
+    const state = table(['sheriff', 'jailor', 'consigliere', 'citizen', 'citizen']);
+    const judge = playerBySlot(state, 1);
+    const corpse = playerBySlot(state, 3);
+    if (!judge || !corpse) throw new Error('the table is missing a seat');
+
+    corpse.alive = false;
+    corpse.role = 'jailor';
+    state.deaths.push({
+      playerId: corpse.playerId,
+      day: 2,
+      phase: 'day',
+      cause: { k: 'mafia.cause.lynched' },
+      role: 'jailor',
+      hidden: false
+    });
+
+    const claims: Claim[] = [claim({ claimerSlot: 2, targetSlot: 2, kind: 'role-claim', claimedRole: 'jailor' })];
+    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
+    assert.ok(suspicionParts(2, judge, toPublicInfo(state, claims, []), () => 0).evidence >= 3);
   });
 });

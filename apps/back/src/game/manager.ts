@@ -27,19 +27,37 @@ import {
  */
 
 /** A session with no activity for this long is dropped. */
-const IDLE_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+const IDLE_TIMEOUT_MS = 3 * 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+
+/**
+ * How long a lobby the room walked out of is kept.
+ *
+ * The commonest dead game there is: a few phones joined, nobody pressed start,
+ * everybody wandered off. Nothing about it will ever change again, and until now
+ * it announced itself to its host as in progress for six hours.
+ *
+ * Counted from the last thing that happened, which for a lobby is the last join,
+ * and applied only once somebody has actually sat down. A host who has just
+ * opened the screen and is waiting for friends to arrive has an empty lobby too,
+ * and taking the game out from under them while they look at the join code would
+ * be worse than the problem being fixed.
+ */
+const ABANDONED_LOBBY_MS = 30 * 60 * 1000;
 /**
  * How long a *finished* game is kept before it is let go.
  *
- * The idle timeout is six hours, which is the right answer for a session
- * somebody might still come back to. A game whose ceremony has been read is not
- * that: it holds memory, and it keeps announcing itself to its host as being in
- * progress. Long enough that a phone reopening the standings still finds them;
- * short enough that a host who plays two games in an evening is never shown the
- * first one during the second.
+ * It holds memory and it is over, so it does not get the full idle timeout. But
+ * it was twenty minutes, which turned out to be shorter than an evening: a host
+ * who closed the tab on the podium, or wandered off before reading it out, had
+ * no way back to the standings at all. The game is listed as finished rather
+ * than as in progress now, so keeping it around no longer misleads anybody, and
+ * it can simply be reopened.
+ *
+ * The permanent record is in the history either way. This is only about getting
+ * back to the ceremony screen itself.
  */
-const FINISHED_GRACE_MS = 20 * 60 * 1000;
+const FINISHED_GRACE_MS = 2 * 60 * 60 * 1000;
 
 export type TransitionListener = (state: SessionState) => void;
 
@@ -107,18 +125,57 @@ export class GameManager {
   }
 
   private async sweep(): Promise<void> {
-    const cutoff = Date.now() - IDLE_TIMEOUT_MS;
-    const finished = Date.now() - FINISHED_GRACE_MS;
+    const now = Date.now();
+    const cutoff = now - IDLE_TIMEOUT_MS;
 
     for (const [code, state] of this.sessions) {
-      const over = state.phase === 'finished';
-      if (state.lastActivityAt < cutoff || (over && state.lastActivityAt < finished)) {
-        this.drop(code);
-      }
+      if (!this.isSpent(state, now)) continue;
+
+      /**
+       * Banked before it is dropped, exactly as the host's own "Terminer" does.
+       *
+       * A swept game is still a game that was played. The old sweeper called
+       * `drop` straight out, so an abandoned game took its standings and every
+       * token its players had won with it, silently, hours later. `bank` is
+       * idempotent and refuses a lobby nobody played, so this costs nothing in
+       * the cases where there is nothing to keep.
+       */
+      await this.bank(state);
+      this.drop(code);
+      // Per session rather than by timestamp: a game dropped for being abandoned
+      // or over is not necessarily old, and leaving its row behind would restore
+      // it on the next restart.
+      await db.delete(gameSessions).where(eq(gameSessions.code, code));
     }
 
+    // Rows with no session in memory, e.g. after a restart that did not restore
+    // them, still age out on the plain idle rule.
     await db.delete(gameSessions).where(lt(gameSessions.last_activity_at, cutoff));
     sweepAssets();
+  }
+
+  /**
+   * Whether a session has nothing left to do.
+   *
+   * Three ways to be done, in order of how sure we are. Nothing at all has
+   * happened for hours; or the game is over and has had its grace; or it is a
+   * lobby whose players have all gone and which was therefore never going to
+   * start.
+   */
+  private isSpent(state: SessionState, now: number): boolean {
+    if (state.lastActivityAt < now - IDLE_TIMEOUT_MS) return true;
+
+    if (state.phase === 'finished') {
+      return state.lastActivityAt < now - FINISHED_GRACE_MS;
+    }
+
+    if (state.phase === 'lobby') {
+      const seated = Object.values(state.players);
+      const empty = seated.length > 0 && !seated.some((player) => player.connected);
+      return empty && state.lastActivityAt < now - ABANDONED_LOBBY_MS;
+    }
+
+    return false;
   }
 
   /**
@@ -230,12 +287,27 @@ export class GameManager {
   /** Persists, notifies listeners, and arms the timer for the next transition. */
   async afterTransition(state: SessionState): Promise<void> {
     /**
-     * A game that just finished leaves its permanent trace now, before anything
-     * else: the live session row is deleted the moment the host presses "Terminer",
-     * and this is the only transition at which the full standings still exist.
-     * Oral games score nothing, and a game nobody joined has nothing to keep.
+     * A game that just *finished* leaves its permanent trace now, before anything
+     * else: the live session row is deleted the moment the host presses
+     * "Terminer", and this is the last transition at which the full standings
+     * still exist.
+     *
+     * The phase test is the whole of it, and leaving it out was catastrophic.
+     * `bank` guards on "was this game ever played", which is true from the first
+     * round onwards, so an unconditional call here fired on the transition into
+     * round one: every game wrote its history row before a single answer had been
+     * submitted, with every player on nought, and then set `resultsRecorded` so
+     * the real standings at the end were silently refused.
+     *
+     * Two things followed from that, and both were reported as separate puzzles.
+     * No token was ever credited to anybody. And since `buildLeaderboard` shares
+     * a rank between equal totals, a table of noughts is a table where everyone
+     * came first, so every player of every game earned a career win and wore
+     * "Vainqueur" as a title in every lobby afterwards.
      */
-    await this.bank(state);
+    if (state.phase === 'finished') {
+      await this.bank(state);
+    }
 
     await this.persist(state);
     this.listener?.(state);
@@ -257,10 +329,15 @@ export class GameManager {
    * above this code even said the row is deleted the moment "Terminer" is
    * pressed; what it did not say was that nothing banked anything first.
    *
-   * The gates are unchanged. An oral game scores nothing by design, a game
-   * nobody joined has nothing to keep, and a lobby that never started is not a
-   * game. `resultsRecorded` makes it idempotent, so the two callers cannot
-   * double-credit a wallet between them.
+   * The gates are the ones that belong to *this* function: an oral game scores
+   * nothing by design, a game nobody joined has nothing to keep, and a lobby that
+   * never started is not a game. `resultsRecorded` makes it idempotent, so no two
+   * callers can double-credit a wallet between them.
+   *
+   * What is deliberately not a gate here is "is the game over". A host ending one
+   * early, and the sweeper letting an abandoned one go, both mean to bank a game
+   * that never reached its last round. Deciding that is the caller's job, and
+   * `afterTransition` is the caller that has to say so.
    */
   private async bank(state: SessionState): Promise<void> {
     const played = state.phase === 'finished' || state.currentRoundIndex >= 0;

@@ -401,9 +401,7 @@ export default function MafiaPlayer() {
       if (me.jailed) return tk('mafia.ui.prompt.jailed');
       if (!me.action) return tk('mafia.ui.prompt.nightIdle');
       const action = msg(`mafia.action.${me.action.type}`);
-      return selfOnly(me)
-        ? tk('mafia.ui.prompt.selfAction', { action })
-        : tk('mafia.ui.prompt.pickTarget', { action });
+      return selfOnly(me) ? tk('mafia.ui.prompt.selfAction', { action }) : tk('mafia.ui.prompt.pickTarget', { action });
     }
     if (inDefense) {
       return view.trial?.slot === me.slot
@@ -499,13 +497,7 @@ export default function MafiaPlayer() {
       )}
 
       {/* --------------------------- the board itself --------------------------- */}
-      <MafiaTown
-        players={view.players}
-        mySlot={me.slot}
-        night={isNight}
-        onTrial={view.trial !== null}
-        zoom={zoom}
-      />
+      <MafiaTown players={view.players} mySlot={me.slot} night={isNight} onTrial={view.trial !== null} zoom={zoom} />
 
       <div className="mz-zoom">
         <button
@@ -650,7 +642,9 @@ export default function MafiaPlayer() {
               </span>
               <strong className="mz-role-name">{t(me.role.name)}</strong>
               <span className="mz-role-faction">{tk(`mafia.faction.${me.role.faction}`)}</span>
-              {me.charges !== null && <span className="mz-charges">{tk('mafia.ui.charges', { count: me.charges })}</span>}
+              {me.charges !== null && (
+                <span className="mz-charges">{tk('mafia.ui.charges', { count: me.charges })}</span>
+              )}
               {!me.alive && <span className="mz-dead-tag">{tk('mafia.ui.dead')}</span>}
             </div>
             <p className="mz-role-desc">{t(me.role.description)}</p>
@@ -782,12 +776,12 @@ export default function MafiaPlayer() {
 
             return (
               <span key={`${token}-${index}`}>
-                {isNewCamp && <div className="mz-rolelist-separator" style={{ textTransform: 'capitalize' }}>{currentCamp}</div>}
-                <button
-                  type="button"
-                  className={`mz-slot mz-slot--${currentCamp}`}
-                  onClick={() => setReading(token)}
-                >
+                {isNewCamp && (
+                  <div className="mz-rolelist-separator" style={{ textTransform: 'capitalize' }}>
+                    {currentCamp}
+                  </div>
+                )}
+                <button type="button" className={`mz-slot mz-slot--${currentCamp}`} onClick={() => setReading(token)}>
                   {tk(token in ROLES ? `mafia.role.${token}.name` : `mafia.slot.${token}`)}
                 </button>
               </span>
@@ -859,9 +853,7 @@ export default function MafiaPlayer() {
           {/* ------------------------------- lobby ------------------------------ */}
           {view.phase === 'lobby' && (
             <section className="mz-panel">
-              <p className="mz-lobby-count">
-                {tk('mafia.ui.lobby.count', { seats, max: view.maxPlayers, code })}
-              </p>
+              <p className="mz-lobby-count">{tk('mafia.ui.lobby.count', { seats, max: view.maxPlayers, code })}</p>
               {hostToken && (
                 <div className="mz-row-actions">
                   <Button
@@ -912,10 +904,27 @@ export default function MafiaPlayer() {
                       */}
                       <span className="mz-seat-name" style={{ color: authorColour(player.name) }}>
                         {player.name}
-                        {player.isBot && <span className="mz-flag" title={tk('mafia.ui.bot')}> 🤖</span>}
-                        {player.revealedMayor && <span className="mz-flag" title={tk('mafia.ui.revealed')}> 🎗️</span>}
+                        {/*
+                          Which brain, not just "a bot".
+
+                          The driver falls back from a model to a phrasebook
+                          silently, which is the right behaviour and also means a
+                          rate-limited API and a working one look identical from
+                          the outside. Two icons and a hover settle it: 🧠 is a
+                          model and names it, 🤖 is the phrasebook.
+                        */}
+                        {player.isBot && <BotFlag brain={player.botBrain} />}
+                        {player.revealedMayor && (
+                          <span className="mz-flag" title={tk('mafia.ui.revealed')}>
+                            {' '}
+                            🎗️
+                          </span>
+                        )}
                         {!player.connected && player.alive && (
-                          <span className="mz-flag mz-flag--away" title={tk('mafia.ui.away')}> ⚪</span>
+                          <span className="mz-flag mz-flag--away" title={tk('mafia.ui.away')}>
+                            {' '}
+                            ⚪
+                          </span>
                         )}
                         {isMe && <span className="mz-seat-you">{tk('mafia.ui.you')}</span>}
                         {/*
@@ -979,7 +988,10 @@ export default function MafiaPlayer() {
                         )}
                         {player.alive && onTrial && ` · ${tk('mafia.ui.onStand')}`}
                         {player.alive && !onTrial && player.votedSkip && tk('mafia.ui.skipChosen')}
-                        {player.alive && !onTrial && !player.votedSkip && player.votedSlot !== null &&
+                        {player.alive &&
+                          !onTrial &&
+                          !player.votedSkip &&
+                          player.votedSlot !== null &&
                           tk('mafia.ui.accuses', { slot: player.votedSlot })}
                       </span>
                     </span>
@@ -1094,7 +1106,6 @@ export default function MafiaPlayer() {
                     {tk('mafia.ui.revealMayor')}
                   </Button>
                 )}
-
               </div>
 
               {whisperTo !== null && (
@@ -1135,7 +1146,6 @@ export default function MafiaPlayer() {
               )}
             </section>
           )}
-
         </div>
 
         {/* -------------------------------- chat -------------------------------- */}
@@ -1224,6 +1234,31 @@ function VoteTrail({ view, t }: { view: MafiaView; t: (message: Msg) => string }
  * description. Same shell for all three so they open and close the same way and
  * a fourth costs nothing.
  */
+/**
+ * The bot marker, and what is behind it.
+ *
+ * `botBrain` is null until the seat has said something, which is a real state
+ * and worth showing as such: a quiet bot on day one has not yet been through the
+ * chain, so nothing is known about which end of it answered.
+ */
+function BotFlag({ brain }: { brain: string | null }) {
+  const { t } = useLocale();
+  const scripted = brain === 'scripted';
+  const label =
+    brain === null
+      ? t(msg('mafia.ui.bot.quiet'))
+      : scripted
+        ? t(msg('mafia.ui.bot.scripted'))
+        : t(msg('mafia.ui.bot.model', { model: brain }));
+
+  return (
+    <span className="mz-flag" title={label} aria-label={label}>
+      {' '}
+      {brain === null || scripted ? '🤖' : '🧠'}
+    </span>
+  );
+}
+
 function FloatingPanel({
   title,
   onClose,

@@ -333,7 +333,18 @@ export const api = {
     request<StartedSession>('/play/sessions', { method: 'POST', body: { playlistId, config } }),
   sessionSummary: (code: string) => request<SessionSummary>(`/play/sessions/${code}`, { allowAnonymous: true }),
   endSession: (code: string) => request<void>(`/play/sessions/${code}`, { method: 'DELETE' }),
-  mySessions: () => request<{ code: string; hostToken: string; phase: string; playlistName: string }[]>('/play/mine'),
+  mySessions: () =>
+    request<
+      {
+        code: string;
+        hostToken: string;
+        phase: string;
+        playlistName: string;
+        /** Seats taken, and how many of them still have a socket. */
+        players: number;
+        connected: number;
+      }[]
+    >('/play/mine'),
 
   /* history */
   results: (limit = 30) => request<GameResult[]>(`/play/results?limit=${limit}`),
