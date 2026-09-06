@@ -45,6 +45,7 @@ import {
   tablePresence,
   voteWeight,
   waitedOnSeats,
+  WILL_MAX_CHARS,
   type MafiaPlayer,
   type MafiaState,
   type NightAction,
@@ -134,6 +135,13 @@ function notify(player: MafiaPlayer, text: Msg): void {
  */
 function echoNotes(state: MafiaState, now: number): void {
   for (const player of Object.values(state.players)) {
+    /**
+     * People only. A bot reads its results off the structured record and never
+     * opens a chat panel, so echoing for it only grows the log: at twenty-four
+     * seats the per-seat channels would outrun the log's backstop and start
+     * evicting the square's own history, which is the one channel people read.
+     */
+    if (player.isBot) continue;
     const from = player.notifiedUpTo ?? 0;
     for (const line of player.notifications.slice(from)) {
       systemPost(state.chat, `self:${player.playerId}`, line, now);
@@ -367,7 +375,7 @@ export function whisperTo(
 export function setLastWill(state: MafiaState, playerId: string, text: string): ActionOutcome {
   const player = state.players[playerId];
   if (!player || !player.alive) return { ok: false, error: NO.tooLate() };
-  player.lastWill = text.slice(0, 400);
+  player.lastWill = text.slice(0, WILL_MAX_CHARS);
   return { ok: true };
 }
 

@@ -318,6 +318,8 @@ export const screenFr: Catalogue = {
   'mafia.bot.why.silent': 'pas un mot de toute la partie, et les voix bougent quand même',
   'mafia.bot.why.wagon': 'les voix y sont déjà et il n’a répondu à aucune',
   'mafia.bot.why.nowhere': 'personne ne l’a situé nulle part, aucune nuit',
+  'mafia.bot.why.accused': '{who} l’a déjà dénoncé et ça reste sans réponse',
+  'mafia.bot.why.badge': '{who} se dit {role}, et il le tient',
 
   'mafia.bot.accuseWhy.1': '{who} — {why}. C’est mon vote.',
   'mafia.bot.accuseWhy.2': 'Je vote {who} : {why}.',
@@ -359,6 +361,9 @@ export const screenFr: Catalogue = {
   'mafia.bot.crier.suspect': 'Une voix dans la nuit : {who} ne joue pas franc.',
   'mafia.bot.crier.quiet': 'Dormez léger. Quelqu’un ici ment.',
   'mafia.bot.dump.tracked': 'Nuit {night} : {who} est sorti. Je l’ai suivi.',
+  'mafia.bot.dump.blocked': 'Nuit {night} : j’ai retenu {who} chez lui toute la nuit.',
+  'mafia.bot.dump.swapped': 'Nuit {night} : j’ai échangé {slots} dans leurs lits.',
+  'mafia.bot.dump.spied': 'Nuit {night} : la famille en voulait à {who} cette nuit-là.',
   'mafia.bot.dump.nothing': 'Des nuits calmes, toutes. C’est tout ce que j’ai, et c’est la vérité.',
   'mafia.bot.dump.closing': 'C’est tout ce que j’ai. Pendez-moi et ça meurt avec moi.',
   /* ---------------------- une nuit dans la cellule ------------------------ */
@@ -387,7 +392,10 @@ export const screenFr: Catalogue = {
   'mafia.bot.will.1': 'Si vous lisez ça, j’avais raison sur quelqu’un.',
   'mafia.bot.will.2': 'Rien de solide. Regardez qui parle en premier chaque jour.',
   'mafia.bot.will.3': 'Je vous ai dit ce que je savais tant que je pouvais.',
-  'mafia.bot.will.role': 'Je suis {role}. Tout ce que j’ai dit, je le pensais.'
+  'mafia.bot.will.role': 'Je suis {role}. Tout ce que j’ai dit, je le pensais.',
+  'mafia.bot.will.note.liar': 'Jour {day} : {who} ment. J’en mettrais ma main à couper.',
+  'mafia.bot.will.note.evil': 'Jour {day} : {who} n’est pas des nôtres. Mon vote est allé là.',
+  'mafia.bot.will.note.wrong': 'Jour {day} : je me suis trompé sur {who}. Cherchez ailleurs.'
 };
 
 export default screenFr;

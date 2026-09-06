@@ -29,6 +29,24 @@ export type MafiaPhase = 'lobby' | 'day' | 'night' | 'ended';
 export const SKIP_VOTE = '@skip';
 
 /**
+ * How long a last will may be, in characters.
+ *
+ * One number, exported, because three places used to hold their own copy of it:
+ * the engine truncated at four hundred, the socket schema rejected past four
+ * hundred, and the phone's textarea stopped accepting at four hundred. Agreeing
+ * by coincidence is not agreeing.
+ *
+ * Eight hundred rather than four, because a will is a record and the record got
+ * longer: a Lookout six nights into a game writes a line per night, and a seat
+ * that has been keeping notes on who it thinks is lying writes those too. At
+ * four hundred a long game's will was truncated mid-word, and truncation is the
+ * worst possible editor — it keeps night one and throws away last night, which
+ * is the one the town needs. Still a limit, because a will is read on a phone
+ * by somebody with thirty seconds.
+ */
+export const WILL_MAX_CHARS = 800;
+
+/**
  * The byline on a line whose author must not be named.
  *
  * The spy hearing the family, and the crier's voice carrying through the night:

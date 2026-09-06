@@ -1,4 +1,4 @@
-import { isEvilRole, type Claim, type PublicInfo, type VoteRecord } from './sim/policies.js';
+import { BADGE_ROLES, isEvilRole, type Claim, type PublicInfo, type VoteRecord } from './sim/policies.js';
 import { roleDef, ROLES, type RoleId } from './roles.js';
 import type { DeathSource } from './messages.js';
 import type { MafiaState } from './state.js';
@@ -140,37 +140,72 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
 }
 
 /**
- * A dead bot's will, as claims on the board.
+ * A dead town bot's will, as claims on the board.
  *
- * A bot's will is rendered from its own structured record, so the record *is*
- * the will and can be read back without a model: a Sheriff's "night 2, checked
- * 7, came back bad" is an accusation of 7 by the Sheriff, a Lookout's "4 had
- * callers: 6, 9" is a sighting of 6 and of 9, "I went to 5" is an account of
- * having visited 5. Filed under the dead seat's own number, so `claimerWeight`
- * reads them against what the corpse turned out to be: gospel from a town body,
- * kindling from a revealed liar.
+ * A bot's will is rendered from its own structured record, so for a *signed*
+ * will the record is the will and can be read back without a model: a Sheriff's
+ * "night 2, checked 7, came back bad" is an accusation of 7 by the Sheriff, a
+ * Lookout's "4 had callers: 6, 9" is a sighting of 6 and of 9, "I went to 5" is
+ * an account of having visited 5. Filed under the dead seat's own number, so
+ * `claimerWeight` reads them as a town corpse's testament.
  *
- * Only bots, and only wills the town was shown. A person's record is not their
- * will: they may have written none, or lied in it, and what they actually
- * learned is theirs. Their wills reach the board the way their speech does,
- * through the ear.
+ * Town corpses only, because that is who signs. The driver writes an evil
+ * seat's will as flavour and nothing else, so its record was never shown to the
+ * town; reading it here anyway handed the square a dead Consigliere's exact-role
+ * checks as accurate accusations, at full weight on a table that does not
+ * reveal roles. What the town can read is what the town gets.
+ *
+ * Only wills the town was shown: a cleaned corpse's will was never announced.
+ * A person's record is not their will either; they may have written none, or
+ * lied in it. Their wills reach the board the way their speech does, through
+ * the ear.
+ *
+ * Memoised per graveyard. The dead do not act, so a corpse's record and its
+ * will cannot change after the death, and this is rebuilt only when somebody
+ * else dies rather than on every one of the thousands of board reads a game
+ * makes. The bench was half again slower before this.
  */
+const TESTAMENTS = new WeakMap<MafiaState, { key: string; claims: Claim[] }>();
+
 function testamentClaims(state: MafiaState, spoken: Claim[]): Claim[] {
+  const key = `${state.deaths.map((death) => death.playerId).join(',')}|${state.config.revealOnDeath ?? 'role'}`;
+  let cached = TESTAMENTS.get(state);
+  if (!cached || cached.key !== key) {
+    cached = { key, claims: readTestaments(state) };
+    TESTAMENTS.set(state, cached);
+  }
+
+  /**
+   * Said in life and written in death is one claim, not two.
+   *
+   * A spoken accusation carries the day it was said; the testament carries the
+   * night it was learned, so a comparison that included the day never matched,
+   * and a Sheriff who reported a check and then died counted double against its
+   * target. Same claimer, same target, same kind is the same assertion whenever
+   * it was made.
+   */
+  return cached.claims.filter(
+    (claim) =>
+      !spoken.some(
+        (other) =>
+          other.claimerSlot === claim.claimerSlot && other.targetSlot === claim.targetSlot && other.kind === claim.kind
+      )
+  );
+}
+
+function readTestaments(state: MafiaState): Claim[] {
   const filed: Claim[] = [];
-  const already = (claim: Claim): boolean =>
-    [...spoken, ...filed].some(
-      (other) =>
-        other.claimerSlot === claim.claimerSlot &&
-        other.targetSlot === claim.targetSlot &&
-        other.kind === claim.kind &&
-        other.day === claim.day
-    );
+  const seen = new Set<string>();
   const file = (claim: Claim): void => {
-    if (!already(claim)) filed.push(claim);
+    const id = `${claim.claimerSlot}:${claim.targetSlot}:${claim.kind}:${claim.day}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    filed.push(claim);
   };
 
   for (const player of Object.values(state.players)) {
-    if (player.alive || !player.isBot || !player.lastWill) continue;
+    if (player.alive || !player.isBot || !player.lastWill || !player.role) continue;
+    if (roleDef(player.role).faction !== 'town') continue;
     const record = state.deaths.find((death) => death.playerId === player.playerId);
     if (!record || record.hidden) continue;
 
@@ -228,19 +263,19 @@ const PORCH_KILLS: Partial<Record<DeathSource, RoleId>> = { veteran: 'veteran' }
  * **The badge.** A living seat that claimed an investigative town role, and
  * whose accusation has since put a revealed evil in the ground, with no
  * accusation of theirs having hanged a townie. The graveyard corroborated the
- * claim; the room may treat the seat as what it says it is.
+ * claim; the room may treat the seat as what it says it is. Whoever the seat
+ * really is: a mafioso who claimed Sheriff and handed the town a Serial Killer,
+ * or a doomed brother, has bought exactly the trust a person would have bought
+ * with the same play.
+ *
+ * Indexed once per call. This runs on every board read, and the first shape
+ * of it scanned the whole roster for every accusation of every claimant.
  */
-function provenRoles(
-  state: MafiaState,
-  claims: Claim[],
-  deaths: PublicInfo['deaths']
-): Map<number, RoleId> {
+function provenRoles(state: MafiaState, claims: Claim[], deaths: PublicInfo['deaths']): Map<number, RoleId> {
   const proven = new Map<number, RoleId>();
-  const alive = new Set(
-    Object.values(state.players)
-      .filter((player) => player.alive)
-      .map((player) => player.slot)
-  );
+  const players = Object.values(state.players);
+  const bySlot = new Map(players.map((player) => [player.slot, player]));
+  const alive = new Set(players.filter((player) => player.alive).map((player) => player.slot));
 
   // The porch.
   for (const death of deaths) {
@@ -256,19 +291,26 @@ function provenRoles(
   }
 
   // The badge.
+  const revealed = (state.config.revealOnDeath ?? 'role') !== 'none';
+  const hidden = new Set(state.deaths.filter((death) => death.hidden).map((death) => death.playerId));
   const deadRoleOf = (slot: number): RoleId | null => {
-    const player = Object.values(state.players).find((entry) => entry.slot === slot);
-    if (!player || player.alive || !player.role) return null;
-    if ((state.config.revealOnDeath ?? 'role') === 'none') return null;
-    if (state.deaths.some((death) => death.playerId === player.playerId && death.hidden)) return null;
+    const player = bySlot.get(slot);
+    if (!player || player.alive || !player.role || !revealed || hidden.has(player.playerId)) return null;
     return player.role;
   };
-  const badgeRoles = new Set<RoleId>(['sheriff', 'investigator', 'lookout', 'detective', 'coroner', 'spy']);
+  const accusationsBy = new Map<number, Claim[]>();
+  for (const claim of claims) {
+    if (claim.kind !== 'accuse') continue;
+    const mine = accusationsBy.get(claim.claimerSlot);
+    if (mine) mine.push(claim);
+    else accusationsBy.set(claim.claimerSlot, [claim]);
+  }
   for (const claim of claims) {
     if (claim.kind !== 'role-claim' || !claim.claimedRole || !alive.has(claim.claimerSlot)) continue;
-    if (!badgeRoles.has(claim.claimedRole) || proven.has(claim.claimerSlot)) continue;
-    const accused = claims.filter((other) => other.claimerSlot === claim.claimerSlot && other.kind === 'accuse');
-    const outcomes = accused.map((other) => deadRoleOf(other.targetSlot)).filter((role): role is RoleId => role !== null);
+    if (!BADGE_ROLES.has(claim.claimedRole) || proven.has(claim.claimerSlot)) continue;
+    const outcomes = (accusationsBy.get(claim.claimerSlot) ?? [])
+      .map((other) => deadRoleOf(other.targetSlot))
+      .filter((role): role is RoleId => role !== null);
     const hangedEvil = outcomes.some((role) => isEvilRole(role));
     const hangedTown = outcomes.some((role) => roleDef(role).faction === 'town');
     if (hangedEvil && !hangedTown) proven.set(claim.claimerSlot, claim.claimedRole);

@@ -323,6 +323,8 @@ export const screenEn: Catalogue = {
   'mafia.bot.why.silent': 'not one word all game, and the votes are moving anyway',
   'mafia.bot.why.wagon': 'the votes are already there and they have answered none of them',
   'mafia.bot.why.nowhere': 'nobody has put them anywhere on any night',
+  'mafia.bot.why.accused': '{who} already called them out and it has gone unanswered',
+  'mafia.bot.why.badge': '{who} says they are the {role}, and they have them',
 
   'mafia.bot.accuseWhy.1': '{who} — {why}. That is my vote.',
   'mafia.bot.accuseWhy.2': 'Voting {who}: {why}.',
@@ -360,6 +362,9 @@ export const screenEn: Catalogue = {
   'mafia.bot.dump.role': 'Night {night}: {who} is the {role}. That is what I have been doing.',
   'mafia.bot.dump.saved': 'Night {night}: somebody came for {who} and I stopped it.',
   'mafia.bot.dump.tracked': 'Night {night}: {who} went out. I followed.',
+  'mafia.bot.dump.blocked': 'Night {night}: I held {who} at home all night.',
+  'mafia.bot.dump.swapped': 'Night {night}: I swapped {slots} in their beds.',
+  'mafia.bot.dump.spied': 'Night {night}: the family went for {who} that night.',
   'mafia.bot.dump.went': 'Night {night}: I went to {who}.',
   'mafia.bot.dump.going': 'Night {night}: I am going to {who}.',
   'mafia.bot.crier.suspect': 'A voice in the dark: {who} has not been straight with anyone.',
@@ -392,7 +397,10 @@ export const screenEn: Catalogue = {
   'mafia.bot.will.1': 'If you are reading this, I was right about somebody.',
   'mafia.bot.will.2': 'Nothing hard. Watch who spoke first each day.',
   'mafia.bot.will.3': 'I told you what I knew while I could.',
-  'mafia.bot.will.role': 'I am the {role}. Everything I said, I meant.'
+  'mafia.bot.will.role': 'I am the {role}. Everything I said, I meant.',
+  'mafia.bot.will.note.liar': 'Day {day}: {who} is lying. I would put money on it.',
+  'mafia.bot.will.note.evil': 'Day {day}: {who} is not one of us. My vote went there.',
+  'mafia.bot.will.note.wrong': 'Day {day}: I was wrong about {who}. Look elsewhere.'
 };
 
 export default screenEn;

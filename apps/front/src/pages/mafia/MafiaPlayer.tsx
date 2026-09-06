@@ -3,6 +3,7 @@ import {
   SELF_FIRES,
   slotFaction,
   slotPool,
+  WILL_MAX_CHARS,
   type Faction,
   type MafiaChannelKind,
   type MafiaView,
@@ -640,7 +641,7 @@ export default function MafiaPlayer() {
                   id="mz-will-text"
                   value={will}
                   onChange={(event) => setWill(event.target.value)}
-                  maxLength={400}
+                  maxLength={WILL_MAX_CHARS}
                   rows={5}
                 />
                 <div className="mz-row-actions">

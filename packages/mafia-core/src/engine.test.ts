@@ -608,6 +608,13 @@ describe('mafia engine', () => {
     const own = state.chat.messages.filter((message) => message.channel === `self:${sheriff.playerId}`);
     assert.ok(own.length > 0, 'the result reached the square, privately');
     assert.ok(own.every((message) => message.kind === 'system'));
+    // A bot reads its record, not a chat panel; echoing for it only fills the log.
+    const bot = bySlot(state, 2);
+    assert.equal(
+      state.chat.messages.some((message) => message.channel === `self:${bot.playerId}`),
+      false,
+      'no echo for a bot'
+    );
 
     const rules = chatRules();
     assert.equal(rules.canRead(`self:${sheriff.playerId}`, sheriff.playerId, state), true);
