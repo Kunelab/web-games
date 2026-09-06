@@ -441,20 +441,41 @@ export function callCourt(state: MafiaState, playerId: string, now: number): Act
     return { ok: false, error: NO.notNow() };
   }
 
-  // The court needs a defendant: the current top-voted player.
+  /**
+   * The court needs a defendant, and the room has to have named one.
+   *
+   * Three things were wrong with counting them. Heads rather than weight, so a
+   * revealed Mayor's triple vote counted once here and three times everywhere
+   * else in the same afternoon. Every ballot in the map, including those of
+   * seats who have since died, when the ordinary threshold counts the living
+   * only. And a tie broken by whichever id happened to be inserted first: a
+   * room split seven against seven sent one of the two to judgement with no
+   * defence and no reason, which is how it was reported.
+   *
+   * A split room is not an accusation. The charge is not spent, the day carries
+   * on, and the judge can call the court once the square has made up its mind.
+   */
   const counts = new Map<string, number>();
-  for (const targetId of Object.values(state.votes)) {
-    counts.set(targetId, (counts.get(targetId) ?? 0) + 1);
+  for (const voter of alivePlayers(state)) {
+    const targetId = state.votes[voter.playerId];
+    if (!targetId || targetId === SKIP_VOTE || !state.players[targetId]?.alive) continue;
+    counts.set(targetId, (counts.get(targetId) ?? 0) + voteWeight(voter));
   }
+
   let accusedId: string | null = null;
   let best = 0;
+  let tied = false;
   for (const [targetId, count] of counts) {
-    if (count > best && state.players[targetId]?.alive) {
+    if (count > best) {
       accusedId = targetId;
       best = count;
+      tied = false;
+    } else if (count === best) {
+      tied = true;
     }
   }
   if (!accusedId) return { ok: false, error: NO.nobodyAccused() };
+  if (tied) return { ok: false, error: NO.courtSplit() };
 
   judge.charges -= 1;
   state.trial = { accusedId, ballots: {}, court: true };

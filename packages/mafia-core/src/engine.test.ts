@@ -901,6 +901,33 @@ describe('mafia engine', () => {
     assert.ok(win, 'the judge wins: the town lost, which is the whole of its condition');
   });
 
+  /**
+   * The judge's court needs a defendant the room actually named. A square split
+   * down the middle has not named one, and picking whichever id came first is
+   * how a seven-against-seven afternoon put somebody on the stand with no
+   * defence and no reason.
+   */
+  it('refuses the judge’s court while the square is tied, and keeps the charge', () => {
+    const state = table(['judge', 'citizen', 'citizen', 'citizen', 'citizen', 'godfather', 'mafioso']);
+    const judge = bySlot(state, 1);
+    judge.charges = 1;
+
+    castVote(state, bySlot(state, 2).playerId, 4, 2000);
+    castVote(state, bySlot(state, 3).playerId, 5, 2010);
+
+    const split = callCourt(state, judge.playerId, 2100);
+    assert.equal(split.ok, false, 'two houses level at the top is not an accusation');
+    assert.equal(state.trial, null);
+    assert.equal(judge.charges, 1, 'and the charge is still in his pocket');
+
+    // The room makes up its mind, and the court sits.
+    castVote(state, bySlot(state, 6).playerId, 4, 2200);
+    const called = callCourt(state, judge.playerId, 2300);
+    assert.equal(called.ok, true);
+    assert.equal(state.players[state.trial!.accusedId]?.slot, 4);
+    assert.equal(judge.charges, 0);
+  });
+
   it('the spy hears the family without a byline, and not at all once dead', () => {
     const state = table(['spy', 'godfather', 'mafioso', 'citizen', 'doctor', 'escort']);
     advanceMafia(state, 0, lcg(1)); // night

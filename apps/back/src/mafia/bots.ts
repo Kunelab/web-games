@@ -17,6 +17,7 @@ import {
   spokenLocale,
   steadyVote,
   suspicion,
+  suspicionParts,
   tableRoleList,
   toMafiaView,
   uncontestedBadge,
@@ -135,7 +136,13 @@ interface Decision {
   skipVote?: boolean;
   verdict: 'guilty' | 'innocent' | 'abstain' | null;
   /** What this turn asserts publicly, for the claims board. Null = small talk. */
-  claim: { kind: ClaimKind; slot: number | null; role: string | null; account?: 'home' | 'visited' } | null;
+  claim: {
+    kind: ClaimKind;
+    slot: number | null;
+    role: string | null;
+    account?: 'home' | 'visited';
+    ailment?: 'poison' | 'douse';
+  } | null;
   /**
    * What this turn means, for the mouth to phrase.
    *
@@ -312,6 +319,7 @@ const PROBE_EVERY_MS = 3 * 60 * 1000;
  * a seat has nothing better, and a taunt is worth saying almost never.
  */
 const CLAIM_VALUE: Record<ClaimKind, number> = {
+  ailing: 7,
   sighting: 6,
   'role-claim': 5,
   accuse: 4,
@@ -328,7 +336,31 @@ const CLAIM_VALUE: Record<ClaimKind, number> = {
  * The split is what the two speech budgets are measured against: a table can
  * take a great deal of the first and very little of the second.
  */
-const SUBSTANTIAL: ReadonlySet<ClaimKind> = new Set<ClaimKind>(['sighting', 'role-claim', 'accuse', 'clear']);
+/**
+ * What a claim is worth saying *this turn*, which is not quite its kind.
+ *
+ * Only the ailments need this, and they need it because the two of them are
+ * different errands wearing one word. "I have been poisoned" has a deadline —
+ * say it today or be a dawn report tomorrow — so it outranks everything,
+ * including a Sheriff's finding, which will keep until the seat's next turn.
+ * "I have been doused" is a warning about a killer the town cannot do anything
+ * about tonight, so it waits behind every claim that moves a rope, and a
+ * doused Sheriff reports its check first. Measured: ranking both at the top
+ * cost the bench three points of hanging accuracy, because the useful half of
+ * the square spent its turns describing its own night.
+ */
+function claimValue(claim: { kind: ClaimKind; ailment?: 'poison' | 'douse' }): number {
+  if (claim.kind === 'ailing') return claim.ailment === 'douse' ? 2.5 : CLAIM_VALUE.ailing;
+  return CLAIM_VALUE[claim.kind];
+}
+
+const SUBSTANTIAL: ReadonlySet<ClaimKind> = new Set<ClaimKind>([
+  'sighting',
+  'role-claim',
+  'accuse',
+  'clear',
+  'ailing'
+]);
 
 /**
  * The weapon a killing badge signs its work with, as the dawn report names it.
@@ -2015,7 +2047,8 @@ export class MafiaBotDriver {
      * reachable from the projection. `spokeWith` names the brain that answered,
      * or the phrasebook when nothing did.
      */
-    const said = answer ? readLine(answer, intent, { name: self.name, slot: self.slot }) : intent.fallback;
+    const seats = new Set(Object.values(state.players).map((player) => player.name.toLowerCase()));
+    const said = answer ? readLine(answer, intent, { name: self.name, slot: self.slot }, seats) : intent.fallback;
     this.spokeWith(state, botId, answer ? this.lastAnswered : 'scripted');
 
     return { ...decision, say: said };
@@ -2163,6 +2196,7 @@ export class MafiaBotDriver {
   ): void {
     const code = state.code;
 
+    let heard = false;
     if (decision.say && part !== 'act') {
       /**
        * A hard ceiling on the sentence, because the prompt asking for brevity is
@@ -2179,20 +2213,34 @@ export class MafiaBotDriver {
         this.maySpeak(state, sayChannel, decision.claim?.kind ?? null, text, urgent, reserved)
       ) {
         this.hooks.chat(code, botId, sayChannel, text);
+        heard = true;
       }
     }
 
-    /**
-     * The sentence becomes a fact on the board.
-     *
-     * Daylight only: a claim made in the family channel is not something the
-     * square can hold you to. Filed even when the model stayed silent out loud,
-     * because a bot that registers "I stayed home" without saying it would be
-     * caught by a lookout for free, and that is the wrong kind of easy.
-     */
     if (part === 'speak') return;
 
-    if (decision.claim && task !== 'night') this.file(state, botId, decision);
+    /**
+     * The sentence becomes a fact on the board — once it has been a sentence.
+     *
+     * Daylight only: a claim made in the family channel is not something the
+     * square can hold you to. And said out loud, which this did not check. The
+     * room's speech budget refuses a good half of the lines a busy afternoon
+     * produces, and every one of those claims was filed anyway, so the board
+     * held assertions nobody had ever made: a seat that never opened its mouth
+     * could be "caught" contradicting an alibi it had not given, and a wagon
+     * could form on an accusation the square never heard. Reported from a real
+     * table, where the town hanged a seat that had not said one word all game.
+     *
+     * The seat still believes what it decided, and still votes on it. What it
+     * did not say simply is not evidence, which is the same rule the private
+     * rooms are scoped by.
+     *
+     * In the split turn the act lands before the words do (see `decide`), and
+     * there the floor has already been reserved: the line is going to be said,
+     * so the claim is filed with it.
+     */
+    const spoken = heard || (part === 'act' && !!decision.say);
+    if (decision.claim && task !== 'night' && spoken) this.file(state, botId, decision);
 
     /**
      * The night power, for every seat that has one.
@@ -2319,7 +2367,9 @@ export class MafiaBotDriver {
      * deduction and a lookout's contradiction had nothing to work with.
      */
     const aboutMe =
-      claim.kind === 'role-claim' || (claim.kind === 'account' && (claim.account === 'home' || claim.slot === null));
+      claim.kind === 'role-claim' ||
+      claim.kind === 'ailing' ||
+      (claim.kind === 'account' && (claim.account === 'home' || claim.slot === null));
     const slot = aboutMe ? self.slot : claim.slot;
     if (slot === null || slot === undefined) return;
 
@@ -2333,7 +2383,8 @@ export class MafiaBotDriver {
 
     this.minds.record(state, botId, claim.kind, slot, {
       ...(claim.kind === 'role-claim' && claim.role ? { claimedRole: claim.role as RoleId } : {}),
-      ...(claim.account ? { account: claim.account } : {})
+      ...(claim.account ? { account: claim.account } : {}),
+      ...(claim.ailment ? { ailment: claim.ailment } : {})
     });
   }
 
@@ -2416,7 +2467,9 @@ export class MafiaBotDriver {
       const top = suspects[0];
       const who = top ? Object.values(state.players).find((player) => player.slot === top.slot)?.name : undefined;
       const line =
-        top && who && top.score >= 1 ? t(msg('mafia.bot.crier.suspect', { who })) : t(msg('mafia.bot.crier.quiet'));
+        top && who && top.score >= 1
+          ? t(vary('mafia.bot.crier.suspect', 3, botId + ':crier:' + state.day, { who }))
+          : t(vary('mafia.bot.crier.quiet', 3, botId + ':crier:' + state.day));
 
       return {
         ...EMPTY,
@@ -2794,7 +2847,7 @@ export class MafiaBotDriver {
       (task === 'react'
         ? publishes.find((claim) => claim.kind === 'accuse' && claim.targetSlot === voting)
         : undefined) ??
-      publishes.sort((left, right) => CLAIM_VALUE[right.kind] - CLAIM_VALUE[left.kind])[0] ??
+      publishes.sort((left, right) => claimValue(right) - claimValue(left))[0] ??
       null;
 
     /**
@@ -2874,10 +2927,61 @@ export class MafiaBotDriver {
 
     const reason =
       consistent && (consistent.kind === 'accuse' || consistent.kind === 'clear')
-        ? this.why(state, view, board, consistent.targetSlot)
+        ? this.why(state, view, board, consistent.targetSlot, botId)
         : null;
 
-    const line = consistent ? this.sentence(state, botId, consistent, reason) : null;
+    const drafted = consistent ? this.sentence(state, botId, consistent, reason) : null;
+
+    /**
+     * A vote does not need a chorus behind it.
+     *
+     * Six seats saying "X already called them out, so I am voting X" is six
+     * seats saying nothing, one after another, and it was most of what a day
+     * phase sounded like. The vote itself is public and lands either way; what
+     * the square loses is a wall of agreement that reads as software.
+     *
+     * One voice starts it and two may second it; after that the square has
+     * heard the argument and the rest simply vote. The first seat to name a
+     * house is opening a case, which is worth saying however thin its reasons
+     * are, and tomorrow the case is new again. It is the fifth repetition of
+     * this afternoon that is worth nothing.
+     *
+     * The other test is whether this seat has anything of its *own* on the target —
+     * a check, a contradiction, a verdict from the graveyard — which is the
+     * same `hard` half of the case that buys reasonable doubt in the booth.
+     * A seat holding a check, a contradiction or a verdict from the graveyard
+     * always speaks, however many have spoken before it: that is new evidence
+     * rather than another vote said out loud.
+     *
+     * Silence here also keeps the claim off the board (see `apply`), which is
+     * the other half of the same idea: a seat that added nothing to the
+     * argument should not be counted as another voice in it.
+     */
+    const seconds =
+      voting === null
+        ? 0
+        : board.claims.filter(
+            (claim) =>
+              claim.kind === 'accuse' &&
+              claim.targetSlot === voting &&
+              claim.claimerSlot !== me.slot &&
+              claim.day === state.day
+          ).length;
+    /**
+     * How many voices this particular wagon gets, which is not always the same
+     * number. An afternoon where one seat names a house and the room simply
+     * votes is as real as one where two others say so too, and a square that
+     * always produces exactly three lines per hanging is a square with a
+     * quota. Fixed per house per day, so a seat that keeps quiet about it
+     * keeps quiet all afternoon.
+     */
+    const allowed = voting === null ? 0 : hashCode(state.code + ':echo:' + state.day + ':' + voting) % 3;
+    const following =
+      seconds >= allowed &&
+      consistent?.kind === 'accuse' &&
+      consistent.targetSlot === voting &&
+      suspicionParts(consistent.targetSlot, self, board, rng).hard < 1;
+    const line = following ? null : drafted;
 
     /** The ballot, named, so the mouth can be told and its line checked. */
     const votedName =
@@ -2904,18 +3008,22 @@ export class MafiaBotDriver {
               ...(votedLabel && voting !== null ? { vote: { slot: voting, label: votedLabel } } : {})
             }
           : undefined,
-      urgent: consistent?.kind === 'accuse' && voting !== null,
+      // A dying seat asking for a doctor is the one line that cannot wait for
+      // the floor: tomorrow it is a dawn report.
+      urgent: consistent?.kind === 'ailing' || (consistent?.kind === 'accuse' && voting !== null),
       targetSlot: ballot.slot,
       skipVote: ballot.skip,
       verdict: null,
-      claim: consistent
-        ? {
-            kind: consistent.kind,
-            slot: consistent.targetSlot,
-            role: consistent.claimedRole ?? null,
-            ...(consistent.account ? { account: consistent.account } : {})
-          }
-        : null,
+      claim:
+        consistent && line
+          ? {
+              kind: consistent.kind,
+              slot: consistent.targetSlot,
+              role: consistent.claimedRole ?? null,
+              ...(consistent.account ? { account: consistent.account } : {}),
+              ...(consistent.ailment ? { ailment: consistent.ailment } : {})
+            }
+          : null,
       jailSlot: day.jailSlot,
       revealMayor: day.revealMayor
     };
@@ -2990,24 +3098,28 @@ export class MafiaBotDriver {
         // With a reason it is an argument; without one it is still a vote, and
         // a vote said out loud beats a vote nobody explains.
         return reason
-          ? line('accuseWhy', 3, { who: who(claim.targetSlot), why: reason })
-          : line('accuse', 3, { who: who(claim.targetSlot) });
+          ? line('accuseWhy', 9, { who: who(claim.targetSlot), why: reason })
+          : line('accuse', 9, { who: who(claim.targetSlot) });
       case 'clear':
         return reason
-          ? line('clearWhy', 2, { who: who(claim.targetSlot), why: reason })
-          : line('clear', 3, { who: who(claim.targetSlot) });
+          ? line('clearWhy', 6, { who: who(claim.targetSlot), why: reason })
+          : line('clear', 9, { who: who(claim.targetSlot) });
       case 'role-claim':
-        return claim.claimedRole ? line('roleClaim', 2, { role: ROLE.name(claim.claimedRole) }) : null;
+        return claim.claimedRole ? line('roleClaim', 6, { role: ROLE.name(claim.claimedRole) }) : null;
       case 'account':
-        return claim.account === 'home' ? line('stayedHome', 3) : line('visited', 3, { who: who(claim.targetSlot) });
+        return claim.account === 'home' ? line('stayedHome', 9) : line('visited', 9, { who: who(claim.targetSlot) });
       case 'question':
-        return line('question', 3, { who: who(claim.targetSlot) });
+        return line('question', 9, { who: who(claim.targetSlot) });
       case 'sighting':
-        return line('sighting', 3, { who: who(claim.targetSlot) });
+        return line('sighting', 9, { who: who(claim.targetSlot) });
       case 'taunt':
-        return line('taunt', 3, { who: who(claim.targetSlot) });
+        return line('taunt', 9, { who: who(claim.targetSlot) });
       case 'hint':
-        return line('hint', 2, { who: who(claim.targetSlot) });
+        return line('hint', 6, { who: who(claim.targetSlot) });
+      case 'ailing':
+        // Two sentences with two different jobs: one asks for a doctor, the
+        // other warns a room that somebody is carrying a match around.
+        return claim.ailment === 'douse' ? line('doused', 6) : line('poisoned', 6);
     }
   }
 
@@ -3049,6 +3161,10 @@ export class MafiaBotDriver {
         return `needle ${who(claim.targetSlot)} about how quiet they have been`;
       case 'hint':
         return `say you are not sure about ${who(claim.targetSlot)} yet`;
+      case 'ailing':
+        return claim.ailment === 'douse'
+          ? 'tell the square the arsonist doused your house last night, and that it is walking around with a match'
+          : 'tell the square you were poisoned last night and ask the doctor to heal you tonight, or you die at dawn';
     }
   }
 
@@ -3072,7 +3188,7 @@ export class MafiaBotDriver {
    * invented justification, which is the one thing the board can never recover
    * from.
    */
-  private why(state: MafiaState, view: MafiaView, board: PublicInfo, targetSlot: number): Msg | null {
+  private why(state: MafiaState, view: MafiaView, board: PublicInfo, targetSlot: number, botId = ''): Msg | null {
     const me = view.me;
     if (!me) return null;
     const nameOf = (slot: number): string =>
@@ -3081,7 +3197,7 @@ export class MafiaBotDriver {
     // 1. Caught out: they said they were home and somebody put them outside.
     if (contradicted(targetSlot, board)) {
       const witness = board.claims.find((claim) => claim.kind === 'sighting' && claim.targetSlot === targetSlot);
-      if (witness) return msg('mafia.bot.why.contradiction', { who: nameOf(witness.claimerSlot) });
+      if (witness) return vary('mafia.bot.why.contradiction', 3, botId + ':w:' + targetSlot, { who: nameOf(witness.claimerSlot) });
     }
 
     // 2. My own nights. The strongest thing a seat can own, and the one it pays
@@ -3089,7 +3205,7 @@ export class MafiaBotDriver {
     const check = me.intel.find(
       (entry) => entry.targetSlot === targetSlot && entry.kind === 'sheriff' && entry.value === 'suspect'
     );
-    if (check) return msg('mafia.bot.why.check', { night: check.night });
+    if (check) return vary('mafia.bot.why.check', 3, botId + ':w:' + targetSlot, { night: check.night });
 
     // 3. Somebody credible has already named them. A badge the room has not
     //    disputed, or a person, comes before a doorstep report; any other voice
@@ -3119,16 +3235,39 @@ export class MafiaBotDriver {
       .sort((left, right) => Number(right.human) - Number(left.human) || right.weight - left.weight);
     const badged = accusers.find((entry) => entry.badge !== null);
     if (badged?.badge) {
-      return msg('mafia.bot.why.badge', { who: nameOf(badged.slot), role: ROLE.name(badged.badge) });
+      return vary('mafia.bot.why.badge', 3, botId + ':w:' + targetSlot, {
+        who: nameOf(badged.slot),
+        role: ROLE.name(badged.badge)
+      });
     }
-    if (accusers[0]?.human) return msg('mafia.bot.why.accused', { who: nameOf(accusers[0].slot) });
+
+    /**
+     * Borrowed conviction, in this seat's own words.
+     *
+     * Half a dozen seats reaching this rung on the same afternoon said the same
+     * sentence about the same house, one after another: "X already called you
+     * out, so I am voting X", six times. Each one is a fair thing to think and
+     * a terrible thing to read, and together they are the wall of copy-paste
+     * that makes a table look like software. Same reason, three ways to admit
+     * it, fixed per speaker and target so a seat that borrows an opinion
+     * borrows it the same way every time.
+     */
+    const borrowed = (slot: number): Msg =>
+      vary('mafia.bot.why.accused', 3, botId + ':borrow:' + slot, { who: nameOf(slot) });
+
+    if (accusers[0]?.human) return borrowed(accusers[0].slot);
 
     // 4. Somebody else's doorstep report.
     const seen = board.claims.find((claim) => claim.kind === 'sighting' && claim.targetSlot === targetSlot);
-    if (seen) return msg('mafia.bot.why.seen', { who: nameOf(seen.claimerSlot), night: Math.max(1, seen.day - 1) });
+    if (seen) {
+      return vary('mafia.bot.why.seen', 3, botId + ':w:' + targetSlot, {
+        who: nameOf(seen.claimerSlot),
+        night: Math.max(1, seen.day - 1)
+      });
+    }
 
     // 5. Any other voice the room still listens to.
-    if (accusers[0]) return msg('mafia.bot.why.accused', { who: nameOf(accusers[0].slot) });
+    if (accusers[0]) return borrowed(accusers[0].slot);
 
     /**
      * 6. Two people cannot both be the Sheriff.
@@ -3148,11 +3287,11 @@ export class MafiaBotDriver {
           claim.kind === 'role-claim' && claim.claimedRole === theirs.claimedRole && claim.claimerSlot !== targetSlot
       );
       if (rivals.some((claim) => claim.claimerSlot === me.slot)) {
-        return msg('mafia.bot.why.myBadge', { role: ROLE.name(theirs.claimedRole) });
+        return vary('mafia.bot.why.myBadge', 3, botId + ':w:' + targetSlot, { role: ROLE.name(theirs.claimedRole) });
       }
       const rival = rivals[0];
       if (rival) {
-        return msg('mafia.bot.why.doubleClaim', {
+        return vary('mafia.bot.why.doubleClaim', 3, botId + ':w:' + targetSlot, {
           who: nameOf(rival.claimerSlot),
           role: ROLE.name(theirs.claimedRole)
         });
@@ -3164,7 +3303,7 @@ export class MafiaBotDriver {
       (claim) => claim.kind === 'account' && claim.claimerSlot === targetSlot && claim.account === 'visited'
     );
     if (visit) {
-      return msg('mafia.bot.why.admitted', {
+      return vary('mafia.bot.why.admitted', 3, botId + ':w:' + targetSlot, {
         who: nameOf(visit.targetSlot),
         night: Math.max(1, visit.day - 1)
       });
@@ -3172,14 +3311,14 @@ export class MafiaBotDriver {
 
     // 8. A seat that has never said anything is a seat nobody can be wrong about.
     if (board.day >= 2 && !board.claims.some((claim) => claim.claimerSlot === targetSlot)) {
-      return msg('mafia.bot.why.silent');
+      return vary('mafia.bot.why.silent', 3, botId + ':w:' + targetSlot);
     }
 
     // 9. The wagon itself, which is a reason people really do give.
     const against = [...board.votes.values()].filter((slot) => slot === targetSlot).length;
-    if (against >= 2) return msg('mafia.bot.why.wagon');
+    if (against >= 2) return vary('mafia.bot.why.wagon', 3, botId + ':w:' + targetSlot);
 
-    return board.day >= 3 ? msg('mafia.bot.why.nowhere') : null;
+    return board.day >= 3 ? vary('mafia.bot.why.nowhere', 3, botId + ':w:' + targetSlot) : null;
   }
 
   /**
@@ -3202,15 +3341,17 @@ export class MafiaBotDriver {
     if (!self?.role || !me) return null;
 
     if (self.role === 'jailor') {
-      return t(msg('mafia.bot.jail.ask.' + (1 + (hashCode(botId + ':ask:' + state.day) % 4))));
+      return t(msg('mafia.bot.jail.ask.' + (1 + (hashCode(botId + ':ask:' + state.day) % 12))));
     }
 
     const mind = this.minds.mind(state, botId);
-    if ((mind?.brain.personality.claimRate ?? 0) < 0.2) return t(msg('mafia.bot.jail.silent'));
+    if ((mind?.brain.personality.claimRate ?? 0) < 0.2) {
+      return t(vary('mafia.bot.jail.silent', 3, botId + ':cell:' + state.day));
+    }
 
     const town = ROLES[self.role].faction === 'town';
     const claimed = town ? self.role : mind ? this.maskOf(state, botId, mind) : this.bluffRole(state, botId);
-    if (!claimed) return t(msg('mafia.bot.jail.plead.home'));
+    if (!claimed) return t(vary('mafia.bot.jail.plead.home', 3, botId + ':cell:' + state.day));
 
     const nameOf = (slot: number): string =>
       Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
@@ -3219,7 +3360,7 @@ export class MafiaBotDriver {
     const work = town ? me.intel.find((entry) => entry.kind === 'sheriff' || entry.kind === 'visitors') : undefined;
     if (work) {
       return t(
-        msg('mafia.bot.jail.plead.work', {
+        vary('mafia.bot.jail.plead.work', 3, botId + ':cell:' + state.day, {
           role: ROLE.name(claimed),
           night: work.night,
           who: nameOf(work.targetSlot)
@@ -3229,7 +3370,11 @@ export class MafiaBotDriver {
 
     // Otherwise: the claim, and a reason to be let out rather than emptied.
     const useful = town && ROLES[claimed].nightAction !== undefined;
-    return t(msg(useful ? 'mafia.bot.jail.plead.offer' : 'mafia.bot.jail.plead.role', { role: ROLE.name(claimed) }));
+    return t(
+      vary(useful ? 'mafia.bot.jail.plead.offer' : 'mafia.bot.jail.plead.role', 3, botId + ':cell:' + state.day, {
+        role: ROLE.name(claimed)
+      })
+    );
   }
 
   /**
@@ -3267,15 +3412,22 @@ export class MafiaBotDriver {
     if (ask) {
       const mates = new Set([me.slot, ...(me.teammates ?? []).map((mate) => mate.slot)]);
       if (heeded) {
-        return t(msg('mafia.bot.family.agree.' + (1 + (hashCode(botId + ':yes:' + ask.slot) % 2)), { who: ask.who }));
+        return t(msg('mafia.bot.family.agree.' + (1 + (hashCode(botId + ':yes:' + ask.slot) % 6)), { who: ask.who }));
       }
-      const why = aim === null ? null : this.whyKill(state, view, board, aim, mates);
+      const why = aim === null ? null : this.whyKill(state, view, board, aim, mates, botId);
       return aim === null
-        ? t(msg('mafia.bot.family.refuse.plain', { who: ask.who }))
+        ? t(vary('mafia.bot.family.refuse.plain', 3, botId + ':fam:' + state.day, { who: ask.who }))
         : t(
             why
-              ? msg('mafia.bot.family.refuse.why', { who: ask.who, mine: nameOf(aim), why })
-              : msg('mafia.bot.family.refuse.mine', { who: ask.who, mine: nameOf(aim) })
+              ? vary('mafia.bot.family.refuse.why', 3, botId + ':fam:' + state.day, {
+                  who: ask.who,
+                  mine: nameOf(aim),
+                  why
+                })
+              : vary('mafia.bot.family.refuse.mine', 3, botId + ':fam:' + state.day, {
+                  who: ask.who,
+                  mine: nameOf(aim)
+                })
           );
     }
 
@@ -3291,16 +3443,16 @@ export class MafiaBotDriver {
       .map((slot) => ({ slot, votes: view.players.find((player) => player.slot === slot)?.votesAgainst ?? 0 }))
       .sort((left, right) => right.votes - left.votes)[0];
     if (heat && heat.votes >= 2 && hashCode(botId + ':warn:' + state.day) % 3 === 0) {
-      return t(msg('mafia.bot.family.warn', { count: heat.votes, who: nameOf(heat.slot) }));
+      return t(
+        vary('mafia.bot.family.warn', 3, botId + ':warn:' + state.day, { count: heat.votes, who: nameOf(heat.slot) })
+      );
     }
 
     if (aim === null) return null;
-    const why = this.whyKill(state, view, board, aim, mates);
+    const why = this.whyKill(state, view, board, aim, mates, botId);
     const who = nameOf(aim);
-    const variant = 1 + (hashCode(botId + ':aim:' + state.day + ':' + aim) % 3);
-    return why
-      ? t(msg('mafia.bot.family.aim.' + variant, { who, why }))
-      : t(msg('mafia.bot.family.plain.' + (1 + (variant % 2)), { who }));
+    const salt = botId + ':aim:' + state.day + ':' + aim;
+    return why ? t(vary('mafia.bot.family.aim', 9, salt, { who, why })) : t(vary('mafia.bot.family.plain', 6, salt, { who }));
   }
 
   /**
@@ -3374,31 +3526,34 @@ export class MafiaBotDriver {
     view: MafiaView,
     board: PublicInfo,
     targetSlot: number,
-    mates: ReadonlySet<number>
+    mates: ReadonlySet<number>,
+    botId = ''
   ): Msg | null {
     const nameOf = (slot: number): string =>
       Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
+    /** Same reason, this seat's words for it. */
+    const salt = botId + ':why-kill:' + targetSlot;
 
     // 1. They put a name to themselves, which is the same as putting a price on it.
     const claimed = board.claims.find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === targetSlot);
     if (claimed?.claimedRole) {
-      return msg('mafia.bot.family.why.claimed', { role: ROLE.name(claimed.claimedRole) });
+      return vary('mafia.bot.family.why.claimed', 3, salt, { role: ROLE.name(claimed.claimedRole) });
     }
 
     // 2. They are doing the town's actual work: clearing people and reporting.
     const working = board.claims.some(
       (claim) => claim.claimerSlot === targetSlot && (claim.kind === 'clear' || claim.kind === 'sighting')
     );
-    if (working) return msg('mafia.bot.family.why.talker');
+    if (working) return vary('mafia.bot.family.why.talker', 3, salt);
 
     // 3. The square believes them, which is worse than what they know.
-    if (claimerWeight(targetSlot, board) >= 1.5) return msg('mafia.bot.family.why.trusted');
+    if (claimerWeight(targetSlot, board) >= 1.5) return vary('mafia.bot.family.why.trusted', 3, salt);
 
     // 4. They spent the day hunting one of us.
     const hunted = [...board.votes.entries()].find(([voter, target]) => voter === targetSlot && mates.has(target));
-    if (hunted) return msg('mafia.bot.family.why.pushing', { who: nameOf(hunted[1]) });
+    if (hunted) return vary('mafia.bot.family.why.pushing', 3, salt, { who: nameOf(hunted[1]) });
 
-    return view.day >= 2 ? msg('mafia.bot.family.why.quiet') : null;
+    return view.day >= 2 ? vary('mafia.bot.family.why.quiet', 3, salt) : null;
   }
 
   /**
@@ -3426,10 +3581,10 @@ export class MafiaBotDriver {
       : undefined;
 
     if (about) {
-      const variant = 1 + (hashCode(botId + ':deny:' + state.day) % 2);
+      const variant = 1 + (hashCode(botId + ':deny:' + state.day) % 6);
       return t(msg('mafia.bot.deny.' + variant, { who: nameOf(about.claimerSlot) }));
     }
-    return t(msg('mafia.bot.pressure.' + (1 + (hashCode(botId + ':' + state.day) % 4))));
+    return t(msg('mafia.bot.pressure.' + (1 + (hashCode(botId + ':' + state.day) % 12))));
   }
 
   /**
@@ -3460,7 +3615,7 @@ export class MafiaBotDriver {
     const t = say(spokenLocale(state));
     const nameOf = (slot: number): string =>
       Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
-    const flavour = t(msg(`mafia.bot.will.${1 + (hashCode(botId) % 3)}`));
+    const flavour = t(msg(`mafia.bot.will.${1 + (hashCode(botId) % 9)}`));
 
     /**
      * Whose will this is, and whose nights it lists.
@@ -3531,7 +3686,7 @@ export class MafiaBotDriver {
      */
     const going =
       honest && tonight !== null && state.phase === 'night'
-        ? [t(msg('mafia.bot.dump.going', { night: state.day, who: nameOf(tonight) }))]
+        ? [t(vary('mafia.bot.dump.going', 3, botId + ':going:' + state.day, { night: state.day, who: nameOf(tonight) }))]
         : [];
 
     /**
@@ -3542,10 +3697,12 @@ export class MafiaBotDriver {
      */
     const notes = mind.notes
       .slice(-6)
-      .map((note) => t(msg(`mafia.bot.will.note.${note.kind}`, { day: note.day, who: nameOf(note.slot) })));
+      .map((note) =>
+        t(vary(`mafia.bot.will.note.${note.kind}`, 3, botId + ':note:' + note.slot, { day: note.day, who: nameOf(note.slot) }))
+      );
 
     const text = fitWill({
-      role: signed ? t(msg('mafia.bot.will.role', { role: ROLE.name(signed) })) : null,
+      role: signed ? t(vary('mafia.bot.will.role', 3, botId + ':will', { role: ROLE.name(signed) })) : null,
       nights,
       going: going[0] ?? null,
       notes,
@@ -3566,7 +3723,7 @@ export class MafiaBotDriver {
    */
   private greeting(state: MafiaState, botId: string): string {
     const t = say(spokenLocale(state));
-    return t(msg('mafia.bot.hello.' + (1 + (hashCode(botId) % 4))));
+    return t(msg('mafia.bot.hello.' + (1 + (hashCode(botId) % 12))));
   }
 
   /**
@@ -3579,7 +3736,7 @@ export class MafiaBotDriver {
    */
   private pressureLine(state: MafiaState, botId: string): string {
     const t = say(spokenLocale(state));
-    return t(msg('mafia.bot.pressure.' + (1 + (hashCode(botId + ':' + state.day) % 4))));
+    return t(msg('mafia.bot.pressure.' + (1 + (hashCode(botId + ':' + state.day) % 12))));
   }
 
   /**
@@ -3605,7 +3762,7 @@ export class MafiaBotDriver {
     round = 1
   ): { text: string; claim: Decision['claim'] } | null {
     const t = say(spokenLocale(state));
-    if (!onTrial) return { text: t(msg('mafia.bot.watch.' + (1 + (hashCode(botId) % 3)))), claim: null };
+    if (!onTrial) return { text: t(msg('mafia.bot.watch.' + (1 + (hashCode(botId) % 9)))), claim: null };
 
     const view = toMafiaView(state, { kind: 'player', playerId: botId });
     const board = this.minds.board(state, botId);
@@ -3613,7 +3770,7 @@ export class MafiaBotDriver {
     const me = view.me;
     const self = state.players[botId];
     const plead = (): { text: string; claim: Decision['claim'] } => ({
-      text: t(msg('mafia.bot.plead.' + (1 + (hashCode(botId) % 3)))),
+      text: t(msg('mafia.bot.plead.' + (1 + (hashCode(botId) % 9)))),
       claim: null
     });
     if (!me || !self?.role || !mind) return plead();
@@ -3640,7 +3797,7 @@ export class MafiaBotDriver {
        */
       if (claimed) {
         return {
-          text: t(msg('mafia.bot.defend.role', { role: ROLE.name(claimed) })),
+          text: t(vary('mafia.bot.defend.role', 3, botId + ':stand:' + state.day, { role: ROLE.name(claimed) })),
           claim: { kind: 'role-claim', slot: null, role: claimed }
         };
       }
@@ -3654,8 +3811,8 @@ export class MafiaBotDriver {
       // the porch and a lookout's list have something to check it against.
       // Real for the town, from the record; invented for a liar, from the same
       // notebook its will is written from, so the stand and the will agree.
-      const entry = town ? this.realNight(state, me.intel) : this.inventedNight(state, botId, view);
-      const dump = entry ? this.nightLine(state, entry) : null;
+      const entry = town ? this.realNight(state, me.intel, botId) : this.inventedNight(state, botId, view);
+      const dump = entry ? this.nightLine(state, entry, botId) : null;
       if (entry && dump) return { text: dump, claim: this.claimFor(entry) };
       /**
        * Nothing to read out, so the seat falls back on where it was.
@@ -3667,10 +3824,13 @@ export class MafiaBotDriver {
        */
       const told = this.lastAccount(board, me.slot);
       if (told?.account === 'visited') {
-        return { text: t(msg('mafia.bot.defend.visited', { who: nameOf(told.targetSlot) })), claim: null };
+        return {
+          text: t(vary('mafia.bot.defend.visited', 3, botId + ':stand:' + state.day, { who: nameOf(told.targetSlot) })),
+          claim: null
+        };
       }
       return {
-        text: t(msg('mafia.bot.dump.nothing')),
+        text: t(vary('mafia.bot.dump.nothing', 3, botId + ':stand:' + state.day)),
         claim: { kind: 'account', slot: null, role: null, account: 'home' }
       };
     }
@@ -3679,7 +3839,12 @@ export class MafiaBotDriver {
     const pusher = [...board.votes.entries()].find(
       ([voter, target]) => target === me.slot && claimerWeight(voter, board) === 0
     );
-    if (pusher) return { text: t(msg('mafia.bot.defend.accuser', { who: nameOf(pusher[0]) })), claim: null };
+    if (pusher) {
+      return {
+        text: t(vary('mafia.bot.defend.accuser', 3, botId + ':stand:' + state.day, { who: nameOf(pusher[0]) })),
+        claim: null
+      };
+    }
 
     /**
      * The latest account, not the first one.
@@ -3691,12 +3856,29 @@ export class MafiaBotDriver {
      */
     const account = this.lastAccount(board, me.slot);
     if (account?.account === 'visited') {
-      return { text: t(msg('mafia.bot.defend.visited', { who: nameOf(account.targetSlot) })), claim: null };
+      return {
+        text: t(vary('mafia.bot.defend.visited', 3, botId + ':stand:' + state.day, { who: nameOf(account.targetSlot) })),
+        claim: null
+      };
     }
-    if (account) return { text: t(msg('mafia.bot.defend.home')), claim: null };
+    /**
+     * "I stayed home" is not worth saying twice.
+     *
+     * Round two has just said it, in those words, and a defence whose last
+     * sentence restates its previous one sounds like a seat with one card and
+     * no idea what to do with it. Naming the house you admit visiting is
+     * different: it is a fact the room can go and check. A closing line beats a
+     * repetition.
+     */
 
     return {
-      text: t(msg(hashCode(botId) % 2 === 0 ? 'mafia.bot.dump.closing' : 'mafia.bot.defend.nothing')),
+      text: t(
+        vary(
+          hashCode(botId) % 2 === 0 ? 'mafia.bot.dump.closing' : 'mafia.bot.defend.nothing',
+          3,
+          botId + ':stand:' + state.day
+        )
+      ),
       claim: null
     };
   }
@@ -3721,8 +3903,8 @@ export class MafiaBotDriver {
    * rest of the table saw. Most recent first: a check from last night moves a
    * room that a check from day one does not.
    */
-  private realNight(state: MafiaState, intel: readonly IntelEntry[]): IntelEntry | null {
-    return [...intel].reverse().find((entry) => this.nightLine(state, entry) !== null) ?? null;
+  private realNight(state: MafiaState, intel: readonly IntelEntry[], botId = ''): IntelEntry | null {
+    return [...intel].reverse().find((entry) => this.nightLine(state, entry, botId) !== null) ?? null;
   }
 
   /**
@@ -3733,38 +3915,40 @@ export class MafiaBotDriver {
    * dump still renders only the freshest. Same keys, so a seat's will and its
    * testimony cannot disagree about what it saw.
    */
-  private nightLine(state: MafiaState, entry: IntelEntry): string | null {
+  private nightLine(state: MafiaState, entry: IntelEntry, botId = ''): string | null {
     const t = say(spokenLocale(state));
     const nameOf = (slot: number): string =>
       Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
 
     const who = nameOf(entry.targetSlot);
+    /** Same night, same words, whenever this seat reads it out. */
+    const salt = botId + ':night:' + entry.night + ':' + entry.kind + ':' + entry.targetSlot;
     switch (entry.kind) {
       case 'sheriff':
         return t(
-          msg(entry.value === 'suspect' ? 'mafia.bot.dump.suspect' : 'mafia.bot.dump.clear', {
+          vary(entry.value === 'suspect' ? 'mafia.bot.dump.suspect' : 'mafia.bot.dump.clear', 3, salt, {
             night: entry.night,
             who
           })
         );
       case 'role':
         return entry.value in ROLES
-          ? t(msg('mafia.bot.dump.role', { night: entry.night, who, role: ROLE.name(entry.value as RoleId) }))
+          ? t(vary('mafia.bot.dump.role', 3, salt, { night: entry.night, who, role: ROLE.name(entry.value as RoleId) }))
           : null;
       case 'visitors':
         return t(
-          msg(entry.slots && entry.slots.length > 0 ? 'mafia.bot.dump.visitors' : 'mafia.bot.dump.nobody', {
+          vary(entry.slots && entry.slots.length > 0 ? 'mafia.bot.dump.visitors' : 'mafia.bot.dump.nobody', 3, salt, {
             night: entry.night,
             who,
             slots: (entry.slots ?? []).map(nameOf).join(', ')
           })
         );
       case 'tracked':
-        return t(msg('mafia.bot.dump.tracked', { night: entry.night, who }));
+        return t(vary('mafia.bot.dump.tracked', 3, salt, { night: entry.night, who }));
       case 'saved':
-        return t(msg('mafia.bot.dump.saved', { night: entry.night, who }));
+        return t(vary('mafia.bot.dump.saved', 3, salt, { night: entry.night, who }));
       case 'went':
-        return t(msg('mafia.bot.dump.went', { night: entry.night, who }));
+        return t(vary('mafia.bot.dump.went', 3, salt, { night: entry.night, who }));
       /**
        * The three nights that produced no verdict but did produce a fact.
        *
@@ -3776,16 +3960,16 @@ export class MafiaBotDriver {
        * never signs a will, and the second is prose in one language.
        */
       case 'blocked':
-        return t(msg('mafia.bot.dump.blocked', { night: entry.night, who }));
+        return t(vary('mafia.bot.dump.blocked', 3, salt, { night: entry.night, who }));
       case 'swapped':
         return t(
-          msg('mafia.bot.dump.swapped', {
+          vary('mafia.bot.dump.swapped', 3, salt, {
             night: entry.night,
             slots: (entry.slots ?? [entry.targetSlot]).map(nameOf).join(' & ')
           })
         );
       case 'spied':
-        return t(msg('mafia.bot.dump.spied', { night: entry.night, who }));
+        return t(vary('mafia.bot.dump.spied', 3, salt, { night: entry.night, who }));
       default:
         return null;
     }
@@ -4555,6 +4739,20 @@ function extractJson(content: string): Record<string, unknown> {
     }
   }
   return {};
+}
+
+/**
+ * One of a line's variants, fixed per speaker and subject.
+ *
+ * The catalogue holds several phrasings of everything a bot says — nine ways to
+ * cast a vote, three ways to read out a night — and this is what chooses
+ * between them. Deterministically, on a salt the caller picks: a seat that
+ * calls you by your number keeps calling you by your number, the same reason
+ * given twice reads the same twice, and a table still does not sound like one
+ * voice repeated twenty times.
+ */
+function vary(key: string, count: number, salt: string, params?: Record<string, string | number | Msg>): Msg {
+  return msg(`${key}.${1 + (hashCode(salt) % count)}`, params);
 }
 
 function hashCode(text: string): number {

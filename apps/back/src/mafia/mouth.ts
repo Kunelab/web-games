@@ -169,7 +169,13 @@ export function mouthPrompt(
  * narration gets ignored in favour of the phrasebook — which always has an
  * answer, so there is never a turn that fails to produce a sentence.
  */
-export function readLine(raw: Record<string, unknown>, intent: Intent, self: { name: string; slot: number }): string {
+export function readLine(
+  raw: Record<string, unknown>,
+  intent: Intent,
+  self: { name: string; slot: number },
+  /** The names on the doors, so a one-letter one is not read as a slip. */
+  seats: ReadonlySet<string> = new Set()
+): string {
   const line = typeof raw.line === 'string' ? raw.line.replace(/\s+/g, ' ').trim() : '';
   if (!line) return intent.fallback;
 
@@ -180,7 +186,42 @@ export function readLine(raw: Record<string, unknown>, intent: Intent, self: { n
   if (/^\s*[([*]/.test(cleaned)) return intent.fallback;
   if (intent.vote && denies(cleaned)) return intent.fallback;
   if (addressesSelf(cleaned, self)) return intent.fallback;
-  return cleaned;
+  if (initialForAName(cleaned, seats)) return intent.fallback;
+
+  /**
+   * The seat signing a line the chat already signs for it.
+   *
+   * "15, I'm the veteran", said by house 15, and "12 Iron Man is the culprit",
+   * said by house 12. The prompt opens with "You are Trinity, house 15" and a
+   * small model reads that as a letterhead, so the number comes back at the
+   * front of the sentence — beside the number the chat prints on every line
+   * anyway. It is not a wrong line, it is a line with a stutter, so it is
+   * trimmed rather than thrown away.
+   */
+  return cleaned.replace(new RegExp(`^${self.slot}\\s*[,:.\\-–—]?\\s+(?=\\S)`), '');
+}
+
+/**
+ * A bare initial where a name should be.
+ *
+ * "I saw someone slip into F last night" — reported from a real table, and there
+ * is no house F. Handed a name to say, a small model sometimes writes the first
+ * letter of it instead, which is not a sentence anybody can act on: the room
+ * cannot vote for F.
+ *
+ * A letter alone, then. Not one that belongs to a word — the French elisions
+ * (`j'ai`, `c'est`, `t'as`) and the hyphenated names (`C-3PO`, `R2-D2`) all
+ * carry their letter into something longer — and not the handful that really do
+ * stand alone in one of the two languages.
+ *
+ * And not a letter that is somebody's actual name. A player at this table calls
+ * themselves "F", and "I saw someone slip into F last night" is a perfectly
+ * good sentence about them: the roster decides which it is, so the guard reads
+ * the roster.
+ */
+function initialForAName(line: string, seats: ReadonlySet<string>): boolean {
+  const match = /(?:^|[\s("'«])([b-hj-tvwxzB-HJ-TVWXZ])(?![\w'’-])/.exec(line);
+  return match !== null && !seats.has(match[1].toLowerCase());
 }
 
 /**

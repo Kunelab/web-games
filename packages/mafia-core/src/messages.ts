@@ -86,6 +86,8 @@ export const NO = {
   impossible: (): Msg => msg('mafia.refuse.impossible'),
   courtSpent: (): Msg => msg('mafia.refuse.courtSpent'),
   nobodyAccused: (): Msg => msg('mafia.refuse.nobodyAccused'),
+  /** Two houses level at the top: the room has not named anybody. */
+  courtSplit: (): Msg => msg('mafia.refuse.courtSplit'),
   whisperSelf: (): Msg => msg('mafia.refuse.whisperSelf'),
   tooLate: (): Msg => msg('mafia.refuse.tooLate'),
   cannotSpeakHere: (): Msg => msg('mafia.refuse.cannotSpeakHere'),
