@@ -858,7 +858,9 @@ export default function MafiaPlayer() {
                 <div className="mz-row-actions">
                   <Button
                     variant="ghost"
-                    onClick={() => socket?.emit('mafia:addBots', { hostToken, count: 4 })}
+                    // One at a time: four was a guess at how many a table wants, and it
+                    // overshoots the moment the answer is not a multiple of four.
+                    onClick={() => socket?.emit('mafia:addBots', { hostToken, count: 1 })}
                     disabled={seats >= view.maxPlayers}
                   >
                     {tk('mafia.ui.lobby.addBots')}
