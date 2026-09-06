@@ -7,6 +7,8 @@ import {
   callCourt,
   castBallot,
   castVote,
+  chatLineFor,
+  chatVisibleTo,
   jailTarget,
   joinMafia,
   legalNightAction,
@@ -863,6 +865,65 @@ describe('mafia engine', () => {
     // Town cannot write into the family channel either.
     const sneak = sayInChat(state, bySlot(state, 1).playerId, 'mafia', 'coucou', 11);
     assert.equal(sneak.ok, false);
+  });
+
+  /**
+   * The end of a game is still a morning: the bodies that ended it are named
+   * before the headline, and a town nobody survived did not win anything.
+   */
+  it('reads out the last night before the last word, and gives an empty town to nobody', () => {
+    const state = table(['judge', 'poisoner', 'serial-killer'], 7);
+    const judge = bySlot(state, 1);
+    const poisoner = bySlot(state, 2);
+    const killer = bySlot(state, 3);
+
+    advanceMafia(state, 0, lcg(5)); // night 7
+    setNightAction(state, poisoner.playerId, 3); // the dose, which takes a night
+    advanceMafia(state, 1, lcg(5)); // day 8, everybody still up
+    assert.equal(state.phase, 'day');
+
+    advanceMafia(state, 2, lcg(5)); // night 8
+    setNightAction(state, killer.playerId, 2); // the blade, while the poison works
+    advanceMafia(state, 3, lcg(5)); // dawn: both killers go
+
+    assert.equal(poisoner.alive, false, 'the blade lands');
+    assert.equal(killer.alive, false, 'and so does the poison');
+    assert.equal(judge.alive, true, 'the judge is the last one standing');
+
+    const transcript = said(state);
+    assert.ok(transcript.includes(poisoner.name), 'the poisoner is named in the dawn report');
+    assert.ok(transcript.includes(killer.name), 'and so is the killer');
+
+    assert.equal(state.phase, 'ended');
+    assert.ok(!transcript.includes('La Ville l’emporte'), 'a town with nobody in it wins nothing');
+    assert.ok(transcript.includes('Il ne reste personne à sauver'), 'the empty-town ending, said as such');
+    const win = state.winners.find((entry) => entry.playerId === judge.playerId);
+    assert.ok(win, 'the judge wins: the town lost, which is the whole of its condition');
+  });
+
+  it('the spy hears the family without a byline, and not at all once dead', () => {
+    const state = table(['spy', 'godfather', 'mafioso', 'citizen', 'doctor', 'escort']);
+    advanceMafia(state, 0, lcg(1)); // night
+
+    const gf = bySlot(state, 2);
+    assert.equal(sayInChat(state, gf.playerId, 'mafia', 'on tue le shérif', 10).ok, true);
+    const posted = state.chat.messages.find((message) => message.channel === 'mafia')!;
+
+    const spy = bySlot(state, 1);
+    const heard = chatVisibleTo(state, spy.playerId).filter((message) => message.channel === 'mafia');
+    assert.equal(heard.length, 1, 'the ear is at the wall');
+    assert.equal(heard[0].authorId, null, 'and never sees a face');
+    assert.equal(heard[0].authorName, ANONYMOUS);
+
+    // The same line also goes out on its own between broadcasts, muffled there too.
+    assert.equal(chatLineFor(state, spy.playerId, posted).authorName, ANONYMOUS);
+    assert.equal(chatLineFor(state, bySlot(state, 3).playerId, posted).authorName, gf.name, 'the family sees its own');
+
+    spy.alive = false;
+    assert.equal(chatRules().canRead('mafia', spy.playerId, state), false, 'a corpse eavesdrops on nobody');
+    const ghostView = toMafiaView(state, { kind: 'player', playerId: spy.playerId });
+    assert.ok(ghostView.chat.every((message) => message.channel !== 'mafia'));
+    assert.ok(ghostView.me?.channels.every((channel) => channel.id !== 'mafia'));
   });
 
   it('dead players talk only to the dead', () => {

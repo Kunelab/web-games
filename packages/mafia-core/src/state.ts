@@ -651,7 +651,9 @@ export function chatRules(): ChannelRules<MafiaState> {
       // Family rooms — and the spy's ear pressed to the killing families' walls.
       if (channel === 'mafia' || channel === 'triad' || channel === 'cult') {
         if (playerFamily(member) === channel) return true;
-        return member.role === 'spy' && channel !== 'cult';
+        // A corpse eavesdrops on nobody: the night intel half of the same ear
+        // already required a living spy, the wall half did not.
+        return member.alive && member.role === 'spy' && channel !== 'cult';
       }
       if (channel === 'mason') return isMason(member);
       if (channel.startsWith('jail:')) {

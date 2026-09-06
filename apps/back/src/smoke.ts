@@ -18,6 +18,7 @@ import {
 } from 'game-core';
 
 import { buildApp } from './app.js';
+import { mentions, selfClaim } from './mafia/asks.js';
 import { measureBudget } from './mafia/budget.js';
 import { quizCareerService } from './services/quiz-career-service.js';
 import { closeDb } from './db/index.js';
@@ -1444,6 +1445,43 @@ check('which still works', withNew.statusCode === 200, withNew.statusCode);
  * here because a prompt grows the way a prompt grows: one reasonable sentence
  * at a time, with nobody watching the total.
  */
+/**
+ * The reader under every private room, which is a regex and therefore testable
+ * to the character. It decides what a family knifes and what a jailor believes,
+ * so the cases that matter are the ones where a sentence says two things or
+ * nearly says one.
+ */
+section('the private room reader');
+{
+  const seats = [
+    { slot: 3, name: 'Baloo' },
+    { slot: 10, name: 'Aloy' },
+    { slot: 13, name: 'Geralt' }
+  ];
+  const asked = (text: string): string => {
+    const wanted = [...mentions(text, seats)].reverse().find((entry) => entry.kind === 'target');
+    return wanted ? String(wanted.slot) : 'none';
+  };
+
+  check('a house asked for by number', asked('kill 10 tonight') === '10', asked('kill 10 tonight'));
+  check('a house asked for by name', asked('please take Geralt') === '13', asked('please take Geralt'));
+  check('a refusal is not a request', asked("don't kill 10") === 'none', asked("don't kill 10"));
+  check('and neither is one in French', asked('surtout pas Aloy') === 'none', asked('surtout pas Aloy'));
+  check('two instructions in one breath', asked('not 13, take 10') === '10', asked('not 13, take 10'));
+  check('the newest of them wins', asked('10 then, no wait, 13') === '13', asked('10 then, no wait, 13'));
+  const kinds = (text: string): string =>
+    mentions(text, seats)
+      .map((entry) => `${entry.kind}:${entry.slot}`)
+      .join(' ');
+  check('a refusal carries across a connector', kinds('not 13 or 10') === 'spare:13 spare:10', kinds('not 13 or 10'));
+  check('and a verb in between ends it', kinds('not 13, take 10') === 'spare:13 target:10', kinds('not 13, take 10'));
+  check('a longer number is not a house', asked('131 is not a seat') === 'none', asked('131 is not a seat'));
+  check('a name inside a word is not a name', asked('that is baloonish') === 'none', asked('that is baloonish'));
+  check('a role claimed in the first person', selfClaim('look, I am the Doctor, I healed 4') === 'doctor');
+  check('a role put on somebody else is not a claim', selfClaim('13 is the doctor') === null);
+  check('and no role at all is no claim', selfClaim('I have nothing to say') === null);
+}
+
 section('the bot prompt budget');
 for (const row of measureBudget()) {
   check(`${row.scenario} fits its budget`, row.prompt <= row.ceiling, `${row.prompt} tok > ${row.ceiling}`);

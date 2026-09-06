@@ -75,6 +75,7 @@ export {
   callCourt,
   castBallot,
   castVote,
+  chatLineFor,
   chatVisibleTo,
   checkVictory,
   dropMafiaSeat,

@@ -27,7 +27,7 @@
   background: transparent;
   color: var(--chat-fg-dim, #9a97a0);
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   padding: 6px 12px;
   border-radius: 8px 8px 0 0;
   cursor: pointer;
@@ -48,9 +48,16 @@
   gap: 4px;
 }
 
+/*
+ * Read at arm's length, on a phone, in a room with other people in it: the log
+ * is the game, and it was set two notches below the rest of the interface.
+ * The system lines and the seat chip move with it, so the column keeps its
+ * shape and a dawn report stays quieter than a player without being smaller
+ * than one.
+ */
 .chat-line {
   margin: 0;
-  font-size: 0.92rem;
+  font-size: 1.08rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -59,7 +66,7 @@
   /* Lifted from #8f8aa0: a dawn report is evidence, and evidence has to be legible. */
   color: var(--chat-system, #aaa5ba);
   font-style: italic;
-  font-size: 0.88rem;
+  font-size: 1rem;
 }
 
 /* A player named inside an announcement, in the colour of their byline. */
@@ -99,7 +106,7 @@
   background: var(--chat-slot-bg, rgb(255 255 255 / 0.08));
   color: var(--chat-slot-fg, #b9b6c4);
   font:
-    600 0.8rem/1.5 ui-monospace,
+    600 0.92rem/1.5 ui-monospace,
     SFMono-Regular,
     Menlo,
     monospace;
@@ -134,7 +141,7 @@
   border-radius: 8px;
   padding: 8px 10px;
   font: inherit;
-  font-size: 0.92rem;
+  font-size: 1.08rem;
 }
 
 .chat-input:disabled {
@@ -147,7 +154,7 @@
   color: var(--chat-accent-fg, #1a1205);
   font: inherit;
   font-weight: 700;
-  font-size: 0.9rem;
+  font-size: 1rem;
   padding: 8px 14px;
   border-radius: 8px;
   cursor: pointer;

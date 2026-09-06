@@ -13,7 +13,6 @@ import { ROLE } from './messages.js';
 import { roleDef, type Faction, type RoleId } from './roles.js';
 import type { SlotToken } from './setups.js';
 import {
-  ANONYMOUS,
   chatRules,
   isLodgeMate,
   isMason,
@@ -245,16 +244,6 @@ const CHANNEL_KINDS: Record<string, MafiaChannelKind> = {
   dead: 'dead'
 };
 
-/**
- * What the Spy sees instead of a face.
- *
- * Not a key, and not an oversight: `authorName` is the byline on a chat line,
- * the same field a player's own nickname travels in, and the log has no notion
- * of a translatable author. A symbol says "somebody, and you do not get to know
- * who" in every language, which is exactly the rule being enforced.
- */
-const MUFFLED = ANONYMOUS;
-
 export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.now()): MafiaView {
   const ended = state.phase === 'ended';
   const players = Object.values(state.players).sort((a, b) => a.slot - b.slot);
@@ -441,22 +430,10 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
     }
   }
 
-  let chat =
+  const chat =
     viewer.kind === 'player'
       ? chatVisibleTo(state, viewer.playerId)
       : state.chat.messages.filter((message) => message.channel === 'day' || ended);
-
-  // The spy hears the families' words but never sees their faces.
-  if (viewer.kind === 'player' && !ended) {
-    const self = state.players[viewer.playerId];
-    if (self?.role === 'spy') {
-      chat = chat.map((message) =>
-        (message.channel === 'mafia' || message.channel === 'triad') && message.authorId
-          ? { ...message, authorId: null, authorName: MUFFLED }
-          : message
-      );
-    }
-  }
 
   const results: MafiaResultRow[] | null = ended
     ? players.map((player) => {

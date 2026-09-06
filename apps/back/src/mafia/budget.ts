@@ -108,7 +108,7 @@ function midGame(players: number, humans: number, chatLines: number): string {
 
   const me = alive[alive.length - 1];
   const view = toMafiaView(state, { kind: 'player', playerId: me.playerId });
-  return brief(view, minds.board(state), minds.mind(state, me.playerId)!, 'TASK <task line>', 'en');
+  return brief(view, minds.board(state, me.playerId), minds.mind(state, me.playerId)!, 'TASK <task line>', 'en');
 }
 
 function breakdown(prompt: string): BudgetRow['sections'] {

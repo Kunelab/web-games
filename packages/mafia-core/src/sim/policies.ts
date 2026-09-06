@@ -82,6 +82,18 @@ export interface Claim {
    * "I went nowhere"; otherwise `targetSlot` is the house they admit visiting.
    */
   account?: 'home' | 'visited';
+  /**
+   * The room it was said in. Absent means the square, which everybody heard.
+   *
+   * The board is one object and every bot reads it, so a claim taken from a
+   * family channel, a cell or a whisper had to be kept off it entirely or a
+   * town seat's suspicion would move on words it could not possibly have
+   * heard. That is the worst kind of bug this game can have: from the outside
+   * it looks like a bot being clever. With the room on the claim, the ledger
+   * can be filtered per reader against the same `chatRules` the chat itself
+   * obeys, and a private room can be listened to without leaking out of it.
+   */
+  room?: string;
 }
 
 /** One day's closing accusation, for the town's pattern-readers. */
@@ -1102,18 +1114,34 @@ export function decideDay(
      * an impostor wear your badge for the rest of the game. Not entirely, since
      * a seat that has been quiet all evening does not always find its voice.
      */
+    /**
+     * The badge this seat is wearing, which is not always the one it holds.
+     *
+     * Read off the seat's own claims rather than its card, because a liar has
+     * exactly the same problem as a genuine holder the moment somebody else
+     * says its role out loud: the room is now looking at two Sheriffs and will
+     * hang one of them. A liar that stays quiet through that has conceded the
+     * badge and kept the suspicion, which is the worst of both, and it is what
+     * this did — the check only ever fired for a seat claiming its real card.
+     */
+    const face =
+      [...info.claims]
+        .reverse()
+        .find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === self.slot && claim.claimedRole)
+        ?.claimedRole ?? role;
+
     const impostor = info.claims.find(
       (claim) =>
         claim.kind === 'role-claim' &&
-        claim.claimedRole === role &&
+        claim.claimedRole === face &&
         claim.claimerSlot !== self.slot &&
         info.aliveSlots.includes(claim.claimerSlot)
     );
-    if (impostor && roleDef(role).unique && !alreadyClaimed(info, self.slot, self.slot, 'role-claim')) {
-      if (rng() < 0.85) {
-        publish(self.slot, 'role-claim', role);
-        publish(impostor.claimerSlot, 'accuse');
-      }
+    if (impostor && roleDef(face).unique && rng() < 0.85) {
+      // The badge goes up first if it has not been said yet; either way the
+      // seat wearing it now says, out loud, that the other one is not it.
+      if (!alreadyClaimed(info, self.slot, self.slot, 'role-claim')) publish(self.slot, 'role-claim', face);
+      if (!alreadyClaimed(info, self.slot, impostor.claimerSlot, 'accuse')) publish(impostor.claimerSlot, 'accuse');
     }
 
     /* ---------------- The afternoon: ask, answer, needle ---------------- */

@@ -210,7 +210,8 @@
 
 .mz-trail-head {
   margin: 0 0 0.15rem;
-  font: 700 0.72rem/1.4 system-ui, sans-serif;
+  /* A day marker inside the log, so it moves with the log's own size. */
+  font: 700 0.82rem/1.4 system-ui, sans-serif;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   opacity: 0.6;
@@ -617,14 +618,34 @@
     hidden except the toggle, which stays where it was, so the same click puts
     it back.
   */
+  /**
+   * A handle on the corner of the thing it folds, not a pill floating above it.
+   *
+   * It was the first item in a flex column, so it took a row of its own and sat
+   * in the gap over the board: on the left, orphaned half a screen from either
+   * edge, and on the right, detached from the panel it belongs to. Worse, the
+   * roster column scrolls, and an ordinary child scrolls with it — the one
+   * control that puts the board back walked off the top of its own column the
+   * moment you read past the first few seats.
+   *
+   * Sticky, so it stays on the corner however far the column is scrolled, and
+   * pulled back out of the flow by its own height plus the column gap, so it
+   * costs the column nothing and the panel below starts at the top edge where
+   * it should. The two surfaces it now overlaps make room for it themselves,
+   * below and in the chat's tab strip.
+   */
   .mz-min {
     display: inline-flex;
+    position: sticky;
+    top: 0;
+    z-index: 4;
     align-self: flex-end;
     align-items: center;
     justify-content: center;
     width: 1.7rem;
     height: 1.7rem;
     flex: none;
+    margin: 0 0.15rem -2.4rem 0;
     border: 1px solid var(--edge);
     border-radius: 999px;
     background: color-mix(in srgb, #191510 72%, transparent);
@@ -633,6 +654,15 @@
     font-size: 0.9rem;
     line-height: 1;
     cursor: pointer;
+  }
+
+  /* Nothing under the handle: the prompt and the chat's tabs stop short of it. */
+  .mz-left > .mz-prompt {
+    padding-right: 2.3rem;
+  }
+
+  .mz-right .chat-tabs {
+    padding-right: 2.3rem;
   }
 
   .mz-min:hover {
@@ -644,6 +674,12 @@
     width: auto;
     height: auto;
     overflow: visible;
+  }
+
+  /* Folded, the column *is* the handle, so it takes its space back. */
+  .mz-left--min > .mz-min,
+  .mz-right--min > .mz-min {
+    margin-bottom: 0;
   }
 
   .mz-left--min > *:not(.mz-min),

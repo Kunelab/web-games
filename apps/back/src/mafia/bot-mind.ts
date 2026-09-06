@@ -1,6 +1,7 @@
 import {
   agendaOf,
   bindPersonalities,
+  chatRules,
   contradicted,
   DEFAULT_PROFILE,
   feelPressure,
@@ -19,6 +20,12 @@ import {
   type Stance,
   type VoteRecord
 } from 'mafia-core';
+
+/**
+ * Who may hear what, asked once. The rules are pure and the chat asks the same
+ * object on every line it routes.
+ */
+const RULES = chatRules();
 
 /**
  * What the bots at one table remember, and how they feel about it.
@@ -99,12 +106,26 @@ export class BotMinds {
   }
 
   /**
-   * The public board as the bots see it: authoritative state plus everything
-   * this table's bots have said. Identical in shape to the bench's.
+   * The board as one seat is entitled to see it: authoritative state, plus
+   * every claim that seat could actually have heard.
+   *
+   * A claim with no room on it was said in the square and is common property,
+   * which is every claim this ledger held until private rooms started being
+   * listened to. Anything else is checked against `chatRules` — the same
+   * predicate the chat itself is routed by, so there is exactly one answer in
+   * the codebase to "may this player read that room".
+   *
+   * With no reader, the public half. Diagnostics and the headless harness ask
+   * that way, and so does anything whose answer must not depend on who is
+   * asking; a reader is required to see anything more.
    */
-  board(state: MafiaState): PublicInfo {
+  board(state: MafiaState, readerId?: string): PublicInfo {
     const table = this.memory(state.code);
-    return toPublicInfo(state, table.claims, table.voteHistory);
+    const heard =
+      readerId === undefined
+        ? table.claims.filter((claim) => claim.room === undefined)
+        : table.claims.filter((claim) => claim.room === undefined || RULES.canRead(claim.room, readerId, state));
+    return toPublicInfo(state, heard, table.voteHistory);
   }
 
   /**
@@ -152,11 +173,13 @@ export class BotMinds {
     if (table.pressuredDay === state.day) return;
     table.pressuredDay = state.day;
 
-    const board = this.board(state);
     for (const player of Object.values(state.players)) {
       if (!player.isBot || !player.alive || !player.role) continue;
       const mind = this.mind(state, player.playerId);
       if (!mind) continue;
+      // Each seat's own board: a mafioso's dawn mood may know what the family
+      // said in the night, and nobody else's may.
+      const board = this.board(state, player.playerId);
       mind.saidThisRound = 0;
       const allies = new Set(
         Object.values(state.players)
@@ -225,12 +248,22 @@ export class BotMinds {
     const table = this.memory(state.code);
     const claimer = state.players[claimerId];
     if (!claimer) return;
+    /**
+     * Once per claimer, target, kind and day — per room.
+     *
+     * The room belongs in the key now that private ones are read. Without it,
+     * a person who whispers "7 is mafia" to one bot and then says it out loud
+     * in the square files the whisper and has the announcement swallowed as a
+     * duplicate: the same sentence, but one of them was evidence the whole
+     * town could weigh and the other was not.
+     */
     const alreadySaid = table.claims.some(
       (claim) =>
         claim.claimerSlot === claimer.slot &&
         claim.targetSlot === targetSlot &&
         claim.kind === kind &&
-        claim.day === state.day
+        claim.day === state.day &&
+        claim.room === extra?.room
     );
     if (alreadySaid) return;
 

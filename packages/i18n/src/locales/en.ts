@@ -118,6 +118,7 @@ export const en: Catalogue = {
   'mafia.win.poisoner': 'Everybody had drunk something, once. The Poisoner wins.',
   'mafia.win.electromaniac': 'The town is still crackling. The Electromaniac wins.',
   'mafia.win.draw': 'The town, exhausted, declares a draw.',
+  'mafia.win.hollow': 'The killers took the town down with them. There is nobody left to save, and nobody to save them.',
   'mafia.end.unmasked': 'The masks come off: {roster}'
 };
 
