@@ -606,8 +606,13 @@ describe('a badge nobody disputes', () => {
         [claim({ claimerSlot: 2, targetSlot: 2, kind: 'role-claim', claimedRole: badge })],
         []
       );
-      assert.ok(claimerWeight(2, info) > 1, `${badge}: an uncontested badge is provisionally believed`);
-      assert.equal(claimerWeight(1, info), 1, 'and a seat with no badge is heard as before');
+      assert.ok(
+        claimerWeight(2, info) > claimerWeight(1, info),
+        `${badge}: an uncontested badge is provisionally believed`
+      );
+      // A seat that has shown the room nothing is discounted for it, and more
+      // so in the first days when nobody has had the chance.
+      assert.ok(claimerWeight(1, info) < 1, 'and a stranger is only a stranger');
     }
   });
 
@@ -618,6 +623,6 @@ describe('a badge nobody disputes', () => {
       claim({ claimerSlot: 3, targetSlot: 3, kind: 'role-claim', claimedRole: 'sheriff' })
     ];
     const info = toPublicInfo(state, claims, []);
-    assert.equal(claimerWeight(2, info), 1, 'two sheriffs is at least one liar');
+    assert.equal(claimerWeight(2, info), claimerWeight(1, info), 'two sheriffs is at least one liar');
   });
 });

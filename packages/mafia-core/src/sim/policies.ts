@@ -66,7 +66,26 @@ export const DEFAULT_PROFILE: Personality = {
  * mechanism in this model that catches a liar *without* waiting for a corpse to
  * prove it — which is what a real table spends its afternoons doing.
  */
-export type ClaimKind = 'accuse' | 'clear' | 'hint' | 'role-claim' | 'question' | 'account' | 'taunt' | 'sighting';
+export type ClaimKind =
+  | 'accuse'
+  | 'clear'
+  | 'hint'
+  | 'role-claim'
+  | 'question'
+  | 'account'
+  | 'taunt'
+  | 'sighting'
+  /**
+   * "Somebody did something to me last night."
+   *
+   * The one thing a seat can say about itself that costs nothing to say and
+   * hands the room something to act on: poison kills at the next dawn unless a
+   * doctor gets there, petrol says an arsonist is live and has already been to
+   * your door. It accuses nobody, so `suspicionParts` weighs it at nothing —
+   * and that is exactly what makes it a comfortable lie, which is why liars
+   * tell it too.
+   */
+  | 'ailing';
 
 /** A public statement about a house. `truthful` is ground truth, sim-stamped. */
 export interface Claim {
@@ -82,6 +101,8 @@ export interface Claim {
    * "I went nowhere"; otherwise `targetSlot` is the house they admit visiting.
    */
   account?: 'home' | 'visited';
+  /** ailing only: what the claimer says was done to them last night. */
+  ailment?: 'poison' | 'douse';
   /**
    * The room it was said in. Absent means the square, which everybody heard.
    *
@@ -137,6 +158,14 @@ export interface PublicInfo {
   /** Final accusations of past days: who was pushing whom. */
   voteHistory: VoteRecord[];
   revealedMayorSlot: number | null;
+  /**
+   * The seats a person is sitting in, which the roster shows anyway.
+   *
+   * Not a secret — every screen prints a marker beside a bot's name — and it is
+   * what lets `claimerWeight` hear a person differently from a machine. See the
+   * note there.
+   */
+  humanSlots: Set<number>;
   trialSlot: number | null;
   claims: Claim[];
   /**
@@ -370,6 +399,21 @@ export function feelPressure(
  * comfortable lie, and exactly one kind of role can prove it false — so the
  * town's afternoon of questions is worth having, and the liar's risk is real.
  */
+/**
+ * The floor a voice has to clear to be worth listening to at all.
+ *
+ * Not "fully believed" — that used to be the test, written as a weight of one,
+ * back when an ordinary seat weighed exactly one. An ordinary seat now weighs
+ * less than that until it has shown the room something (see `claimerWeight`),
+ * and leaving the test where it was quietly switched the contradiction
+ * mechanic off for the first three days of every game: nobody could catch
+ * anybody, because nobody had proved anything yet. What the test always meant
+ * was "somebody the room has not already written off", and that is what it now
+ * says: a proven liar is out, a seat caught saving evils is out, and a
+ * stranger with an ordinary reputation is a witness like anybody else.
+ */
+const CREDIBLE = 0.6;
+
 export function contradicted(slot: number, info: PublicInfo): boolean {
   const stayedHome = info.claims.some(
     (claim) => claim.kind === 'account' && claim.claimerSlot === slot && claim.account === 'home'
@@ -380,7 +424,7 @@ export function contradicted(slot: number, info: PublicInfo): boolean {
       claim.kind === 'sighting' &&
       claim.targetSlot === slot &&
       claim.claimerSlot !== slot &&
-      claimerWeight(claim.claimerSlot, info) >= 1
+      claimerWeight(claim.claimerSlot, info) >= CREDIBLE
   );
 }
 
@@ -525,6 +569,25 @@ export function claimerWeight(claimerSlot: number, info: PublicInfo): number {
   else if (trust >= 2) weight *= 1.3;
 
   /**
+   * And a person is heard further than a machine.
+   *
+   * Not flattery: it is what the table is for. Twenty bots reading each other's
+   * claims off a shared board agree far more readily than a room of people
+   * does, so a human Sheriff spent an afternoon shouting into a square that had
+   * already made up its mind among itself. Weighing a person half again as
+   * heavily is the cheapest way to make the one seat that is actually playing
+   * the loudest voice in the room, and — with the chorus discount in
+   * `suspicionParts` — the anchor a wagon forms around rather than a footnote
+   * to it.
+   *
+   * It cuts both ways, which is the point: a person who talks is heard, and a
+   * person who is heard is worth killing. Every headless bench is all bots, so
+   * this multiplies nothing there and the balance numbers still mean what they
+   * meant.
+   */
+  if (info.humanSlots.has(claimerSlot)) weight *= 1.5;
+
+  /**
    * A badge nobody has disputed is worth something before anybody dies.
    *
    * A living seat saying "I am the Sheriff, and 7 came back bad" used to be
@@ -555,6 +618,28 @@ export function claimerWeight(claimerSlot: number, info: PublicInfo): number {
     if (isEvilRole(proven)) return 0;
     if (roleDef(proven).faction === 'town') weight = Math.max(weight, 2.0);
   }
+
+  /**
+   * And a stranger is only a stranger.
+   *
+   * Everything above raises a voice for a reason: a badge nobody disputes, a
+   * corpse the graveyard vouched for, a record of hanging the right people. A
+   * seat with none of them has shown the room precisely nothing, and it was
+   * still heard at full volume — so on day two, when *nobody* has shown
+   * anything yet, twenty strangers agreeing with the first stranger to speak
+   * was a case. Blind trust in somebody who has not earned any is the loudest
+   * thing wrong with a table of bots, and it is loudest on the day there is
+   * least to go on.
+   *
+   * So an unproven voice is discounted, and the discount lifts as the game
+   * gives people chances to show what they are: a third off on the first days,
+   * a fifth off later. It never reaches zero — a stranger saying "7 is lying"
+   * is still worth hearing — and it does not touch anybody the record speaks
+   * for, which is the whole point of speaking up.
+   */
+  const unproven =
+    weight === 1 && !info.deadRoles.has(claimerSlot) && uncontestedBadge(claimerSlot, info) === null && !proven;
+  if (unproven) weight *= info.day <= 3 ? 0.65 : 0.8;
 
   return weight;
 }
@@ -627,6 +712,16 @@ export function buddyScore(targetSlot: number, info: PublicInfo): number {
 export interface SuspicionParts {
   evidence: number;
   wagon: number;
+  /**
+   * The half of `evidence` this seat could actually stand up and point to.
+   *
+   * Its own nights, the graveyard's verdicts, a seat caught contradicting its
+   * own alibi, two people wearing one unique badge: things a juror can name
+   * without saying "well, everybody says so". The rest is the room agreeing
+   * with itself, and `decideBallot` treats the two very differently — see the
+   * doubt it buys there.
+   */
+  hard: number;
 }
 
 export function suspicionParts(
@@ -637,22 +732,74 @@ export function suspicionParts(
 ): SuspicionParts {
   let score = 0;
 
+  /**
+   * The crowd, counted once and then discounted.
+   *
+   * Every accusation used to add its full weight, so a room of twenty seats
+   * that all agreed added twenty times the evidence of the one seat that
+   * actually knew something — and since suspicion is what makes a bot accuse,
+   * the first accusation manufactured the second, which manufactured the third.
+   * Tables reached twenty-to-one verdicts on an afternoon in which exactly one
+   * seat had said anything of its own, and every other line was "X already
+   * called you out, so I am voting X". Reported from a real table, and it is
+   * the single loudest way these bots stop looking like people.
+   *
+   * So the loudest voice is worth what it was always worth and each one after
+   * it is worth rather less, which is what a room of people actually does with
+   * a chorus: the second person to agree adds something, the eighth adds
+   * nothing. The sum converges near four and a half times the top voice
+   * instead of growing without limit, so a badge with a check still hangs
+   * somebody and a pile-on on its own no longer does.
+   *
+   * Clearings decay the same way and for the same reason: a chorus of friends
+   * vouching is not proof of innocence either, and leaving that side linear
+   * while capping the other would simply have moved the runaway.
+   */
+  const ECHO = 0.65;
+  const chorus = (kind: ClaimKind): number => {
+    const voices = info.claims
+      .filter((claim) => claim.kind === kind && claim.targetSlot === targetSlot && claim.claimerSlot !== self.slot)
+      .map((claim) => claimerWeight(claim.claimerSlot, info))
+      .sort((left, right) => right - left);
+    let total = 0;
+    let echo = 1;
+    for (const weight of voices) {
+      total += weight * echo;
+      echo *= ECHO;
+    }
+    return total;
+  };
+
+  score += 2.0 * chorus('accuse');
+  score -= 2.2 * chorus('clear');
+
   for (const claim of info.claims) {
     if (claim.targetSlot !== targetSlot) continue;
     if (claim.claimerSlot === self.slot) continue; // own claims counted via intel below
     const weight = claimerWeight(claim.claimerSlot, info);
-    if (claim.kind === 'accuse') score += 2.0 * weight;
     if (claim.kind === 'hint') score += 0.8 * weight;
-    // Being out at night is not a crime — half the town is out at night.
+    /**
+     * Being out at night is not a crime — half the town is out at night. Left
+     * linear on purpose: two people putting the same house on two different
+     * doorsteps are two observations, not one opinion said twice.
+     */
     if (claim.kind === 'sighting') score += 0.5 * weight;
-    if (claim.kind === 'clear') score -= 2.2 * weight;
   }
 
+  /** Everything below that a juror could point to itself, kept apart. */
+  let hard = 0;
+
   // Being out at night *after saying you were home* is a different matter.
-  if (contradicted(targetSlot, info)) score += 3;
+  if (contradicted(targetSlot, info)) {
+    score += 3;
+    hard += 3;
+  }
 
   // A proven liar is himself a prime candidate.
-  if (provenLiar(targetSlot, info)) score += 2.5;
+  if (provenLiar(targetSlot, info)) {
+    score += 2.5;
+    hard += 2.5;
+  }
 
   // The trust meter: saving mafiosi at trials is remembered; hanging them too.
   score -= trustOf(targetSlot, info) * 0.6;
@@ -671,9 +818,15 @@ export function suspicionParts(
         claim.claimerSlot !== targetSlot &&
         info.aliveSlots.includes(claim.claimerSlot)
     );
-    if (roleDef(roleClaim.claimedRole).unique && rivals.length > 0) score += 1.5;
+    if (roleDef(roleClaim.claimedRole).unique && rivals.length > 0) {
+      score += 1.5;
+      hard += 1.5;
+    }
     if ([...info.deadRoles.entries()].some(([slot, role]) => role === roleClaim.claimedRole && roleDef(role).unique && slot !== targetSlot)) {
-      score += 3; // claiming a role that is already in the ground
+      // Claiming a role that is already in the ground: the graveyard said it,
+      // not the room.
+      score += 3;
+      hard += 3;
     }
 
     /**
@@ -707,12 +860,16 @@ export function suspicionParts(
     }
   }
 
-  // Own hard evidence outweighs the rumour mill.
+  // Own hard evidence outweighs the rumour mill, and is the model of what a
+  // juror can point to: it saw it happen.
   for (const entry of self.intel) {
     if (entry.targetSlot !== targetSlot) continue;
-    if (entry.kind === 'sheriff') score += entry.value === 'suspect' ? 3 : -4;
-    if (entry.kind === 'role') score += isEvilRole(entry.value as RoleId) ? 4 : -4;
-    if (entry.kind === 'saved') score -= 2; // an attacked patient is rarely the killer
+    let own = 0;
+    if (entry.kind === 'sheriff') own += entry.value === 'suspect' ? 3 : -4;
+    if (entry.kind === 'role') own += isEvilRole(entry.value as RoleId) ? 4 : -4;
+    if (entry.kind === 'saved') own -= 2; // an attacked patient is rarely the killer
+    score += own;
+    hard += own;
   }
 
   // Never once voted for each other, and often together. See `buddyScore`.
@@ -721,13 +878,17 @@ export function suspicionParts(
   // What the record proves outweighs what anybody says. A proven Veteran is a
   // townie whatever the wagon thinks; a proven wolf is done.
   const proven = info.provenRoles.get(targetSlot);
-  if (proven) score += isEvilRole(proven) ? 4 : -3;
+  if (proven) {
+    const weight = isEvilRole(proven) ? 4 : -3;
+    score += weight;
+    hard += weight;
+  }
 
   // The wagon: herd instinct, weighted by personality. Returned separately, so
   // the caller decides whether momentum is allowed to carry the day.
   const wagon = [...info.votes.values()].filter((voted) => voted === targetSlot).length;
 
-  return { evidence: score + rng() * 0.3, wagon: wagon * 0.5 * brainHerd(self) };
+  return { evidence: score + rng() * 0.3, wagon: wagon * 0.5 * brainHerd(self), hard };
 }
 
 /**
@@ -946,7 +1107,13 @@ export function decideDay(
   const agenda = agendaOf(role);
   const stance = stanceOf(agenda, brain.desperation, brain.personality);
 
-  const publish = (targetSlot: number, kind: ClaimKind, claimedRole?: RoleId, account?: 'home' | 'visited') => {
+  const publish = (
+    targetSlot: number,
+    kind: ClaimKind,
+    claimedRole?: RoleId,
+    account?: 'home' | 'visited',
+    ailment?: Claim['ailment']
+  ) => {
     if (!alreadyClaimed(info, self.slot, targetSlot, kind)) {
       decision.publishes.push({
         day: info.day,
@@ -955,7 +1122,8 @@ export function decideDay(
         kind,
         truthful: false,
         claimedRole,
-        account
+        account,
+        ailment
       });
     }
   };
@@ -963,6 +1131,53 @@ export function decideDay(
   /* -------- Claims: talk to the town (or poison it). -------- */
   // A gagged mouth publishes nothing today; the vote still counts.
   const gagged = self.silencedDay === info.day;
+
+  /**
+   * "They came to my door last night."
+   *
+   * Free information, which is the whole reason to say it: naming what was done
+   * to you accuses nobody, contradicts nothing you have said, and asks the room
+   * for something concrete. A poisoned seat is dead at dawn without a doctor,
+   * so it says so almost always. Petrol is a warning rather than a request —
+   * nothing cures it — so it is said often and not without fail.
+   *
+   * Said by whoever it happened to, town or not: a poisoned mafioso wants the
+   * doctor's night exactly as much as anybody else, and spending the town's
+   * only heal on itself is a bonus rather than a cost. Once per seat per game;
+   * a seat that repeats it every afternoon is a seat nobody listens to.
+   */
+  const already = info.claims.some((claim) => claim.kind === 'ailing' && claim.claimerSlot === self.slot);
+  const ailing: Claim['ailment'] | null =
+    self.poisonedNight !== null ? 'poison' : self.doused ? 'douse' : null;
+  if (!gagged && !already && ailing) {
+    if (rng() < (ailing === 'poison' ? 0.95 : 0.45)) publish(self.slot, 'ailing', undefined, undefined, ailing);
+  }
+
+  /**
+   * And the same sentence from somebody it did not happen to.
+   *
+   * It is the cheapest lie in the game — it accuses nobody, so nobody argues
+   * with it, and it buys sympathy, a night of the doctor's attention, or a
+   * reason to have been quiet. Only once the dawn report has actually named
+   * that weapon, though: claiming the poison on a table where nobody has ever
+   * been poisoned is not a bluff, it is an announcement that a poisoner exists,
+   * and the room can read the same reports this does. Rare, and rarer still in
+   * a seat with no taste for lying.
+   */
+  if (!gagged && !already && !ailing && agenda !== 'town' && info.day > 2) {
+    const weapons = new Set(info.deaths.map((death) => death.source));
+    const tellable = ([['poison', 'poison'], ['arsonist', 'douse']] as const).filter(([source]) =>
+      weapons.has(source)
+    );
+    // The dice come out only when there is something to lie about: a draw
+    // taken on an empty list still moves the sequence, and a bench whose
+    // numbers shift because a branch *considered* firing measures nothing.
+    if (tellable.length > 0 && rng() < 0.08 * (0.5 + brain.personality.deceit)) {
+      const pick = tellable[Math.floor(rng() * tellable.length)];
+      if (pick) publish(self.slot, 'ailing', undefined, undefined, pick[1]);
+    }
+  }
+
   if (info.day > 1 && !gagged) {
     /**
      * Self-preservation. Speaking outs you as an information role and paints
@@ -1656,8 +1871,39 @@ export function defenceStrength(accusedSlot: number, info: PublicInfo): number {
     if (!rivalClaim && !buried) credit += roleDef(roleClaim.claimedRole).unique ? 0.4 : 0.08;
   }
 
-  // An account of the night that no sighting contradicts.
-  if (today.some((claim) => claim.kind === 'account') && !contradicted(accusedSlot, info)) credit += 0.28;
+  /**
+   * An account of the night that no sighting contradicts.
+   *
+   * Naming the house you went to is worth far more than saying you stayed in:
+   * one is a fact anybody with a lookout's list can break by tomorrow morning,
+   * the other cannot be checked and cannot be wrong. A defence should be paid
+   * for the risk it takes, not for the words it uses.
+   */
+  if (!contradicted(accusedSlot, info)) {
+    const account = today.find((claim) => claim.kind === 'account');
+    if (account) credit += account.account === 'visited' ? 0.45 : 0.2;
+  }
+
+  /**
+   * And a defence that hands the room something it did not have.
+   *
+   * The stand is the one moment a seat will spend everything it knows, and a
+   * seat that empties a real notebook there — a check, a doorstep, somebody it
+   * can clear — has just made itself far more useful alive than hanged. It is
+   * also the most expensive lie in the game to tell, because every line of it
+   * is checkable by tomorrow and `claimerWeight` drops a proven liar to zero.
+   *
+   * Two findings' worth at most: a wall of claims from the barre is a seat
+   * throwing everything at the wall, and the room reads it that way too.
+   */
+  const findings = today.filter(
+    (claim) => claim.kind === 'accuse' || claim.kind === 'clear' || claim.kind === 'sighting'
+  ).length;
+  credit += Math.min(findings, 2) * 0.25;
+
+  // "They poisoned me last night" is checkable at the next dawn, which is more
+  // than most of what gets said on a stand.
+  if (today.some((claim) => claim.kind === 'ailing')) credit += 0.15;
 
   /**
    * And who is pushing this.
@@ -1740,6 +1986,26 @@ export function decideBallot(
    * being mostly other people's opinion, but it is evidence, and it is the
    * thing the accused is there to answer.
    */
+  /**
+   * Reasonable doubt, which this room had none of.
+   *
+   * Every juror reads the same board, so every juror reached the same verdict:
+   * trials ended twenty to one, sixteen to nothing, thirteen to nothing, on
+   * afternoons where exactly one seat had said anything of its own and the rest
+   * had repeated it. That is not a jury, it is a mirror.
+   *
+   * So a seat that has nothing of its *own* — no check, no contradiction, no
+   * verdict from the graveyard, only the room's word for it — sometimes says
+   * so with its ballot. How often depends on temperament (a follower doubts
+   * less) and on the clock: at LyLo, when sparing the wrong person ends the
+   * game, doubt is a luxury and mostly gets swallowed. A seat holding real
+   * evidence never doubts, which is the point: it knows something.
+   */
+  if (parts.hard < 1) {
+    const doubt = (0.45 - 0.25 * parityPressure(info)) * (1 - brain.personality.herd * 0.5);
+    if (rng() < doubt) return 'innocent';
+  }
+
   const broughtToTrial = 0.6;
   const against = parts.evidence + parts.wagon * 0.5 + broughtToTrial;
   const defended = defenceStrength(accusedSlot, info);
@@ -1932,6 +2198,37 @@ export function decideNightTarget(
   /* ------------------------------ protectors ------------------------------ */
 
   if (actionType === 'heal' || actionType === 'guard') {
+    /**
+     * Somebody has said out loud that they are dying, and a doctor can stop it.
+     *
+     * Poison kills at the next dawn and a heal cures it, so a seat that says "I
+     * have been poisoned" is asking for the one thing a Doctor has and naming
+     * the night it is needed. Answering is the most useful thing the role does
+     * all game — and it is also a trap somebody may have set, because a liar
+     * can say the same sentence for free and spend the town's only heal. That
+     * is a fair trade for a fair game, and it is why this is a preference and
+     * not an obligation: a doctor with a seat it trusts more still goes there.
+     *
+     * Guards are not doctors. A bodyguard trades its life for one attack and
+     * cures nothing, so poison is none of its business.
+     */
+    if (actionType === 'heal') {
+      const dying = info.claims
+        .filter(
+          (claim) =>
+            claim.kind === 'ailing' &&
+            claim.ailment === 'poison' &&
+            claim.day >= info.day - 1 &&
+            claim.claimerSlot !== self.slot &&
+            legalTargets.includes(claim.claimerSlot) &&
+            // Not from a mouth the record has already caught out: a proven liar
+            // saying it is dying is a liar spending somebody else's night.
+            claimerWeight(claim.claimerSlot, info) > 0
+        )
+        .map((claim) => claim.claimerSlot);
+      if (dying.length > 0 && rng() < 0.55) return pickRanked([...new Set(dying)], rng, 0.2);
+    }
+
     // Stand where the knife is headed: the mayor, the claimers, and the
     // behaviorally confirmed town (the mafia hunts trusted seats too) — with
     // the 25% clutch slip. A doctor who saved the loud sheriff last night

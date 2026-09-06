@@ -61,6 +61,7 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
   return {
     day: state.day,
     deaths,
+    humanSlots: new Set(players.filter((player) => !player.isBot).map((player) => player.slot)),
     provenRoles: provenRoles(state, claims, deaths),
     aliveSlots: players.filter((player) => player.alive).map((player) => player.slot),
     /**
