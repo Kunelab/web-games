@@ -1,5 +1,16 @@
 import type { Faction, RoleId } from './roles.js';
-import { ROLES, rolesOfFaction } from './roles.js';
+import { isSoloKiller, ROLES, rolesOfFaction } from './roles.js';
+
+/**
+ * A seat that can actually end somebody: a family's knife, or a lone blade.
+ *
+ * `faction === 'mafia'` is a different question and answering it instead is
+ * what dealt a family of Consiglieres and Framers with nothing to kill with.
+ */
+export function canKill(role: RoleId): boolean {
+  const rank = ROLES[role].familyRank;
+  return rank === 'leader' || rank === 'executor' || isSoloKiller(role);
+}
 
 /**
  * Setups, the SC2 Mafia way: a setup is a list of *slots*, each either an
@@ -295,9 +306,18 @@ export function chaosSetup(players: number, rng: () => number): RoleId[] {
     dealt.push(pick);
     taken.add(pick);
   }
-  if (!dealt.some((role) => ROLES[role].faction === 'mafia' || role === 'serial-killer' || role === 'arsonist')) {
-    dealt[0] = 'godfather';
-  }
+  /**
+   * Somebody has to be dangerous, or the night is scenery.
+   *
+   * The old test asked whether any seat was *mafia-factioned*, or one of two
+   * particular solo killers. That is not the same question: a lone Consigliere
+   * satisfied it, the guard passed, and the table dealt a family that could
+   * never attack anybody — which is exactly what was reported, a mafia with no
+   * mafioso and no godfather in it. It also ignored the Triad, the Cult and
+   * three of the five lone blades, so a perfectly dangerous table could get a
+   * Godfather stapled over seat zero for no reason.
+   */
+  if (!dealt.some((role) => canKill(role))) dealt[0] = 'godfather';
   if (!dealt.some((role) => ROLES[role].faction === 'town')) {
     dealt[dealt.length - 1] = 'sheriff';
   }

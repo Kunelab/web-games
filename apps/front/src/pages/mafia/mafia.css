@@ -463,6 +463,11 @@
   display: none;
 }
 
+/* The fold-away buttons are a desktop affordance; the phone has its tabs. */
+.mz-min {
+  display: none;
+}
+
 /* ------------------------- the desktop board layout ------------------------ */
 
 @media (min-width: 60rem) {
@@ -592,9 +597,58 @@
     position: absolute;
     right: 0.7rem;
     bottom: 0.7rem;
-    width: min(26rem, 32vw);
-    /* Bounded on purpose: the chat is the game, not the whole screen. */
-    height: min(46vh, 30rem);
+    /*
+      Room to actually read the afternoon.
+
+      This was a 26rem strip holding four lines of conversation beside a large
+      empty square, and the conversation is where the game is played. Roughly
+      twice as wide and half again as tall, with the fold-away button below to
+      hand the board back whenever somebody wants to look at it.
+    */
+    width: min(46rem, 44vw);
+    height: min(56vh, 38rem);
+  }
+
+  /*
+    Folded away: the column shrinks to its own button and the town shows through.
+
+    The phone has tabs for this and the desktop had nothing, so both columns sat
+    there permanently whatever you wanted to look at. Everything inside is
+    hidden except the toggle, which stays where it was, so the same click puts
+    it back.
+  */
+  .mz-min {
+    display: inline-flex;
+    align-self: flex-end;
+    align-items: center;
+    justify-content: center;
+    width: 1.7rem;
+    height: 1.7rem;
+    flex: none;
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    background: color-mix(in srgb, #191510 72%, transparent);
+    backdrop-filter: blur(8px);
+    color: inherit;
+    font-size: 0.9rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .mz-min:hover {
+    border-color: var(--accent);
+  }
+
+  .mz-left--min,
+  .mz-right--min {
+    width: auto;
+    height: auto;
+    overflow: visible;
+  }
+
+  .mz-left--min > *:not(.mz-min),
+  .mz-right--min > *:not(.mz-min) {
+    display: none;
   }
 
   /* Translucent, so the town keeps reading behind whatever is on top of it. */
@@ -737,6 +791,53 @@
   --town-window-lit: #b9e2ff;
   --town-stone: #6f7478;
   --town-wood: #3f4348;
+}
+
+/*
+ * Nightfall, which the board never actually did.
+ *
+ * `MafiaTown` has always put `mz-town--night` on the wrapper when the sun goes
+ * down, and no stylesheet has ever defined it — so the palette above, the one
+ * commented "day version", painted a bright blue afternoon sky over every
+ * night phase of every game. The single most important piece of information on
+ * the screen, whether it is safe to be outdoors, was the one thing the scenery
+ * did not say.
+ *
+ * Every token is re-cut rather than filtered: a `brightness()` on the whole
+ * board would take the lit windows down with it, and lit windows are the point
+ * of a night scene — the town is dark, and somebody is still awake.
+ *
+ * Written after the themed block above and with two classes, so it outranks
+ * both the day defaults and a theme's attribute selector.
+ */
+.mz-town.mz-town--night {
+  --town-sky-top: #0b1220;
+  --town-sky-bottom: #1e2a44;
+  --town-grass: #223026;
+  --town-grass-plot: #27392b;
+  --town-plaza: #2f2d29;
+  --town-wall-l: #4a4335;
+  --town-wall-r: #322d24;
+  --town-roof: #4a2622;
+  --town-door: #241a11;
+  --town-window: #1f2831;
+  /* Warmer and brighter than by day: a lamp reads as a lamp against the dark. */
+  --town-window-lit: #ffd98c;
+  --town-stone: #3a3833;
+  --town-wood: #2b1e14;
+}
+
+/*
+ * And the change is a dusk rather than a cut.
+ *
+ * The wrapper already eases its sky over 900ms; the houses on it changed
+ * instantly, so the sky sank and the roofs snapped. Same curve, same duration,
+ * so the whole board goes down together.
+ */
+.mz-town-canvas * {
+  transition:
+    fill 900ms ease,
+    stroke 900ms ease;
 }
 
 /* --------------------------------- panels --------------------------------- */

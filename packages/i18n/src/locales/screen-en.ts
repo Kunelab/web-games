@@ -127,6 +127,8 @@ export const screenEn: Catalogue = {
   'mafia.ui.bot.model': 'Bot · speaking through {model}',
   'mafia.ui.bot.quiet': 'Bot · has not spoken yet',
   'mafia.ui.revealed': 'Revealed',
+  'mafia.ui.fold': 'Hide this panel',
+  'mafia.ui.unfold': 'Show this panel',
   'mafia.ui.away': 'Disconnected',
   'mafia.ui.whisperTo': 'Whisper to {name}',
   'mafia.ui.unknownIdentity': 'Identity unknown',

@@ -94,6 +94,8 @@ const POINTS: Record<PointEntry['reason'], number> = {
   save: 2,
   'lynch-evil': 1,
   'execute-evil': 2,
+  // Paid on top of `solo-win`, and only where winning meant dying. See `PointEntry`.
+  martyr: 3,
   participation: 1
 };
 
@@ -640,9 +642,23 @@ export function legalNightAction(state: MafiaState, playerId: string): LegalActi
     case 'swap':
       // Two houses trade fates; the driver may ride his own bus.
       return { type: 'swap', targets: [...slots(others), player.slot], charges: null };
-    case 'convert':
+    case 'convert': {
       if (player.cooldownUntilDay !== null && state.day < player.cooldownUntilDay) return null;
-      return { type: 'convert', targets: slots(outsiders), charges: null };
+      /**
+       * Only the townsfolk can be preached to, which the picker did not say.
+       *
+       * It offered every living outsider — mafiosi, triads, neutrals — while the
+       * resolver converts town seats only, so a cultist could spend its one
+       * night in two on a Godfather and be told merely that he "resisted the
+       * call". A bot picks uniformly from what it is offered, so as the town
+       * thinned the failure rate climbed, and once no town seat remained the
+       * action stayed selectable and could never succeed again. That is the
+       * "stopped converting for many turns" report.
+       */
+      const flock = outsiders.filter((entry) => entry.role !== null && roleDef(entry.role).faction === 'town');
+      if (flock.length === 0) return null;
+      return { type: 'convert', targets: slots(flock), charges: null };
+    }
     case 'bond':
       if (player.bondPartnerId !== null) return null;
       return { type: 'bond', targets: slots(others), charges: uses };
@@ -924,6 +940,68 @@ export interface MafiaPresenceView {
 
 /* ------------------------------ transitions ----------------------------- */
 
+/**
+ * The knife changes hands when there is nobody left holding it.
+ *
+ * A family whose leader and executors are all in the ground stops being a
+ * threat forever: `resolveNight` finds no carrier and quietly skips the attack,
+ * so the survivors become scenery the town still has to clear seat by seat
+ * before it is allowed to win. That is the shape of a lot of long, drawn games.
+ *
+ * The Caporegime's own description has advertised this since the day it was
+ * written — "when the Godfather falls, he learns to smile like him" — and
+ * nothing implemented it. Any surviving member will take the knife; the
+ * counsellor first, because a family promotes its second in command.
+ *
+ * The Cult carries no knife, so its version of this is the pulpit: see below.
+ * Private in every case, because who holds either is the family's business.
+ */
+function promoteCarriers(state: MafiaState): void {
+  for (const [faction, knife] of [
+    ['mafia', 'mafioso'],
+    ['triad', 'enforcer']
+  ] as const) {
+    const members = Object.values(state.players).filter(
+      (player) => player.alive && player.role !== null && roleDef(player.role).faction === faction
+    );
+    if (members.length === 0) continue;
+    const armed = members.some((member) => {
+      const rank = roleDef(member.role!).familyRank;
+      return rank === 'leader' || rank === 'executor';
+    });
+    if (armed) continue;
+
+    const heir = members.find((member) => member.role === 'consigliere' || member.role === 'administrator') ?? members[0];
+    heir.role = knife;
+    heir.charges = roleDef(knife).charges ?? 0;
+    notify(heir, NOTE.promoted(knife));
+  }
+
+  /**
+   * And somebody has to keep preaching.
+   *
+   * Only a seat whose role is literally `cultist` can convert, and converting a
+   * Doctor produces a Witch Doctor — a full cult member whose night is a heal,
+   * not a sermon. So a cult that lost its cultists was finished as a cult while
+   * still blocking the town's victory: its survivors counted for parity, could
+   * never convert again, and nobody was told. Reported from a real game as two
+   * cult deaths and one survivor who simply stopped working.
+   *
+   * The same succession the families get. It is not a free extra conversion:
+   * the heir starts with no cooldown, which is exactly where a fresh cultist
+   * starts, and the cult still only converts a night in two.
+   */
+  const flock = Object.values(state.players).filter(
+    (player) => player.alive && player.role !== null && roleDef(player.role).faction === 'cult'
+  );
+  if (flock.length > 0 && !flock.some((member) => member.role === 'cultist')) {
+    const heir = flock[0];
+    heir.role = 'cultist';
+    heir.charges = roleDef('cultist').charges ?? 0;
+    notify(heir, NOTE.promoted('cultist'));
+  }
+}
+
 function beginDay(state: MafiaState, now: number, announcements: Announcement[]): void {
   echoNotes(state, now);
   state.day += 1;
@@ -946,6 +1024,7 @@ function beginDay(state: MafiaState, now: number, announcements: Announcement[])
 
 function beginNight(state: MafiaState, now: number): void {
   echoNotes(state, now);
+  promoteCarriers(state);
   state.phase = 'night';
   state.stage = null;
   state.trial = null;
@@ -1124,6 +1203,8 @@ function lynch(state: MafiaState, accused: MafiaPlayer, trial: { ballots: Record
   if (role === 'jester') {
     state.winners.push({ playerId: accused.playerId, reason: M.winReason('jester'), kind: 'jester' });
     addPoints(state, accused.playerId, 'solo-win');
+    // The rope was the plan, so the seat can never be paid for surviving it.
+    addPoints(state, accused.playerId, 'martyr');
     notify(accused, NOTE.jesterWon());
     announce(state, M.winJester(), now);
   }
@@ -1233,24 +1314,6 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   // Yesterday's borrowed faces wash off before tonight's are painted on.
   for (const player of players) player.disguiseRole = null;
 
-  // Self-preparations first: they cannot be blocked (short of a jail cell).
-  const alerted = new Set<string>();
-  const vested = new Set<string>();
-  for (const player of players) {
-    if (!player.alive || blocked.has(player.playerId)) continue;
-    const action = actionOf(player);
-    if (action?.type === 'alert' && player.charges > 0) {
-      player.charges -= 1;
-      alerted.add(player.playerId);
-      notify(player, NOTE.onAlert());
-    }
-    if (action?.type === 'vest' && player.charges > 0) {
-      player.charges -= 1;
-      vested.add(player.playerId);
-      notify(player, NOTE.vestOn());
-    }
-  }
-
   /** Who stepped out to whose house tonight; the lookout and veteran read this. */
   const visits: { visitorId: string; targetId: string }[] = [];
   const visit = (visitorId: string, targetId: string): void => {
@@ -1323,7 +1386,43 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     blocked.add(target.playerId);
     sheltered.add(target.playerId);
     notify(target, NOTE.kidnapped());
+    // And the kidnapper is told it worked, which it never was: the whole of the
+    // feedback was an `intel` row, and no screen in the game renders those. You
+    // pressed the button and observed nothing, which is exactly how it was
+    // reported — "the kidnapper does not seem to work".
+    notify(player, NOTE.kidnapDone(target.name));
     player.intel.push({ night: state.day, kind: 'blocked', targetSlot: target.slot, value: 'kidnapped' });
+  }
+
+  /**
+   * Self-preparations: the alert and the vest, which cannot be blocked short of
+   * being taken out of your own house.
+   *
+   * After the cell and the sack, and that ordering is the whole point. These ran
+   * first, so a kidnapped Veteran spent a charge going on alert inside somebody
+   * else's cellar, the kidnap counted as a visit to his porch, and the porch
+   * pass shot the kidnapper — who was killed by the man he had just abducted,
+   * while the abduction rendered that man untouchable. The jail has always got
+   * this right by seeding `blocked` before this loop; the sack now does too.
+   *
+   * Still before the roleblock pass below, which reads `alerted` to decide that
+   * an armed Veteran at home is nobody's idea of "kept busy".
+   */
+  const alerted = new Set<string>();
+  const vested = new Set<string>();
+  for (const player of players) {
+    if (!player.alive || blocked.has(player.playerId)) continue;
+    const action = actionOf(player);
+    if (action?.type === 'alert' && player.charges > 0) {
+      player.charges -= 1;
+      alerted.add(player.playerId);
+      notify(player, NOTE.onAlert());
+    }
+    if (action?.type === 'vest' && player.charges > 0) {
+      player.charges -= 1;
+      vested.add(player.playerId);
+      notify(player, NOTE.vestOn());
+    }
   }
 
   // Roleblocks. An alerted veteran is home armed — nobody "keeps him busy".
@@ -1577,7 +1676,16 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   // The jailor's execution: inside the cell, no protection reaches it.
   const jailor = players.find((p) => p.alive && p.role === 'jailor');
   const jailed = living(jailedId);
-  if (jailor && jailed && actionOf(jailor)?.type === 'jail-execute' && jailor.charges > 0) {
+  // A jailor who has been kidnapped or roleblocked pulls no lever: every other
+  // kill in this file checks `blocked` and this one did not, so the single most
+  // valuable use of a kidnap — the man with the keys — did nothing at all.
+  if (
+    jailor &&
+    jailed &&
+    !blocked.has(jailor.playerId) &&
+    actionOf(jailor)?.type === 'jail-execute' &&
+    jailor.charges > 0
+  ) {
     jailor.charges -= 1;
     attacks.push({ attackerId: jailor.playerId, targetId: jailed.playerId, power: 3, source: 'jailor' });
   }
@@ -1628,8 +1736,15 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       if (attacker) notify(attacker, NOTE.targetMissing());
       continue;
     }
-    // A kidnapped player is somewhere nobody knows.
-    if (sheltered.has(target.playerId) && !isPoison) {
+    /**
+     * A kidnapped player is somewhere nobody knows — except the man holding
+     * them in his own cell.
+     *
+     * `!fromJailor` is on the cell check above and was missing here, so an
+     * outsider could reach into the jail, sack the prisoner, and void a
+     * power-three execution the jailor had already spent a charge on.
+     */
+    if (sheltered.has(target.playerId) && !fromJailor && !isPoison) {
       if (attacker) notify(attacker, NOTE.targetMissing());
       continue;
     }

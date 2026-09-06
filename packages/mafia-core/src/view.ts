@@ -276,7 +276,17 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
     if (family !== null) {
       for (const [actorId, action] of Object.entries(state.nightActions)) {
         const actor = state.players[actorId];
-        if (!actor?.alive || playerFamily(actor) !== family || !action.targetId) continue;
+        /**
+         * Only the hands that hold the knife.
+         *
+         * The badge says "aiming tonight's knife at this house" and the loop
+         * counted every family night action, so a Consigliere reading a file, a
+         * Framer planting evidence and a Janitor prepping a clean each added
+         * one — three marks on three different houses, not one of them a vote
+         * for tonight's victim.
+         */
+        if (!actor?.alive || !actor.role || playerFamily(actor) !== family) continue;
+        if (roleDef(actor.role).nightAction !== 'kill' || !action.targetId) continue;
         aim.set(action.targetId, (aim.get(action.targetId) ?? 0) + 1);
       }
     }
@@ -308,8 +318,19 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
   const publicPlayers: MafiaPublicPlayer[] = players.map((player) => {
     const cleaned = !ended && state.deaths.some((death) => death.playerId === player.playerId && death.hidden);
     const identified = ended || (!player.alive && !cleaned);
-    const showRole = identified && (ended || reveal === 'role');
-    const showFaction = identified && (ended || reveal === 'role' || reveal === 'faction');
+    /**
+     * A seat that has taken the sash out is public, by definition.
+     *
+     * Revealing is an engine action and the town announces it by name, so
+     * naming the role on the roster leaks nothing the chat has not already
+     * said out loud. It was reduced to a ribbon glyph, which left the one
+     * identity in the game that is beyond doubt as the only one a player
+     * could not read off the list — and the glyph was the Mayor's icon, so it
+     * was wrong on every revealed Marshall.
+     */
+    const sashOut = player.alive && player.revealed && player.role !== null;
+    const showRole = sashOut || (identified && (ended || reveal === 'role'));
+    const showFaction = sashOut || (identified && (ended || reveal === 'role' || reveal === 'faction'));
     const votedId = state.votes[player.playerId];
     return {
       slot: player.slot,
