@@ -112,7 +112,7 @@ export const screenFr: Catalogue = {
   'mafia.ui.alive': '{count} en vie',
   'mafia.ui.players': 'Les joueurs',
   'mafia.ui.lobby.count': '{seats} / {max} joueurs · code {code}',
-  'mafia.ui.lobby.addBots': '+ 4 bots',
+  'mafia.ui.lobby.addBots': '+ 1 bot',
   'mafia.ui.lobby.start': 'Lancer la partie',
   'mafia.ui.charges': '{count} restant(s)',
   'mafia.ui.dead': 'Mort',
