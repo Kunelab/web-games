@@ -78,10 +78,12 @@ export const quiz = defineKind<QuizPayload>({
   presentedByHost: false,
 
   // The explanation is deliberately absent: it usually contains the answer.
+  // The illustration goes wherever the media goes; the question goes everywhere,
+  // because it is the thing being answered.
   playerPresentation: (payload, context) => ({
     question: payload.question,
-    imageUrl: payload.imageUrl ? context.imageUrl(payload.imageUrl) : undefined
+    imageUrl: context.stage && payload.imageUrl ? context.imageUrl(payload.imageUrl) : undefined
   }),
 
-  missingForPlay: (payload) => (payload.question.trim() ? [] : ['la question'])
+  missingForPlay: (payload) => (payload.question.trim() ? [] : ['miss.question'])
 });

@@ -84,6 +84,15 @@ export interface ClientToServerEvents {
   'host:advance': (payload: z.infer<typeof hostActionSchema>) => void;
   'host:closeAnswers': (payload: z.infer<typeof hostActionSchema>) => void;
   'host:kick': (payload: { hostToken: string; playerId: string }) => void;
+  /**
+   * Appoints the television, in a game whose media plays on one screen only.
+   *
+   * `playerId: null` means the host screen itself, which is the default and the
+   * usual answer. Naming a player instead is for the room whose big screen is
+   * somebody's phone plugged into an HDMI cable, or a laptop that joined as a
+   * player because that was the device with the browser on it.
+   */
+  'host:setTv': (payload: { hostToken: string; playerId: string | null }) => void;
 }
 
 /** Server to client. */

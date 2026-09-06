@@ -5,12 +5,13 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { api } from '../api/client';
 import { badgeMeta } from '../app/badges';
+import { fieldText } from '../forms/fieldText';
 import { useAuth } from '../hooks/useAuth';
 import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
 import { useLocale } from '../i18n/locale-context';
 import { RoundPanel } from './Player';
 import { joinUrl } from '../tools/api-url';
-import { Button, Loading } from '../ui';
+import { Button, Chip, Loading } from '../ui';
 import { BlindtestAudio } from '../ui/BlindtestAudio';
 import { Ceremony } from '../ui/Ceremony';
 import { RevealImage } from '../ui/RevealImage';
@@ -64,8 +65,20 @@ export default function Host() {
 
   const blindtestCode = round?.kind === 'blindtest' ? ((round.payload as { code?: string }).code ?? '') : '';
 
-  // A label is a prompt only if the host wrote one. Generated answers have none.
-  const prompts = (round?.answers ?? []).map((answer) => answer.label.trim()).filter(Boolean);
+  /**
+   * Whether the media plays here.
+   *
+   * It does unless the room asked for one screen only and that screen is
+   * somebody else's — the phone plugged into the television, or the laptop that
+   * joined as a player because it was the device sitting under the projector.
+   * This screen keeps its prompts, its clock and its controls either way: the
+   * question is where the media goes, not who presses "next".
+   */
+  const isStage = !session?.tvOnly || session.tvPlayerId === null;
+
+  // A label is a prompt only if the host wrote one. Generated answers have none,
+  // and a stock one from the kind arrives as a catalogue key.
+  const prompts = (round?.answers ?? []).map((answer) => fieldText(t, answer.label).trim()).filter(Boolean);
 
   if (!hostToken) {
     return (
@@ -149,9 +162,7 @@ export default function Host() {
                   {player.name}
                   {/* The title earned across past evenings: the cheap glory that
                       makes a returning nickname feel like a returning player. */}
-                  {player.title && (
-                    <span className="chip-title">{t(msg(badgeMeta(player.title).titleKey))}</span>
-                  )}
+                  {player.title && <span className="chip-title">{t(msg(badgeMeta(player.title).titleKey))}</span>}
                   {/* Kicking exists for the misclick and the stray phone, so it lives
                       here in the lobby, not on the score strip mid-game. */}
                   <button
@@ -166,6 +177,10 @@ export default function Host() {
                 </li>
               ))}
             </ul>
+            {/* Solo play seats this screen as a player, so the count above is
+                genuinely 1 and the button below is not disabled. */}
+            {solo && <p className="play-note">{t(msg('host.soloSeat'))}</p>}
+
             <Button
               variant="primary"
               size="lg"
@@ -175,20 +190,56 @@ export default function Host() {
               {t(msg('host.start'))}
             </Button>
           </div>
+
+          {/*
+            Which screen is the television, asked once the room exists.
+
+            It cannot be asked any earlier: the answer is a device, and until the
+            devices have connected and said their names there is nothing to point
+            at. It appears only for a game that asked for one screen, because
+            otherwise every screen is the stage and the question has no meaning.
+          */}
+          {session.tvOnly && (
+            <div className="stack-4" style={{ alignItems: 'center' }}>
+              <p className="play-label">{t(msg('host.tvPick'))}</p>
+              <div className="tv-picker">
+                <Chip
+                  active={session.tvPlayerId === null}
+                  onClick={() => socket?.emit('host:setTv', { hostToken, playerId: null })}
+                >
+                  📺 {t(msg('host.tvThisScreen'))}
+                </Chip>
+                {session.players.map((player) => (
+                  <Chip
+                    key={player.id}
+                    active={session.tvPlayerId === player.id}
+                    onClick={() => socket?.emit('host:setTv', { hostToken, playerId: player.id })}
+                  >
+                    {player.name}
+                  </Chip>
+                ))}
+              </div>
+              <p className="play-note">{t(msg('host.tvHint'))}</p>
+            </div>
+          )}
         </div>
       )}
 
       {session.phase === 'playing' && round && (
         <>
           <div className="host-stage">
-            {/* The clip plays here and only here: players receive nothing of it. */}
-            {blindtestCode && <BlindtestAudio code={blindtestCode} payload={round.payload} phase={round.phase} />}
+            {/* Mounted only when this screen is the one presenting: with the
+                television being somebody's phone, playing the clip here as well
+                would put the same song in the room twice, a second apart. */}
+            {blindtestCode && isStage && (
+              <BlindtestAudio code={blindtestCode} payload={round.payload} phase={round.phase} />
+            )}
 
             {round.phase === 'reveal' ? (
               <div className="host-stage-content">
                 {/* The picture stays up next to its answer: on a reveal round the
                     thing everyone was staring at is the point of the moment. */}
-                <HostMedia round={round} serverNow={serverNow} revealed />
+                {isStage && <HostMedia round={round} serverNow={serverNow} revealed />}
                 <p className="play-label">{t(msg('play.answer'))}</p>
                 <p className="host-answer">{round.answers.map((answer) => answer.value).join(' · ')}</p>
                 {/* On an estimation the guesses ARE the reveal: the whole room wants
@@ -214,7 +265,7 @@ export default function Host() {
               </div>
             ) : (
               <div className="host-stage-content">
-                <HostMedia round={round} serverNow={serverNow} />
+                {isStage && <HostMedia round={round} serverNow={serverNow} />}
                 {/* No deadline, no countdown: an oral round shows a nought otherwise. */}
                 {round.phaseEndsAt !== null && (
                   /* The huge countdown owns the screen only when nothing else is on
@@ -230,14 +281,10 @@ export default function Host() {
                     : t(msg('host.answersToFind', { count: round.answers.length }))}
                 </p>
                 {round.phase === 'study' && <p className="play-note">{t(msg('host.memorising'))}</p>}
-                {session.oral && round.phase === 'answering' && (
-                  <p className="play-note">{t(msg('host.yourTurn'))}</p>
-                )}
+                {session.oral && round.phase === 'answering' && <p className="play-note">{t(msg('host.yourTurn'))}</p>}
               </div>
             )}
           </div>
-
-          {solo && <SoloAnswers code={code} />}
 
           <div className="host-bottom">
             {/* Nobody scored anything in an oral game, so the strip would be a row of
@@ -272,6 +319,17 @@ export default function Host() {
           </div>
         </>
       )}
+
+      {/*
+        Solo play's other half, mounted from the lobby onwards.
+
+        It used to live inside the block above, which meant the seat did not
+        exist until the game was running — and the game could not start, because
+        starting needs a player and this screen was the only one there was. The
+        panel itself still draws nothing until there is a round; what moved is
+        when the chair is taken.
+      */}
+      {solo && <SoloAnswers code={code} />}
 
       {session.phase === 'finished' && session.oral && (
         <div className="host-lobby">
@@ -608,4 +666,3 @@ function panelColumns(
 
   return best;
 }
-

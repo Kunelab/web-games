@@ -519,6 +519,23 @@ export function registerRealtime(
       });
     });
 
+    /**
+     * Appoints the television, or hands the job back to the host screen.
+     *
+     * Only meaningful while the media is set to play on one screen; harmless
+     * otherwise, so it is not refused, and the projection ignores it. An id
+     * naming nobody is treated as "the host screen" rather than rejected: the
+     * one way to get here with a stale id is that the phone left, and the room
+     * wants the media somewhere rather than an error.
+     */
+    socket.on('host:setTv', (payload) => {
+      withHost(payload?.hostToken, async (state) => {
+        const playerId = typeof payload?.playerId === 'string' ? payload.playerId : null;
+        state.tvPlayerId = playerId !== null && state.players[playerId] ? playerId : null;
+        await games.afterTransition(state);
+      });
+    });
+
     socket.on('host:kick', (payload) => {
       withHost(payload?.hostToken, async (state) => {
         const playerId = typeof payload?.playerId === 'string' ? payload.playerId : '';

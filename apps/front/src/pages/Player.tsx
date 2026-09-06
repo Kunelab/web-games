@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 
 import { awardMeta } from '../app/awards';
+import { fieldText } from '../forms/fieldText';
 import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
 import { useLocale } from '../i18n/locale-context';
 import { assetUrl } from '../tools/api-url';
@@ -172,12 +173,18 @@ export default function Player() {
       )}
 
       {/**
-       * The stage, on the phone, when there is no television.
+       * The stage, on this phone, when this phone is one.
        *
-       * `stageRound` is present only in an autonomous session — a quick match, with
-       * nobody at a host screen — and only the blind test actually needs it: every
-       * other kind already reaches the player through its own redacted
-       * presentation. So this is one clip player, mounted for one mode.
+       * The server decides that, and says so by sending `stageRound` or not:
+       * every player gets one when the room has no television, and exactly one
+       * gets it when the host appointed a screen. Only the blind test needs it —
+       * every other kind already reaches a player through its own redacted
+       * presentation — so this is one clip player, mounted when there is a clip
+       * to play and this device is where it plays.
+       *
+       * Outside the round panel on purpose: it must survive the switch to the
+       * reveal, where it stops being invisible and becomes the video everybody
+       * was listening to.
        */}
       {session.phase === 'playing' && session.stageRound?.kind === 'blindtest' && (
         <BlindtestAudio
@@ -301,6 +308,16 @@ export function RoundPanel({
     return (
       <div className="jeu-center" style={{ flex: 1 }}>
         <div className="stack-4" style={{ textAlign: 'center' }}>
+          {/*
+            The thing everybody was staring at, still on screen beside its answer.
+
+            The reveal used to be words on an empty page: whatever had been in
+            front of the player for twenty seconds vanished at the exact moment
+            they were told what it was, which is the one moment it is worth
+            looking at. A blind test is the exception that needs no code here —
+            its clip player lives outside this panel and simply stops hiding.
+          */}
+          {!hidePresentation && <Presentation round={round} serverNow={serverNow} revealed />}
           <p className="play-label">{t(msg('play.answer'))}</p>
           {reveal.answers.map((answer) => (
             <p className="player-answer" key={answer.key}>
@@ -324,9 +341,7 @@ export function RoundPanel({
               {mine.comebackMultiplier !== undefined && mine.comebackMultiplier > 1 && (
                 <>
                   {' '}
-                  <Badge tone="warn">
-                    {t(msg('play.comeback', { factor: mine.comebackMultiplier.toFixed(1) }))}
-                  </Badge>
+                  <Badge tone="warn">{t(msg('play.comeback', { factor: mine.comebackMultiplier.toFixed(1) }))}</Badge>
                 </>
               )}
             </p>
@@ -504,9 +519,7 @@ function FreeRecallBox({
   return (
     <div className="recall">
       <div className="recall-head">
-        <span className="play-label">
-          {t(msg(showPrompts ? 'play.answerInAnyOrder' : 'play.recallWhatYouSaw'))}
-        </span>
+        <span className="play-label">{t(msg(showPrompts ? 'play.answerInAnyOrder' : 'play.recallWhatYouSaw'))}</span>
         <span className="recall-count tabular">
           {found.length} / {total}
         </span>
@@ -516,7 +529,7 @@ function FreeRecallBox({
         <ul className="recall-prompts">
           {labelled.map((field) => (
             <li key={field.key} className={solvedKeys.includes(field.key) ? 'got' : undefined}>
-              <span>{field.label}</span>
+              <span>{fieldText(t, field.label)}</span>
               <span className="tabular">{field.points}</span>
             </li>
           ))}
@@ -675,13 +688,21 @@ function GuessList({
   );
 }
 
-/** Kind-specific rendering of whatever the server allowed the player to see. */
+/**
+ * Kind-specific rendering of whatever the server allowed the player to see.
+ *
+ * `revealed` is the same distinction the host screen draws: during the round a
+ * picture is being progressively uncovered and a panel may be meant to be gone,
+ * and at the reveal both are simply shown.
+ */
 function Presentation({
   round,
-  serverNow
+  serverNow,
+  revealed = false
 }: {
   round: NonNullable<NonNullable<ReturnType<typeof useGameSocket>['session']>['round']>;
   serverNow: () => number;
+  revealed?: boolean;
 }) {
   const presentation = round.presentation as {
     question?: string;
@@ -720,6 +741,7 @@ function Presentation({
           startAt={round.phaseStartAt}
           durationMs={duration}
           serverNow={serverNow}
+          revealed={revealed}
         />
       </div>
     );
@@ -727,7 +749,7 @@ function Presentation({
 
   // `keepVisible` is about the answering phase only. Gating the study phase on it
   // too, as this did, left the default panel showing nothing at all to memorise.
-  if (round.kind === 'image-memory' && (round.phase === 'study' || presentation.keepVisible !== false)) {
+  if (round.kind === 'image-memory' && (revealed || round.phase === 'study' || presentation.keepVisible !== false)) {
     // A generated panel arrives as one image per item and is laid out here, which
     // is also why the grid can hold forty cells without anyone compositing a
     // picture of it: the browser is better at this than an image pipeline.
@@ -785,7 +807,7 @@ function AnswerBox({
   if (solved) {
     return (
       <div className="answer-box solved">
-        <span className="play-label">{field.label.trim() || t(msg('play.answer'))}</span>
+        <span className="play-label">{fieldText(t, field.label).trim() || t(msg('play.answer'))}</span>
         <Badge tone="ok">{t(msg('play.gotIt'))}</Badge>
       </div>
     );
@@ -794,7 +816,7 @@ function AnswerBox({
   if (locked) {
     return (
       <div className="answer-box locked">
-        <span className="play-label">{field.label.trim() || t(msg('play.answer'))}</span>
+        <span className="play-label">{fieldText(t, field.label).trim() || t(msg('play.answer'))}</span>
         <span className="play-note">{t(msg('play.noTriesLeft'))}</span>
       </div>
     );
@@ -803,7 +825,7 @@ function AnswerBox({
   return (
     <div className="answer-box">
       <div className="answer-box-head">
-        <span className="play-label">{field.label.trim() || t(msg('play.answer'))}</span>
+        <span className="play-label">{fieldText(t, field.label).trim() || t(msg('play.answer'))}</span>
         <span className="play-note tabular">
           {t(msg('play.points', { points: field.points }))}
           {field.directBonus > 0 && !field.choices ? t(msg('play.blindBonus', { bonus: field.directBonus })) : ''}

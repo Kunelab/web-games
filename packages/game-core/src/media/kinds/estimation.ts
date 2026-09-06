@@ -84,11 +84,13 @@ export const estimation = defineKind<EstimationPayload>({
   // Everyone can read the question, so it goes on every screen.
   presentedByHost: false,
 
+  // The question and its unit are how the answer is typed, so they travel
+  // regardless. The illustration is media and follows the media's rule.
   playerPresentation: (payload, context) => ({
     question: payload.question,
     unit: payload.unit || undefined,
-    imageUrl: payload.imageUrl ? context.imageUrl(payload.imageUrl) : undefined
+    imageUrl: context.stage && payload.imageUrl ? context.imageUrl(payload.imageUrl) : undefined
   }),
 
-  missingForPlay: (payload) => (payload.question.trim() ? [] : ['la question'])
+  missingForPlay: (payload) => (payload.question.trim() ? [] : ['miss.question'])
 });

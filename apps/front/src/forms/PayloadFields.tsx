@@ -192,7 +192,13 @@ function PayloadField({ field, value, error, onChange, onYoutubeMetadata, onWiki
                 aria-describedby={describedBy}
                 value={asString(value)}
                 onValueChange={(next) => onChange(next)}
-                options={(field.options ?? []).map((option) => ({ value: option.value, label: option.label }))}
+                // Through `fieldText`, not straight through: a kind declares its
+                // options as catalogue keys, and the picture round's effect menu
+                // offered a choice between "field.blur" and "field.pixelate".
+                options={(field.options ?? []).map((option) => ({
+                  value: option.value,
+                  label: fieldText(t, option.label)
+                }))}
                 placeholder={fieldText(t, field.placeholder)}
               />
             );
@@ -218,7 +224,12 @@ function PayloadField({ field, value, error, onChange, onYoutubeMetadata, onWiki
                 onSubject={onWikiSubject}
               />
             ) : (
-              <ImageInput {...shared} value={asString(value)} placeholder={fieldText(t, field.placeholder)} onChange={onChange} />
+              <ImageInput
+                {...shared}
+                value={asString(value)}
+                placeholder={fieldText(t, field.placeholder)}
+                onChange={onChange}
+              />
             );
 
           case 'list':

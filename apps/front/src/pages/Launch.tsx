@@ -5,10 +5,11 @@ import QRCode from 'react-qr-code';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { api, ApiError } from '../api/client';
+import { fieldText } from '../forms/fieldText';
 import { useAsync } from '../hooks/useAsync';
 import { useT } from '../i18n/locale-context';
 import { joinUrl } from '../tools/api-url';
-import { Badge, Button, Field, Input, Loading, Switch } from '../ui';
+import { Badge, Button, Field, Input, Loading, Select, Switch } from '../ui';
 import { PublicSwitch } from '../ui/PublicSwitch';
 import './playlists.css';
 
@@ -96,7 +97,13 @@ export default function Launch() {
                 <ul className="stack-2" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {started.skipped.map((entry) => (
                     <li key={entry.title} className="field-hint">
-                      <strong>{entry.title}</strong> {t(msg('launch.missing', { fields: entry.missing.join(', ') }))}
+                      <strong>{entry.title}</strong>{' '}
+                      {t(
+                        msg('launch.missing', {
+                          // Keys from the server; the words belong to this reader.
+                          fields: entry.missing.map((key) => fieldText(t, key)).join(', ')
+                        })
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -139,8 +146,7 @@ export default function Launch() {
           </h1>
           <p className="page-sub">
             {t(msg('launch.playable', { count: ready }))}
-            {playlist.data.notReadyCount > 0 &&
-              t(msg('launch.skippedMeta', { count: playlist.data.notReadyCount }))}
+            {playlist.data.notReadyCount > 0 && t(msg('launch.skippedMeta', { count: playlist.data.notReadyCount }))}
           </p>
         </div>
       </div>
@@ -156,19 +162,38 @@ export default function Launch() {
           />
 
           {/*
-            Asked here, with the rest of the setup, and never afterwards.
+            Where the media plays, asked as a question with two answers.
 
-            A television is a decision about the room you are sitting in, and the
-            room is arranged before anybody presses start. Offering it later —
-            as a button on the host screen — would mean the first round plays to
-            the wrong screens while somebody hunts for the toggle.
+            It was a switch called "there is a television", which is the wrong
+            shape for it twice over. A switch has a default that reads as the
+            normal thing and an "on" that reads as the exception, and neither of
+            these is either — a room on a sofa with phones and a room in front of
+            a big screen are both perfectly ordinary evenings. And what the
+            switch decided was never really "is there a TV", it was "does the
+            clip play on every device or on exactly one", which is what the two
+            options now say out loud.
+
+            *Which* screen is the one is deliberately not asked here: it is a
+            device, and the devices are not in the room yet. That question is put
+            in the lobby, where they are.
           */}
-          <Switch
-            label={t(msg('launch.tv'))}
-            hint={t(msg('launch.tv.hint'))}
-            checked={config.tv}
-            onCheckedChange={(checked) => setConfig({ ...config, tv: checked })}
-          />
+          <Field
+            label={t(msg('launch.stage'))}
+            hint={t(msg(config.tv ? 'launch.stage.tv.hint' : 'launch.stage.everyone.hint'))}
+          >
+            {({ id: fieldId, describedBy }) => (
+              <Select
+                id={fieldId}
+                aria-describedby={describedBy}
+                value={config.tv ? 'tv' : 'everyone'}
+                options={[
+                  { value: 'everyone', label: t(msg('launch.stage.everyone')) },
+                  { value: 'tv', label: t(msg('launch.stage.tv')) }
+                ]}
+                onValueChange={(next) => setConfig({ ...config, tv: next === 'tv' })}
+              />
+            )}
+          </Field>
 
           <Switch
             label={t(msg('launch.shuffle'))}

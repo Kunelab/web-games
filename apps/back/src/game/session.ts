@@ -142,6 +142,18 @@ export interface SessionState {
   round: RoundState | null;
   /** Items excluded because they were incomplete, reported to the host. */
   skipped: { title: string; missing: string[] }[];
+  /**
+   * The device the media plays on, when the config says only one does.
+   *
+   * A player id, or null for the host screen — which is the default, and stays
+   * the answer for every room whose big screen is the one the host opened. It
+   * lives on the session rather than in the config because it is answered in the
+   * lobby, once the devices are present and named, and can be changed when
+   * somebody swaps the phone that is plugged into the television.
+   *
+   * Optional so a session persisted before it existed restores without it.
+   */
+  tvPlayerId?: string | null;
   /** Per-player game-long tallies, for the final awards and the history row. */
   stats?: Record<string, PlayerAggregate>;
   /** Guards the results table against a finished game being recorded twice. */
@@ -704,6 +716,20 @@ export interface ViewContext {
   imageUrl: (source: string) => string;
 }
 
+/**
+ * Whether the media reaches this particular recipient.
+ *
+ * One line, but it is the whole of "on the television only": the host screen is
+ * a stage unless a phone was appointed, a phone is a stage when it was the one
+ * appointed, and everybody is a stage in a room that never asked for a
+ * television at all.
+ */
+function isStageFor(state: SessionState, playerId: string | null): boolean {
+  const television = televisionOf(state);
+  if (!television.tvOnly) return true;
+  return television.tvPlayerId === playerId;
+}
+
 function playerViews(state: SessionState): PlayerView[] {
   const totals = new Map(Object.values(state.players).map((player) => [player.id, player.totalScore]));
   const ranked = buildLeaderboard(totals);
@@ -762,7 +788,10 @@ export function toRoundView(state: SessionState, playerId: string | null, contex
     answerMs: round.timing.answerMs,
     // Answers are not open during the study phase, so nothing is presented yet
     // beyond what the kind chooses to show.
-    presentation: definition.playerPresentation(round.payload, context),
+    presentation: definition.playerPresentation(round.payload, {
+      ...context,
+      stage: isStageFor(state, playerId)
+    }),
     fields: round.answers.map((field) => redactAnswerField(field, revealed.includes(field.key))),
     solvedFieldKeys: solved,
     lockedFieldKeys: locked
@@ -865,14 +894,21 @@ function toHostRoundView(state: SessionState, title: string): HostRoundView | nu
 /**
  * The payload, with nothing that names it.
  *
- * Built only for an autonomous session, and it is the whole reason that flag
- * exists: with no host screen there is no other way for a clip to reach the room.
- * It borrows the host round's shape minus `title` and `answers`, which are the
- * two fields that would simply print the solution on every phone.
+ * Built for a device that has to present the media and is not the host screen:
+ * every phone when the room has no television, or the single phone appointed as
+ * one. It borrows the host round's shape minus `title` and `answers`, which are
+ * the two fields that would simply print the solution on every phone.
+ *
+ * Only kinds the host screen normally presents alone get one. Everything else
+ * already reaches a player through `presentation`, whose image sources are
+ * opaque per-round URLs; handing those kinds the raw payload as well would put
+ * the answer in a filename for no gain at all. Today that means the blind test,
+ * and it says so by asking the kind rather than by naming it.
  */
 function toStageRoundView(state: SessionState): StageRoundView | null {
   const round = state.round;
   if (!round) return null;
+  if (!getMediaKind(round.kind).presentedByHost) return null;
 
   return {
     roundId: round.id,
@@ -887,6 +923,26 @@ function toStageRoundView(state: SessionState): StageRoundView | null {
   };
 }
 
+/**
+ * Which device presents the media, resolved against who is actually here.
+ *
+ * A television that has left the room is not one: the host may have appointed a
+ * phone and that phone may have been kicked, or never came back from a tunnel.
+ * Rather than leaving the media with nowhere to play, an appointment naming
+ * somebody who is no longer seated falls back to the host screen.
+ */
+function televisionOf(state: SessionState): { tvOnly: boolean; tvPlayerId: string | null } {
+  // A quick match has no host screen to be the television, so the setting cannot
+  // apply to it whatever a stored config says.
+  const tvOnly = state.config.tv && !state.config.autonomous;
+  const appointed = state.tvPlayerId ?? null;
+
+  return {
+    tvOnly,
+    tvPlayerId: appointed !== null && state.players[appointed] ? appointed : null
+  };
+}
+
 export function toSessionView(
   state: SessionState,
   playerId: string | null,
@@ -894,10 +950,14 @@ export function toSessionView(
   context: ViewContext,
   currentTitle = ''
 ): SessionView {
+  const television = televisionOf(state);
+
   return {
     code: state.code,
     phase: state.phase,
     oral: state.config.oral,
+    tvOnly: television.tvOnly,
+    tvPlayerId: television.tvPlayerId,
     players: playerViews(state),
     round: toRoundView(state, playerId, context),
     reveal: toRevealView(state),
@@ -906,12 +966,17 @@ export function toSessionView(
     /**
      * The stage goes to every phone unless a television has claimed it.
      *
-     * Two ways to have no television and they mean the same thing here: a quick
-     * match, which never had one, and a launched game whose host did not ask for
-     * one. Either way the media has to reach the people playing, because
-     * otherwise it reaches nobody at all.
+     * Three ways to be a stage. A quick match never had a television, so every
+     * phone is one. A launched game whose host chose "on everybody's device" has
+     * not appointed one either, and the media has to reach the people playing or
+     * it reaches nobody at all. And a game that has appointed one hands the
+     * payload to exactly that phone — the host screen needs no help here, since
+     * it already holds the whole round.
      */
-    stageRound: state.config.autonomous || !state.config.tv ? toStageRoundView(state) : undefined,
+    stageRound:
+      playerId !== null && (!television.tvOnly || television.tvPlayerId === playerId)
+        ? toStageRoundView(state)
+        : undefined,
     skipped: isHost ? state.skipped : undefined,
     // The ceremony. An oral game scored nothing, so it has nothing to hand out.
     final: state.phase === 'finished' && !state.config.oral ? { awards: computeAwards(state) } : undefined

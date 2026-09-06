@@ -4,7 +4,15 @@ import { getMediaKind } from './registry.js';
 export interface Readiness {
   /** True when this item can be presented in a game. */
   ready: boolean;
-  /** What is still missing, phrased for display after "Il manque". */
+  /**
+   * Catalogue keys for what is still missing, each a fragment that reads after
+   * "Missing:".
+   *
+   * Keys rather than prose, because this list is computed on the server, crosses
+   * the wire in a session's `skipped`, and is then read by a host whose language
+   * nobody asked about. It used to be French sentences built here, which is why
+   * an English host was told a media item was missing "la vidéo YouTube".
+   */
   missing: string[];
 }
 
@@ -24,14 +32,16 @@ export function mediaReadiness(item: { kind: string; answers: AnswerField[]; pay
 
   const scorable = item.answers.filter((field) => field.value.trim().length > 0);
   if (scorable.length === 0) {
-    missing.push('au moins une réponse');
+    missing.push('miss.answer');
   }
 
   // A choice field whose choices do not contain its answer can never be won.
   for (const field of item.answers) {
     if (field.choices?.length && field.value.trim() && !field.choices.includes(field.value)) {
-      // Named by its label where it has one, by its answer otherwise.
-      missing.push(`la bonne réponse de « ${field.label.trim() || field.value} » dans ses choix`);
+      // Said once however many fields are wrong: the sentence used to name the
+      // offending field, which is what a key cannot carry, and the editor shows
+      // which one it is anyway.
+      if (!missing.includes('miss.choiceMissing')) missing.push('miss.choiceMissing');
     }
   }
 

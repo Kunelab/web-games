@@ -91,13 +91,15 @@ export const imageMemory = defineKind<ImageMemoryPayload>({
   presentedByHost: false,
 
   playerPresentation: (payload, context) => ({
-    imageUrl: context.imageUrl(payload.src),
+    // Same rule as the picture round: with a television in the room the panel is
+    // memorised from it, and a phone gets the boxes to type into and nothing to
+    // copy from.
+    imageUrl: context.stage ? context.imageUrl(payload.src) : undefined,
     // Every cell goes through the same indirection as any other image: forty
     // filenames in a network tab would be forty answers.
-    cellUrls: payload.cells.map((cell) => context.imageUrl(cell)),
+    cellUrls: context.stage ? payload.cells.map((cell) => context.imageUrl(cell)) : [],
     keepVisible: payload.keepVisible
   }),
 
-  missingForPlay: (payload) =>
-    payload.cells.length > 0 || payload.src.trim() ? [] : ['la grille ou une image de panel']
+  missingForPlay: (payload) => (payload.cells.length > 0 || payload.src.trim() ? [] : ['miss.panel'])
 });
