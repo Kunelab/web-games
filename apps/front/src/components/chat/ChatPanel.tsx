@@ -41,6 +41,24 @@ export interface ChatPanelProps {
    */
   authorTag?: (authorName: string) => string | null;
   /**
+   * An extra class for a line, decided by the caller.
+   *
+   * The panel knows nothing about any game, so it cannot know that a system line
+   * on one channel is an announcement everybody saw and on another is a result
+   * only this reader was told. The caller does, and says so here.
+   */
+  lineClass?: (message: ChatMessage) => string | undefined;
+  /**
+   * Renders the text of a system line, when plain text is not enough.
+   *
+   * The game's announcements name people ("7 was found dead", "the town hangs
+   * Loki") and arrive as one grey sentence, which is hard to read at a glance
+   * when the names are the point. The caller knows who the players are and what
+   * colour each one wears in the bylines; the panel does not. Given this, it
+   * hands the rendered sentence over and prints whatever comes back.
+   */
+  decorate?: (text: string) => ReactNode;
+  /**
    * Tabs that are not channels.
    *
    * Mafia's accusation trail, in practice: a record that belongs beside the
@@ -63,6 +81,8 @@ export function ChatPanel({
   placeholder,
   className,
   authorTag,
+  lineClass,
+  decorate,
   extraTabs = []
 }: ChatPanelProps) {
   const t = useT();
@@ -135,45 +155,49 @@ export function ChatPanel({
       {extra ? (
         <div className="chat-log chat-log--extra">{extra.render()}</div>
       ) : (
-      <div className="chat-log" ref={logRef} onScroll={onScroll}>
-        {visible.map((message) =>
-          message.kind === 'system' ? (
-            <p key={message.id} className="chat-line chat-line--system">
-              {/* The game's own voice arrives as a key; the reader's language
+        <div className="chat-log" ref={logRef} onScroll={onScroll}>
+          {visible.map((message) =>
+            message.kind === 'system' ? (
+              <p key={message.id} className={`chat-line chat-line--system ${lineClass?.(message) ?? ''}`}>
+                {/* The game's own voice arrives as a key; the reader's language
                   decides the words. A player's own text never does. */}
-              {message.msg ? t(message.msg) : message.text}
-            </p>
-          ) : (
-            <p key={message.id} className="chat-line">
-              {/* The number first, because that is how the table addresses each
+                {decorate
+                  ? decorate(message.msg ? t(message.msg) : message.text)
+                  : message.msg
+                    ? t(message.msg)
+                    : message.text}
+              </p>
+            ) : (
+              <p key={message.id} className="chat-line">
+                {/* The number first, because that is how the table addresses each
                   other: "16, where were you?" is only readable if 16 is written
                   on the line the answer comes back on. */}
-              {authorTag?.(message.authorName) && <span className="chat-slot">{authorTag(message.authorName)}</span>}
-              <span className="chat-author" style={{ color: authorColour(message.authorName) }}>
-                {message.authorName}
-              </span>
-              <span className="chat-text">{message.text}</span>
-            </p>
-          )
-        )}
-        {visible.length === 0 && <p className="chat-line chat-line--system">{t(msg('chat.empty'))}</p>}
-      </div>
+                {authorTag?.(message.authorName) && <span className="chat-slot">{authorTag(message.authorName)}</span>}
+                <span className="chat-author" style={{ color: authorColour(message.authorName) }}>
+                  {message.authorName}
+                </span>
+                <span className="chat-text">{message.text}</span>
+              </p>
+            )
+          )}
+          {visible.length === 0 && <p className="chat-line chat-line--system">{t(msg('chat.empty'))}</p>}
+        </div>
       )}
 
       {!extra && (
-      <form className="chat-compose" onSubmit={submit}>
-        <input
-          className="chat-input"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          maxLength={400}
-          placeholder={canWrite ? (placeholder ?? t(msg('chat.placeholder'))) : t(msg('chat.muted'))}
-          disabled={!canWrite}
-        />
-        <button className="chat-send" type="submit" disabled={!canWrite || !draft.trim()}>
-          {t(msg('chat.send'))}
-        </button>
-      </form>
+        <form className="chat-compose" onSubmit={submit}>
+          <input
+            className="chat-input"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            maxLength={400}
+            placeholder={canWrite ? (placeholder ?? t(msg('chat.placeholder'))) : t(msg('chat.muted'))}
+            disabled={!canWrite}
+          />
+          <button className="chat-send" type="submit" disabled={!canWrite || !draft.trim()}>
+            {t(msg('chat.send'))}
+          </button>
+        </form>
       )}
     </section>
   );

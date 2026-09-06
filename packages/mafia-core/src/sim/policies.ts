@@ -1,3 +1,4 @@
+import type { DeathSource } from '../messages.js';
 import type { RoleId } from '../roles.js';
 import { familyOf, isSoloKiller, roleDef } from '../roles.js';
 import {
@@ -126,6 +127,28 @@ export interface PublicInfo {
   revealedMayorSlot: number | null;
   trialSlot: number | null;
   claims: Claim[];
+  /**
+   * Every death the table was told about, with what killed it.
+   *
+   * The dawn report names the weapon even when the janitor took the face, so the
+   * source is public knowledge whatever the reveal policy. `deadRoles` answers
+   * "what was this corpse"; this answers "when did it die and to whom", which is
+   * the half a will has to be joined against.
+   */
+  deaths: { slot: number; day: number; phase: 'day' | 'night'; source: DeathSource | null }[];
+  /**
+   * Roles the board can vouch for on living seats, and how it knows.
+   *
+   * Not what people *claim*: that is on the claims board and weighed like any
+   * other word. This is what the record *proves*: a corpse's will says it went
+   * to house 4 on the night the dawn report says the Veteran shot it, so 4 is
+   * the Veteran. A living seat that claimed Sheriff and whose accusation then
+   * hanged a mafioso has a badge the graveyard signed for. Read by the trust
+   * weights, the shortlist and the night planners, so a proven Veteran's porch
+   * is a place nobody goes and a proven Sheriff's word is the loudest voice in
+   * the room.
+   */
+  provenRoles: Map<number, RoleId>;
 }
 
 export interface Brain {
@@ -360,6 +383,9 @@ export function possibilitySet(self: MafiaPlayer, info: PublicInfo): Set<number>
     }
     // Behavioral trust: someone who has repeatedly hanged evils isn't one.
     if (trustOf(slot, info) >= 2.5) remaining.delete(slot);
+    // A role the record proved, and it is a town one.
+    const proven = info.provenRoles.get(slot);
+    if (proven && roleDef(proven).faction === 'town') remaining.delete(slot);
   }
   return remaining;
 }
@@ -402,6 +428,20 @@ export function claimerWeight(claimerSlot: number, info: PublicInfo): number {
   const trust = trustOf(claimerSlot, info);
   if (trust <= -2) weight *= 0.5;
   else if (trust >= 2) weight *= 1.3;
+
+  /**
+   * A badge the record signed for outranks everything above.
+   *
+   * A living seat whose role the board can prove is a town investigator speaks
+   * as loudly as a town corpse's will, and louder than a stranger who happened
+   * to guess right once. A proven evil is a voice worth nothing, whoever it is
+   * still fooling.
+   */
+  const proven = info.provenRoles.get(claimerSlot);
+  if (proven) {
+    if (isEvilRole(proven)) return 0;
+    if (roleDef(proven).faction === 'town') weight = Math.max(weight, 2.0);
+  }
 
   return weight;
 }
@@ -565,12 +605,146 @@ export function suspicionParts(
   // Never once voted for each other, and often together. See `buddyScore`.
   score += buddyScore(targetSlot, info);
 
+  // What the record proves outweighs what anybody says. A proven Veteran is a
+  // townie whatever the wagon thinks; a proven wolf is done.
+  const proven = info.provenRoles.get(targetSlot);
+  if (proven) score += isEvilRole(proven) ? 4 : -3;
+
   // The wagon: herd instinct, weighted by personality. Returned separately, so
   // the caller decides whether momentum is allowed to carry the day.
   const wagon = [...info.votes.values()].filter((voted) => voted === targetSlot).length;
 
   return { evidence: score + rng() * 0.3, wagon: wagon * 0.5 * brainHerd(self) };
 }
+
+/**
+ * How much better a new suspect has to look before a seat abandons its vote.
+ *
+ * Some hysteresis is needed or a second look is worse than no second look:
+ * `suspicionParts` carries a `rng() * 0.3` jitter and `pickVote` has a small
+ * hunch path, so re-running it on an unchanged board flips votes for no reason,
+ * which reads as a table of weathervanes rather than a table being persuaded.
+ * Above this margin, something on the board actually moved.
+ */
+const SWITCH_MARGIN = 0.75;
+
+/**
+ * What a tied leader has to be worth before a seat crosses the floor to it.
+ *
+ * Breaking a deadlock is the one moment where moving matters more than being
+ * consistent: two seats level at the bell means nobody hangs, and a day spent
+ * for nothing is a day the night side keeps. But only towards a real case, or
+ * the tie-break becomes a coin flip that hangs whoever the noise favoured.
+ */
+const TIEBREAK_FLOOR = 1.6;
+
+/**
+ * Below this, the board is empty and the honest vote is to hang nobody.
+ *
+ * Read as the best evidence standing against *anybody*, not as a per-seat
+ * score: a square where the strongest case is this weak has not found anything,
+ * and a rope thrown at its best guess is a coin flip with a corpse at the end.
+ */
+const NO_CASE_CEILING = 0.5;
+
+/** What a seat should do with its ballot: a slot, a skip, or leave it alone. */
+export interface SteadyVote {
+  /** The slot to accuse, or null to leave the standing vote where it is. */
+  slot: number | null;
+  /** Vote to hang nobody today. */
+  skip: boolean;
+}
+
+/**
+ * What to do with the ballot, given what this seat has already said with it.
+ *
+ * Four answers, and the last two are the ones that were missing.
+ *
+ * **Cast it** when the seat has no vote standing. This alone closes most of
+ * the gap: a seat whose first turn found nothing worth a rope never voted
+ * again that day, whatever the afternoon turned up.
+ *
+ * **Leave it** when the proposal is the standing vote, or is not clearly
+ * better than it. Without that floor a second look is noise: the proposal is
+ * recomputed with jitter and a hunch path, so it flips on an unchanged board
+ * and the table reads as fickle rather than as persuadable.
+ *
+ * **Cross the floor to a tied leader** when the day is about to end level.
+ * Two seats on the same count at the bell means nobody hangs and the night
+ * side keeps a free day, so a deadlock is the one moment where moving matters
+ * more than consistency. Only towards a case worth `TIEBREAK_FLOOR`, or the
+ * tie-break is a coin flip that hangs whoever the noise favoured.
+ *
+ * **Vote to hang nobody** when the best case standing against *anybody* is
+ * under `NO_CASE_CEILING`. A square that has found nothing should say so;
+ * throwing the rope at its best guess is a coin flip with a corpse at the end.
+ * Not at the parity clock, where a wasted day loses the game outright, which is
+ * the same guard the driver has always applied to joining somebody else's skip.
+ */
+export function steadyVote(
+  self: MafiaPlayer,
+  info: PublicInfo,
+  /** The slot this seat is already accusing. Null for no vote, and for a skip. */
+  standing: number | null,
+  /** What `decideDay` would like this seat to vote for. */
+  proposed: number | null,
+  rng: () => number
+): SteadyVote {
+  const scoreOf = (slot: number): number => suspicion(slot, self, info, rng);
+
+  /* --------------------- nothing proposed: pass, or hold ------------------ */
+  if (proposed === null) {
+    if (standing !== null) return { slot: null, skip: false };
+
+    const townish = self.role ? roleDef(self.role).faction === 'town' : false;
+    const desperate = townish && parityPressure(info) >= 0.6;
+    const best = info.aliveSlots
+      .filter((slot) => slot !== self.slot)
+      .reduce((most, slot) => Math.max(most, suspicionParts(slot, self, info, rng).evidence), 0);
+
+    // A board this empty has not found anybody. Say so, unless saying so
+    // loses the game.
+    if (!desperate && best < NO_CASE_CEILING) return { slot: null, skip: true };
+    return { slot: null, skip: false };
+  }
+
+  if (standing === null) return { slot: proposed, skip: false };
+
+  /* ------------------------- a deadlock at the bell ---------------------- */
+  /**
+   * Weighed before "my proposal has not changed", and that ordering is the
+   * whole of the tie-break.
+   *
+   * The seat under a deadlock usually proposes exactly what it proposed an hour
+   * ago: its own read has not moved, the *room* has. Checking for an unchanged
+   * proposal first therefore returned early and the tie stood, which is the case
+   * that was reported. What has to move the seat here is the tally, not its own
+   * opinion.
+   */
+  const tally = new Map<number, number>();
+  for (const target of info.votes.values()) tally.set(target, (tally.get(target) ?? 0) + 1);
+  const most = Math.max(0, ...tally.values());
+  const leaders = [...tally.entries()].filter(([, count]) => count === most).map(([slot]) => slot);
+
+  if (most > 0 && leaders.length > 1) {
+    const best = leaders
+      .filter((slot) => slot !== self.slot)
+      .map((slot) => ({ slot, score: scoreOf(slot) }))
+      .sort((left, right) => right.score - left.score)[0];
+
+    if (best && best.score >= TIEBREAK_FLOOR && best.slot !== standing) {
+      return { slot: best.slot, skip: false };
+    }
+  }
+
+  if (standing === proposed) return { slot: null, skip: false };
+
+  /* --------------------- otherwise, only for a real gain ----------------- */
+  return scoreOf(proposed) - scoreOf(standing) >= SWITCH_MARGIN
+    ? { slot: proposed, skip: false }
+    : { slot: null, skip: false };
+}
+
 
 /** Public suspicion of a slot, as a town-aligned seat computes it. */
 export function suspicion(targetSlot: number, self: MafiaPlayer, info: PublicInfo, rng: () => number): number {
@@ -1347,6 +1521,23 @@ export function decideNightTarget(
    * This is the whole of what desperation does at night, and it is enough.
    */
   const slip = Math.max(0.05, 0.25 - stance.pushHard * 0.2);
+
+  /**
+   * A proven Veteran's porch is off every list, whoever is walking.
+   *
+   * The dawn report said the Veteran shot the Sheriff, and the Sheriff's will
+   * said where it went that night: the town knows the house, and so does the
+   * family. A doctor who heals there dies, a mafioso who calls there dies, a
+   * lookout who watches there dies. Nothing good comes of the visit for anybody,
+   * so the house is simply not a target unless it is the only one left.
+   */
+  const porches = new Set(
+    [...info.provenRoles.entries()].filter(([, role]) => role === 'veteran').map(([slot]) => slot)
+  );
+  if (porches.size > 0 && legalTargets.some((slot) => !porches.has(slot))) {
+    legalTargets = legalTargets.filter((slot) => !porches.has(slot));
+  }
+
   const random = () => legalTargets[Math.floor(rng() * legalTargets.length)] ?? null;
   if (legalTargets.length === 0) {
     // Self-targeted powers. Vests are free comfort; alerts are rationed nerve —

@@ -56,9 +56,31 @@
 }
 
 .chat-line--system {
-  color: var(--chat-system, #8f8aa0);
+  /* Lifted from #8f8aa0: a dawn report is evidence, and evidence has to be legible. */
+  color: var(--chat-system, #aaa5ba);
   font-style: italic;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
+}
+
+/* A player named inside an announcement, in the colour of their byline. */
+.chat-line--system .chat-name {
+  font-style: normal;
+  font-weight: 600;
+}
+
+/*
+ * A line only this reader was told.
+ *
+ * Night results land in the square as system lines, on a channel nobody else
+ * can read. They have to look different from the announcements around them or
+ * a sheriff cannot tell "7 came back bad" (yours) from "7 was found dead"
+ * (everybody's). The left rule is the whole signal.
+ */
+.chat-line--private {
+  padding-left: 8px;
+  border-left: 2px solid var(--chat-private, #c9a86a);
+  color: var(--chat-private, #c9a86a);
+  font-style: normal;
 }
 
 /*
@@ -76,7 +98,11 @@
   border-radius: 4px;
   background: var(--chat-slot-bg, rgb(255 255 255 / 0.08));
   color: var(--chat-slot-fg, #b9b6c4);
-  font: 600 0.8rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font:
+    600 0.8rem/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
   text-align: center;
 }
 

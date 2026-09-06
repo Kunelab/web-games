@@ -416,9 +416,55 @@ export default function MafiaPlayer() {
     return tk('mafia.ui.prompt.firstDay');
   }, [view, me, isNight, inDefense, inJudgement, jailMode, canVote, tk]);
 
+  /**
+   * Player names inside an announcement, in the colour their bylines wear.
+   *
+   * A dawn report or a verdict is one grey italic sentence, and the names in it
+   * are the only part anybody is reading. Splitting on the roster and colouring
+   * each hit with `authorColour` gives the eye the same anchor it has on a
+   * spoken line, so "Loki se balance au bout de la corde" reads as a fact about
+   * Loki rather than as a paragraph. Longest name first, on word boundaries, so
+   * "Max" does not light up inside "Maximum" and "Tintin" beats "Tin".
+   *
+   * Above the early return with the rest of the hooks: a hook below it is a hook
+   * that runs on some renders and not others, which React forbids.
+   */
+  const colourNames = useMemo(() => {
+    const names = (view?.players ?? []).map((player) => player.name).filter(Boolean);
+    if (names.length === 0) return undefined;
+    const escaped = [...names]
+      .sort((a, b) => b.length - a.length)
+      .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(${escaped.join('|')})(?![\\p{L}\\p{N}])`, 'gu');
+    return (text: string): ReactNode => {
+      const parts = text.split(pattern);
+      if (parts.length === 1) return text;
+      return parts.map((part, index) =>
+        index % 2 === 1 ? (
+          <span key={index} className="chat-name" style={{ color: authorColour(part) }}>
+            {part}
+          </span>
+        ) : (
+          part
+        )
+      );
+    };
+  }, [view?.players]);
+
+  /** The private feed, folded into the square. See the chat panel below. */
+  const mine = useMemo(
+    () => new Set(messages.filter((message) => message.channel.startsWith('self:')).map((message) => message.id)),
+    [messages]
+  );
+  const squareWithMine = useMemo(
+    () => messages.map((message) => (mine.has(message.id) ? { ...message, channel: 'day' } : message)),
+    [messages, mine]
+  );
+
   if (!connected && !view) return <Loading />;
 
   /* ------------------------------- join gate ------------------------------- */
+
   if (!view || !me) {
     return (
       <div className="mz-join">
@@ -1154,7 +1200,19 @@ export default function MafiaPlayer() {
         <div className={cx('mz-right', tab === 'players' && 'mz-right--hidden')}>
           <ChatPanel
             className="mz-chat"
-            messages={messages}
+            /*
+              Your own night results, read in the square rather than off the
+              role card.
+
+              They arrive on a channel only this seat can read, and they are
+              folded into the day tab here so a sheriff's verdict sits between
+              the lines that were being said when it came in. Marked, so the
+              reader can tell a result meant for their eyes from an announcement
+              the whole table saw.
+            */
+            messages={squareWithMine}
+            lineClass={(message) => (mine.has(message.id) ? 'chat-line--private' : undefined)}
+            decorate={colourNames}
             channels={me.channels.map((channel) => ({
               id: channel.id,
               label: channelLabel(channel),
