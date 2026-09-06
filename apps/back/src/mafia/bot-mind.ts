@@ -1,5 +1,6 @@
 import {
   agendaOf,
+  bindPersonalities,
   contradicted,
   DEFAULT_PROFILE,
   feelPressure,
@@ -14,6 +15,7 @@ import {
   type ClaimKind,
   type MafiaState,
   type PublicInfo,
+  type RoleId,
   type Stance,
   type VoteRecord
 } from 'mafia-core';
@@ -46,6 +48,24 @@ export interface BotMind {
   stance: Stance;
   /** Speech budget for the round, so a think-loop cannot monologue. */
   saidThisRound: number;
+  /**
+   * The face this seat has decided to wear if it ever has to, chosen once.
+   *
+   * A liar's story has to be the same story in the cell, on the stand and in
+   * the will, so the mask is pinned the first time anything asks for it, and
+   * only a role the seat actually claims in public can replace it.
+   */
+  mask: RoleId | null;
+  /** What this seat has written down about the others, day by day. Append-only. */
+  notes: WillNote[];
+}
+
+/** One line of a seat's own journal, written into its will as the days go. */
+export interface WillNote {
+  day: number;
+  slot: number;
+  /** `liar`: caught out by the record. `evil`: voted on conviction. `wrong`: the corpse said otherwise. */
+  kind: 'liar' | 'evil' | 'wrong';
 }
 
 interface TableMemory {
@@ -104,7 +124,14 @@ export class BotMinds {
       const rng = seededRng(playerId);
       const agenda = agendaOf(player.role);
       const brain = makeBrain(player.slot, makePersonality(DEFAULT_PROFILE, rng));
-      mind = { brain, agenda, stance: stanceOf(agenda, brain.desperation, brain.personality), saidThisRound: 0 };
+      mind = {
+        brain,
+        agenda,
+        stance: stanceOf(agenda, brain.desperation, brain.personality),
+        saidThisRound: 0,
+        mask: null,
+        notes: []
+      };
       table.minds.set(playerId, mind);
     }
     // A converted, audited or remembered seat wants a different agenda than the
@@ -140,6 +167,30 @@ export class BotMinds {
       mind.agenda = felt.agenda;
       mind.stance = felt.stance;
     }
+  }
+
+  /**
+   * Puts this table's temperaments where the policies read them.
+   *
+   * `suspicionParts` weighs the wagon by the seat's herd instinct, and reads it
+   * from a module-level map that only the headless bench ever filled. Live
+   * tables never bound anything, so every bot in production weighed the crowd
+   * at exactly one half whatever its personality said: the one trait meant to
+   * tell a follower from a sceptic did nothing at a real table.
+   *
+   * The map is keyed by slot and shared by every table in the process, so it
+   * is rebound before each decision rather than once at the start. Decisions
+   * are synchronous, so nothing runs between the bind and the reads that
+   * follow it, and the next table's decision rebinds its own seats.
+   */
+  bind(state: MafiaState): void {
+    const brains: Brain[] = [];
+    for (const player of Object.values(state.players)) {
+      if (!player.isBot || !player.alive) continue;
+      const mind = this.mind(state, player.playerId);
+      if (mind) brains.push(mind.brain);
+    }
+    bindPersonalities(brains);
   }
 
   /** Files the day's closing accusations, once, before night falls. */

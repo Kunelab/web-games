@@ -40,6 +40,7 @@ export {
   tablePresence,
   voteWeight,
   waitedOnSeats,
+  WILL_MAX_CHARS,
   type DayStage,
   type IntelEntry,
   type MafiaConfig,
@@ -129,6 +130,8 @@ export {
   type StanceTraits
 } from './social.js';
 export {
+  BADGE_ROLES,
+  bindPersonalities,
   claimerWeight,
   decideBallot,
   decideDay,
@@ -146,6 +149,7 @@ export {
   suspicion,
   suspicionParts,
   trustOf,
+  uncontestedBadge,
   type Brain,
   type Claim,
   type ClaimKind,

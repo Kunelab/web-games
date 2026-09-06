@@ -1,6 +1,6 @@
 import type { DeathSource } from '../messages.js';
 import type { RoleId } from '../roles.js';
-import { familyOf, isSoloKiller, roleDef } from '../roles.js';
+import { familyOf, isSoloKiller, roleDef, ROLES } from '../roles.js';
 import {
   advanceDesperation,
   agendaOf,
@@ -312,13 +312,25 @@ export function feelPressure(
   const outed = info.claims.some(
     (claim) => claim.kind === 'role-claim' && claim.targetSlot === self.slot && claim.claimerSlot !== self.slot
   );
+  /**
+   * The Jester's meter runs on being ignored, and on nothing else.
+   *
+   * For everybody else a wagon is a spike; for him it is the plan working, so
+   * counting it as pressure sent his meter up in both cases and the stance
+   * could not tell a Jester nobody looks at from one on the stand. His floor,
+   * from `losingClock`, is already how ignored he is; the personal spikes are
+   * switched off so the meter reads that and only that.
+   */
+  const jester = agenda === 'jester';
   const pressure: Pressure = {
     day: info.day,
     aliveCount: info.aliveSlots.length,
-    votesAgainstMe: votesAgainst(self.slot, info),
-    onTrial: info.trialSlot === self.slot,
-    roleOuted: outed,
-    targetedLastNight: self.intel.some((entry) => entry.night === info.day - 1 && entry.kind === 'saved'),
+    votesAgainstMe: jester ? 0 : votesAgainst(self.slot, info),
+    onTrial: jester ? false : info.trialSlot === self.slot,
+    roleOuted: jester ? false : outed,
+    targetedLastNight: jester
+      ? false
+      : self.intel.some((entry) => entry.night === info.day - 1 && entry.kind === 'saved'),
     losingClock: losingClock(self, agenda, info, allies)
   };
   brain.desperation = advanceDesperation(brain.desperation, pressure);
@@ -397,6 +409,77 @@ export function possibilitySet(self: MafiaPlayer, info: PublicInfo): Set<number>
  * town — or a clear that died evil — zeroes the claimer's voice forever; an
  * accusation that died evil makes them a proven sheriff whose word doubles.
  */
+/**
+ * The town's investigative badges: roles whose word is a checkable report.
+ *
+ * Every one of them, not only the Sheriff. A Lookout's list of callers, a
+ * Detective's tail, a Coroner's autopsy and an Investigator's trade line are
+ * each a night's work the room can hold against later events, so a seat that
+ * claims any of them is making the same kind of promise a Sheriff makes.
+ * Read by the credibility weights and by the proven-role deduction.
+ */
+export const BADGE_ROLES: ReadonlySet<RoleId> = new Set<RoleId>([
+  'sheriff',
+  'investigator',
+  'lookout',
+  'detective',
+  'coroner',
+  'spy'
+]);
+
+/**
+ * The badge this seat wears, if it claimed one and nobody living disputes it.
+ *
+ * The latest role a seat claimed for itself, when that role is investigative,
+ * no other living seat claims the same one, and, for a unique role, the
+ * graveyard has not already produced its holder. Null otherwise: a contested
+ * badge is at least one liar, and neither claimant gets the benefit until the
+ * room sorts them out.
+ */
+export function uncontestedBadge(slot: number, info: PublicInfo): RoleId | null {
+  return badgesOf(info).get(slot) ?? null;
+}
+
+/**
+ * Every seat's badge, worked out once per board.
+ *
+ * `claimerWeight` asks about a badge for every claim it weighs, and it is
+ * itself asked for every claim about every seat on every decision, so a
+ * per-call scan of the claims list made the bench a third slower. A board is
+ * built fresh for each decision and never changes afterwards, so the answer is
+ * computed on first ask and kept with the board.
+ */
+const BADGES = new WeakMap<PublicInfo, Map<number, RoleId>>();
+
+function badgesOf(info: PublicInfo): Map<number, RoleId> {
+  const cached = BADGES.get(info);
+  if (cached) return cached;
+
+  // The latest badge each seat claimed for itself.
+  const claimed = new Map<number, RoleId>();
+  for (const claim of info.claims) {
+    if (claim.kind === 'role-claim' && claim.claimedRole && BADGE_ROLES.has(claim.claimedRole)) {
+      claimed.set(claim.claimerSlot, claim.claimedRole);
+    }
+  }
+  // How many living seats wear each one.
+  const wearers = new Map<RoleId, number>();
+  for (const [slot, role] of claimed) {
+    if (info.aliveSlots.includes(slot)) wearers.set(role, (wearers.get(role) ?? 0) + 1);
+  }
+  const badges = new Map<number, RoleId>();
+  for (const [slot, role] of claimed) {
+    const others = (wearers.get(role) ?? 0) - (info.aliveSlots.includes(slot) ? 1 : 0);
+    if (others > 0) continue;
+    if (roleDef(role).unique && [...info.deadRoles.entries()].some(([dead, buried]) => dead !== slot && buried === role)) {
+      continue;
+    }
+    badges.set(slot, role);
+  }
+  BADGES.set(info, badges);
+  return badges;
+}
+
 export function claimerWeight(claimerSlot: number, info: PublicInfo): number {
   let weight = 1;
 
@@ -428,6 +511,24 @@ export function claimerWeight(claimerSlot: number, info: PublicInfo): number {
   const trust = trustOf(claimerSlot, info);
   if (trust <= -2) weight *= 0.5;
   else if (trust >= 2) weight *= 1.3;
+
+  /**
+   * A badge nobody has disputed is worth something before anybody dies.
+   *
+   * A living seat saying "I am the Sheriff, and 7 came back bad" used to be
+   * heard exactly like a seat shouting "7 is bad" with no badge at all: until a
+   * corpse settled it, the claim moved nothing. A real table does not play that
+   * way. An investigative claim that no living rival contests and that the
+   * graveyard has not already filled is provisionally believed, which is what
+   * makes claiming worth the target it paints on the claimant, and what lets a
+   * human investigator feel heard the afternoon they speak rather than a day
+   * later. Every town investigative role counts, because a Lookout's list or a
+   * Detective's tail is exactly as checkable as a Sheriff's verdict.
+   *
+   * Modest, and gone the moment it is contested. The living only: a corpse's
+   * badge was settled by the graveyard above.
+   */
+  if (info.aliveSlots.includes(claimerSlot) && uncontestedBadge(claimerSlot, info) !== null) weight *= 1.3;
 
   /**
    * A badge the record signed for outranks everything above.
@@ -688,6 +789,18 @@ export function steadyVote(
   standing: number | null,
   /** What `decideDay` would like this seat to vote for. */
   proposed: number | null,
+  /**
+   * Seats this one will not cross the floor onto: the family, a bonded heart.
+   *
+   * The proposal comes from `pickVote`, which knows never to name a brother.
+   * The tie-break below did not, and it reads the tally rather than the
+   * proposal: a mafioso standing on a townie while the room sat level between
+   * that townie and its own Godfather would break the tie onto the Godfather,
+   * since the case against a mafioso under a wagon generally looks strong.
+   * Bussing is a decision the brain takes on purpose in `pickVote`, behind a
+   * temperament gate; it is not something a tie-break may do by accident.
+   */
+  allies: ReadonlySet<number>,
   rng: () => number
 ): SteadyVote {
   const scoreOf = (slot: number): number => suspicion(slot, self, info, rng);
@@ -728,7 +841,7 @@ export function steadyVote(
 
   if (most > 0 && leaders.length > 1) {
     const best = leaders
-      .filter((slot) => slot !== self.slot)
+      .filter((slot) => slot !== self.slot && !allies.has(slot))
       .map((slot) => ({ slot, score: scoreOf(slot) }))
       .sort((left, right) => right.score - left.score)[0];
 
@@ -1087,10 +1200,24 @@ export function decideDay(
      * accusations that contradict what the room can see. Both are the product.
      */
     if (agenda === 'jester') {
-      const burned = burnedFaces(info);
-      const mask = pickMask('jester', stance, rng, burned);
-      if (mask) publish(self.slot, 'role-claim', mask);
-      if (rng() < stance.falseAccuse) {
+      /**
+       * One act a day, and the acts escalate.
+       *
+       * The stance hands a fresh Jester every appetite at once, and played
+       * straight that produced a seat that claimed Veteran, accused the calmest
+       * person in the room and needled a third in its first breath. That is not
+       * a liar, it is a Jester, and the town read it as one and left him alone.
+       * A real one builds: an odd accusation first, a big checkable claim once
+       * that has not landed, and more odd accusations once the room has learned
+       * to expect nothing from him. The ignored-meter picks the rung, so a
+       * Jester the room is already eyeing stops escalating and lets the wagon
+       * come.
+       */
+      const accusedBefore = info.claims.some((claim) => claim.kind === 'accuse' && claim.claimerSlot === self.slot);
+      const claimedBefore = info.claims.some(
+        (claim) => claim.kind === 'role-claim' && claim.claimerSlot === self.slot
+      );
+      const oddAccusation = (): void => {
         // Deliberately the *least* suspected seat: contradicting the room is
         // how he gets called a liar.
         const calmest = others
@@ -1098,6 +1225,14 @@ export function decideDay(
           .map((slot) => ({ slot, heat: suspicion(slot, self, info, rng) }))
           .sort((a, b) => a.heat - b.heat)[0];
         if (calmest) publish(calmest.slot, 'accuse');
+      };
+      if (!accusedBefore) {
+        if (rng() < stance.falseAccuse) oddAccusation();
+      } else if (!claimedBefore && info.day >= 3 && brain.desperation >= 0.5) {
+        const mask = pickMask('jester', stance, rng, burnedFaces(info));
+        if (mask) publish(self.slot, 'role-claim', mask);
+      } else if (claimedBefore && rng() < stance.falseAccuse * 0.5) {
+        oddAccusation();
       }
     }
 
@@ -1146,6 +1281,45 @@ export function decideDay(
       if (rng() < stance.fakeClaim * 0.7) {
         const mask = pickMask(agenda, stance, rng, burnedFaces(info));
         if (mask) publish(self.slot, 'role-claim', mask);
+      }
+    }
+
+    /**
+     * The family's investigator buys trust with the truth.
+     *
+     * A Consigliere learns exact roles and used to say nothing about any of
+     * them, which threw away the cheapest credibility in the game. A rival
+     * killer, a Triad soldier when you are Mafia, a Witch: handing the town one
+     * of those costs the family nothing, removes a competitor, and leaves the
+     * seat wearing a badge the graveyard will shortly sign for, which is then
+     * worth a vote nobody questions on the day it matters. Said the way an
+     * investigator would say it, with the badge on when the face is free. Any
+     * family seat with a `role` entry qualifies, so a Janitor who cleaned a
+     * Serial Killer reports it the same way. Eagerly when a lone blade is
+     * loose, since the family wants that one gone as much as anybody does.
+     */
+    if (familyOf(role) !== null) {
+      const rivals = self.intel.filter(
+        (entry) =>
+          entry.kind === 'role' &&
+          entry.value in ROLES &&
+          isEvilRole(entry.value as RoleId) &&
+          info.aliveSlots.includes(entry.targetSlot) &&
+          !teammates.has(entry.targetSlot) &&
+          !alreadyClaimed(info, self.slot, entry.targetSlot, 'accuse')
+      );
+      const rival = rivals[rivals.length - 1];
+      const eagerness = Math.max(stance.buildTrust, info.rampage >= 1 ? 0.7 : 0);
+      if (rival && rng() < eagerness * 0.6) {
+        publish(rival.targetSlot, 'accuse');
+        const face = (['sheriff', 'investigator'] as RoleId[]).find((badge) => !burnedFaces(info).has(badge));
+        if (
+          face &&
+          !alreadyClaimed(info, self.slot, self.slot, 'role-claim') &&
+          rng() < 0.4 + brain.personality.deceit * 0.5
+        ) {
+          publish(self.slot, 'role-claim', face);
+        }
       }
     }
 
@@ -1272,6 +1446,32 @@ function pickVote(
   }
 
   const isMafiaSeat = teammates.size > 0;
+
+  /**
+   * The bus, boarded on purpose.
+   *
+   * A brother one vote from the rope hangs whatever this seat does, and the
+   * seat that is the only one at the table not on that wagon has told the room
+   * as much as a confession would. Joining costs nothing he was not already
+   * losing and buys the day of credit `trustOf` pays for a guilty vote on a
+   * revealed evil. Cold seats do it as a matter of course; warmer ones once the
+   * family is losing badly enough that `sacrificeAlly` says so.
+   *
+   * The first shape scored a doomed brother at half a point, which lost to any
+   * real suspect on the board, so the bus was decided and then never boarded.
+   */
+  if (isMafiaSeat) {
+    const needed = Math.floor(info.aliveSlots.length / 2) + 1;
+    const doomed = [...familyKnownEvil].find(
+      (slot) => slot !== self.slot && info.aliveSlots.includes(slot) && votesAgainst(slot, info) >= needed - 1
+    );
+    if (doomed !== undefined) {
+      const stance = stanceOf(agendaOf(role), brain.desperation, brain.personality);
+      const cold = brain.personality.deceit > 0.55;
+      if (rng() < (cold ? 0.7 : 0.2) + stance.sacrificeAlly * 0.3) return doomed;
+    }
+  }
+
   const teammateWagons = new Set(
     [...info.votes.entries()].filter(([voter]) => teammates.has(voter)).map(([, target]) => target)
   );
@@ -1292,23 +1492,9 @@ function pickVote(
       // A short shortlist is itself evidence: it must be one of you.
       if (possible && possible.size <= 3 && possible.has(slot)) score += 1;
       if (isMafiaSeat) {
-        /**
-         * Never your own brother — unless he is already gone.
-         *
-         * A wagon that has reached the threshold is going to hang whoever it is
-         * standing on, and a mafioso who is the *only* seat at the table not
-         * voting for the obvious lynch has told the room exactly as much as a
-         * confession would. Bussing is the standard answer: join the wagon on a
-         * brother you cannot save, spend nothing, and buy a day of credit.
-         *
-         * Gated on temperament, because it is a cold thing to do and not every
-         * seat is cold. An ally who could still be saved is never sold.
-         */
-        if (familyKnownEvil.has(slot)) {
-          const doomed = votesAgainst(slot, info) >= Math.floor(info.aliveSlots.length / 2) + 1 - 1;
-          const coldEnough = brain.personality.deceit > 0.55;
-          return { slot, score: doomed && coldEnough ? 0.5 : -10 };
-        }
+        // Never your own brother. The bus, when it is boarded, is boarded on
+        // purpose above, not by a brother outscoring a stranger here.
+        if (familyKnownEvil.has(slot)) return { slot, score: -10 };
         if (teammateWagons.has(slot)) score += 1.5;
         // A rampaging solo killer threatens the family too: for a while, the
         // mafia votes with the town against whoever the evidence points at.
@@ -1441,7 +1627,18 @@ export function decideBallot(
      * family is cornered, the wrong move: a public "guilty" on one of your own
      * is the single most trust-buying thing a mafioso can do, and it costs a man
      * the room was going to take anyway.
+     *
+     * How far gone he is decides it. A case the whole room can read hangs him
+     * whatever the family does, and an innocent ballot on a seat about to be
+     * revealed evil is the loudest tell in the game, priced at minus two and a
+     * half by `trustOf`. So a brother is saved when saving is still possible
+     * and, when it is not, the family votes with the room and keeps its face.
+     * The first shape voted innocent on a doomed brother nine times in ten and
+     * handed the town the family's whole roster over the next two trials.
      */
+    const room = suspicionParts(accusedSlot, self, info, rng).evidence;
+    const hopeless = room >= 2.2;
+    if (hopeless) return rng() < 0.7 + stance.sacrificeAlly * 0.3 ? 'guilty' : 'innocent';
     return rng() < stance.sacrificeAlly ? 'guilty' : 'innocent';
   }
   if (role === 'executioner' && (self.obsessionSlotHint ?? null) === accusedSlot) return 'guilty';

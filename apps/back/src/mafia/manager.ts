@@ -228,6 +228,9 @@ export class MafiaManager {
 
     state.lastActivityAt = Date.now();
     this.messageListener?.(state, result.message);
+    // The bots' ear reads the square when a person has spoken in it, not on a
+    // fixed clock; this is how it hears.
+    this.bots.onChat(state, result.message);
     this.persistSoon(state);
     return { ok: true };
   }

@@ -259,21 +259,25 @@ export function stanceOf(agenda: Agenda, desperation: number, traits: StanceTrai
 
     case 'jester':
       /**
-       * Backwards on purpose. Every other seat calms down when nobody is
-       * looking at it; the Jester panics. `desperation` for him is *attention*,
-       * so a high meter means the plan is working and he can stop shouting.
+       * His meter runs the other way round. Every other seat's desperation is
+       * the rope getting closer; his is the rope getting *further away*:
+       * `losingClock` hands him how ignored he is, and `feelPressure` keeps the
+       * wagon out of his spikes, so a high meter means nobody is looking and it
+       * is time to shout. The first draft read the meter as attention and eased
+       * off when it was high, which is backwards, and the two halves cancelled:
+       * a Jester escalated for nobody and calmed down for nobody.
        */
       return {
         ...ZERO,
         seekInfo: 0.3,
         answerHonestly: clamp(0.3 - d * 0.2),
         // Contradicting himself is the product, not a bug.
-        falseAccuse: clamp(0.55 + (1 - d) * 0.35),
-        fakeClaim: clamp(0.5 + (1 - d) * 0.4),
-        jesterGambit: clamp(0.4 + (1 - d) * 0.5),
-        troll: clamp(0.6 + (1 - d) * 0.3),
+        falseAccuse: clamp(0.4 + d * 0.5),
+        fakeClaim: clamp(0.3 + d * 0.6),
+        jesterGambit: clamp(0.25 + d * 0.65),
+        troll: clamp(0.5 + d * 0.4),
         buildTrust: 0.05,
-        pushHard: clamp(0.3 + (1 - d) * 0.4)
+        pushHard: clamp(0.3 + d * 0.4)
       };
 
     case 'executioner':

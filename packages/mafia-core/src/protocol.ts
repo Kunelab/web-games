@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { ChatMessage } from 'chat-core';
 import type { Msg } from 'i18n';
 import { isSlotToken } from './setups.js';
+import { WILL_MAX_CHARS } from './state.js';
 import type { MafiaView } from './view.js';
 
 /** Wire contract between the phones and the server, shared by both apps. */
@@ -52,7 +53,7 @@ export const mafiaDayActionSchema = z.discriminatedUnion('type', [
 ]);
 
 export const mafiaWillSchema = z.object({
-  text: z.string().max(400)
+  text: z.string().max(WILL_MAX_CHARS)
 });
 
 /** A kick proposed against a house, or a ballot on the one already open. */

@@ -114,8 +114,9 @@ describe('the social model', () => {
   });
 
   it('the jester runs backwards: being ignored is his emergency', () => {
-    const ignored = stanceOf('jester', 0, traits);
-    const wanted = stanceOf('jester', 0.9, traits);
+    // His meter is how ignored he is, so the high reading is the empty room.
+    const ignored = stanceOf('jester', 0.9, traits);
+    const wanted = stanceOf('jester', 0, traits);
     assert.ok(ignored.troll > wanted.troll);
     assert.ok(ignored.falseAccuse > wanted.falseAccuse);
     assert.ok(ignored.fakeClaim > wanted.fakeClaim, 'he shouts louder when nobody looks');

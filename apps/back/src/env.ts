@@ -234,7 +234,20 @@ const envSchema = z.object({
    * the next one begins. Past this, the played brain takes the turn, which it
    * does instantly and competently.
    */
-  MAFIA_BOT_TURN_MS: z.coerce.number().int().min(1000).max(120_000).default(25_000)
+  MAFIA_BOT_TURN_MS: z.coerce.number().int().min(1000).max(120_000).default(25_000),
+
+  /**
+   * How long the mouth may take over one sentence before the phrasebook says it.
+   *
+   * Shorter than a turn on purpose. The move has already landed when this call
+   * starts: the vote is on the tally and the claim is on the board, so the only
+   * thing a slow answer can do is arrive after the moment it was about, and a
+   * line landing twenty seconds behind its own vote reads as a non sequitur.
+   * The default leaves room for a small local model with thinking off, which
+   * reads the mouth's three hundred tokens in a few seconds; an API answers in
+   * one.
+   */
+  MAFIA_BOT_SPEAK_MS: z.coerce.number().int().min(1000).max(60_000).default(10_000)
 });
 
 const parsed = envSchema.safeParse(process.env);
