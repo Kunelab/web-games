@@ -846,9 +846,9 @@ section('who gets the media');
     config: defaultSessionConfig,
     existingCodes: new Set()
   });
-  joinSession(noTv, 'Phone', undefined);
+  const alone = joinSession(noTv, 'Phone', undefined).player;
   advance(noTv, () => item);
-  const phone = toSessionView(noTv, null, false, { imageUrl: () => '' });
+  const phone = toSessionView(noTv, alone.id, false, { imageUrl: () => '' });
   check('with no television, every phone is a stage', phone.stageRound?.kind === 'blindtest', phone.stageRound);
 
   const withTv = createSession({
@@ -859,10 +859,120 @@ section('who gets the media');
     config: { ...defaultSessionConfig, tv: true },
     existingCodes: new Set()
   });
-  joinSession(withTv, 'Phone', undefined);
+  const seated = joinSession(withTv, 'Phone', undefined).player;
   advance(withTv, () => item);
-  const withScreen = toSessionView(withTv, null, false, { imageUrl: () => '' });
+  const withScreen = toSessionView(withTv, seated.id, false, { imageUrl: () => '' });
   check('with one, the clip belongs to it alone', withScreen.stageRound === undefined, withScreen.stageRound);
+  check('and the phones are told there is one', withScreen.tvOnly && withScreen.tvPlayerId === null, {
+    tvOnly: withScreen.tvOnly,
+    tvPlayerId: withScreen.tvPlayerId
+  });
+
+  /**
+   * The television can be one of the phones, and then it is the only one.
+   *
+   * This is the case the old "there is a television" switch could not express:
+   * the big screen in the room is somebody's handset on an HDMI cable, so the
+   * clip has to reach *that* device and no other. The host appoints it in the
+   * lobby, which is the earliest moment the device exists to be pointed at.
+   */
+  withTv.tvPlayerId = seated.id;
+  const appointed = toSessionView(withTv, seated.id, false, { imageUrl: () => '' });
+  check('an appointed phone becomes the stage', appointed.stageRound?.kind === 'blindtest', appointed.stageRound);
+
+  const other = joinSession(withTv, 'Someone else', undefined).player;
+  const bystander = toSessionView(withTv, other.id, false, { imageUrl: () => '' });
+  check('and nobody else does', bystander.stageRound === undefined, bystander.stageRound);
+
+  /**
+   * A television that left the room is not one.
+   *
+   * Kicked, or gone for good: rather than playing the media nowhere, the
+   * appointment falls back to the host screen, which is always present.
+   */
+  delete withTv.players[seated.id];
+  const orphaned = toSessionView(withTv, other.id, false, { imageUrl: () => '' });
+  check('a departed television falls back to the host screen', orphaned.tvPlayerId === null, orphaned.tvPlayerId);
+
+  /**
+   * Only a kind the host screen presents alone travels this way.
+   *
+   * Everything else already reaches a player through its redacted presentation,
+   * whose image URLs are opaque per-round tokens. Handing those kinds the raw
+   * payload as well would put the answer in a filename — `/guess_img/Arnold.jpg`
+   * names the man in the picture.
+   */
+  const picture: MediaView = {
+    ...quizItem,
+    id: 9_101,
+    kind: 'image-reveal',
+    answers: [answerFieldSchema.parse({ key: 'subject', value: 'Arnold', points: 3 })],
+    payload: { src: '/guess_img/Arnold.jpg', mode: 'blur', intensity: 40, startZoom: 1 }
+  };
+  const noTvPicture = createSession({
+    playlistName: 'no telly, a picture',
+    playlistId: null,
+    hostUserId: 1,
+    items: [picture],
+    config: defaultSessionConfig,
+    existingCodes: new Set()
+  });
+  const looker = joinSession(noTvPicture, 'Phone', undefined).player;
+  advance(noTvPicture, () => picture);
+  const pictureView = toSessionView(noTvPicture, looker.id, false, { imageUrl: () => '/asset/opaque' });
+  check('a picture round never ships its own filename', !pictureView.stageRound, pictureView.stageRound);
+  check(
+    'with no television it still reaches the phone, through its presentation',
+    (pictureView.round?.presentation as { imageUrl?: string }).imageUrl === '/asset/opaque',
+    pictureView.round?.presentation
+  );
+
+  /**
+   * "On the television only" means the picture too, not only the clip.
+   *
+   * This is the half a per-kind flag could never express. A picture round and a
+   * memory panel are `presentedByHost: false` because normally every screen may
+   * show them — but a room that asked for one screen asked for one screen, and a
+   * grid of forty faces mirrored onto every phone is a different, easier game.
+   * The question keeps travelling either way: one you cannot read is not one you
+   * can answer.
+   */
+  const question: MediaView = {
+    ...quizItem,
+    id: 9_102,
+    kind: 'quiz',
+    payload: { question: 'Quelle est la capitale de la Mongolie ?', imageUrl: '', explanation: '' }
+  };
+  const byId = new Map([picture, question].map((entry) => [entry.id, entry]));
+
+  const pictureOnTv = createSession({
+    playlistName: 'telly, a picture',
+    playlistId: null,
+    hostUserId: 1,
+    items: [picture, question],
+    config: { ...defaultSessionConfig, tv: true },
+    existingCodes: new Set()
+  });
+  const watcher = joinSession(pictureOnTv, 'Phone', undefined).player;
+  advance(pictureOnTv, (id) => byId.get(id));
+  const watched = toSessionView(pictureOnTv, watcher.id, false, { imageUrl: () => '/asset/opaque' });
+  check(
+    'with a television, a phone gets no picture',
+    (watched.round?.presentation as { imageUrl?: string }).imageUrl === undefined,
+    watched.round?.presentation
+  );
+
+  const tvSide = toSessionView(pictureOnTv, null, true, { imageUrl: () => '/asset/opaque' });
+  check('and the host screen still has the round', tvSide.hostRound?.kind === 'image-reveal', tvSide.hostRound?.kind);
+
+  advance(pictureOnTv, (id) => byId.get(id));
+  const questionOnPhone = toSessionView(pictureOnTv, watcher.id, false, { imageUrl: () => '/asset/opaque' });
+  check(
+    'but a question is never withheld',
+    (questionOnPhone.round?.presentation as { question?: string }).question ===
+      'Quelle est la capitale de la Mongolie ?',
+    questionOnPhone.round?.presentation
+  );
 }
 
 /* -------------------- ending a game early still pays ---------------------- */

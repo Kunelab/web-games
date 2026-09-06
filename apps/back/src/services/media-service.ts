@@ -74,14 +74,21 @@ export function toMediaView(row: MediaRow): MediaView {
   let effectiveTiming: KindTiming;
   try {
     const definition = getMediaKind(row.kind);
+    /**
+     * The parsed payload replaces the stored one, rather than only being tested.
+     *
+     * This used to parse and throw the result away, which is how a schema
+     * default became a field that was declared, ignored, and then rendered as an
+     * empty box: a blind test saved before it had a volume has no volume in its
+     * row, and only the parse puts the 100 there. Zod strips unknown keys, which
+     * is the same thing a save does, so nothing is lost that a save would keep.
+     */
     const parsedPayload = definition.payloadSchema.safeParse(payload);
-    if (!parsedPayload.success) {
-      payload = definition.defaultPayload;
-    }
+    payload = parsedPayload.success ? parsedPayload.data : definition.defaultPayload;
     readiness = mediaReadiness({ kind: row.kind, answers, payload });
     effectiveTiming = resolveTiming({ kind: row.kind, timing, payload });
   } catch {
-    readiness = { ready: false, missing: [`type de média inconnu : ${row.kind}`] };
+    readiness = { ready: false, missing: ['miss.unknownKind'] };
     effectiveTiming = { answerMs: 30_000, revealMs: 10_000 };
   }
 

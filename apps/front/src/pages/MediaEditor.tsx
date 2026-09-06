@@ -15,7 +15,8 @@ import {
 import { kindColor } from '../app/kinds';
 import { AnswersEditor } from '../forms/AnswersEditor';
 import { PayloadFields } from '../forms/PayloadFields';
-import { useT } from '../i18n/locale-context';
+import { fieldText } from '../forms/fieldText';
+import { useLocale } from '../i18n/locale-context';
 import { useAsync } from '../hooks/useAsync';
 import { Badge, Button, Field, Input, Loading } from '../ui';
 import './library.css';
@@ -32,7 +33,7 @@ import './library.css';
  * refresh threw the work away.
  */
 export default function MediaEditor() {
-  const t = useT();
+  const t = useLocale().t;
   const { id } = useParams<{ id: string }>();
   const mediaId = id === undefined ? null : Number(id);
 
@@ -69,7 +70,7 @@ interface EditorProps {
 }
 
 function Editor({ item, kinds, mediaId }: EditorProps) {
-  const t = useT();
+  const { t, locale } = useLocale();
   const navigate = useNavigate();
 
   const [kind, setKind] = useState<string | null>(item?.kind ?? null);
@@ -214,7 +215,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
         setError(cause.message);
         setFieldErrors(extractFieldErrors(cause.details));
       } else {
-        setError("L'enregistrement a échoué.");
+        setError(t(msg('me.saveFailed')));
       }
     } finally {
       setSaving(false);
@@ -247,8 +248,10 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
               <span className="icon" aria-hidden="true">
                 {option.icon}
               </span>
-              <span className="name">{option.label.fr}</span>
-              <span className="desc">{option.description.fr}</span>
+              {/* The kind's own name, in the reader's language rather than in
+                  the one it was written in. */}
+              <span className="name">{option.label[locale] ?? option.label.en}</span>
+              <span className="desc">{option.description[locale] ?? option.description.en}</span>
             </button>
           ))}
         </div>
@@ -267,7 +270,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
       <div className="page-head">
         <div>
           <h1 className="page-title">{mediaId === null ? t(msg('me.new')) : title || t(msg('me.untitled'))}</h1>
-          <p className="page-sub">{descriptor?.label.fr}</p>
+          <p className="page-sub">{descriptor ? (descriptor.label[locale] ?? descriptor.label.en) : ''}</p>
         </div>
       </div>
 
@@ -303,11 +306,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
             <AnswersEditor
               answers={answers}
               onChange={setAnswers}
-              hint={
-                kind === 'image-memory'
-                  ? t(msg('me.answersHint'))
-                  : undefined
-              }
+              hint={kind === 'image-memory' ? t(msg('me.answersHint')) : undefined}
             />
           </section>
         </div>
@@ -355,12 +354,16 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
             <section className="editor-section">
               <h2 className="editor-section-title">{t(msg('me.timing'))}</h2>
               <p className="field-hint">
-                Par défaut : {Math.round(descriptor.defaultTiming.answerMs / 1000)} s pour répondre,{' '}
-                {Math.round(descriptor.defaultTiming.revealMs / 1000)} s de révélation.
+                {t(
+                  msg('me.defaults', {
+                    answer: Math.round(descriptor.defaultTiming.answerMs / 1000),
+                    reveal: Math.round(descriptor.defaultTiming.revealMs / 1000)
+                  })
+                )}
               </p>
               {timing === null ? (
                 <Button variant="secondary" size="sm" onClick={() => setTiming({ ...descriptor.defaultTiming })}>
-                  Personnaliser pour ce média
+                  {t(msg('me.customise'))}
                 </Button>
               ) : (
                 <div className="stack-3">
@@ -399,7 +402,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
                     )}
                   </Field>
                   <Button variant="ghost" size="sm" onClick={() => setTiming(null)}>
-                    Revenir au réglage par défaut
+                    {t(msg('me.backToDefault'))}
                   </Button>
                 </div>
               )}
@@ -412,20 +415,22 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
         <span className="readiness">
           {readiness.ready ? (
             <>
-              <Badge tone="ok">prêt</Badge> Jouable en partie.
+              <Badge tone="ok">{t(msg('me.ready'))}</Badge> {t(msg('me.playable'))}
             </>
           ) : (
             <>
-              <Badge tone="warn">brouillon</Badge> Il manque {readiness.missing.join(', ')}.
+              <Badge tone="warn">{t(msg('me.draft'))}</Badge>{' '}
+              {/* The server names what is missing with keys, so the words are ours. */}
+              {t(msg('me.missing', { fields: readiness.missing.map((key) => fieldText(t, key)).join(', ') }))}
             </>
           )}
         </span>
         <div className="page-actions">
           <Button variant="ghost" onClick={() => void navigate('/bibliotheque')}>
-            Retour
+            {t(msg('me.cancel'))}
           </Button>
           <Button variant="primary" busy={saving} onClick={() => void save()}>
-            Enregistrer
+            {t(msg('me.save'))}
           </Button>
         </div>
       </div>

@@ -105,7 +105,17 @@
   text-wrap: balance;
 }
 
+/*
+ * The score strip and the controls, last on the screen whatever else is on it.
+ *
+ * `order` rather than DOM position, because the solo answer panel is a sibling
+ * mounted from the lobby onwards — it has to live outside the block that draws
+ * the round, or the seat would not exist until the game was already running.
+ * Its slot is between the stage and these controls, and this is the line that
+ * puts it there without the mount point moving.
+ */
 .host-bottom {
+  order: 1;
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -118,21 +128,39 @@
   gap: var(--space-2);
 }
 
-/* The clip is audible during the guess phase but must not be visible. */
+/*
+ * The clip is audible during the guess phase but must not be visible.
+ *
+ * Invisible, not shrunk. It used to be squeezed into a one-pixel box with
+ * `overflow: hidden`, which reads to a browser as a video nobody is watching:
+ * exactly the thing autoplay policies and background-throttling heuristics are
+ * written to stop. The player kept its full size, so the room heard nothing and
+ * there was nothing on screen to say why.
+ *
+ * So it stays a real 640×360 player and simply is not drawn. `opacity: 0` and
+ * not `visibility: hidden`, `display: none` or `content-visibility`, all three
+ * of which are grounds for a browser to stop the media. Taken out of the flow so
+ * it does not push the round's own layout around, and behind it so an invisible
+ * rectangle cannot sit on top of an answer box — with `pointer-events: none`
+ * belt-and-braces on top of that.
+ */
 .yt-hidden {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0.01;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  width: 640px;
+  height: 360px;
+  max-width: 100%;
+  opacity: 0;
   pointer-events: none;
+  z-index: -1;
 }
 /*
- * The one tap that buys sound.
+ * The one tap that buys sound, on the browsers that insist on one.
  *
- * Fixed rather than in flow, because during the guess phase its parent is a
- * one-pixel square — the button has to escape it to be pressable, which is the
- * one thing it must be. It removes itself the moment it is used.
+ * Fixed rather than in flow: its parent during the guess phase is an invisible
+ * player taken out of the flow, and the button has to be somewhere reachable,
+ * which is the one thing it must be. It removes itself the moment it is used.
  */
 .yt-unmute {
   position: fixed;
@@ -145,7 +173,9 @@
   border-radius: 999px;
   background: rgb(0 0 0 / 0.82);
   color: #fff;
-  font: 600 0.9rem/1.2 system-ui, sans-serif;
+  font:
+    600 0.9rem/1.2 system-ui,
+    sans-serif;
   cursor: pointer;
 }
 
@@ -848,6 +878,14 @@
 .podium-title {
   font-size: var(--text-xs);
   color: var(--accent);
+}
+
+/* The devices in the room, one of which is the television. */
+.tv-picker {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
 }
 
 /* Solo mode: the answer half, docked under the stage on the same screen. */

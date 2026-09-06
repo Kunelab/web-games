@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { api, type MediaItem } from '../api/client';
 import { kindColor, kindKey } from '../app/kinds';
+import { fieldText } from '../forms/fieldText';
 import { useAsync } from '../hooks/useAsync';
 import { useLocale } from '../i18n/locale-context';
 import { Badge, Button, Chip, CopyIcon, Dialog, EmptyState, IconButton, Input, Loading, Tag } from '../ui';
@@ -185,9 +186,7 @@ export default function Library() {
             )
           }
         >
-          <p>
-            {t(msg(search || kind ? 'lib.noMatch' : 'lib.whatIsMedia'))}
-          </p>
+          <p>{t(msg(search || kind ? 'lib.noMatch' : 'lib.whatIsMedia'))}</p>
         </EmptyState>
       )}
 
@@ -209,7 +208,7 @@ export default function Library() {
               <span className="media-answers">
                 {item.answers.slice(0, 3).map((answer) => (
                   <Tag key={answer.key}>
-                    {answer.label} {answer.points}
+                    {fieldText(t, answer.label)} {answer.points}
                   </Tag>
                 ))}
               </span>
@@ -219,10 +218,7 @@ export default function Library() {
                   <span className="tabular media-points">
                     {t(
                       msg('play.points', {
-                        points: item.answers.reduce(
-                          (total, answer) => total + answer.points + answer.directBonus,
-                          0
-                        )
+                        points: item.answers.reduce((total, answer) => total + answer.points + answer.directBonus, 0)
                       })
                     )}
                   </span>

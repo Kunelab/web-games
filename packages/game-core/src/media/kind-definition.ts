@@ -126,7 +126,7 @@ export interface KindDefinition<Payload> {
 }
 
 /**
- * Helpers a kind may use when building what players receive.
+ * Helpers and facts a kind may use when building what one player receives.
  *
  * `imageUrl` maps a stored source to an opaque per-round URL. A filename like
  * `/guess_img/Arnold.jpg` in the payload would hand the answer to anyone who
@@ -134,6 +134,22 @@ export interface KindDefinition<Payload> {
  */
 export interface PresentationContext {
   imageUrl: (source: string) => string;
+  /**
+   * Whether this recipient's device is one of the screens showing the media.
+   *
+   * False only in a room that asked for a television and appointed somebody
+   * else's screen as it. That is a real request, not a technicality: "on the
+   * television only" means the picture is on the television only, and a grid of
+   * forty faces reproduced on every phone in the room is not what was asked
+   * for — nor is it the same game, since half the difficulty of a panel is that
+   * you cannot hold it in your hand.
+   *
+   * A *question* is not media and is never withheld, because a question you
+   * cannot read is not one you can answer. Each kind decides which of its parts
+   * falls on which side of that line, which is why this is a fact handed to the
+   * kind rather than a filter applied over its result.
+   */
+  stage: boolean;
 }
 
 /** A kind definition with its payload type erased, for storing in the registry. */

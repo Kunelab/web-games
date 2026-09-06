@@ -97,12 +97,15 @@ export const imageReveal = defineKind<ImageRevealPayload>({
   defaultTiming: { answerMs: 45_000, revealMs: 8_000 },
   presentedByHost: false,
 
+  // Here the picture *is* the question, so a phone that is not a stage gets no
+  // picture at all and answers off the television — which is exactly what
+  // "on the television only" asks for.
   playerPresentation: (payload, context) => ({
-    imageUrl: context.imageUrl(payload.src),
+    imageUrl: context.stage ? context.imageUrl(payload.src) : undefined,
     mode: payload.mode,
     intensity: payload.intensity,
     startZoom: payload.startZoom
   }),
 
-  missingForPlay: (payload) => (payload.src.trim() ? [] : ["l'image"])
+  missingForPlay: (payload) => (payload.src.trim() ? [] : ['miss.image'])
 });

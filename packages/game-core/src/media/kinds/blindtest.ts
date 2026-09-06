@@ -19,7 +19,21 @@ export const blindtestPayloadSchema = z
     startGuess: z.number().int().min(0).max(86_400),
     endGuess: z.number().int().min(0).max(86_400),
     startReveal: z.number().int().min(0).max(86_400),
-    endReveal: z.number().int().min(0).max(86_400)
+    endReveal: z.number().int().min(0).max(86_400),
+    /**
+     * Playback volume for this clip, as a percentage.
+     *
+     * The embed API offers no loudness normalisation — there is no figure to read
+     * and nothing to feed a compressor, because the audio lives inside a
+     * cross-origin iframe the page cannot touch. So the levelling is authored:
+     * a clip mastered ten decibels hotter than the rest of the playlist gets
+     * turned down once, here, beside the clip it belongs to, instead of the room
+     * reaching for the television remote every third round.
+     *
+     * Defaulted rather than required, so every row saved before this existed
+     * parses and plays at full volume.
+     */
+    volume: z.number().int().min(10).max(100).default(100)
   })
   .refine((payload) => payload.endGuess > payload.startGuess, {
     message: 'La fin du extrait doit être après le début',
@@ -48,7 +62,8 @@ export const blindtest = defineKind<BlindtestPayload>({
     startGuess: 0,
     endGuess: 20,
     startReveal: 20,
-    endReveal: 40
+    endReveal: 40,
+    volume: 100
   },
 
   formFields: [
@@ -75,7 +90,17 @@ export const blindtest = defineKind<BlindtestPayload>({
       group: 'field.revealClip',
       width: 'half'
     },
-    { name: 'endReveal', label: 'field.end', control: 'seconds', group: 'field.revealClip', width: 'half' }
+    { name: 'endReveal', label: 'field.end', control: 'seconds', group: 'field.revealClip', width: 'half' },
+    {
+      name: 'volume',
+      label: 'field.volume',
+      control: 'number',
+      min: 10,
+      max: 100,
+      step: 5,
+      help: 'field.volumeHelp',
+      width: 'half'
+    }
   ],
 
   // Title and artist carry most of the value; year and country are the bonuses.
@@ -88,9 +113,10 @@ export const blindtest = defineKind<BlindtestPayload>({
   defaultTiming: { answerMs: 30_000, revealMs: 12_000 },
   presentedByHost: true,
 
-  // Players get nothing at all: the host screen plays the audio, and sending the
-  // video id would let anyone open it on YouTube and read the title.
+  // Nothing through this channel: the clip reaches whichever devices are stages
+  // as a `stageRound`, and sending the video id to every phone regardless would
+  // let anyone open it on YouTube and read the title.
   playerPresentation: () => ({}),
 
-  missingForPlay: (payload) => (payload.code ? [] : ['la vidéo YouTube'])
+  missingForPlay: (payload) => (payload.code ? [] : ['miss.youtube'])
 });

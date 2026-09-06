@@ -132,18 +132,24 @@ export interface FinalAward {
 }
 
 /**
- * The stage, when there is nobody standing on it.
+ * The stage, on a device that is not the host screen.
  *
- * A quick match has no host screen: the phone in your hand is the television as
- * well as the buzzer. That leaves the payload with nowhere to go but to the
- * players, so this is the host round with the answers taken out — the clip to
- * play, the picture to reveal, and not one word of what they are.
+ * Sent to whoever is a stage tonight: every player when the room has no
+ * television, or the single phone the host appointed as one. It is the host
+ * round with the answers taken out — the clip to play, and not one word of what
+ * it is.
  *
- * The trade is stated rather than hidden: a blindtest payload carries a YouTube
- * id, and a player determined enough to open it in another tab inside a
- * twenty-second round can read the title off it. That is the price of a game with
- * no television, it is paid only in the hostless modes, and the title, the
- * category and every answer field still never leave the server.
+ * Only kinds the host screen normally presents alone need this. Everything else
+ * already reaches a player through its redacted `presentation`, whose image
+ * URLs are opaque per-round tokens; handing those kinds the raw payload instead
+ * would post the answer in the filename.
+ *
+ * For the one kind that does need it, the trade is stated rather than hidden: a
+ * blindtest payload carries a YouTube id, and a player determined enough to open
+ * it in another tab inside a twenty-second round can read the title off it. That
+ * is the price of hearing the clip at all on a device that is not a television,
+ * and the title, the category and every answer field still never leave the
+ * server.
  */
 export interface StageRoundView {
   roundId: string;
@@ -169,13 +175,33 @@ export interface SessionView {
    * would be worse.
    */
   oral: boolean;
+  /**
+   * True when the media plays on one designated screen and nowhere else.
+   *
+   * The screens need it for the same reason they need `oral`: it decides whether
+   * this device is a stage or only a buzzer. The server still owns the
+   * consequence — `stageRound` is built or withheld per recipient — so a client
+   * that ignored this flag would draw a blank frame, never a leak.
+   */
+  tvOnly: boolean;
+  /**
+   * Which device that screen is: a player's id, or null for the host screen.
+   *
+   * Meaningless unless `tvOnly`. The host picks it in the lobby, because the
+   * question only has an answer once the devices are in the room and have said
+   * their names — which is what a lobby is for.
+   */
+  tvPlayerId: string | null;
   players: PlayerView[];
   round: RoundView | null;
   reveal: RevealView | null;
   isHost: boolean;
   /** Present only when `isHost`. */
   hostRound?: HostRoundView | null;
-  /** Present only in an autonomous session, where every player is also the stage. */
+  /**
+   * Present only for a device that is a stage: every player when there is no
+   * television, or the one phone the host appointed as it.
+   */
   stageRound?: StageRoundView | null;
   /** Items excluded from this session because they were incomplete. */
   skipped?: { title: string; missing: string[] }[];
@@ -229,7 +255,11 @@ export const sessionConfigSchema = z.object({
    * That is backwards. Most rooms are people on a sofa with phones; a shared
    * screen is the special case and the one worth asking about. So off by
    * default: without a television, every device is its own stage and everybody
-   * gets the clip — while guessing and at the reveal.
+   * gets the clip and its sound — while guessing and at the reveal.
+   *
+   * Which device the television *is* is not settled here. It is picked in the
+   * lobby and lives on the session as `tvPlayerId`, not in the config, because
+   * it is a fact about tonight's room rather than about the game's rules.
    *
    * The host screen still exists either way. This is about where the *media*
    * plays, not about who presses "next".

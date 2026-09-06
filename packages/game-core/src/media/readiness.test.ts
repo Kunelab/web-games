@@ -68,7 +68,7 @@ describe('mediaReadiness', () => {
       payload: blindtest.defaultPayload
     });
     assert.equal(readiness.ready, false);
-    assert.deepEqual(readiness.missing, ['la vidéo YouTube']);
+    assert.deepEqual(readiness.missing, ['miss.youtube']);
   });
 
   it('refuses an item with no answer worth points', () => {
@@ -78,7 +78,7 @@ describe('mediaReadiness', () => {
       payload: { ...blindtest.defaultPayload, code: 'thJgU9jkdU4' }
     });
     assert.equal(readiness.ready, false);
-    assert.deepEqual(readiness.missing, ['au moins une réponse']);
+    assert.deepEqual(readiness.missing, ['miss.answer']);
   });
 
   it('accepts a complete item', () => {
@@ -106,7 +106,7 @@ describe('mediaReadiness', () => {
       payload: { question: 'Capitale de la Mongolie ?', imageUrl: '', explanation: '' }
     });
     assert.equal(readiness.ready, false);
-    assert.ok(readiness.missing.some((entry) => entry.includes('choix')));
+    assert.deepEqual(readiness.missing, ['miss.choiceMissing']);
   });
 });
 

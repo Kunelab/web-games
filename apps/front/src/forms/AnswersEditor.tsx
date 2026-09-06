@@ -57,6 +57,8 @@ function blankAnswer(answers: AnswerField[]): AnswerField {
 }
 
 export function AnswersEditor({ answers, onChange, hint }: AnswersEditorProps) {
+  const t = useT();
+
   function update(index: number, patch: Partial<AnswerField>) {
     onChange(answers.map((answer, position) => (position === index ? { ...answer, ...patch } : answer)));
   }
@@ -84,19 +86,13 @@ export function AnswersEditor({ answers, onChange, hint }: AnswersEditorProps) {
         ))}
       </div>
 
-      {answers.length === 0 && (
-        <p className="field-hint">
-          Aucune réponse : ce média ne pourra pas être joué tant qu’il n’y en a pas au moins une.
-        </p>
-      )}
+      {answers.length === 0 && <p className="field-hint">{t(msg('ans.none'))}</p>}
 
       <div className="answer-total">
         <Button variant="secondary" size="sm" onClick={add}>
-          Ajouter une réponse
+          {t(msg('ans.add'))}
         </Button>
-        <span>
-          Total du tour : <strong>{maxFieldPoints(answers)}</strong> points
-        </span>
+        <span>{t(msg('ans.total', { points: maxFieldPoints(answers) }))}</span>
       </div>
     </div>
   );
@@ -108,10 +104,18 @@ interface AnswerCardProps {
   onRemove: () => void;
 }
 
-const TOLERANCE_OPTIONS: Array<{ value: AnswerToleranceName; label: string }> = [
-  { value: 'exact', label: 'ans.tolerance.exact' },
-  { value: 'normal', label: 'ans.tolerance.normal' },
-  { value: 'loose', label: 'ans.tolerance.loose' }
+/**
+ * The three settings, as keys. Turned into words by whoever renders them.
+ *
+ * They used to be handed to `Select` exactly as they are, and `Select` prints
+ * what it is given: the dropdown read "ans.tolerance.normale" to every host in
+ * every language. A list of keys is still the right shape — one place names the
+ * three settings — but naming them is not the same as saying them.
+ */
+const TOLERANCE_OPTIONS: Array<{ value: AnswerToleranceName; key: string }> = [
+  { value: 'exact', key: 'ans.tolerance.exact' },
+  { value: 'normal', key: 'ans.tolerance.normal' },
+  { value: 'loose', key: 'ans.tolerance.loose' }
 ];
 
 /** What the matcher will actually forgive, said plainly for the host. */
@@ -122,13 +126,9 @@ function toleranceHint(answer: AnswerField, t: (message: Msg) => string): string
     case 'exact':
       return t(msg('ans.exact'));
     case 'loose':
-      return digits
-        ? t(msg('ans.numbersExact'))
-        : t(msg('ans.veryLoose'));
+      return digits ? t(msg('ans.numbersExact')) : t(msg('ans.veryLoose'));
     default:
-      return digits
-        ? t(msg('ans.numbersStrict'))
-        : 'Casse, accents et ponctuation ignorés. Une faute par mot un peu long, les lettres inversées et l’orthographe phonétique sont tolérées.';
+      return digits ? t(msg('ans.numbersStrict')) : t(msg('ans.normal'));
   }
 }
 
@@ -158,20 +158,29 @@ function AnswerCard({ answer, onChange, onRemove }: AnswerCardProps) {
     <div className="answer-card">
       <div className="answer-head">
         <div className="grow">
-          <Field label="Intitulé" hint="Optionnel. Vide, rien n’est demandé au joueur : il cite ce qu’il voit.">
+          <Field label={t(msg('ans.label'))} hint={t(msg('ans.labelHint'))}>
             {({ id, describedBy }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
-                value={answer.label}
-                placeholder="Titre, Artiste, Année…"
+                /**
+                 * Shown translated, stored as typed.
+                 *
+                 * A blind test starts with two prompts the kind supplied as keys,
+                 * so this box opened on the literal text `field.title`. Rendering
+                 * the key's word instead costs nothing: the first keystroke
+                 * replaces the whole value with what the host actually wants, and
+                 * an untouched field keeps its key and therefore its translation.
+                 */
+                value={fieldText(t, answer.label)}
+                placeholder={t(msg('ans.labelEg'))}
                 onChange={(event) => onChange({ label: event.target.value })}
               />
             )}
           </Field>
         </div>
         <div className="answer-points">
-          <Field label="Points">
+          <Field label={t(msg('ans.points'))}>
             {({ id }) => (
               <Input
                 id={id}
@@ -205,12 +214,15 @@ function AnswerCard({ answer, onChange, onRemove }: AnswerCardProps) {
           </Field>
         </div>
         <div className="answer-strictness">
-          <Field label="Exigence">
+          <Field label={t(msg('ans.strictness'))}>
             {({ id }) => (
               <Select
                 id={id}
                 value={toleranceName(answer.tolerance)}
-                options={TOLERANCE_OPTIONS}
+                options={TOLERANCE_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: t(msg(option.key))
+                }))}
                 onValueChange={(next) =>
                   onChange({ tolerance: ANSWER_TOLERANCE[next as AnswerToleranceName] ?? ANSWER_TOLERANCE.normal })
                 }
@@ -220,16 +232,13 @@ function AnswerCard({ answer, onChange, onRemove }: AnswerCardProps) {
         </div>
       </div>
 
-      <Field
-        label={t(msg('ans.aliases'))}
-        hint={t(msg('ans.aliasesHint'))}
-      >
+      <Field label={t(msg('ans.aliases'))} hint={t(msg('ans.aliasesHint'))}>
         {({ id, describedBy }) => (
           <Input
             id={id}
             aria-describedby={describedBy}
             value={aliasDraft ?? answer.aliases.join(', ')}
-            placeholder="Die Aerzte, Aerzte"
+            placeholder={t(msg('ans.aliasesEg'))}
             onChange={(event) => {
               setAliasDraft(event.target.value);
               onChange({ aliases: parseAliases(event.target.value) });
@@ -263,7 +272,7 @@ function AnswerCard({ answer, onChange, onRemove }: AnswerCardProps) {
                   <div className="row-attached" key={index}>
                     <Input
                       value={choice}
-                      placeholder={`Choix ${index + 1}`}
+                      placeholder={t(msg('ans.choiceN', { n: index + 1 }))}
                       onChange={(event) => {
                         const next = [...(answer.choices ?? [])];
                         next[index] = event.target.value;
@@ -272,7 +281,7 @@ function AnswerCard({ answer, onChange, onRemove }: AnswerCardProps) {
                     />
                     <IconButton
                       icon={<TrashIcon />}
-                      label={`Retirer le choix ${index + 1}`}
+                      label={t(msg('ans.removeChoice', { n: index + 1 }))}
                       onClick={() => onChange({ choices: (answer.choices ?? []).filter((_, p) => p !== index) })}
                     />
                   </div>
@@ -283,7 +292,7 @@ function AnswerCard({ answer, onChange, onRemove }: AnswerCardProps) {
                     size="sm"
                     onClick={() => onChange({ choices: [...(answer.choices ?? []), ''] })}
                   >
-                    Ajouter un choix
+                    {t(msg('ans.addChoice'))}
                   </Button>
                 )}
               </div>
