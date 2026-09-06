@@ -346,6 +346,17 @@ export interface PointEntry {
     | 'save'
     | 'lynch-evil'
     | 'execute-evil'
+    /**
+     * Won by getting yourself killed, which is the Jester's whole job.
+     *
+     * He cannot collect `survive`, because surviving is losing for him: his win
+     * paid `solo-win` and nothing else, so the hardest, most deliberate result
+     * in the game scored the same five as a corpse on the winning side, and
+     * less than a townie who simply lived through it. This is the difference,
+     * and it exists because the alternative — raising `solo-win` — would also
+     * pay the Survivor, who is already collecting `survive` alongside it.
+     */
+    | 'martyr'
     | 'participation';
   amount: number;
 }
@@ -783,6 +794,27 @@ export function rosterForSetup(state: MafiaState, n: number, rng: () => number):
 }
 
 /**
+ * Arms one killing family, if the deal forgot to.
+ *
+ * `familyRank` is what `resolveNight` reads to find a carrier, so "can this
+ * family kill" means "does it hold a leader or an executor". A family that
+ * holds neither gets its last member handed the standard knife.
+ */
+function ensureCarrier(players: MafiaPlayer[], faction: 'mafia' | 'triad', knife: RoleId): void {
+  const members = players.filter((player) => player.role !== null && roleDef(player.role).faction === faction);
+  if (members.length === 0) return;
+  const armed = members.some((member) => {
+    const rank = roleDef(member.role!).familyRank;
+    return rank === 'leader' || rank === 'executor';
+  });
+  if (armed) return;
+
+  const heir = members[members.length - 1];
+  heir.role = knife;
+  heir.charges = roleDef(knife).charges ?? 0;
+}
+
+/**
  * Deals the roles. `rng` is injectable so tests replay the same deal; the
  * server passes a crypto-backed one.
  */
@@ -801,6 +833,23 @@ export function assignRoles(state: MafiaState, rng: () => number): void {
     player.role = role;
     player.charges = roleDef(role).charges ?? 0;
   });
+
+  /**
+   * Every killing family leaves the deal with a hand that can hold the knife.
+   *
+   * The roster generators do not promise this and the engine does not check it:
+   * `resolveNight` looks for a leader or an executor to carry the family's
+   * attack and, finding neither, silently never kills again. A chaos or census
+   * table could therefore deal a mafia of pure support — reported from a real
+   * game — and the town then had to lynch three harmless Framers one at a time
+   * before it was allowed to win.
+   *
+   * Repaired here rather than in each generator, because this is the one place
+   * every mode passes through. The Cult is deliberately absent: it converts and
+   * never attacks, so a cult with no knife is a cult working as designed.
+   */
+  ensureCarrier(players, 'mafia', 'mafioso');
+  ensureCarrier(players, 'triad', 'enforcer');
 
   // The executioner needs someone to destroy: a town player, never himself.
   for (const player of players) {

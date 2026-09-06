@@ -147,6 +147,8 @@ export const NOTE = {
   execWon: (): Msg => msg('mafia.note.execWon'),
   griefMad: (): Msg => msg('mafia.note.griefMad'),
   remembered: (role: RoleId): Msg => msg('mafia.note.remembered', { role: ROLE.name(role) }),
+  /** The family had nobody left who could kill, and now this seat can. */
+  promoted: (role: RoleId): Msg => msg('mafia.note.promoted', { role: ROLE.name(role) }),
   audited: (role: RoleId): Msg => msg('mafia.note.audited', { role: ROLE.name(role) }),
 
   onAlert: (): Msg => msg('mafia.note.onAlert'),
@@ -174,6 +176,8 @@ export const NOTE = {
   controlled: (): Msg => msg('mafia.note.controlled'),
   bussed: (): Msg => msg('mafia.note.bussed'),
   kidnapped: (): Msg => msg('mafia.note.kidnapped'),
+  /** To the kidnapper, who used to be told nothing whatsoever. */
+  kidnapDone: (name: string): Msg => msg('mafia.note.kidnapDone', { name }),
   blocked: (): Msg => msg('mafia.note.blocked'),
   silenced: (): Msg => msg('mafia.note.silenced'),
   doused: (): Msg => msg('mafia.note.doused'),

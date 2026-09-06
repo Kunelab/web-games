@@ -277,6 +277,24 @@ function provenRoles(state: MafiaState, claims: Claim[], deaths: PublicInfo['dea
   const bySlot = new Map(players.map((player) => [player.slot, player]));
   const alive = new Set(players.filter((player) => player.alive).map((player) => player.slot));
 
+  /**
+   * The sash: the one role claim in this game that cannot be faked.
+   *
+   * Revealing is an engine action, and the announcement comes from the town
+   * itself rather than out of the seat's mouth, so a living revealed Mayor or
+   * Marshall is confirmed town in a way no investigator's word ever is.
+   *
+   * Nothing said so. `revealedMayorSlot` was read by the killers choosing a
+   * target and by the doctors choosing a patient, and by nothing at all on the
+   * voting side — so the square would cheerfully hang the one seat it could be
+   * certain of. Reported from a real game: a revealed Marshall drew a wagon at
+   * parity and very nearly handed the family the win.
+   */
+  for (const player of players) {
+    if (!player.alive || !player.revealed || !player.role) continue;
+    proven.set(player.slot, player.role);
+  }
+
   // The porch.
   for (const death of deaths) {
     const role = death.source ? PORCH_KILLS[death.source] : undefined;

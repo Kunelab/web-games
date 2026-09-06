@@ -1172,6 +1172,36 @@ export function decideDay(
     }
 
     /**
+     * Standing up for somebody the record says is worth standing up for.
+     *
+     * The lodge covers its own and a family weighs whether to cover a brother,
+     * and past that nobody defended anybody: a seat the graveyard had proved
+     * town, or a badge the room had believed all game, could draw a wagon out of
+     * nowhere and every other town seat watched it happen in silence. That is
+     * the endgame nobody enjoys, and it is how a revealed Marshall nearly
+     * handed a game away.
+     *
+     * A town seat speaks for a proven or believed one under real pressure. Its
+     * own vote goes elsewhere anyway — `suspicionParts` already subtracts for a
+     * proven seat — so this is the *saying* of it, which is the part the room
+     * can hear. Evil seats are deliberately not here: the same paragraph would
+     * have a mafioso vouching for the town's Sheriff, which no mafioso does
+     * unless it is buying something, and that is `buildTrust`'s business.
+     */
+    if (agenda === 'town' && !gagged && info.day > 1) {
+      const worthIt = others.find((slot) => {
+        if (teammates.has(slot)) return false;
+        const heat = votesAgainst(slot, info);
+        if (heat < 2 && info.trialSlot !== slot) return false;
+        if (alreadyClaimed(info, self.slot, slot, 'clear')) return false;
+        const proven = info.provenRoles.get(slot);
+        const vouched = (proven && roleDef(proven).faction === 'town') || uncontestedBadge(slot, info) !== null;
+        return vouched || trustOf(slot, info) >= 2;
+      });
+      if (worthIt !== undefined && rng() < 0.7) publish(worthIt, 'clear');
+    }
+
+    /**
      * Somebody said they were home and a credible voice put them on a doorstep.
      * Every agenda piles onto that — the town because it is real evidence, the
      * rest because a wagon that is already rolling is the cheapest place to
@@ -1496,6 +1526,16 @@ function pickVote(
         // purpose above, not by a brother outscoring a stranger here.
         if (familyKnownEvil.has(slot)) return { slot, score: -10 };
         if (teammateWagons.has(slot)) score += 1.5;
+        /**
+         * To the people it is aimed at, the sash is a target and not a shield.
+         *
+         * `suspicionParts` subtracts for a proven town seat, which is what
+         * keeps the square from hanging its own Mayor — and would also have
+         * quietly talked the family out of the best day vote available to it.
+         * A revealed Mayor votes three times and cannot be lied about; the
+         * family wants that gone and does not mind who sees it try.
+         */
+        if (slot === info.revealedMayorSlot) score += 3;
         // A rampaging solo killer threatens the family too: for a while, the
         // mafia votes with the town against whoever the evidence points at.
         if (info.rampage >= 2 && info.claims.some((claim) => claim.kind === 'accuse' && claim.targetSlot === slot)) {

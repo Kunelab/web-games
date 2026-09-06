@@ -183,6 +183,15 @@ export default function MafiaPlayer() {
   /** Mobile only: the roster and the chat share the bottom half. */
   const [tab, setTab] = useState<'players' | 'chat'>('players');
   /**
+   * Desktop only: either column folded away, to look at the board behind it.
+   *
+   * The phone gets tabs and the desktop got nothing, so both panels sat over
+   * the town permanently. Not persisted: which panel you want up depends on
+   * what is happening this minute, and a remembered choice would greet you
+   * with a folded chat at the start of the next game.
+   */
+  const [folded, setFolded] = useState<{ players: boolean; chat: boolean }>({ players: false, chat: false });
+  /**
    * How far back the camera sits, remembered per browser.
    *
    * A full table is twenty-four houses on a ring, and at the default framing the
@@ -892,7 +901,16 @@ export default function MafiaPlayer() {
           </button>
         </div>
 
-        <div className={cx('mz-left', tab === 'chat' && 'mz-left--hidden')}>
+        <div className={cx('mz-left', tab === 'chat' && 'mz-left--hidden', folded.players && 'mz-left--min')}>
+          <button
+            type="button"
+            className="mz-min"
+            title={tk(folded.players ? 'mafia.ui.unfold' : 'mafia.ui.fold')}
+            aria-expanded={!folded.players}
+            onClick={() => setFolded((was) => ({ ...was, players: !was.players }))}
+          >
+            {folded.players ? '▣' : '▁'}
+          </button>
           {prompt && <p className="mz-prompt">{prompt}</p>}
           {actionError && <p className="mz-error">{actionError}</p>}
           {error && <p className="mz-error">{t(error)}</p>}
@@ -963,10 +981,23 @@ export default function MafiaPlayer() {
                           model and names it, 🤖 is the phrasebook.
                         */}
                         {player.isBot && <BotFlag brain={player.botBrain} />}
+                        {/*
+                          The sash, named rather than hinted at.
+
+                          A faint ribbon at half opacity was the whole of it, and
+                          it was the Mayor's own role icon, so a revealed
+                          Marshall wore the wrong badge. The role is public the
+                          moment it is revealed — the town announced it — so it
+                          is written out, in its faction's colour, like every
+                          other role this roster shows.
+                        */}
                         {player.revealedMayor && (
-                          <span className="mz-flag" title={tk('mafia.ui.revealed')}>
+                          <span
+                            className={`mz-fac mz-fac--${player.faction ?? 'town'}`}
+                            title={tk('mafia.ui.revealed')}
+                          >
                             {' '}
-                            🎗️
+                            🎗️ {player.roleName ? t(player.roleName) : tk('mafia.ui.revealed')}
                           </span>
                         )}
                         {!player.connected && player.alive && (
@@ -1150,7 +1181,8 @@ export default function MafiaPlayer() {
                   </Button>
                 )}
 
-                {inDiscussion && me.alive && me.role?.id === 'mayor' && !iAmRevealed && (
+                {/* The Marshall has the same power and never had the button. */}
+          {inDiscussion && me.alive && (me.role?.id === 'mayor' || me.role?.id === 'marshall') && !iAmRevealed && (
                   <Button variant="ghost" onClick={() => socket?.emit('mafia:dayAction', { type: 'reveal' }, fail)}>
                     {tk('mafia.ui.revealMayor')}
                   </Button>
@@ -1198,7 +1230,16 @@ export default function MafiaPlayer() {
         </div>
 
         {/* -------------------------------- chat -------------------------------- */}
-        <div className={cx('mz-right', tab === 'players' && 'mz-right--hidden')}>
+        <div className={cx('mz-right', tab === 'players' && 'mz-right--hidden', folded.chat && 'mz-right--min')}>
+          <button
+            type="button"
+            className="mz-min"
+            title={tk(folded.chat ? 'mafia.ui.unfold' : 'mafia.ui.fold')}
+            aria-expanded={!folded.chat}
+            onClick={() => setFolded((was) => ({ ...was, chat: !was.chat }))}
+          >
+            {folded.chat ? '▣' : '▁'}
+          </button>
           <ChatPanel
             className="mz-chat"
             /*

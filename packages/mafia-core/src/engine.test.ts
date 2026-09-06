@@ -777,7 +777,10 @@ describe('mafia engine', () => {
    * slab, and a role that was genuinely changed reveals what it became.
    */
   it('a borrowed face does not change what the body says', () => {
-    const state = table(['disguiser', 'sheriff', 'citizen', 'vigilante']);
+    // The mafioso is here so the family has a knife of its own: a one-man
+    // family of Disguisers cannot kill, and `promoteCarriers` would hand this
+    // seat the knife at dusk and stop it being a Disguiser at all.
+    const state = table(['disguiser', 'sheriff', 'citizen', 'vigilante', 'mafioso']);
     state.config.revealOnDeath = 'role';
     advanceMafia(state, 0, lcg(11)); // night
     const disguiser = bySlot(state, 1);

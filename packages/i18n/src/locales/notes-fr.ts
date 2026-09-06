@@ -18,6 +18,8 @@ export const notesFr: Catalogue = {
   'mafia.note.execWon': 'Votre obsession se balance. Vous avez gagné.',
   'mafia.note.griefMad': 'Votre obsession est morte sans corde. Le deuil vous rend fou : vous êtes désormais le Bouffon.',
   'mafia.note.remembered': 'Tout vous revient : vous êtes {role}.',
+  'mafia.note.promoted': 'Il faut bien que quelqu’un tienne le couteau. Vous êtes {role}.',
+  'mafia.note.kidnapDone': 'Vous avez gardé {name} dans un sac toute la nuit. Il n’a rien fait, et personne n’a pu l’atteindre.',
   'mafia.note.audited': 'Un contrôle implacable : vos papiers, vos outils, votre vie d’avant — saisis. Vous êtes {role}.',
 
   /* -------------------------- ce que vous avez fait ------------------------- */
