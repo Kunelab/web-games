@@ -8,7 +8,14 @@
  */
 import assert from 'node:assert/strict';
 
-import { answerFieldSchema, blindtest, defaultSessionConfig, quiz, sessionConfigSchema } from 'game-core';
+import {
+  answerFieldSchema,
+  blindtest,
+  defaultSessionConfig,
+  quiz,
+  resolveTiming,
+  sessionConfigSchema
+} from 'game-core';
 
 import { buildApp } from './app.js';
 import { measureBudget } from './mafia/budget.js';
@@ -201,7 +208,39 @@ check('a complete blindtest saves', complete.statusCode === 201, complete.body);
 const blindItem = JSON.parse(complete.body) as MediaView;
 check('and is ready', blindItem.readiness.ready === true, blindItem.readiness);
 check('answer defaults are filled in', blindItem.answers[0]?.tolerance === 0.17, blindItem.answers[0]);
-check('effective timing comes from the kind', blindItem.effectiveTiming.answerMs === 30_000, blindItem.effectiveTiming);
+/**
+ * The clip's own length is the round's length.
+ *
+ * This item's guess window runs 13s to 23s, so the round is ten seconds and not
+ * the kind's default thirty. It used to be thirty whatever the window said,
+ * which left every default blind test running ten seconds past the end of its
+ * own excerpt: a countdown ticking down over silence.
+ */
+check('the round is as long as the excerpt', blindItem.effectiveTiming.answerMs === 10_000, blindItem.effectiveTiming);
+check(
+  'and the reveal keeps the kind default',
+  blindItem.effectiveTiming.revealMs === 12_000,
+  blindItem.effectiveTiming
+);
+
+/**
+ * An explicit timing still outranks it.
+ *
+ * The layering is the point: the kind's default, then what the kind reads out of
+ * the payload, then whatever the item itself was told. A host who wants thinking
+ * time after the music stops can still have it, they just have to say so.
+ *
+ * Checked through the resolver rather than by saving a second item, because the
+ * counts a few checks below are assertions about how much is in the library.
+ */
+check(
+  'an explicit answer time wins',
+  resolveTiming({
+    kind: 'blindtest',
+    timing: { answerMs: 45_000, revealMs: 12_000 },
+    payload: blindItem.payload
+  }).answerMs === 45_000
+);
 
 const badPayload = await app.inject({
   method: 'POST',
@@ -664,7 +703,7 @@ section('pooled answers');
 
   const pool = createSession({
     playlistName: 'pool',
-    playlistId: null,
+    playlistId: playlistView.id,
     hostUserId: 1,
     items: [item],
     config: sessionConfigSchema.parse({ attemptsPerField: 2 }),
@@ -698,7 +737,7 @@ section('pooled answers');
   // each of two written answers is four, unpartitioned.
   const spam = createSession({
     playlistName: 'pool',
-    playlistId: null,
+    playlistId: playlistView.id,
     hostUserId: 1,
     items: [item],
     config: sessionConfigSchema.parse({ attemptsPerField: 2 }),
@@ -743,7 +782,7 @@ section('estimation');
 
   const est = createSession({
     playlistName: 'estimation',
-    playlistId: null,
+    playlistId: playlistView.id,
     hostUserId: 1,
     items: [item],
     config: defaultSessionConfig,
@@ -840,7 +879,7 @@ section('who gets the media');
 
   const noTv = createSession({
     playlistName: 'no telly',
-    playlistId: null,
+    playlistId: playlistView.id,
     hostUserId: 1,
     items: [item],
     config: defaultSessionConfig,
@@ -853,7 +892,7 @@ section('who gets the media');
 
   const withTv = createSession({
     playlistName: 'telly',
-    playlistId: null,
+    playlistId: playlistView.id,
     hostUserId: 1,
     items: [item],
     config: { ...defaultSessionConfig, tv: true },
@@ -911,7 +950,7 @@ section('who gets the media');
   };
   const noTvPicture = createSession({
     playlistName: 'no telly, a picture',
-    playlistId: null,
+    playlistId: playlistView.id,
     hostUserId: 1,
     items: [picture],
     config: defaultSessionConfig,
@@ -947,7 +986,7 @@ section('who gets the media');
 
   const pictureOnTv = createSession({
     playlistName: 'telly, a picture',
-    playlistId: null,
+    playlistId: playlistView.id,
     hostUserId: 1,
     items: [picture, question],
     config: { ...defaultSessionConfig, tv: true },
@@ -975,6 +1014,104 @@ section('who gets the media');
   );
 }
 
+/* ------------- a game is recorded once, at the end, with its real scores --- */
+section('when a game is banked');
+{
+  /**
+   * The regression that ate every token this app has ever paid out.
+   *
+   * `bank` guards on "was this game ever played", which is true from the first
+   * round onwards, and `afterTransition` called it unconditionally. So the
+   * history row was written on the transition *into* round one, with every
+   * player still on nought, and `resultsRecorded` then refused the real
+   * standings at the end. Nobody was ever credited anything.
+   *
+   * It also manufactured winners. `buildLeaderboard` shares a rank between equal
+   * totals, so a table of noughts is a table where everybody came first: every
+   * player of every game earned a career win, and wore "Vainqueur" as a title in
+   * every lobby afterwards.
+   *
+   * This goes through the manager rather than the pure engine on purpose. The
+   * checks below it use `adopt` plus `destroy`, which is the other banking path,
+   * and it is the one that always worked.
+   */
+  const live = await app.games.create({
+    playlistId: playlistView.id,
+    playlistName: 'Banked at the end',
+    hostUserId: 1,
+    items: [quizItem, quizItem]
+  });
+
+  const early = joinSession(live, 'Bankable', undefined).player;
+  joinSession(live, 'Alsoran', undefined);
+
+  await app.games.advanceSession(live.code);
+  check('starting a round records nothing', live.resultsRecorded !== true, live.resultsRecorded);
+
+  const started = (await resultsService.list(50)).filter((row) => row.code === live.code);
+  check('and writes no history row', started.length === 0, started.length);
+
+  // A real answer, so the standings at the end are not a table of noughts.
+  const scorer = live.players[early.id];
+  if (scorer) scorer.totalScore = 7;
+
+  await app.games.closeAnswersFor(live.code);
+  await app.games.advanceSession(live.code);
+  await app.games.closeAnswersFor(live.code);
+  await app.games.advanceSession(live.code);
+  check('the playlist runs out and the game finishes', live.phase === 'finished', live.phase);
+
+  const banked = (await resultsService.list(50)).filter((row) => row.code === live.code);
+  check('exactly one row is written', banked.length === 1, banked.length);
+  check(
+    'and it carries the score that was on the screen',
+    banked[0]?.players.find((player) => player.name === 'Bankable')?.score === 7,
+    banked[0]?.players
+  );
+  check(
+    'the player who scored nothing did not also come first',
+    banked[0]?.players.find((player) => player.name === 'Alsoran')?.rank === 2,
+    banked[0]?.players
+  );
+
+  const wallet = await quizCareerService.forName('Bankable');
+  check('the wallet is credited', wallet.tokens >= 7, wallet);
+
+  const careers = await resultsService.careers();
+  check(
+    'and only the winner is credited with a win',
+    careers.find((career) => career.name === 'Alsoran')?.wins === 0,
+    careers.find((career) => career.name === 'Alsoran')
+  );
+
+  /**
+   * A win needs an opponent.
+   *
+   * Every solo game ranks its only player first, so trying a playlist out alone
+   * on the host screen used to mint a career win and the badge worn as a title
+   * with it. The game, its points and its right answers all still count.
+   */
+  const alone = await app.games.create({
+    playlistId: playlistView.id,
+    playlistName: 'Alone',
+    hostUserId: 1,
+    items: [quizItem]
+  });
+  const hermit = joinSession(alone, 'Hermit', undefined).player;
+  await app.games.advanceSession(alone.code);
+  const soloScorer = alone.players[hermit.id];
+  if (soloScorer) soloScorer.totalScore = 12;
+  await app.games.destroy(alone.code);
+
+  const solo = (await resultsService.careers()).find((career) => career.name === 'Hermit');
+  check('a solo game is recorded', solo?.games === 1, solo?.games);
+  check('its points are kept', solo?.totalPoints === 12, solo?.totalPoints);
+  check('but coming first among one is not a win', solo?.wins === 0, solo?.wins);
+  check('so the title says only that they played', solo?.title === 'first-game', solo?.title);
+
+  await app.games.destroy(live.code);
+}
+
 /* -------------------- ending a game early still pays ---------------------- */
 section('a game ended early still banks its tokens');
 {
@@ -988,7 +1125,7 @@ section('a game ended early still banks its tokens');
    */
   const early = createSession({
     playlistName: 'Ended early',
-    playlistId: null,
+    playlistId: playlistView.id,
     hostUserId: 1,
     items: [quizItem],
     config: defaultSessionConfig,
@@ -1022,7 +1159,7 @@ section('oral mode');
 {
   const oral = createSession({
     playlistName: 'oral',
-    playlistId: null,
+    playlistId: playlistView.id,
     hostUserId: 1,
     items: playable,
     // Two separate things: `oral` takes the clock off the answers, `autoAdvance`
@@ -1061,7 +1198,7 @@ section('oral mode');
   // reveal.
   const auto = createSession({
     playlistName: 'oral auto',
-    playlistId: null,
+    playlistId: playlistView.id,
     hostUserId: 1,
     items: playable,
     config: sessionConfigSchema.parse({ oral: true, autoAdvance: true }),

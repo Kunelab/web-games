@@ -6,7 +6,7 @@ import { mediaReadiness, partitionPlayable } from './readiness.js';
 import { blindtest } from './kinds/blindtest.js';
 import { quiz } from './kinds/quiz.js';
 import { imageReveal } from './kinds/image-reveal.js';
-import { validateMedia } from './registry.js';
+import { resolveTiming, validateMedia } from './registry.js';
 
 function answer(overrides: Partial<AnswerField> = {}): AnswerField {
   return answerFieldSchema.parse({ key: 'title', label: 'Titre', value: 'Africa', ...overrides });
@@ -123,5 +123,61 @@ describe('partitionPlayable', () => {
     assert.equal(playable.length, 1);
     assert.equal(skipped.length, 1);
     assert.ok(skipped[0]?.missing.length);
+  });
+});
+
+describe('resolveTiming', () => {
+  /**
+   * A blind test's round is its excerpt.
+   *
+   * The kind's default answer time was thirty seconds against a twenty second
+   * default window, so out of the box every round ran ten seconds past the end of
+   * its own clip, with the countdown still going over silence. The window is
+   * authored second by second and it is the question, so it sets the clock.
+   */
+  it('takes a blind test round from the length of its guess window', () => {
+    const timing = resolveTiming({
+      kind: 'blindtest',
+      timing: null,
+      payload: { ...blindtest.defaultPayload, startGuess: 30, endGuess: 55 }
+    });
+    assert.equal(timing.answerMs, 25_000);
+  });
+
+  it('leaves the reveal alone', () => {
+    const timing = resolveTiming({ kind: 'blindtest', timing: null, payload: blindtest.defaultPayload });
+    assert.equal(timing.revealMs, blindtest.defaultTiming.revealMs);
+  });
+
+  it('still lets the item overrule it', () => {
+    const timing = resolveTiming({
+      kind: 'blindtest',
+      timing: { answerMs: 45_000, revealMs: 8_000 },
+      payload: { ...blindtest.defaultPayload, startGuess: 0, endGuess: 20 }
+    });
+    assert.equal(timing.answerMs, 45_000, 'a host may still ask for thinking time');
+    assert.equal(timing.revealMs, 8_000);
+  });
+
+  /**
+   * The bounds the timing schema itself enforces, so a derived duration can never
+   * be a value an authored one would have been refused for.
+   */
+  it('refuses to derive a round shorter than three seconds', () => {
+    const timing = resolveTiming({
+      kind: 'blindtest',
+      timing: null,
+      payload: { ...blindtest.defaultPayload, startGuess: 10, endGuess: 11 }
+    });
+    assert.equal(timing.answerMs, 3_000);
+  });
+
+  it('or longer than ten minutes', () => {
+    const timing = resolveTiming({
+      kind: 'blindtest',
+      timing: null,
+      payload: { ...blindtest.defaultPayload, startGuess: 0, endGuess: 86_400 }
+    });
+    assert.equal(timing.answerMs, 600_000);
   });
 });

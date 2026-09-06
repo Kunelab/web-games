@@ -28,12 +28,42 @@ export default function Playlists() {
     void navigate(`/partie/${session.code}`);
   }
 
+  /**
+   * Ending a game from here, which is the only place it could not be done.
+   *
+   * "Terminer" existed on the host screen alone, so a game whose television had
+   * been closed, or which was opened on a phone that has since gone home, could
+   * not be stopped at all: it sat in this banner announcing itself until the
+   * sweeper eventually took it. The host token is reissued to its owner by
+   * `/play/mine`, and the API already checks that the caller owns the session.
+   *
+   * It banks before it drops, server side, so ending a game early keeps the
+   * standings and the tokens the players just won.
+   */
+  async function end(code: string) {
+    setEnding(code);
+    setNotice(null);
+    try {
+      await api.endSession(code);
+      setNotice(t(msg('pl.ended', { code })));
+      liveSessions.reload();
+    } catch {
+      setNotice(t(msg('pl.endFailed')));
+    } finally {
+      setEnding(null);
+      setConfirmEnd(null);
+    }
+  }
+
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Playlist | null>(null);
   /** The playlist being copied, so only its own button shows the pending state. */
   const [duplicating, setDuplicating] = useState<number | null>(null);
+  /** Two taps to end a game, since one tap would end somebody's evening. */
+  const [confirmEnd, setConfirmEnd] = useState<string | null>(null);
+  const [ending, setEnding] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   async function create() {
@@ -109,17 +139,38 @@ export default function Playlists() {
 
       {(liveSessions.data ?? []).length > 0 && (
         <div className="live-banner">
-          {(liveSessions.data ?? []).map((session) => (
-            <div className="live-banner-row" key={session.code}>
-              <span>
-                {t(msg('pl.live'))} <strong className="tabular">{session.code}</strong> · {session.playlistName}
-                {session.phase === 'lobby' && t(msg('pl.liveWaiting'))}
-              </span>
-              <Button variant="secondary" size="sm" onClick={() => resume(session)}>
-                {t(msg('pl.resume'))}
-              </Button>
-            </div>
-          ))}
+          {(liveSessions.data ?? []).map((session) => {
+            const over = session.phase === 'finished';
+            // A room that emptied is the thing a host most needs to recognise
+            // here: it is why the banner had three dead games in it.
+            const deserted = !over && session.players > 0 && session.connected === 0;
+
+            return (
+              <div className="live-banner-row" key={session.code}>
+                <span>
+                  {t(msg('pl.live'))} <strong className="tabular">{session.code}</strong> · {session.playlistName}
+                  {over && t(msg('pl.liveOver'))}
+                  {!over && session.phase === 'lobby' && session.players === 0 && t(msg('pl.liveWaiting'))}
+                  {deserted && t(msg('pl.liveEmpty'))}
+                  {!over &&
+                    !deserted &&
+                    session.players > 0 &&
+                    t(msg('pl.livePlayers', { connected: session.connected, players: session.players }))}
+                </span>
+                <Button variant="secondary" size="sm" onClick={() => resume(session)}>
+                  {t(msg(over ? 'pl.reopen' : 'pl.resume'))}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  busy={ending === session.code}
+                  onClick={() => (confirmEnd === session.code ? void end(session.code) : setConfirmEnd(session.code))}
+                >
+                  {t(msg(confirmEnd === session.code ? 'pl.endSure' : 'pl.end'))}
+                </Button>
+              </div>
+            );
+          })}
         </div>
       )}
 

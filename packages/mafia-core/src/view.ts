@@ -49,6 +49,12 @@ export interface MafiaPublicPlayer {
   alive: boolean;
   connected: boolean;
   isBot: boolean;
+  /**
+   * What wrote this bot's last line: a model name, or `'scripted'`.
+   *
+   * Null for a person, and for a bot that has not spoken yet.
+   */
+  botBrain: string | null;
   onTrial: boolean;
   /** Mayor with the sash out; public by definition. */
   revealedMayor: boolean;
@@ -310,6 +316,7 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
       alive: player.alive,
       connected: player.connected,
       isBot: player.isBot,
+      botBrain: player.isBot ? (player.botBrain ?? null) : null,
       onTrial: state.trial?.accusedId === player.playerId,
       revealedMayor: player.revealed,
       votedSlot: votedId && votedId !== SKIP_VOTE ? (state.players[votedId]?.slot ?? null) : null,

@@ -46,6 +46,22 @@ export const blindtestPayloadSchema = z
 
 export type BlindtestPayload = z.infer<typeof blindtestPayloadSchema>;
 
+/** The timing schema's own bounds, so a derived duration cannot fall outside them. */
+const MIN_ANSWER_MS = 3_000;
+const MAX_ANSWER_MS = 600_000;
+
+/**
+ * How long the excerpt runs, in milliseconds, clamped to something playable.
+ *
+ * The payload guarantees the window is at least one second wide and at most a
+ * day, neither of which is a round: a one second clip needs a moment to answer
+ * in even after it has stopped, and nobody is playing a six hour round.
+ */
+function guessWindowMs(payload: BlindtestPayload): number {
+  const seconds = payload.endGuess - payload.startGuess;
+  return Math.min(MAX_ANSWER_MS, Math.max(MIN_ANSWER_MS, Math.round(seconds * 1000)));
+}
+
 export const blindtest = defineKind<BlindtestPayload>({
   id: 'blindtest',
   label: { fr: 'Blind test', en: 'Blind test' },
@@ -111,6 +127,26 @@ export const blindtest = defineKind<BlindtestPayload>({
   answersEditable: true,
 
   defaultTiming: { answerMs: 30_000, revealMs: 12_000 },
+
+  /**
+   * The round lasts as long as the clip, not thirty seconds regardless.
+   *
+   * The guess window is authored second by second, and it is the question. A
+   * fixed answer time meant the two disagreed in whichever direction the author
+   * chose: the twenty second default left the room sitting in ten seconds of
+   * silence with a countdown still running, and a forty second window was cut
+   * off at thirty with the clip mid phrase.
+   *
+   * So the window sets the clock. It is the same mechanism the memory panel uses
+   * for its memorisation time, and for the same reason: this is a duration that
+   * belongs to the content rather than to the game's settings.
+   *
+   * An explicit timing on the item still wins, per `resolveTiming`, so a host who
+   * genuinely wants thinking time after the music stops can still ask for it. It
+   * is no longer what happens by accident.
+   */
+  timingFromPayload: (payload) => ({ answerMs: guessWindowMs(payload) }),
+
   presentedByHost: true,
 
   // Nothing through this channel: the clip reaches whichever devices are stages

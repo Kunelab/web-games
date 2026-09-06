@@ -175,7 +175,16 @@ export const resultsService = {
         };
 
         career.games += 1;
-        career.wins += player.rank === 1 ? 1 : 0;
+        /**
+         * Coming first among one player is not winning.
+         *
+         * Every solo game ranks its only player first, so trying a playlist out
+         * alone on the host screen minted a career win and the "first win" badge
+         * with it, which is then worn as a title next to that nickname in every
+         * lobby afterwards. The game still counts, the points still count, the
+         * right answers still count: only the victory needs an opponent.
+         */
+        career.wins += player.rank === 1 && game.players.length >= 2 ? 1 : 0;
         career.totalPoints = Math.round((career.totalPoints + player.score) * 100) / 100;
         career.bestScore = Math.max(career.bestScore, player.score);
         career.correct += player.correct;

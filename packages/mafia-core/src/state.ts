@@ -203,6 +203,21 @@ export interface MafiaPlayer {
   notifications: Msg[];
   /** The same night results, structured. Same privacy as the notifications. */
   intel: IntelEntry[];
+  /**
+   * What wrote this seat's last line, when this seat is a bot.
+   *
+   * A model name, or `'scripted'` for the phrasebook. Absent until the seat has
+   * spoken, and meaningless for a person.
+   *
+   * Public on purpose. The whole design of the bot driver is that a model and
+   * the phrasebook are hard to tell apart from the outside, which is what makes
+   * the fallback invisible when it works, and also what makes a silently benched
+   * API indistinguishable from a working one. The only way to know a table is
+   * running on the phrasebook used to be to recognise its sentences. It gives
+   * nothing away about the *game*: what a bot knows is in `intel` and `role`,
+   * and neither of those is here.
+   */
+  botBrain?: string;
   /** Filled at death; role goes public with it. */
   death: { day: number; phase: 'day' | 'night'; cause: Msg } | null;
 }

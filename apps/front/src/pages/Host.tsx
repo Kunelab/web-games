@@ -160,9 +160,24 @@ export default function Host() {
               {session.players.map((player) => (
                 <li key={player.id} className={player.connected ? '' : 'away'}>
                   {player.name}
-                  {/* The title earned across past evenings: the cheap glory that
-                      makes a returning nickname feel like a returning player. */}
-                  {player.title && <span className="chip-title">{t(msg(badgeMeta(player.title).titleKey))}</span>}
+                  {/*
+                    The title earned across past evenings: the cheap glory that
+                    makes a returning nickname feel like a returning player.
+
+                    With its medal, and never the bare word. "Vainqueur" on its
+                    own beside a name, on a screen that says "waiting to start",
+                    reads as this lobby having a winner already. The emoji and
+                    the hover both say what it actually is, which is something
+                    that nickname did on another evening.
+                  */}
+                  {player.title && (
+                    <span
+                      className="chip-title"
+                      title={`${t(msg(badgeMeta(player.title).titleKey))} · ${t(msg(badgeMeta(player.title).hintKey))}`}
+                    >
+                      {badgeMeta(player.title).emoji} {t(msg(badgeMeta(player.title).titleKey))}
+                    </span>
+                  )}
                   {/* Kicking exists for the misclick and the stray phone, so it lives
                       here in the lobby, not on the score strip mid-game. */}
                   <button

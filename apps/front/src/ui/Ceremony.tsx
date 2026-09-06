@@ -28,7 +28,9 @@ export function Ceremony({ players, awards }: { players: PlayerView[]; awards: F
             <div key={player.id} className={`podium-step podium-rank-${rank}`}>
               <span className="podium-name">{player.name}</span>
               {player.title && (
-                <span className="podium-title">{t(msg(badgeMeta(player.title).titleKey))}</span>
+                <span className="podium-title">
+                  {badgeMeta(player.title).emoji} {t(msg(badgeMeta(player.title).titleKey))}
+                </span>
               )}
               <span className="podium-score tabular">{t(msg('play.points', { points: player.score }))}</span>
               <div className="podium-block">
