@@ -1,9 +1,10 @@
-import { toServerTime, type AnswerAck, type JoinAck, type RedactedAnswerField } from 'game-core';
+import { toServerTime, type AnswerAck, type JoinAck, type RedactedAnswerField, type RoundView } from 'game-core';
 import { msg } from 'i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 
 import { awardMeta } from '../app/awards';
+import { badgeMeta } from '../app/badges';
 import { fieldText } from '../forms/fieldText';
 import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
 import { useLocale } from '../i18n/locale-context';
@@ -11,6 +12,7 @@ import { assetUrl } from '../tools/api-url';
 import { BlindtestAudio } from '../ui/BlindtestAudio';
 import { QuickEnd } from '../ui/QuickEnd';
 import { RevealImage } from '../ui/RevealImage';
+import { Rewards } from '../ui/Rewards';
 import { cx } from '../ui/cx';
 import { Badge, Button, Input, Loading } from '../ui';
 import './play.css';
@@ -223,6 +225,15 @@ export default function Player() {
               fieldKey
             });
           }}
+          onBuzz={async () => {
+            if (!socket || !session.round) return { ok: false };
+            // Same clock treatment as an answer: the race is decided on when the
+            // thumb landed, not on when the packet did.
+            return (await socket.timeout(5000).emitWithAck('answer:buzz', {
+              roundId: session.round.roundId,
+              clientTime: toServerTime(clock)
+            })) as { ok: boolean; error?: string };
+          }}
         />
       )}
 
@@ -250,6 +261,24 @@ export default function Player() {
                 </li>
               ))}
             </ol>
+
+            {/*
+              Your row only, on the device in your hand.
+
+              The television shows everybody's, because reading out who unlocked
+              what is what that screen is for. A phone is not that screen: the
+              person holding it wants to know whether the badge they have been
+              circling for three evenings finally dropped, and scrolling past four
+              other people's bars to find out is the version of this that nobody
+              reads twice.
+            */}
+            <Rewards
+              rewards={(session.final?.rewards ?? []).filter((row) => row.playerId === myId)}
+              meId={myId}
+              currency="🎟️"
+              meta={badgeMeta}
+            />
+
             <QuickEnd code={code} fallbackGame="quiz" />
           </div>
         </div>
@@ -279,6 +308,8 @@ interface RoundPanelProps {
     direct: boolean
   ) => Promise<{ ok: boolean; error?: string; correct?: boolean; attemptsLeft?: number }>;
   onRevealChoices: (fieldKey: string) => Promise<void>;
+  /** Press the buzzer. Only ever called on a round that is being raced. */
+  onBuzz: () => Promise<{ ok: boolean; error?: string }>;
 }
 
 /** Exported for the host screen's solo mode: one device presents AND answers. */
@@ -289,7 +320,8 @@ export function RoundPanel({
   locale,
   hidePresentation = false,
   onSubmit,
-  onRevealChoices
+  onRevealChoices,
+  onBuzz
 }: RoundPanelProps) {
   const t = useLocale().t;
   const round = session.round;
@@ -406,56 +438,135 @@ export function RoundPanel({
 
       {!hidePresentation && <Presentation round={round} serverNow={serverNow} />}
 
-      <div className="stack-4">
-        {/* Written answers share one box, because the server accepts any of them from
+      {/*
+        On a raced round the answer boxes belong to one person at a time.
+
+        Hidden rather than disabled for everybody else, and that is the point of
+        the format: a phone showing a live text box is a phone telling its owner to
+        keep thinking, and in a race the whole tension is that you have already
+        stopped. The server refuses out-of-turn answers regardless — this is what
+        the room sees, not what protects the rule.
+      */}
+      {round.buzz && <Buzzer buzz={round.buzz} myId={myId} serverNow={serverNow} onBuzz={onBuzz} />}
+
+      {round.buzz && round.buzz.holderId !== myId ? null : (
+        <div className="stack-4">
+          {/* Written answers share one box, because the server accepts any of them from
             it: typing the year into a box headed "Titre" and being told "trouvé"
             while that box stayed open would look broken. One box, and a list of what
             is still out there. A field with choices keeps its own, since that one is
             genuinely a pick from its own list. */}
-        {pooled.length > 1 && (
-          <FreeRecallBox
-            fields={pooled}
-            solvedKeys={round.solvedFieldKeys}
-            locked={pooled.every((field) => round.lockedFieldKeys.includes(field.key))}
-            onSubmit={(value) => {
-              const target = pooled.find((field) => !round.solvedFieldKeys.includes(field.key));
-              return onSubmit(target?.key ?? pooled[0]?.key ?? '', value, false);
-            }}
-          />
-        )}
-
-        {(pooled.length > 1 ? withChoices : round.fields).map((field) => {
-          const solved = round.solvedFieldKeys.includes(field.key);
-          const locked = round.lockedFieldKeys.includes(field.key);
-
-          return (
-            <AnswerBox
-              key={field.key}
-              field={field}
-              solved={solved}
-              locked={locked}
-              feedback={feedback?.field === field.key ? feedback : null}
-              onRevealChoices={() => void onRevealChoices(field.key)}
-              onSubmit={async (value, direct) => {
-                const result = await onSubmit(field.key, value, direct);
-                setFeedback({
-                  field: field.key,
-                  good: Boolean(result.correct),
-                  text: result.correct
-                    ? t(msg('play.found'))
-                    : (result.error ??
-                      (result.attemptsLeft !== undefined
-                        ? t(msg('play.notFoundLeft', { count: result.attemptsLeft }))
-                        : t(msg('play.notFound'))))
-                });
+          {pooled.length > 1 && (
+            <FreeRecallBox
+              fields={pooled}
+              solvedKeys={round.solvedFieldKeys}
+              locked={pooled.every((field) => round.lockedFieldKeys.includes(field.key))}
+              onSubmit={(value) => {
+                const target = pooled.find((field) => !round.solvedFieldKeys.includes(field.key));
+                return onSubmit(target?.key ?? pooled[0]?.key ?? '', value, false);
               }}
             />
-          );
-        })}
+          )}
 
-        {open.length === 0 && <p className="play-note">{t(msg('play.allPlayed'))}</p>}
-      </div>
+          {(pooled.length > 1 ? withChoices : round.fields).map((field) => {
+            const solved = round.solvedFieldKeys.includes(field.key);
+            const locked = round.lockedFieldKeys.includes(field.key);
+
+            return (
+              <AnswerBox
+                key={field.key}
+                field={field}
+                solved={solved}
+                locked={locked}
+                feedback={feedback?.field === field.key ? feedback : null}
+                onRevealChoices={() => void onRevealChoices(field.key)}
+                onSubmit={async (value, direct) => {
+                  const result = await onSubmit(field.key, value, direct);
+                  setFeedback({
+                    field: field.key,
+                    good: Boolean(result.correct),
+                    text: result.correct
+                      ? t(msg('play.found'))
+                      : (result.error ??
+                        (result.attemptsLeft !== undefined
+                          ? t(msg('play.notFoundLeft', { count: result.attemptsLeft }))
+                          : t(msg('play.notFound'))))
+                  });
+                }}
+              />
+            );
+          })}
+
+          {open.length === 0 && <p className="play-note">{t(msg('play.allPlayed'))}</p>}
+        </div>
+      )}
     </div>
+  );
+}
+
+/**
+ * The buzzer: one button, and the three states that are not it.
+ *
+ * The states are deliberately not collapsed into "enabled / disabled". A player
+ * who cannot press needs to know *which* reason applies, because two of them end
+ * their round and one does not: somebody else is answering (wait), you already
+ * tried (that is it for you), or the race you entered is still being settled.
+ * A greyed-out button says none of that.
+ */
+function Buzzer({
+  buzz,
+  myId,
+  serverNow,
+  onBuzz
+}: {
+  buzz: NonNullable<RoundView['buzz']>;
+  myId: string | null;
+  serverNow: () => number;
+  onBuzz: () => Promise<{ ok: boolean; error?: string }>;
+}) {
+  const t = useLocale().t;
+  const [busy, setBusy] = useState(false);
+  const window = useCountdown(buzz.windowEndsAt, serverNow);
+  const mine = buzz.holderId !== null && buzz.holderId === myId;
+
+  if (mine) {
+    return (
+      <p className="play-buzz play-buzz-mine">
+        {t(msg('play.buzz.yours'))} <span className="tabular">{window}</span>
+      </p>
+    );
+  }
+
+  if (buzz.holderId !== null) {
+    return (
+      <p className="play-buzz play-buzz-taken">
+        {t(msg('play.buzz.taken', { name: buzz.holderName ?? '?' }))} <span className="tabular">{window}</span>
+      </p>
+    );
+  }
+
+  if (buzz.spent) {
+    return <p className="play-buzz play-buzz-spent">{t(msg('play.buzz.spent'))}</p>;
+  }
+
+  if (buzz.racing) {
+    return <p className="play-buzz play-buzz-racing">{t(msg('play.buzz.racing'))}</p>;
+  }
+
+  return (
+    <Button
+      variant="primary"
+      size="lg"
+      block
+      busy={busy}
+      className="play-buzz-button"
+      onClick={() => {
+        setBusy(true);
+        void onBuzz().finally(() => setBusy(false));
+      }}
+    >
+      {t(msg('play.buzz.press'))}
+    </Button>
   );
 }
 

@@ -311,6 +311,12 @@ export const atelierEn: Catalogue = {
   "launch.comeback.hint":
     "The bottom third, if it is genuinely adrift, scores up to ×1.5 on what it finds.",
   "launch.attempts": "Tries per answer",
+  "launch.buzzer": "Buzzer race",
+  "launch.buzzer.hint":
+    "One buzzer: whoever takes it is the only one who may answer. Get it wrong and the round is over for you. Replaces the bonus for answering first.",
+  "launch.buzzerWindow": "Seconds to answer",
+  "launch.buzzerWindow.hint":
+    "How long the buzzer is held. Short keeps pressing early a gamble.",
   "launch.attempts.hint": "How many wrong answers before a field locks.",
   "launch.create": "Create the game",
   "launch.howOral": "How it is played",

@@ -258,6 +258,36 @@ export default function Launch() {
                 }
               />
 
+              <Switch
+                label={t(msg('launch.buzzer'))}
+                hint={t(msg('launch.buzzer.hint'))}
+                checked={config.buzzer}
+                onCheckedChange={(checked) => setConfig({ ...config, buzzer: checked })}
+              />
+
+              {/* Only worth asking once the format is on, and worth asking then:
+                  the length of this window is the whole risk of pressing early. */}
+              {config.buzzer && (
+                <Field label={t(msg('launch.buzzerWindow'))} hint={t(msg('launch.buzzerWindow.hint'))}>
+                  {({ id: fieldId, describedBy }) => (
+                    <Input
+                      id={fieldId}
+                      aria-describedby={describedBy}
+                      type="number"
+                      min={3}
+                      max={30}
+                      value={Math.round(config.buzzerWindowMs / 1000)}
+                      onChange={(event) =>
+                        setConfig({
+                          ...config,
+                          buzzerWindowMs: Math.min(30, Math.max(3, Number(event.target.value))) * 1000
+                        })
+                      }
+                    />
+                  )}
+                </Field>
+              )}
+
               <Field label={t(msg('launch.attempts'))} hint={t(msg('launch.attempts.hint'))}>
                 {({ id: fieldId, describedBy }) => (
                   <Input

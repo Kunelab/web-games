@@ -141,8 +141,12 @@ const SCENARIOS: { scenario: string; players: number; humans: number; chat: numb
  *
  * Measured separately because it is a different prompt entirely, not a smaller
  * version of the briefing: the brain has already decided, and the model is told
- * an intention rather than a board. If this ever approaches the deciding
- * budgets, something has leaked into it that does not belong.
+ * an intention rather than a board.
+ *
+ * Most of it is the fixed rulebook, so what this number really watches is the
+ * variable half. A jump on a table that got bigger or noisier means board state
+ * has leaked onto a sheet that is supposed to carry none: no roster, no roles,
+ * no claims, only what this seat already decided and the words it is answering.
  */
 function mouthTurn(): string {
   const intent: Intent = {
@@ -175,7 +179,21 @@ export function measureBudget(): BudgetRow[] {
       players: 15,
       humans: 2,
       prompt: tokens(mouth),
-      ceiling: 450,
+      /**
+       * Moved from 450, once, deliberately.
+       *
+       * The mouth was two hundred tokens when it could only be told a move and a
+       * mood. It has since been given the vote to stay consistent with, the
+       * actual sentences it is answering, and a rulebook that treats quoted chat
+       * as untrusted data. Those are jobs, not leakage: the sheet still carries
+       * no board, no roster and no roles, which is the property this number is
+       * really guarding. The redundant half of the rulebook came out (two pairs
+       * of rules saying the same thing) and what is left is 593.
+       *
+       * So this is the honest ceiling for the mouth's current job, and it is
+       * still comfortably under the cheapest deciding turn.
+       */
+      ceiling: 650,
       sections: [{ head: 'rules + intent + four lines', tokens: tokens(mouth), lines: mouth.split('\n').length }]
     }
   ];

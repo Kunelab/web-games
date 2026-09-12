@@ -297,6 +297,18 @@ export default function Host() {
                 </p>
                 {round.phase === 'study' && <p className="play-note">{t(msg('host.memorising'))}</p>}
                 {session.oral && round.phase === 'answering' && <p className="play-note">{t(msg('host.yourTurn'))}</p>}
+                {/*
+                  Who has the buzzer, on the one screen the whole room is looking at.
+
+                  The name is the point rather than the fact: everybody heard a
+                  buzz, nobody can tell whose phone it was, and a race that does not
+                  announce its winner out loud is a race the table has to settle by
+                  asking. Read from `session.round`, which the host receives too —
+                  `hostRound` carries the answers and nothing about the race.
+                */}
+                {round.phase === 'answering' && session.round?.buzz?.holderName && (
+                  <p className="host-buzz">🔔 {session.round.buzz.holderName}</p>
+                )}
               </div>
             )}
           </div>
@@ -361,7 +373,11 @@ export default function Host() {
       {session.phase === 'finished' && !session.oral && (
         <div className="host-finished">
           <p className="play-label">{t(msg('host.finalStandings'))}</p>
-          <Ceremony players={session.players} awards={session.final?.awards ?? []} />
+          <Ceremony
+            players={session.players}
+            awards={session.final?.awards ?? []}
+            rewards={session.final?.rewards ?? []}
+          />
           <Button variant="secondary" onClick={() => void navigate('/playlists')}>
             {t(msg('host.backToPlaylists'))}
           </Button>
@@ -441,6 +457,13 @@ function SoloAnswers({ code }: { code: string }) {
             roundId: session.round.roundId,
             fieldKey
           });
+        }}
+        onBuzz={async () => {
+          if (!socket || !session.round) return { ok: false };
+          return (await socket.timeout(5000).emitWithAck('answer:buzz', {
+            roundId: session.round.roundId,
+            clientTime: toServerTime(clock)
+          })) as { ok: boolean; error?: string };
         }}
       />
     </div>

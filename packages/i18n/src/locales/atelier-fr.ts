@@ -313,6 +313,12 @@ export const atelierFr: Catalogue = {
   "launch.comeback.hint":
     "Le dernier tiers, s’il est vraiment décroché, marque jusqu’à ×1,5 sur ce qu’il trouve.",
   "launch.attempts": "Essais par réponse",
+  "launch.buzzer": "Course au buzzer",
+  "launch.buzzer.hint":
+    "Un seul buzzer : qui le prend est le seul à pouvoir répondre. Se tromper coûte le tour. Remplace le bonus de rapidité.",
+  "launch.buzzerWindow": "Secondes pour répondre",
+  "launch.buzzerWindow.hint":
+    "Durée pendant laquelle le buzzer est tenu. Court, pour que buzzer trop tôt reste un pari.",
   "launch.attempts.hint":
     "Nombre de mauvaises réponses avant qu’un champ se bloque.",
   "launch.create": "Créer la partie",

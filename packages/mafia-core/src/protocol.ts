@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 import type { ChatMessage } from 'chat-core';
 import type { Msg } from 'i18n';
+
+import type { MafiaBadgeProgress } from './careers.js';
 import { isSlotToken } from './setups.js';
 import { WILL_MAX_CHARS } from './state.js';
 import type { MafiaView } from './view.js';
@@ -104,6 +106,12 @@ export interface MafiaReward {
   gained: number;
   /** Lifetime balance after banking; null for anonymous seats the server does not track. */
   total: number | null;
+  /** Badges that fell tonight. Always empty for a bot, which banks nothing. */
+  newBadges: string[];
+  /** The title they now wear, when tonight is what changed it. */
+  newTitle: string | null;
+  /** The nearest unearned badges, closest first: the reason to sit down again. */
+  nextBadges: MafiaBadgeProgress[];
 }
 
 export interface MafiaClientToServer {

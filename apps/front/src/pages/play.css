@@ -994,3 +994,69 @@
   gap: var(--space-3);
   margin-top: var(--space-5);
 }
+
+/* ------------------------------------------------------------ the buzzer */
+
+/*
+ * The race, on a phone.
+ *
+ * Big enough to hit without looking, because looking is the thing you cannot
+ * afford to be doing: the clip is playing, the answer has just landed, and the
+ * thumb has to arrive before somebody else's. `min-height` rather than padding so
+ * the target is the same whatever the label says in whatever language.
+ */
+.play-buzz-button {
+  min-height: 5.5rem;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+/*
+ * The three states that are not a button. One row each, so the answer boxes
+ * below them never move when the buzzer changes hands.
+ */
+.play-buzz {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 3rem;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  text-align: center;
+  font-weight: 600;
+}
+
+.play-buzz-mine {
+  background: color-mix(in oklab, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+
+.play-buzz-taken {
+  background: var(--surface-2);
+  color: var(--ink-soft);
+}
+
+/* Spent is the only one that ends your round, so it is the only one drawn as a
+   loss rather than as a wait. */
+.play-buzz-spent {
+  background: color-mix(in oklab, var(--warn) 14%, transparent);
+  color: var(--warn);
+}
+
+.play-buzz-racing {
+  background: var(--surface-2);
+  color: var(--ink-soft);
+}
+
+/* The television's line: who took it, legible across a room. */
+.host-buzz {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  font-size: var(--text-xl);
+  font-weight: 700;
+}

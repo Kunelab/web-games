@@ -240,17 +240,28 @@ Windows or Linux desktop produces `linux/amd64`, which is what a mini PC runs; o
 an Apple Silicon Mac, pass `--platform linux/amd64` to `docker build` or the
 server will refuse the image with an exec format error.
 
-**If you must build on the server anyway**, cap it rather than letting it take
-the machine:
+**If you must build on the server anyway**, cap it. This is a requirement, not
+a courtesy: an uncapped `docker compose build`, taking all sixteen threads, has
+powered the mini PC off outright, with nothing in the journal to show for it.
+No panic, no OOM, no thermal alarm, just a machine that stopped.
 
 ```bash
+# The deployment box already carries a capped builder. Reuse it rather than
+# making a second one, and check what it is actually called first:
+docker buildx ls
+
+# Only if there is none, create it (three cores, six gigabytes):
 docker buildx create --name limited --driver docker-container \
   --driver-opt cpuset-cpus=0-2 --driver-opt memory=6g
+
+# Then build through it, with whichever name `buildx ls` showed:
 BUILDX_BUILDER=limited docker compose build
 ```
 
 Three cores instead of sixteen roughly triples the wall clock and keeps the box
-answering its own SSH.
+answering its own SSH. Check the name rather than trusting the one above: the
+builder on the box predates this note and need not match it, and a build that
+silently runs uncapped is the one thing this section exists to prevent.
 
 ### Backups
 
