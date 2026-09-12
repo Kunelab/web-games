@@ -9,6 +9,7 @@ import {
   PROGRAM_LABELS,
   SHINY_LOOT,
   itemDef,
+  isTwoHanded,
   RARITY_META,
   roleOf,
   torchReach,
