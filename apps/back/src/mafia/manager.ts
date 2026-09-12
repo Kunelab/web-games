@@ -119,7 +119,7 @@ export class MafiaManager {
       chat: (code, botId, channel, text) => this.playerChat(code, botId, channel, text),
       vote: (code, botId, slot) => this.vote(code, botId, slot),
       ballot: (code, botId, verdict) => this.ballot(code, botId, verdict),
-      action: (code, botId, slot) => this.nightAction(code, botId, slot),
+      action: (code, botId, slot, second) => this.nightAction(code, botId, slot, second),
       dayAction: (code, botId, action) => this.dayAction(code, botId, action),
       will: (code, botId, text) => this.will(code, botId, text),
       get: (code) => this.sessions.get(code)

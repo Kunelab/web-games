@@ -1,4 +1,5 @@
 import {
+  needsSecondTarget,
   ROLES,
   SELF_FIRES,
   slotFaction,
@@ -160,6 +161,16 @@ export default function MafiaPlayer() {
   const [joinError, setJoinError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [jailMode, setJailMode] = useState(false);
+  /**
+   * The first house of a two-target order, held on the phone until the second.
+   *
+   * Local rather than server state on purpose: half an order is not an order, and
+   * the engine refuses one. So the first tap commits to nothing and costs nothing
+   * to undo, and only the second tap sends anything at all. `courtAsked` is the
+   * same shape of guard for the one power that ends a day outright.
+   */
+  const [pendingFirst, setPendingFirst] = useState<number | null>(null);
+  const [courtAsked, setCourtAsked] = useState(false);
   const [will, setWill] = useState('');
   const [whisperTo, setWhisperTo] = useState<number | null>(null);
   const [whisperText, setWhisperText] = useState('');
@@ -300,6 +311,9 @@ export default function MafiaPlayer() {
     setJailMode(false);
     setActionError(null);
     setWhisperTo(null);
+    // A half-built order does not survive the phase that could have used it.
+    setPendingFirst(null);
+    setCourtAsked(false);
   }
 
   function join(event: FormEvent) {
@@ -343,6 +357,57 @@ export default function MafiaPlayer() {
 
     if (isNight) {
       if (!me.action || me.jailed) return null;
+      const twoStep = needsSecondTarget(me.action.type);
+
+      /**
+       * A Witch and a Bus Driver are asked twice, on the same list of houses.
+       *
+       * The alternative was a second screen, and this is better: the question
+       * "which house" has one answer surface in this game and it is the player
+       * list, so asking it again in the same place costs nothing to learn. The
+       * row that was picked first stays on screen wearing ① so the order is
+       * legible while it is being built, and tapping it backs out.
+       */
+      if (twoStep) {
+        const submitted = me.actionTargetSlot !== null;
+        if (submitted) {
+          const isFirst = me.actionTargetSlot === player.slot;
+          const isSecond = me.actionSecondTargetSlot === player.slot;
+          if (!isFirst && !isSecond) return null;
+          return {
+            label: isFirst ? tk('mafia.ui.firstPicked') : tk('mafia.ui.secondPicked'),
+            chosen: true,
+            run: () => {
+              setPendingFirst(null);
+              socket.emit('mafia:action', { targetSlot: null }, fail);
+            }
+          };
+        }
+
+        if (pendingFirst === null) {
+          if (!me.action.targets.includes(player.slot)) return null;
+          return {
+            label: tk(`mafia.action.${me.action.type}`),
+            chosen: false,
+            run: () => setPendingFirst(player.slot)
+          };
+        }
+
+        if (player.slot === pendingFirst) {
+          return { label: tk('mafia.ui.cancel'), chosen: true, run: () => setPendingFirst(null) };
+        }
+        if (!(me.action.secondTargets ?? []).includes(player.slot)) return null;
+        const first = pendingFirst;
+        return {
+          label: tk(`mafia.ui.secondHere.${me.action.type}`),
+          chosen: false,
+          run: () => {
+            setPendingFirst(null);
+            socket.emit('mafia:action', { targetSlot: first, secondTargetSlot: player.slot }, fail);
+          }
+        };
+      }
+
       const mine = selfOnly(me);
       const reachable = mine ? player.slot === me.slot : me.action.targets.includes(player.slot);
       if (!reachable) return null;
@@ -412,6 +477,11 @@ export default function MafiaPlayer() {
     if (isNight) {
       if (me.jailed) return tk('mafia.ui.prompt.jailed');
       if (!me.action) return tk('mafia.ui.prompt.nightIdle');
+      // Step two of a two-house order says so, and names the house already picked:
+      // the whole point of asking twice is that the player can see both halves.
+      if (pendingFirst !== null && needsSecondTarget(me.action.type)) {
+        return tk(`mafia.ui.pickSecond.${me.action.type}`, { slot: pendingFirst });
+      }
       const action = msg(`mafia.action.${me.action.type}`);
       return selfOnly(me) ? tk('mafia.ui.prompt.selfAction', { action }) : tk('mafia.ui.prompt.pickTarget', { action });
     }
@@ -426,7 +496,7 @@ export default function MafiaPlayer() {
     if (jailMode) return tk('mafia.ui.prompt.jailPick');
     if (canVote) return tk('mafia.ui.prompt.discussion');
     return tk('mafia.ui.prompt.firstDay');
-  }, [view, me, isNight, inDefense, inJudgement, jailMode, canVote, tk]);
+  }, [view, me, isNight, inDefense, inJudgement, jailMode, canVote, pendingFirst, tk]);
 
   /**
    * Player names inside an announcement, in the colour their bylines wear.
@@ -555,7 +625,7 @@ export default function MafiaPlayer() {
       )}
 
       {/* --------------------------- the board itself --------------------------- */}
-      <MafiaTown players={view.players} mySlot={me.slot} night={isNight} onTrial={view.trial !== null} zoom={zoom} />
+      <MafiaTown players={view.players} mySlot={me.slot} night={isNight} zoom={zoom} />
 
       <div className="mz-zoom">
         <button
@@ -1204,6 +1274,29 @@ export default function MafiaPlayer() {
                       {tk('mafia.ui.revealMayor')}
                     </Button>
                   )}
+
+                {/*
+                  The Judge's court, which the protocol, the manager and the engine
+                  have all supported from the start and which no screen ever offered.
+                  A single charge sat unusable for every human who ever drew the role.
+
+                  Two presses, like every other irreversible control here: it skips
+                  the defense, drops the whole table straight into a verdict, and
+                  cannot be taken back once it lands.
+                */}
+                {inDiscussion && me.alive && me.role?.id === 'judge' && (me.charges ?? 0) > 0 && (
+                  <Button
+                    variant={courtAsked ? 'danger' : 'ghost'}
+                    onClick={() => {
+                      if (courtAsked) {
+                        socket?.emit('mafia:dayAction', { type: 'court' }, fail);
+                        setCourtAsked(false);
+                      } else setCourtAsked(true);
+                    }}
+                  >
+                    {tk(courtAsked ? 'mafia.ui.callCourtSure' : 'mafia.ui.callCourt')}
+                  </Button>
+                )}
               </div>
 
               {whisperTo !== null && (

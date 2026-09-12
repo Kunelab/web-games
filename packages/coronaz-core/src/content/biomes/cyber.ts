@@ -108,10 +108,15 @@ export const cyber: BiomeDef = {
       weapon: { range: 1, dice: 6, damage: 12, accuracy: 1, melee: false, akimbo: false, noisy: true }
     },
 
+    rags: { id: 'underlayer', name: 'coronaz.thing.underlayer', emoji: '🧥', gear: { armor: 1 } },
     vest: { id: 'weave', name: 'coronaz.thing.weave', emoji: '🧵', gear: { armor: 3 } },
+    plate: { id: 'exoplate', name: 'coronaz.thing.exoplate', emoji: '🛡️', gear: { armor: 6 } },
     torch: { id: 'optics', name: 'coronaz.thing.optics', emoji: '🥽', gear: { flashlight: true } },
+    bandage: { id: 'medfoam', name: 'coronaz.thing.medfoam', emoji: '🩹', gear: { heal: 8 } },
     medkit: { id: 'nanogel', name: 'coronaz.thing.nanogel', emoji: '🧪', gear: { heal: 18 } },
-    stim: { id: 'combatstim', name: 'coronaz.thing.combatstim', emoji: '🧬', gear: { adrenaline: 2 } }
+    stim: { id: 'combatstim', name: 'coronaz.thing.combatstim', emoji: '🧬', gear: { adrenaline: 2 } },
+    grenade: { id: 'pulsecharge', name: 'coronaz.thing.pulsecharge', emoji: '💣', gear: { blast: 26 } },
+    smoke: { id: 'ecmfog', name: 'coronaz.thing.ecmfog', emoji: '🌫️', gear: { hush: true } }
   },
 
   zombies: {

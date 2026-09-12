@@ -87,10 +87,15 @@ export const modern: BiomeDef = {
       weapon: { range: 1, dice: 6, damage: 12, accuracy: 1, melee: false, akimbo: false, noisy: true }
     },
 
+    rags: { id: 'padding', name: 'coronaz.thing.padding', emoji: '🧥', gear: { armor: 1 } },
     vest: { id: 'vest', name: 'coronaz.thing.vest', emoji: '🦺', gear: { armor: 3 } },
+    plate: { id: 'riotplate', name: 'coronaz.thing.riotplate', emoji: '🛡️', gear: { armor: 6 } },
     torch: { id: 'flashlight', name: 'coronaz.thing.flashlight', emoji: '🔦', gear: { flashlight: true } },
+    bandage: { id: 'bandage', name: 'coronaz.thing.bandage', emoji: '🩹', gear: { heal: 8 } },
     medkit: { id: 'medkit', name: 'coronaz.thing.medkit', emoji: '💊', gear: { heal: 18 } },
-    stim: { id: 'adrenaline', name: 'coronaz.thing.adrenaline', emoji: '💉', gear: { adrenaline: 2 } }
+    stim: { id: 'adrenaline', name: 'coronaz.thing.adrenaline', emoji: '💉', gear: { adrenaline: 2 } },
+    grenade: { id: 'grenade', name: 'coronaz.thing.grenade', emoji: '💣', gear: { blast: 26 } },
+    smoke: { id: 'smokebomb', name: 'coronaz.thing.smokebomb', emoji: '🌫️', gear: { hush: true } }
   },
 
   zombies: {

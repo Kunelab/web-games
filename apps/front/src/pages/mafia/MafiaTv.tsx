@@ -198,7 +198,7 @@ export default function MafiaTv() {
 
       <div className="mz-tv-body">
         <div className="mz-tv-stagearea">
-          <MafiaTown players={view.players} mySlot={null} night={isNight} onTrial={view.trial !== null} />
+          <MafiaTown players={view.players} mySlot={null} night={isNight} />
           {view.phase === 'lobby' && (
             <p className="mz-tv-invite">
               {t(msg('mafia.tv.joinAt'))} <strong>{joinUrl}</strong>

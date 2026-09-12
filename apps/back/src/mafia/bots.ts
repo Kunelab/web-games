@@ -5,9 +5,11 @@ import {
   decideBallot,
   decideDay,
   decideNightTarget,
+  decideSecondTarget,
   chatRules,
   jailChannel,
   legalNightAction,
+  needsSecondTarget,
   parityPressure,
   playerFamily,
   ROLE,
@@ -80,7 +82,7 @@ interface BotHooks {
   chat: (code: string, botId: string, channel: string, text: string) => ActionOutcome;
   vote: (code: string, botId: string, targetSlot: number | 'skip' | null) => ActionOutcome;
   ballot: (code: string, botId: string, verdict: 'guilty' | 'innocent' | 'abstain') => ActionOutcome;
-  action: (code: string, botId: string, targetSlot: number | null) => ActionOutcome;
+  action: (code: string, botId: string, targetSlot: number | null, secondTargetSlot?: number | null) => ActionOutcome;
   /** Jail a house, or put the sash on: the two things a day offers besides a vote. */
   dayAction: (
     code: string,
@@ -126,6 +128,14 @@ interface Decision {
    */
   urgent?: boolean;
   targetSlot: number | null;
+  /**
+   * The second house of a two-target power: the Witch's destination, the Bus
+   * Driver's other stop.
+   *
+   * Only ever set on a night turn for those two roles. Every other seat leaves it
+   * null, and the engine refuses a control or a swap that arrives without one.
+   */
+  secondTargetSlot?: number | null;
   /**
    * Vote to hang nobody today.
    *
@@ -2313,7 +2323,7 @@ export class MafiaBotDriver {
      * seat with no action to apply, and is told apart by its role.
      */
     if (task === 'night' && channel === 'day' && state.players[botId]?.role !== 'crier') {
-      this.hooks.action(code, botId, decision.targetSlot);
+      this.hooks.action(code, botId, decision.targetSlot, decision.secondTargetSlot ?? null);
       // Where it actually went, so tomorrow's account can be checked against it.
       this.minds.wentTo(state, botId, decision.targetSlot);
       // And into the will now, in case there is no tomorrow to write it in.
@@ -2713,6 +2723,20 @@ export class MafiaBotDriver {
           }
         };
       }
+      /**
+       * The Witch and the Bus Driver name a second house before they name any.
+       *
+       * Submitted together or not at all: the engine refuses half of one of these
+       * orders, and half of one is what every bot in the game used to send. The
+       * fallback that covered for it picked the second house at random, which put
+       * a quarter of all controls and swaps through the actor's own seat.
+       */
+      if (slot !== null && needsSecondTarget(action.type)) {
+        const second = decideSecondTarget(self, board, action.type, slot, action.secondTargets ?? [], rng);
+        if (second === null) return EMPTY;
+        return { ...EMPTY, targetSlot: slot, secondTargetSlot: second };
+      }
+
       return { ...EMPTY, targetSlot: slot };
     }
 

@@ -75,6 +75,10 @@ export const NO = {
   notNow: (): Msg => msg('mafia.refuse.notNow'),
   firstDay: (): Msg => msg('mafia.refuse.firstDay'),
   badTarget: (): Msg => msg('mafia.refuse.badTarget'),
+  /** A Witch or a Bus Driver named one house where the power wants two. */
+  needsSecondTarget: (): Msg => msg('mafia.refuse.needsSecondTarget'),
+  /** Both halves of a two-house order landed on the same doorstep. */
+  sameTwice: (): Msg => msg('mafia.refuse.sameTwice'),
   notYourself: (): Msg => msg('mafia.refuse.notYourself'),
   accusedSilent: (): Msg => msg('mafia.refuse.accusedSilent'),
   waitForDay: (): Msg => msg('mafia.refuse.waitForDay'),

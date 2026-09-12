@@ -134,6 +134,14 @@ export interface MafiaViewMe {
   action: LegalAction | null;
   /** What I currently submitted tonight, as a slot. */
   actionTargetSlot: number | null;
+  /**
+   * The second house of a two-target order, once it is named.
+   *
+   * Witch and Bus Driver only. It rides back to the phone so a re-render, a
+   * reconnection or a second device shows the order as it actually stands rather
+   * than resetting the picker to step one and losing half of it.
+   */
+  actionSecondTargetSlot: number | null;
   voteTargetSlot: number | null;
   /** My accusation is "hang nobody today". Mutually exclusive with the above. */
   votedSkip: boolean;
@@ -403,6 +411,9 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
 
       const submitted = state.nightActions[self.playerId];
       const submittedSlot = submitted?.targetId ? (state.players[submitted.targetId]?.slot ?? null) : null;
+      const submittedSecondSlot = submitted?.secondTargetId
+        ? (state.players[submitted.secondTargetId]?.slot ?? null)
+        : null;
       const voteId = state.votes[self.playerId];
       const obsession = self.obsessionId ? state.players[self.obsessionId] : null;
 
@@ -428,6 +439,7 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
           self.role === 'jailor' && state.jailedId ? (state.players[state.jailedId]?.slot ?? null) : null,
         action: legalNightAction(state, self.playerId),
         actionTargetSlot: submittedSlot,
+        actionSecondTargetSlot: submittedSecondSlot,
         voteTargetSlot: voteId && voteId !== SKIP_VOTE ? (state.players[voteId]?.slot ?? null) : null,
         votedSkip: voteId === SKIP_VOTE,
         ballot: state.trial?.ballots[self.playerId] ?? null,

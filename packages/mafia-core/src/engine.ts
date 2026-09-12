@@ -638,7 +638,22 @@ export interface LegalAction {
   type: NightActionType;
   /** Slots this action may target; empty for self-targeted powers. */
   targets: number[];
+  /**
+   * The second half of a two-target power: the Witch's destination, the Bus
+   * Driver's other house. Absent for every other power.
+   *
+   * Declared separately from `targets` because the two pools are not the same
+   * question — "whose hand do I guide" and "towards which door" — and because a
+   * screen has to know whether to ask twice at all. Whoever is picked first is
+   * filtered out of this list by the caller; the engine refuses the pair anyway.
+   */
+  secondTargets?: number[];
   charges: number | null;
+}
+
+/** The powers that are only half an order until a second house is named. */
+export function needsSecondTarget(type: NightActionType): boolean {
+  return type === 'control' || type === 'swap';
 }
 
 export function legalNightAction(state: MafiaState, playerId: string): LegalAction | null {
@@ -687,7 +702,12 @@ export function legalNightAction(state: MafiaState, playerId: string): LegalActi
       return { type: def.nightAction, targets: [...slots(others), player.slot], charges: null };
     case 'swap':
       // Two houses trade fates; the driver may ride his own bus.
-      return { type: 'swap', targets: [...slots(others), player.slot], charges: null };
+      return {
+        type: 'swap',
+        targets: [...slots(others), player.slot],
+        secondTargets: [...slots(others), player.slot],
+        charges: null
+      };
     case 'convert': {
       if (player.cooldownUntilDay !== null && state.day < player.cooldownUntilDay) return null;
       /**
@@ -708,6 +728,22 @@ export function legalNightAction(state: MafiaState, playerId: string): LegalActi
     case 'bond':
       if (player.bondPartnerId !== null) return null;
       return { type: 'bond', targets: slots(others), charges: uses };
+    case 'control':
+      /**
+       * Whose hand, and then which door.
+       *
+       * The destination pool is every living house, the witch's own included:
+       * pointing a vigilante at herself is a terrible idea rather than an illegal
+       * one, and a rule that quietly removes the bad options removes the bluff
+       * with them. The bewitched seat is filtered out by whoever asks, since it is
+       * only known once the first half is picked.
+       */
+      return {
+        type: 'control',
+        targets: slots(others),
+        secondTargets: alivePlayers(state).map((entry) => entry.slot),
+        charges: null
+      };
     case 'remember':
     case 'autopsy': {
       const dead = Object.values(state.players).filter((entry) => !entry.alive);
@@ -740,12 +776,29 @@ export function setNightAction(
     targetId = target.playerId;
   }
 
-  // Second target (witch destination, bus's other house): optional; the night
-  // resolver rolls one when it's missing.
+  /**
+   * The second half: the Witch's destination, the Bus Driver's other house.
+   *
+   * **Required**, where it used to be optional with the resolver rolling a random
+   * house when it was missing — and it was always missing, because no screen ever
+   * sent it. Measured over 200 seeded nights, that fallback sent the Vigilante's
+   * bullet to a uniformly random seat and put it through the Witch's own head 25 %
+   * of the time, while the Bus Driver swapped the mafia's target with a stranger
+   * and rode into the kill himself just as often. Two roles whose entire point is
+   * deciding *where* something lands were deciding nothing.
+   *
+   * Refused rather than defaulted, because there is no sane default: a half-given
+   * order is an unfinished one, and the caller has a second question to ask.
+   */
   let secondTargetId: string | null = null;
-  if ((legal.type === 'control' || legal.type === 'swap') && secondTargetSlot != null) {
+  if (needsSecondTarget(legal.type)) {
+    if (secondTargetSlot == null) return { ok: false, error: NO.needsSecondTarget() };
     const destination = playerBySlot(state, secondTargetSlot);
-    if (destination?.alive) secondTargetId = destination.playerId;
+    if (!destination?.alive || !(legal.secondTargets ?? []).includes(destination.slot)) {
+      return { ok: false, error: NO.badTarget() };
+    }
+    if (destination.slot === targetSlot) return { ok: false, error: NO.sameTwice() };
+    secondTargetId = destination.playerId;
   }
 
   state.nightActions[playerId] = { type: legal.type, targetId, secondTargetId };
@@ -1349,7 +1402,7 @@ interface Attack {
  */
 const INVESTIGATIVE: NightActionType[] = ['investigate', 'examine', 'watch', 'track', 'shadow', 'autopsy'];
 
-function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
+function resolveNight(state: MafiaState, _rng: () => number): Announcement[] {
   const acts = state.nightActions;
   const jailedId = state.jailedId;
   const announcements: Announcement[] = [];
@@ -1361,11 +1414,6 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     const player = state.players[id];
     return player?.alive ? player : null;
   };
-  const randomOther = (excludeId: string): MafiaPlayer | null => {
-    const pool = players.filter((entry) => entry.alive && entry.playerId !== excludeId);
-    return pool[Math.floor(rng() * pool.length)] ?? null;
-  };
-
   const blocked = new Set<string>();
   if (jailedId) blocked.add(jailedId);
 
@@ -1390,7 +1438,9 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
 
     const victimAction = acts[victim.playerId];
     if (victimAction && victimAction.targetId && victimAction.targetId !== victim.playerId) {
-      const destination = living(action.secondTargetId) ?? randomOther(victim.playerId);
+      // No destination, no redirection. `setNightAction` refuses a control without
+      // one, so this only catches a destination who died before the night resolved.
+      const destination = living(action.secondTargetId);
       if (destination) {
         victimAction.targetId = destination.playerId;
         notify(victim, NOTE.controlled());
@@ -1408,7 +1458,8 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     const action = actionOf(player);
     if (action?.type !== 'swap') continue;
     const first = living(action.targetId);
-    const second = living(action.secondTargetId) ?? randomOther(first?.playerId ?? player.playerId);
+    // Both houses or no bus: the driver names the pair, the engine never guesses.
+    const second = living(action.secondTargetId);
     if (!first || !second || first.playerId === second.playerId) continue;
 
     visit(player.playerId, first.playerId);
@@ -1617,6 +1668,36 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     visit(player.playerId, action.targetId);
   }
 
+  /**
+   * The current spreads by touch: a wired house electrifies whoever walks in.
+   *
+   * This is what the Électromane is *for*, and without it the role was a slower
+   * arsonist that a single doctor switched off. One charged house is a trap rather
+   * than a corpse: wire the seat everyone visits — the claimed doctor, the loud
+   * sheriff — and every investigator who calls on them that night joins the
+   * circuit. The lever then takes the whole network at once.
+   *
+   * Read off the charged set as it stands *after* tonight's preparations and
+   * applied exactly once, so it is one hop and not a chain: you are charged by the
+   * house you walked into, never by the person who walked in behind you. A chain
+   * would make a single wire eventually reach the whole town, which is a different
+   * and much worse game.
+   *
+   * Silent on both sides, like the direct charge above: the visitor is told
+   * nothing, and neither is the maniac. A tell here would give the town a free
+   * detector for the one role whose entire threat is that nobody knows the map of
+   * it. The maniac's own visit is exempt, for the obvious reason.
+   */
+  const maniac = players.find((entry) => entry.alive && entry.role === 'electromaniac') ?? null;
+  if (maniac) {
+    const liveWires = new Set(players.filter((entry) => entry.alive && entry.charged).map((entry) => entry.playerId));
+    for (const { visitorId, targetId } of visits) {
+      if (!liveWires.has(targetId) || visitorId === maniac.playerId) continue;
+      const visitor = state.players[visitorId];
+      if (visitor?.alive && !visitor.charged) visitor.charged = true;
+    }
+  }
+
   // Attacks.
   const attacks: Attack[] = [];
 
@@ -1647,14 +1728,27 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     }
   }
 
-  // The lever drops: every wired house takes the surge. Power 2 — curable.
+  /**
+   * The lever drops: every wired house takes the surge. Power 3, like the fire.
+   *
+   * It was power 2, which meant one doctor or one bodyguard cancelled the entire
+   * payoff of three nights of wiring — measured head to head against the arsonist
+   * on the same table, the same two marked houses and the same two protectors, the
+   * fire killed 2 of 2 and the surge killed 0 of 2. A finisher that a single
+   * common town role switches off is not a finisher.
+   *
+   * Both solo killers now end their raid the same way, and the difference between
+   * them is the shape of the setup rather than the strength of the payoff: petrol
+   * is poured deliberately house by house, current spreads itself along the town's
+   * own footpaths. Only a jail cell stops either.
+   */
   for (const player of players) {
     if (!player.alive || blocked.has(player.playerId) || player.role !== 'electromaniac') continue;
     const action = actionOf(player);
     if (action?.type !== 'charge' || action.targetId !== player.playerId) continue;
     for (const wired of players) {
       if (wired.alive && wired.charged && wired.playerId !== player.playerId) {
-        attacks.push({ attackerId: player.playerId, targetId: wired.playerId, power: 2, source: 'electromaniac' });
+        attacks.push({ attackerId: player.playerId, targetId: wired.playerId, power: 3, source: 'electromaniac' });
       }
     }
   }

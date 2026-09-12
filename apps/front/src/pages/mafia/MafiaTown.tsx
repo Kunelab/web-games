@@ -15,6 +15,14 @@ import type { MafiaPublicPlayer } from 'mafia-core';
  * at a glance across the room*: who is still standing, who is in the ground,
  * whether it is day or night, and whether the gallows is occupied.
  *
+ * Three layers, painted in that order: the ground and the square, then the
+ * houses in depth order, then *the folk* — every villager, grave and pennant in
+ * one pass on top. The third layer is not a flourish. Houses are sorted by tile
+ * depth while a villager stands at the near corner of its own tile, which puts
+ * it inside the next tile's footprint: with one group per plot, the neighbour's
+ * roof was painted over half the town's heads. A villager is a player, and a
+ * player is never scenery you can lose behind a wall.
+ *
  * Twenty-four plots sit on the ring of a 7×7 grid — the perimeter of that square
  * is exactly 24 cells, so a seat number is the same house forever, whatever it is
  * later dressed as. Everything paints from CSS custom properties (see the
@@ -71,8 +79,6 @@ export interface MafiaTownProps {
   players: MafiaPublicPlayer[];
   mySlot: number | null;
   night: boolean;
-  /** Someone is at the barre: the fountain becomes a gallows. */
-  onTrial: boolean;
   /** Skin hook. Colours only for now; house and villager art swap in later. */
   theme?: TownTheme;
   /**
@@ -83,9 +89,19 @@ export interface MafiaTownProps {
   zoom?: number;
 }
 
-export function MafiaTown({ players, mySlot, night, onTrial, theme = 'village', zoom = 1 }: MafiaTownProps) {
+export function MafiaTown({ players, mySlot, night, theme = 'village', zoom = 1 }: MafiaTownProps) {
   const bySlot = new Map(players.map((player) => [player.slot, player]));
   const centre = project((GRID - 1) / 2, (GRID - 1) / 2);
+
+  /**
+   * Who is at the barre, read off the roster rather than taken as a prop.
+   *
+   * It used to arrive as a bare `onTrial` boolean, which could say the square is
+   * a gallows but never who was standing in it — so the town raised a scaffold
+   * and left the accused at home, on their own plot, through their own trial.
+   * One source of truth means the rope and the person under it cannot disagree.
+   */
+  const accused = players.find((player) => player.onTrial && player.alive) ?? null;
 
   // The camera pulls back by padding the box rather than scaling the drawing:
   // strokes and text keep their own weight that way, which is the whole reason
@@ -109,33 +125,69 @@ export function MafiaTown({ players, mySlot, night, onTrial, theme = 'village', 
 
         <g className="mz-square">
           <polygon points={diamond(centre.x, centre.y, TILE_W * 2.4, TILE_H * 2.4)} className="mz-plaza" />
-          {onTrial ? <Gallows x={centre.x} y={centre.y} /> : <Fountain x={centre.x} y={centre.y} />}
+          {accused ? <Gallows x={centre.x} y={centre.y} /> : <Fountain x={centre.x} y={centre.y} />}
         </g>
 
         {PAINT_ORDER.map((plot) => {
           const player = bySlot.get(plot.slot);
           const { x, y } = project(plot.col, plot.row);
-          const mine = mySlot === plot.slot;
 
           return (
             <g key={plot.slot} className={`mz-plot${player && !player.alive ? ' mz-plot--dead' : ''}`}>
               <polygon points={diamond(x, y, TILE_W * 0.92, TILE_H * 0.92)} className="mz-plot-ground" />
 
               {!player && <polygon points={diamond(x, y, TILE_W * 0.42, TILE_H * 0.42)} className="mz-plot-empty" />}
-              {player?.alive && <House x={x} y={y} night={night} />}
-              {player && !player.alive && <Tombstone x={x} y={y} />}
-              {player?.alive && <Villager x={x + TILE_W * 0.24} y={y + TILE_H * 0.28} hue={seatHue(plot.slot)} />}
-              {mine && player && <Pennant x={x} y={y} tall={player.alive} />}
+              {player && <House x={x} y={y} night={night} barred={!player.alive} />}
             </g>
           );
         })}
+
+        {/*
+          The folk, over every roof in the town.
+
+          Still in depth order among themselves, so a near villager overlaps the
+          one behind — what they no longer do is vanish under the house next
+          door. Graves come along because a grave stands exactly where its owner
+          used to, and a marker you cannot see marks nothing.
+        */}
+        <g className="mz-folk">
+          {PAINT_ORDER.map((plot) => {
+            const player = bySlot.get(plot.slot);
+            if (!player) return null;
+            const { x, y } = project(plot.col, plot.row);
+            const stood = { x: x + TILE_W * 0.24, y: y + TILE_H * 0.28 };
+
+            return (
+              <g key={plot.slot}>
+                {mySlot === plot.slot && <Pennant x={x} y={y} tall={player.alive} />}
+                {/* Away at their own trial: the plot keeps the house, the square keeps them. */}
+                {player.alive && plot.slot !== accused?.slot && (
+                  <Villager x={stood.x} y={stood.y} hue={seatHue(plot.slot)} />
+                )}
+                {!player.alive && <Tombstone x={stood.x} y={stood.y} />}
+              </g>
+            );
+          })}
+
+          {/* Under the rope, in their own seat's colour, so the roster names them. */}
+          {accused && <Villager x={centre.x + 11} y={centre.y - 2} hue={seatHue(accused.slot)} accused />}
+        </g>
       </svg>
     </div>
   );
 }
 
-/** A prism, a roof, a door, one window. The skin slot. */
-function House({ x, y, night }: { x: number; y: number; night: boolean }) {
+/**
+ * A prism, a roof, a door, one window. The skin slot.
+ *
+ * `barred` is the house of someone in the ground. The plot used to swap the
+ * house out for a headstone, which quietly emptied the hill: by the endgame half
+ * the ring was bare lawn, and a town that loses its houses stops reading as a
+ * town. Nobody demolishes a house when its owner dies — they board it up. So
+ * the house stays, planks go across the door and the window, and the lamp never
+ * comes on again at night.
+ */
+function House({ x, y, night, barred = false }: { x: number; y: number; night: boolean; barred?: boolean }) {
   const w = TILE_W * 0.5;
   const h = TILE_H * 0.5;
   const wall = 21;
@@ -144,7 +196,7 @@ function House({ x, y, night }: { x: number; y: number; night: boolean }) {
   const eave = base - h / 2 - wall;
 
   return (
-    <g className="mz-house">
+    <g className={barred ? 'mz-house mz-house--barred' : 'mz-house'}>
       <polygon points={`${x - w / 2},${base - h / 2} ${x},${base} ${x},${base - wall} ${x - w / 2},${eave}`} className="mz-wall-l" />
       <polygon points={`${x + w / 2},${base - h / 2} ${x},${base} ${x},${base - wall} ${x + w / 2},${eave}`} className="mz-wall-r" />
       <polygon points={`${x - w / 2},${eave} ${x},${base - wall} ${x + w / 2},${eave} ${x},${eave - roof}`} className="mz-roof" />
@@ -153,16 +205,38 @@ function House({ x, y, night }: { x: number; y: number; night: boolean }) {
         y={eave + 7}
         width={7}
         height={7}
-        className={night ? 'mz-window mz-window--lit' : 'mz-window'}
+        className={night && !barred ? 'mz-window mz-window--lit' : 'mz-window'}
       />
       <rect x={x - w * 0.28} y={base - h / 4 - 11} width={7} height={11} className="mz-door" />
+      {barred && <Boards x={x} w={w} h={h} base={base} eave={eave} />}
     </g>
   );
 }
 
-function Villager({ x, y, hue }: { x: number; y: number; hue: number }) {
+/**
+ * The planks: an X over the door, one bar across the window.
+ *
+ * Nailed to the house's own geometry rather than to numbers of its own, so a
+ * later skin that moves the door takes its boards with it.
+ */
+function Boards({ x, w, h, base, eave }: { x: number; w: number; h: number; base: number; eave: number }) {
+  const doorX = x - w * 0.28;
+  const doorTop = base - h / 4 - 11;
+  const winX = x + w * 0.1;
+  const winMid = eave + 10.5;
+
   return (
-    <g className="mz-villager">
+    <g className="mz-boards">
+      <line x1={doorX - 2} y1={doorTop + 2} x2={doorX + 9} y2={doorTop + 9} className="mz-plank" />
+      <line x1={doorX - 2} y1={doorTop + 9} x2={doorX + 9} y2={doorTop + 2} className="mz-plank" />
+      <line x1={winX - 1.5} y1={winMid} x2={winX + 8.5} y2={winMid} className="mz-plank" />
+    </g>
+  );
+}
+
+function Villager({ x, y, hue, accused = false }: { x: number; y: number; hue: number; accused?: boolean }) {
+  return (
+    <g className={accused ? 'mz-villager mz-villager--accused' : 'mz-villager'}>
       <ellipse cx={x} cy={y + 7} rx={7} ry={3} className="mz-villager-shadow" />
       <path
         d={`M ${x - 5} ${y + 5} Q ${x - 6} ${y - 6} ${x} ${y - 7} Q ${x + 6} ${y - 6} ${x + 5} ${y + 5} Z`}

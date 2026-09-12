@@ -775,8 +775,51 @@
   fill: var(--town-stone);
 }
 
+/*
+ * A house nobody comes home to.
+ *
+ * The planks say it at a glance and the colour says it across the room: every
+ * surface drops toward black off its own token, so the boarded house reads as
+ * shut in the village palette, in the cite palette and at night, without any of
+ * the three knowing this state exists.
+ */
+.mz-house--barred .mz-wall-l {
+  fill: color-mix(in srgb, var(--town-wall-l) 52%, black);
+}
+.mz-house--barred .mz-wall-r {
+  fill: color-mix(in srgb, var(--town-wall-r) 52%, black);
+}
+.mz-house--barred .mz-roof {
+  fill: color-mix(in srgb, var(--town-roof) 52%, black);
+}
+.mz-house--barred .mz-door {
+  fill: color-mix(in srgb, var(--town-door) 62%, black);
+}
+.mz-house--barred .mz-window {
+  fill: color-mix(in srgb, var(--town-window) 55%, black);
+}
+.mz-plank {
+  stroke: var(--town-wood);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
 .mz-villager-shadow {
   fill: rgb(0 0 0 / 0.18);
+}
+
+/*
+ * The one on the stand, picked out of two dozen identical silhouettes.
+ *
+ * A pale outline rather than a colour change: the seat hue is how the roster and
+ * the hill agree on who is who, so tinting the accused would cost the one link
+ * between a name in the list and a body in the square.
+ */
+.mz-villager--accused path,
+.mz-villager--accused circle {
+  stroke: #f4e4c1;
+  stroke-width: 1.4;
+  paint-order: stroke;
 }
 
 .mz-fountain-basin {

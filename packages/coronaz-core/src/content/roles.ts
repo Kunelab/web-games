@@ -54,15 +54,53 @@ export type WeaponRole =
   /** The last word. */
   | 'chaingun';
 
+/**
+ * The things that are not weapons, and there are now nine of them rather than four.
+ *
+ * Four was too few in a way the loot table made structural rather than merely dull:
+ * candidates are filtered by tier, so with gear only at tiers 2 and 3, **tiers 1, 4
+ * and 5 could not produce a single piece of it**. Every early find was a weapon you
+ * already had a better version of, and every late find was a weapon or nothing.
+ *
+ * The fix is a ladder per job instead of one item per job:
+ *
+ *  - **armour** at three rungs (`rags` 1, `vest` 3, `plate` 6) rather than one, so
+ *    the stat that decides how long a survivor lives is something you improve all
+ *    raid instead of a coin flip on whether the vest turned up.
+ *  - **healing** at two (`bandage` 8, `medkit` 18), so the bottom of the table can
+ *    still answer a wound.
+ *  - **two new verbs**, because more of the same is not diversity: a `grenade`
+ *    hits every creature in the room at once, and `smoke` wipes the noise off your
+ *    room and the ones beside it, so the horde loses the trail.
+ *
+ * Both new verbs reuse machinery the game already has — the damage path a weapon
+ * uses, and the noise map the horde already homes in on — rather than inventing a
+ * system. A consumable that needed its own targeting screen would cost more than it
+ * adds.
+ *
+ * Tier 5 is left as weapons only, on purpose. The documentation is explicit that
+ * whether a tier-5 turns up is the single biggest swing in a raid, and putting gear
+ * in that pool would dilute the one find the whole escalation curve is built around.
+ */
 export type GearRole =
-  /** Absorbs one attack. */
+  /** Flat damage reduction, the light rung. */
+  | 'rags'
+  /** Flat damage reduction, the middle rung: the classic vest. */
   | 'vest'
+  /** Flat damage reduction, the heavy rung. */
+  | 'plate'
   /** A free search per turn. */
   | 'torch'
+  /** Heals a little, and turns up early. */
+  | 'bandage'
   /** Heals. */
   | 'medkit'
   /** Buys action points. */
-  | 'stim';
+  | 'stim'
+  /** Consumable: hurts every creature in the room at once. */
+  | 'grenade'
+  /** Consumable: erases the noise here and next door; the horde loses the trail. */
+  | 'smoke';
 
 export type ItemRole = WeaponRole | GearRole;
 
@@ -81,6 +119,25 @@ export interface RoleDef {
    * new biome quietly shipping a better arsenal than the last.
    */
   power?: number;
+  /**
+   * Held in one hand and occupying both: no off-hand while this is out.
+   *
+   * On the role rather than on the biome's stat block, for the same reason `tier`
+   * and `power` are: it is a *cost*, and costs belong to the game. A biome may
+   * decide that its room-clearer is a flamethrower or an arc projector, but not
+   * that its version of the room-clearer leaves a hand free — that would be a
+   * biome shipping a strictly better arsenal, which is the thing this layer exists
+   * to prevent.
+   *
+   * Which six are marked is the honest reading of what they are. You do not fire a
+   * minigun, a combat shotgun, an assault rifle, a sniper rifle, a flamethrower or
+   * a running chainsaw one-handed, and until now the game let you hold two of them
+   * at once. It also gives the loadout screen a decision it never had: every
+   * two-hander is tier 2 or better and every one-hander below tier 4 is cheap, so
+   * "one big thing" against "two small things" is finally a question with two
+   * defensible answers rather than a formality.
+   */
+  twoHanded?: boolean;
 }
 
 /** How far a biome's weapon may stray from its role's expected damage. */
@@ -129,20 +186,25 @@ export const ITEM_ROLES: readonly RoleDef[] = [
   { id: 'club', kind: 'weapon', tier: 1, label: 'coronaz.role.club', power: 14 },
   { id: 'blade', kind: 'weapon', tier: 1, label: 'coronaz.role.blade', power: 24 },
   { id: 'pick', kind: 'weapon', tier: 1, label: 'coronaz.role.pick', power: 22 },
-  { id: 'saw', kind: 'weapon', tier: 2, label: 'coronaz.role.saw', power: 36 },
+  { id: 'saw', kind: 'weapon', tier: 2, label: 'coronaz.role.saw', power: 36, twoHanded: true },
   { id: 'sidearm', kind: 'weapon', tier: 2, label: 'coronaz.role.sidearm', power: 33 },
-  { id: 'scatter', kind: 'weapon', tier: 2, label: 'coronaz.role.scatter', power: 34 },
+  { id: 'scatter', kind: 'weapon', tier: 2, label: 'coronaz.role.scatter', power: 34, twoHanded: true },
   { id: 'smg', kind: 'weapon', tier: 3, label: 'coronaz.role.smg', power: 48 },
-  { id: 'rifle', kind: 'weapon', tier: 3, label: 'coronaz.role.rifle', power: 45 },
+  { id: 'rifle', kind: 'weapon', tier: 3, label: 'coronaz.role.rifle', power: 45, twoHanded: true },
   { id: 'magnum', kind: 'weapon', tier: 4, label: 'coronaz.role.magnum', power: 56 },
-  { id: 'marksman', kind: 'weapon', tier: 4, label: 'coronaz.role.marksman', power: 58 },
-  { id: 'flamer', kind: 'weapon', tier: 5, label: 'coronaz.role.flamer', power: 70 },
-  { id: 'chaingun', kind: 'weapon', tier: 5, label: 'coronaz.role.chaingun', power: 72 },
+  { id: 'marksman', kind: 'weapon', tier: 4, label: 'coronaz.role.marksman', power: 58, twoHanded: true },
+  { id: 'flamer', kind: 'weapon', tier: 5, label: 'coronaz.role.flamer', power: 70, twoHanded: true },
+  { id: 'chaingun', kind: 'weapon', tier: 5, label: 'coronaz.role.chaingun', power: 72, twoHanded: true },
 
-  { id: 'vest', kind: 'gear', tier: 3, label: 'coronaz.role.vest' },
+  { id: 'rags', kind: 'gear', tier: 1, label: 'coronaz.role.rags' },
+  { id: 'bandage', kind: 'gear', tier: 1, label: 'coronaz.role.bandage' },
   { id: 'torch', kind: 'gear', tier: 2, label: 'coronaz.role.torch' },
   { id: 'medkit', kind: 'gear', tier: 2, label: 'coronaz.role.medkit' },
-  { id: 'stim', kind: 'gear', tier: 3, label: 'coronaz.role.stim' }
+  { id: 'grenade', kind: 'gear', tier: 2, label: 'coronaz.role.grenade' },
+  { id: 'vest', kind: 'gear', tier: 3, label: 'coronaz.role.vest' },
+  { id: 'stim', kind: 'gear', tier: 3, label: 'coronaz.role.stim' },
+  { id: 'smoke', kind: 'gear', tier: 3, label: 'coronaz.role.smoke' },
+  { id: 'plate', kind: 'gear', tier: 4, label: 'coronaz.role.plate' }
 ];
 
 export const WEAPON_ROLES = ITEM_ROLES.filter((role) => role.kind === 'weapon').map((role) => role.id);
@@ -178,6 +240,21 @@ export interface ArchetypeDef {
   boss?: boolean;
   /** Spawns one of these in its own room each time it activates. */
   summons?: ZombieArchetype;
+  /**
+   * Chance, each enemy phase, that this creature wakes up with one extra point.
+   *
+   * The shambler's only trick, and deliberately the only one that has it. A walker
+   * with one point is the most predictable thing on the board — one room, or one
+   * bite, never both — and a survivor standing two rooms away is doing arithmetic
+   * that is always right. One time in twenty it is wrong, which is enough to make
+   * "just out of reach" a judgement rather than a calculation, and cheap enough at
+   * 5 % that it never becomes the thing that kills a raid.
+   *
+   * Rolled per creature per phase, so a room of six walkers is a real risk rather
+   * than a rounding error, and never stacks with the Tracker's noise bonus into
+   * more than one extra point.
+   */
+  surgeChance?: number;
   /** For the game master's shop and the log, when no biome is in hand. */
   label: string;
 }
@@ -203,15 +280,32 @@ export interface ArchetypeDef {
  *    choose. A hit always does at least 1, so armour makes a weapon bad, never
  *    useless.
  */
+/**
+ * …and one more thing, added after a season of play: the rank and file were too
+ * soft for an arsenal that had meanwhile been compressed and given armour-piercing.
+ *
+ * Every non-boss creature carries **+5 hit points and +1 armour** over the numbers
+ * above. The armour is the load-bearing half. Three of the five had none at all, so
+ * a six-dice crowd weapon deleted a room of them at no cost and the "crowd weapons
+ * answer crowds, heavy weapons answer armour" trade only ever applied to bosses.
+ * One point of armour off every die is close to nothing for a magnum and a great
+ * deal for a minigun, which is exactly the asymmetry that was missing. Hit points
+ * went up alongside it so the change reads as a tougher horde rather than purely as
+ * a nerf to one class of weapon.
+ *
+ * Bosses and mini-bosses take **+10 %** hit points instead, rounded. They already
+ * had armour, so what they needed was the extra beat of survival that keeps a boss
+ * fight a fight — and a flat +5 would have been invisible on a creature with 148.
+ */
 export const ARCHETYPES: readonly ArchetypeDef[] = [
-  { id: 'walker', hp: 9, ap: 1, damage: 10, points: 1, cost: 1, rarity: 1, armor: 0, label: 'Traînard' },
-  { id: 'runner', hp: 11, ap: 2, damage: 10, points: 2, cost: 2, rarity: 2, armor: 0, label: 'Coureur' },
-  { id: 'horror', hp: 19, ap: 2, damage: 10, points: 2, cost: 2, rarity: 2, armor: 0, label: 'Horreur' },
-  { id: 'fatty', hp: 42, ap: 1, damage: 10, points: 3, cost: 3, rarity: 3, armor: 2, label: 'Masse' },
-  { id: 'mutant', hp: 29, ap: 2, damage: 20, points: 4, cost: 4, rarity: 3, armor: 1, label: 'Mutant' },
+  { id: 'walker', hp: 14, ap: 1, damage: 10, points: 1, cost: 1, rarity: 1, armor: 1, surgeChance: 0.05, label: 'Traînard' },
+  { id: 'runner', hp: 16, ap: 2, damage: 10, points: 2, cost: 2, rarity: 2, armor: 1, label: 'Coureur' },
+  { id: 'horror', hp: 24, ap: 2, damage: 10, points: 2, cost: 2, rarity: 2, armor: 1, label: 'Horreur' },
+  { id: 'fatty', hp: 47, ap: 1, damage: 10, points: 3, cost: 3, rarity: 3, armor: 3, label: 'Masse' },
+  { id: 'mutant', hp: 34, ap: 2, damage: 20, points: 4, cost: 4, rarity: 3, armor: 2, label: 'Mutant' },
   {
     id: 'screamer',
-    hp: 27,
+    hp: 30,
     ap: 2,
     damage: 10,
     points: 6,
@@ -222,11 +316,11 @@ export const ARCHETYPES: readonly ArchetypeDef[] = [
     summons: 'walker',
     label: 'Invocateur'
   },
-  { id: 'brute', hp: 68, ap: 2, damage: 21, points: 8, cost: 7, rarity: 4, armor: 3, boss: true, label: 'Brute' },
-  { id: 'colossus', hp: 98, ap: 1, damage: 22, points: 10, cost: 8, rarity: 5, armor: 4, boss: true, label: 'Colosse' },
+  { id: 'brute', hp: 75, ap: 2, damage: 21, points: 8, cost: 7, rarity: 4, armor: 3, boss: true, label: 'Brute' },
+  { id: 'colossus', hp: 108, ap: 1, damage: 22, points: 10, cost: 8, rarity: 5, armor: 4, boss: true, label: 'Colosse' },
   {
     id: 'abomination',
-    hp: 148,
+    hp: 163,
     ap: 1,
     damage: 30,
     points: 15,

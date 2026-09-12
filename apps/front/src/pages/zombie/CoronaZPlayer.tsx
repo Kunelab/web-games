@@ -1127,11 +1127,15 @@ function ItemStats({ item, compact = false }: { item: ItemInstance; compact?: bo
       facts.push(`${better ? '✨ Belle pièce' : '🩹 Abîmée'} : ${what}`);
     }
     if (weapon.pierce) facts.push('🛡️ Perforante : ignore la moitié de l’armure');
+    // The cost of the big ones, said first: it is the reason not to take this one.
+    if (isTwoHanded(def)) facts.push('🙌 À deux mains : occupe vos deux mains');
     if (weapon.akimbo) facts.push('🙌 Akimbo : une dans chaque main double les dés');
     if (weapon.noisy && !compact) facts.push('📢 Bruyante : attire la horde');
   }
   if (gear?.heal) facts.push(`💊 Rend ${gear.heal} PV`);
   if (gear?.adrenaline) facts.push(`⚡ +${gear.adrenaline} PA immédiats`);
+  if (gear?.blast) facts.push(`💣 ${gear.blast} dégâts à toute la salle, armure ignorée`);
+  if (gear?.hush) facts.push('🌫️ Efface le bruit ici et dans les salles voisines');
   if (gear?.armor !== undefined) {
     // What a legendary plate is for, said out loud: it takes more off every hit.
     facts.push(`🦺 -${gearArmor(def, item.rarity)} dégâts sur chaque blessure`);
