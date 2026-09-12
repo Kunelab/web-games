@@ -89,6 +89,7 @@ export function biomeZombies(biome: BiomeDef) {
       cost: definition.cost,
       rarity: definition.rarity,
       boss: definition.boss,
+      surgeChance: definition.surgeChance,
       /** Resolved to the biome's own id for that archetype. */
       summons: definition.summons ? biome.zombies[definition.summons].id : undefined
     };

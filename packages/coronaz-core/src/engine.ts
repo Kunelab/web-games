@@ -1,9 +1,9 @@
 import { msg, type Msg } from 'i18n';
 import { createChat, post, type PostResult } from 'chat-core';
-import { resolveHeroAttack, resolveZombieAttack, weaponFor, type Hand } from './combat.js';
+import { creditKill, resolveHeroAttack, resolveZombieAttack, weaponFor, type Hand } from './combat.js';
 import { archetypeOf, itemFor, zombieFor } from './content/registry.js';
-import { gearStats, heroDef, itemDef, RARITY_META, zombieDef } from './data.js';
-import { rollLoot } from './loot.js';
+import { gearStats, heroDef, isTwoHanded, itemDef, RARITY_META, zombieDef } from './data.js';
+import { dropFromKill, rollLoot } from './loot.js';
 import { mutationEffects } from './mutations.js';
 import { CZ_EVENTS, EVENT_CHANCE, EVENT_FROM_TURN } from './events.js';
 import {
@@ -510,6 +510,58 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
         return { ok: true };
       }
 
+      /**
+       * The grenade: everything in the room, all at once, and armour does not help.
+       *
+       * The one answer to the case a crowd weapon is worst at. Six dice of 12 into a
+       * room of armoured things is six hits shaved to almost nothing; this lands its
+       * full number on every creature standing there, which is what makes it worth a
+       * bag slot rather than a worse gun.
+       *
+       * Pays for itself in kills exactly as a weapon does — the same credit, the same
+       * corpse loot — because a survivor who clears a room with a grenade cleared the
+       * room. It is loud, of course.
+       */
+      if (gear?.blast) {
+        const here = zombiesInRoom(state, hero.roomId);
+        if (here.length === 0) return { ok: false, error: msg('cz.refuse.nothingToBlast') };
+        spend();
+        let killed = 0;
+        for (const zombie of here) {
+          zombie.hp -= gear.blast;
+          if (zombie.hp <= 0) {
+            killed += 1;
+            creditKill(state, hero, zombie);
+            const spoils = dropFromKill(state, hero, zombie.def);
+            if (spoils) log(state, `${hero.name} ramasse ${describe(spoils)} sur la carcasse`);
+            delete state.zombies[zombie.id];
+          }
+        }
+        state.noise[hero.roomId] = (state.noise[hero.roomId] ?? 0) + 1;
+        consume(hero, owned.uid);
+        log(state, `${hero.name} fait sauter la salle (${here.length} touchés, ${killed} abattus)`);
+        checkEnd(state);
+        return { ok: true };
+      }
+
+      /**
+       * Smoke: the trail goes cold here and next door.
+       *
+       * The only item in the game that answers a mistake already made. The horde
+       * homes in on noise, so a loud kill in the wrong room is a corridor filling up
+       * with things walking towards you, and until now there was nothing to do about
+       * it but move and hope. It kills nothing and moves nothing, which is what stops
+       * it being a better grenade.
+       */
+      if (gear?.hush) {
+        spend();
+        const rooms = [hero.roomId, ...neighbors(state.board, getRoom(state.board, hero.roomId)).map((room) => room.id)];
+        for (const roomId of rooms) delete state.noise[roomId];
+        consume(hero, owned.uid);
+        log(state, `${hero.name} lâche un fumigène : le bruit retombe`);
+        return { ok: true };
+      }
+
       return { ok: false, error: 'Rien à utiliser ici' };
     }
 
@@ -660,6 +712,39 @@ function equip(hero: HeroState, uid: number, slot: Slot): ActionResult {
 
   const collection = isHand ? hero.hands : hero.gear;
   const index = slot === 'hand0' || slot === 'gear0' ? 0 : 1;
+
+  /**
+   * Two hands for the big things, and the off-hand has to actually be free.
+   *
+   * A chainsaw, a shotgun, an assault rifle, a sniper rifle, a flamethrower and a
+   * minigun are held in *one* hand slot and occupy *both*, which is why this is a
+   * rule about the other hand rather than a second slot in the state: storing one
+   * item in two places would mean every reader of `hands` has to remember not to
+   * count it twice, and one of them eventually forgets.
+   *
+   * So exactly two things are enforced here, and they are the same rule read from
+   * either end: a two-hander needs the other hand empty, and nothing may be put
+   * into a hand the two-hander next to it is already using.
+   *
+   * Whatever is in the way goes to the bag rather than to the floor. Dropping it
+   * silently would make a routine swap destructive, and destructive is not
+   * something an inventory screen should ever be by accident — so a full bag is a
+   * refusal with a reason, and the player decides what to leave behind.
+   */
+  if (isHand) {
+    const other = index === 0 ? 1 : 0;
+    const blocking = hero.hands[other];
+    const needsBoth = isTwoHanded(def);
+    const otherIsTwoHanded = blocking !== null && isTwoHanded(itemDef(blocking.def));
+
+    if (blocking !== null && (needsBoth || otherIsTwoHanded)) {
+      if (hero.bag.length >= bagCapacity(hero)) {
+        return fail(needsBoth ? 'Il faut les deux mains : votre sac est plein' : 'Sac plein');
+      }
+      hero.hands[other] = null;
+      hero.bag.push(blocking);
+    }
+  }
 
   // Whatever was there goes where the new item came from: a swap, never a loss.
   const displaced = collection[index];
@@ -957,7 +1042,24 @@ export function beginEnemyPhase(state: CzState, now = Date.now()): void {
      */
     if (state.config.mode === 'gm' && state.config.gmClass === 'traqueur' && (state.noise[zombie.roomId] ?? 0) > 0) {
       zombie.ap += 1;
+      continue;
     }
+
+    /**
+     * And once in a while a shambler simply gets there.
+     *
+     * The walker is the only creature on the board whose reach a survivor can work
+     * out with certainty, which made "one room out of its range" a calculation
+     * rather than a judgement — and standing exactly one room away was therefore
+     * free. A one-in-twenty extra point does not change what a walker is worth; it
+     * changes whether the last step of a turn is a decision.
+     *
+     * After the Tracker's bonus and skipped when that one fired, so the two never
+     * compound into a shambler with three points. Rolled per creature, so a room of
+     * six of them is a genuine risk rather than a rounding error.
+     */
+    const surge = zombieDef(zombie.def).surgeChance ?? 0;
+    if (surge > 0 && rand(state.rng) < surge) zombie.ap += 1;
   }
   state.gmSurgeUsed = false;
   for (const hero of Object.values(state.heroes)) {

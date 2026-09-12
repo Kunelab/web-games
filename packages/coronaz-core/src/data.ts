@@ -27,8 +27,8 @@
  * card every turn, and nothing about them was broken.
  */
 
-import { allItems, allZombies } from './content/registry.js';
-import type { ItemRole } from './content/roles.js';
+import { allItems, allZombies, roleOf } from './content/registry.js';
+import { roleDef as itemRoleDef, type ItemRole } from './content/roles.js';
 
 export const STAT_SCALE = 10;
 
@@ -542,6 +542,8 @@ export interface ZombieDef {
   emoji: string;
   /** Counts for "kill a boss" objectives, and is announced when it arrives. */
   boss?: boolean;
+  /** Chance per enemy phase of waking with one extra point; the shambler only. */
+  surgeChance?: number;
   /** Spawns one of these in its own room each time it activates. */
   summons?: string;
 }
@@ -608,6 +610,24 @@ export interface GearStats {
   heal?: number;
   /** Consumable: grants this many AP for free, then is spent. */
   adrenaline?: number;
+  /**
+   * Consumable: hurts every creature in your room for this much, then is spent.
+   *
+   * Ignores armour, which is the whole reason to carry one. It is the only answer
+   * in the game to the case a crowd weapon is worst at — a room of armoured things
+   * where every die is being shaved down to 1 — and it costs an action point and
+   * the item, so it is a decision rather than a rotation.
+   */
+  blast?: number;
+  /**
+   * Consumable: erases the noise in your room and every room beside it.
+   *
+   * The horde homes in on noise, so this is the one item that answers a mistake
+   * already made: a loud kill in the wrong room, with the corridor filling up. It
+   * moves nothing and kills nothing, which is what keeps it from being a better
+   * grenade.
+   */
+  hush?: boolean;
 }
 
 export interface ItemDef {
@@ -646,6 +666,20 @@ export const RARITY_META: Record<Rarity, { label: string; color: string }> = {
  * a role in a biome with `itemFor`.
  */
 export const ITEMS: readonly ItemDef[] = allItems();
+
+/**
+ * Whether this weapon takes both hands, whichever biome it came from.
+ *
+ * Resolved through the item's *role* rather than stored on the instance, so the
+ * answer cannot drift per biome and a save file full of item ids keeps meaning the
+ * same thing after the arsenal is re-tuned. Gear is never two-handed: a vest and a
+ * torch live in their own slots and have nothing to do with what you are holding.
+ */
+export function isTwoHanded(def: ItemDef): boolean {
+  if (def.kind !== 'weapon') return false;
+  const role = roleOf(def.id);
+  return role ? !!itemRoleDef(role).twoHanded : false;
+}
 
 export function itemDef(id: string): ItemDef {
   const item = ITEMS.find((candidate) => candidate.id === id);

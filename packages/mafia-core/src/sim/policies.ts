@@ -2350,6 +2350,73 @@ export function decideNightTarget(
   return random();
 }
 
+/**
+ * The second house of a two-target order: the Witch's destination, the Bus
+ * Driver's other stop.
+ *
+ * Its own function rather than a second return value from `decideNightTarget`,
+ * because it is a different question asked of a different pool and it can only be
+ * asked once the first half is settled. Two callers need it — the simulator and
+ * the live bot runner — and both used to send nothing at all, which is how the
+ * engine ended up rolling a random house and putting a quarter of these orders
+ * through the actor's own head.
+ *
+ * Returns null only when there is genuinely nowhere to point, in which case the
+ * caller drops the whole order: half of one of these is worse than none of it.
+ */
+export function decideSecondTarget(
+  self: MafiaPlayer,
+  info: PublicInfo,
+  actionType: string,
+  firstSlot: number,
+  legalSecondTargets: number[],
+  rng: () => number
+): number | null {
+  const pool = legalSecondTargets.filter((slot) => slot !== firstSlot && info.aliveSlots.includes(slot));
+  if (pool.length === 0) return null;
+  const elsewhere = pool.filter((slot) => slot !== self.slot);
+  const random = (): number | null =>
+    (elsewhere.length > 0 ? elsewhere : pool)[Math.floor(rng() * (elsewhere.length > 0 ? elsewhere.length : pool.length))] ??
+    null;
+
+  /**
+   * The Witch guides the hand she has taken onto the loudest seat in the square.
+   *
+   * She wins when the Town does not, so the best use of somebody else's power is
+   * to spend it on the person the Town is currently listening to: a Doctor who
+   * heals the wrong house, a Vigilante whose bullet lands on an investigator. Her
+   * own seat is excluded on purpose — it is legal, it is occasionally a brilliant
+   * bluff, and it is not something a bot should stumble into.
+   */
+  if (actionType === 'control') {
+    const loud = credibleClaimersRanked(info, new Set([self.slot, firstSlot])).filter((slot) => elsewhere.includes(slot));
+    if (loud.length > 0) return pickRanked(loud, rng, 0.3);
+    return random();
+  }
+
+  /**
+   * The Bus Driver sends whatever was aimed at his first stop to the seat the
+   * square already distrusts.
+   *
+   * He is swapping fates, so the second house is where tonight's knife actually
+   * lands. Pointing it at the table's prime suspect is the play that is either
+   * free (they were evil and the family does not kill its own) or at worst costs
+   * the Town a seat it was about to hang anyway. Never himself: that was a quarter
+   * of every swap under the old random fallback, and the driver dying on his own
+   * bus is the single worst outcome this power has.
+   */
+  if (actionType === 'swap') {
+    const scored = elsewhere
+      .map((slot) => ({ slot, score: suspicion(slot, self, info, rng) }))
+      .sort((a, b) => b.score - a.score);
+    const top = scored[0];
+    if (top && top.score >= 1.2) return top.slot;
+    return random();
+  }
+
+  return random();
+}
+
 /* The simulator smuggles the executioner's obsession slot through the player
  * object without widening the core type for everyone. */
 declare module '../state.js' {

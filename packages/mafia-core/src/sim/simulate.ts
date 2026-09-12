@@ -6,6 +6,7 @@ import {
   castVote,
   jailTarget,
   legalNightAction,
+  needsSecondTarget,
   revealMayor,
   setNightAction,
   startMafia
@@ -27,6 +28,7 @@ import {
   feelPressure,
   makeBrain,
   decideNightTarget,
+  decideSecondTarget,
   isEvilRole,
   makePersonality,
   DEFAULT_PROFILE,
@@ -408,7 +410,15 @@ export function simulateGame(options: SimOptions): SimResult {
           familyIntelFor(player.playerId),
           rng
         );
-        if (target !== null) setNightAction(state, player.playerId, target);
+        // A two-house power is submitted whole or not at all: the engine refuses a
+        // control or a swap that names only one doorstep.
+        const second =
+          target !== null && needsSecondTarget(legal.type)
+            ? decideSecondTarget(player, info, legal.type, target, legal.secondTargets ?? [], rng)
+            : null;
+        if (target !== null && (!needsSecondTarget(legal.type) || second !== null)) {
+          setNightAction(state, player.playerId, target, second);
+        }
         // What this seat will be able to say tomorrow if asked — and what the
         // record can catch it out on if it says otherwise.
         const brain = brains.get(player.playerId)!;

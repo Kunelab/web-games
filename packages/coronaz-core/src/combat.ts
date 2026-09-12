@@ -240,7 +240,7 @@ export function resolveHeroAttack(state: CzState, hero: HeroState, target: Zombi
   return { ok: true, hits, killed, loot: dropped ?? undefined };
 }
 
-function creditKill(state: CzState, hero: HeroState, zombie: ZombieState): void {
+export function creditKill(state: CzState, hero: HeroState, zombie: ZombieState): void {
   const def = zombieDef(zombie.def);
   const ability = heroDef(hero.heroId).ability;
   hero.kills += 1;
