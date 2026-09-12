@@ -353,14 +353,25 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
     if (self) {
       const def = self.role ? roleDef(self.role) : null;
       const rules = chatRules();
+      /**
+       * The distinct channels this table has actually used. One pass.
+       *
+       * Two separate full walks of the transcript used to start here, one for
+       * the whisper tabs and one for the end-of-game reveal below, and this
+       * whole function runs once per recipient per broadcast. On a table of
+       * twenty-four with nine hundred messages in the log that was forty-odd
+       * thousand iterations a push, plus a `pmParticipants` parse per message
+       * where a parse per *distinct* channel is all anybody wanted: there are
+       * a couple of dozen channel names in the set and hundreds of lines.
+       *
+       * Insertion order is first-mention order, which is the order the whisper
+       * tabs were already in.
+       */
+      const used = new Set<string>();
+      for (const message of state.chat.messages) used.add(message.channel);
+
       // Whisper threads this player is part of surface as their own tabs.
-      const pmIds = [
-        ...new Set(
-          state.chat.messages
-            .map((message) => message.channel)
-            .filter((channel) => pmParticipants(channel)?.includes(self.playerId))
-        )
-      ];
+      const pmIds = [...used].filter((channel) => pmParticipants(channel)?.includes(self.playerId));
       const channelIds = ['day', 'dead', 'mafia', 'triad', 'cult', 'mason', jailChannel(state.day), ...pmIds];
 
       /**
@@ -376,9 +387,8 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
        * The square is exempt: it always carries the announcements, and it is the
        * one tab a player must never be left without.
        */
-      const spoken = new Set(state.chat.messages.map((message) => message.channel));
       const channels = channelIds
-        .filter((id) => id === 'day' || !ended || spoken.has(id))
+        .filter((id) => id === 'day' || !ended || used.has(id))
         .filter((id) => rules.canRead(id, self.playerId, state))
         .map((id) => {
           const pm = pmParticipants(id);

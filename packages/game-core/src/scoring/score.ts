@@ -88,6 +88,38 @@ export type ScoringConfig = z.infer<typeof scoringConfigSchema>;
 
 export const defaultScoringConfig: ScoringConfig = scoringConfigSchema.parse({});
 
+/**
+ * The same scoring, with every "who was first" term taken out.
+ *
+ * Used for a buzzer round, where being first is already paid for in the only
+ * currency that format has: the exclusive right to answer at all. Stacking the
+ * position ladder on top would charge twice for one race, and it would charge the
+ * wrong person — the second buzzer only got their shot because the first one burned
+ * theirs, and handing them 0.7x for the privilege reads as a punishment for
+ * somebody else's mistake.
+ *
+ * So a correct answer is worth its face value plus its direct bonus, and the risk
+ * lives where the format puts it: buzz wrong and the round is over for you.
+ *
+ * Both clock terms go with the ladder, for the same reason. In a race the answers
+ * are *sequenced* by the buzzer rather than raced against each other, so
+ * `relativeSpeedBonus` would quietly rebuild the position gradient this is
+ * removing, and `speedBonus` would pay the first buzzer for the seconds nobody
+ * else was allowed to use.
+ *
+ * Penalties, the perfect-round bonus, the combo and the comeback are all left
+ * alone: none of them is about finishing order.
+ */
+export function buzzerScoringConfig(config: ScoringConfig): ScoringConfig {
+  return {
+    ...config,
+    positionMultipliers: [1],
+    tailMultiplier: 1,
+    speedBonusMax: 0,
+    relativeSpeedBonusMax: 0
+  };
+}
+
 /** One accepted answer, as the server recorded it. */
 export interface ScoredSubmission {
   playerId: string;

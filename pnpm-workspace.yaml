@@ -15,3 +15,19 @@ packages:
 # no install script to allow.
 onlyBuiltDependencies:
   - esbuild
+
+# Forces the one vulnerable copy of esbuild in the tree up to a patched line.
+#
+# `drizzle-kit` still declares `@esbuild-kit/esm-loader`, which is deprecated
+# (it was merged into tsx) and whose `core-utils` hard-pins `esbuild: ~0.18.20`.
+# That pin is what `pnpm audit` reports as GHSA-67mh-4wv8-2f99, the advisory
+# about a website being able to read from an esbuild dev server.
+#
+# Nothing ever loads it. The only mention of `@esbuild-kit/esm-loader` anywhere
+# in drizzle-kit is the dependency line in its own package.json: it moved to tsx
+# and its own `esbuild ^0.25.4` and left the old entry behind, so the 0.18 copy
+# is installed and never imported. Overriding it is therefore safe, and it is
+# worth doing rather than accepting: an audit with one permanent known-noise
+# entry in it is an audit nobody reads the day a real advisory lands.
+overrides:
+  "@esbuild-kit/core-utils>esbuild": "^0.25.0"

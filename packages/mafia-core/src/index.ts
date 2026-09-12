@@ -111,6 +111,18 @@ export {
   type MafiaViewer,
   type MafiaViewMe
 } from './view.js';
+export {
+  MAFIA_BADGES,
+  emptyMafiaStats,
+  mafiaBadgesFor,
+  mafiaReward,
+  mafiaTitleFor,
+  nextMafiaBadges,
+  type MafiaBadgeDef,
+  type MafiaBadgeProgress,
+  type MafiaCareerStats
+} from './careers.js';
+
 export { toPublicInfo } from './observe.js';
 /**
  * The social model. Exported because the live bot driver and the headless bench

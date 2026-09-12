@@ -40,6 +40,15 @@ export default tseslint.config(
     rules: { 'no-console': 'off' }
   },
   {
+    // node:test's describe/it return promises that the runner itself awaits, so
+    // the floating-promise rule fires on every single block. Same exemption the
+    // packages carry, now that this app has unit tests of its own.
+    files: ['**/*.test.ts'],
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'off'
+    }
+  },
+  {
     files: ['eslint.config.js', 'drizzle.config.ts'],
     ...tseslint.configs.disableTypeChecked
   },

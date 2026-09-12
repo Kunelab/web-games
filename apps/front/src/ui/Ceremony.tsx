@@ -1,9 +1,10 @@
-import type { FinalAward, PlayerView } from 'game-core';
+import type { FinalAward, GameReward, PlayerView } from 'game-core';
 import { msg } from 'i18n';
 
 import { awardMeta } from '../app/awards';
 import { badgeMeta } from '../app/badges';
 import { useT } from '../i18n/locale-context';
+import { Rewards } from './Rewards';
 
 /**
  * The final ceremony: a podium, the distinctions, then everyone else.
@@ -12,7 +13,19 @@ import { useT } from '../i18n/locale-context';
  * a podium looks like, and the blocks rise in reverse order so the winner lands
  * last. Ties share a rank upstream, so two players can stand on the same step.
  */
-export function Ceremony({ players, awards }: { players: PlayerView[]; awards: FinalAward[] }) {
+export function Ceremony({
+  players,
+  awards,
+  rewards = [],
+  meId = null
+}: {
+  players: PlayerView[];
+  awards: FinalAward[];
+  /** What the game paid each player. Empty on an oral game, which scores nothing. */
+  rewards?: GameReward[];
+  /** Whose row to float to the top of the payoff list. */
+  meId?: string | null;
+}) {
   const t = useT();
   // Already sorted by rank; the visual order is 2nd, 1st, 3rd.
   const [first, second, third] = players;
@@ -70,6 +83,10 @@ export function Ceremony({ players, awards }: { players: PlayerView[]; awards: F
           ))}
         </ol>
       )}
+
+      {/* Last, because the podium is what the room looks at first and this is what
+          they read afterwards on their own phones. */}
+      <Rewards rewards={rewards} meId={meId} currency="🎟️" meta={badgeMeta} />
     </div>
   );
 }

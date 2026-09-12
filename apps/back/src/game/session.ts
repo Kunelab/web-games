@@ -2,6 +2,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 
 import {
   buildLeaderboard,
+  buzzerScoringConfig,
   clampAnswerTime,
   generateJoinCode,
   getMediaKind,
@@ -15,6 +16,8 @@ import {
   scoreEstimationRound,
   scoreRound,
   type AnswerField,
+  type BuzzView,
+  type GameReward,
   type PlayerView,
   type RevealView,
   type RoundPhase,
@@ -106,6 +109,66 @@ export interface RoundState {
    * nothing to the persisted state.
    */
   multipliers?: Record<string, { combo: number; comeback: number }>;
+  /**
+   * The buzzer race, when the session is playing that format.
+   *
+   * Optional and defaulted on read throughout, because a session persisted before
+   * this existed has to restore mid-party rather than crash on a missing key.
+   */
+  buzz?: BuzzState;
+}
+
+/**
+ * How long the server waits, after the first press, before deciding who won.
+ *
+ * A race cannot be settled by arrival order without handing it to whoever has the
+ * shortest cable. Every other timing decision in this game is made on the moment
+ * the player physically pressed, bounded by their measured round trip, and a race
+ * is the one place where that matters most rather than least: it is the only
+ * mechanic where the difference between two players is *entirely* the timestamp.
+ *
+ * So the first press opens a window instead of winning outright, and every press
+ * inside it is judged on its compensated time. A quarter of a second covers the
+ * spread between a phone on the room's wifi and one on a weak signal, and it is
+ * short enough that nobody sees it happen.
+ */
+export const BUZZ_ARBITRATION_MS = 250;
+
+/** One press, waiting for the window to close. */
+export interface BuzzPress {
+  playerId: string;
+  /** Lag-compensated, in server time. What the race is actually decided on. */
+  pressedAt: number;
+}
+
+export interface BuzzState {
+  /** Presses collected in the window currently being arbitrated. */
+  race: BuzzPress[];
+  /** Server time the arbitration window closes. Null when no race is running. */
+  raceClosesAt: number | null;
+  /** Who won the buzzer and may answer. Null while it is open or being decided. */
+  holderId: string | null;
+  /** Server time the holder's exclusive window closes. */
+  windowEndsAt: number | null;
+  /** Players who have spent their shot this round and may not press again. */
+  spent: string[];
+}
+
+export function emptyBuzzState(): BuzzState {
+  return { race: [], raceClosesAt: null, holderId: null, windowEndsAt: null, spent: [] };
+}
+
+/**
+ * Whether this round is actually being raced.
+ *
+ * Three things have to hold, and each excludes a format the buzzer would break.
+ * An oral game submits nothing at all, so there is no shot to be exclusive about.
+ * An estimation round is a commitment every player makes independently and revises
+ * until the clock runs out, which is the opposite of one person holding the floor.
+ */
+export function isBuzzerRound(state: SessionState): boolean {
+  if (!state.config.buzzer || state.config.oral) return false;
+  return state.round !== null && state.round.kind !== 'estimation';
 }
 
 /**
@@ -158,6 +221,15 @@ export interface SessionState {
   stats?: Record<string, PlayerAggregate>;
   /** Guards the results table against a finished game being recorded twice. */
   resultsRecorded?: boolean;
+  /**
+   * What the game paid each player, computed once when the results were banked.
+   *
+   * Stored on the session rather than recomputed per view because it is a
+   * *difference*, and the "before" half of it stops existing the moment the
+   * history row is written. Optional so a session persisted before this existed
+   * restores without it, and so a game that has not ended yet simply has none.
+   */
+  rewards?: GameReward[];
   lastActivityAt: number;
 }
 
@@ -343,7 +415,8 @@ export function advance(state: SessionState, lookup: MediaLookup, now = Date.now
     phaseEndsAt: opensWithStudy ? now + (timing.studyMs ?? 0) : answerEndsAt,
     submissions: [],
     revealedChoices: {},
-    scored: null
+    scored: null,
+    buzz: state.config.buzzer ? emptyBuzzState() : undefined
   };
 }
 
@@ -357,6 +430,9 @@ export function openAnswers(state: SessionState, now = Date.now()): void {
   // Same rule as when a round opens straight into answering: no clock when the
   // answers are spoken.
   round.phaseEndsAt = state.config.oral ? null : now + round.timing.answerMs;
+  // A fresh buzzer: the study phase was for looking, and nobody may have raced
+  // during it. Rebuilt rather than cleared so a restored round gets one too.
+  if (state.config.buzzer) round.buzz = emptyBuzzState();
   state.lastActivityAt = now;
 }
 
@@ -397,14 +473,11 @@ export function closeAnswers(state: SessionState, now = Date.now()): void {
       direct: submission.direct
     }));
 
-    results = scoreRound(
-      submissions,
-      round.answers,
-      round.phaseStartAt,
-      round.timing.answerMs,
-      state.config.scoring,
-      context
-    );
+    // A raced round pays face value: the ladder and the two clock terms are the
+    // simultaneous format's way of rewarding speed, and the buzzer is this one's.
+    const scoring = isBuzzerRound(state) ? buzzerScoringConfig(state.config.scoring) : state.config.scoring;
+
+    results = scoreRound(submissions, round.answers, round.phaseStartAt, round.timing.answerMs, scoring, context);
   }
 
   round.scored = {};
@@ -460,10 +533,177 @@ export function closeAnswers(state: SessionState, now = Date.now()): void {
     }
   }
 
+  // Nothing may hold a buzzer into the reveal, and no stale deadline may survive
+  // into it either: `nextDeadline` reads these, and a leftover window would arm a
+  // timer against a phase that is already over.
+  if (round.buzz) {
+    round.buzz.holderId = null;
+    round.buzz.windowEndsAt = null;
+    round.buzz.race = [];
+    round.buzz.raceClosesAt = null;
+  }
+
   round.phase = 'reveal';
   round.phaseStartAt = now;
   round.phaseEndsAt = state.config.autoAdvance ? now + round.timing.revealMs : null;
   state.lastActivityAt = now;
+}
+
+/* ------------------------------- the buzzer ------------------------------- */
+
+export interface BuzzResult {
+  ok: boolean;
+  error?: string;
+  /** The press was taken and is in the race being arbitrated. */
+  racing?: boolean;
+}
+
+/**
+ * Records one press of the buzzer.
+ *
+ * Nobody wins here. The press joins the race and the winner is decided when the
+ * arbitration window closes, which is the only way a race can be fair across
+ * phones with different round trips. The first press is what opens that window.
+ */
+export function buzz(options: {
+  state: SessionState;
+  playerId: string;
+  roundId: string;
+  claimedAt: number;
+  receivedAt: number;
+}): BuzzResult {
+  const { state, playerId, roundId, claimedAt, receivedAt } = options;
+  const round = state.round;
+
+  if (!round || round.id !== roundId) return { ok: false, error: 'Ce tour est terminé' };
+  if (!isBuzzerRound(state)) return { ok: false, error: 'Ce tour ne se joue pas au buzzer' };
+  if (round.phase !== 'answering') return { ok: false, error: 'Les réponses ne sont pas ouvertes' };
+
+  const player = state.players[playerId];
+  if (!player) return { ok: false, error: 'Joueur inconnu' };
+
+  const buzzState = (round.buzz ??= emptyBuzzState());
+
+  if (buzzState.spent.includes(playerId)) return { ok: false, error: 'Vous avez déjà tenté ce tour' };
+  if (buzzState.holderId !== null) return { ok: false, error: 'Quelqu’un a déjà le buzzer' };
+  if (buzzState.race.some((press) => press.playerId === playerId)) {
+    // Not an error worth showing: the phone already drew itself as pressed.
+    return { ok: true, racing: true };
+  }
+
+  // Refused rather than clamped once the phase is genuinely over, exactly as an
+  // answer is: a press that physically arrived after time cannot win a race.
+  if (round.phaseEndsAt !== null && receivedAt > round.phaseEndsAt + 1_500) {
+    return { ok: false, error: 'Trop tard' };
+  }
+
+  const { answeredAt } = clampAnswerTime(
+    claimedAt,
+    round.phaseStartAt,
+    receivedAt,
+    round.timing.answerMs,
+    maxCompensationMs(player.rttMs)
+  );
+
+  buzzState.race.push({ playerId, pressedAt: answeredAt });
+  buzzState.raceClosesAt ??= receivedAt + BUZZ_ARBITRATION_MS;
+  state.lastActivityAt = receivedAt;
+
+  return { ok: true, racing: true };
+}
+
+/**
+ * Closes the arbitration window and hands the buzzer to whoever pressed first.
+ *
+ * Earliest compensated press wins, ties broken by player id so the outcome never
+ * depends on the order packets happened to arrive in — the same tie-break the
+ * scorer uses, and for the same reason.
+ */
+export function resolveBuzzRace(state: SessionState, now = Date.now()): boolean {
+  const round = state.round;
+  const buzzState = round?.buzz;
+  if (!round || !buzzState || buzzState.raceClosesAt === null || buzzState.holderId !== null) return false;
+
+  const winner = [...buzzState.race].sort(
+    (a, b) => a.pressedAt - b.pressedAt || a.playerId.localeCompare(b.playerId)
+  )[0];
+
+  buzzState.race = [];
+  buzzState.raceClosesAt = null;
+
+  // Everybody in the race dropped out between pressing and now, which today can
+  // only happen if the race was empty. Reopening is the safe reading either way.
+  if (!winner) return false;
+
+  buzzState.holderId = winner.playerId;
+  buzzState.windowEndsAt = now + state.config.buzzerWindowMs;
+  state.lastActivityAt = now;
+  return true;
+}
+
+/**
+ * The holder's window ran out with nothing right in it.
+ *
+ * Costs them the round, exactly as a wrong answer does. Staying silent has to be
+ * as expensive as being wrong, or the cheapest play in the format is to buzz on
+ * every round to deny it to everyone else and simply never answer.
+ */
+export function expireBuzzWindow(state: SessionState, now = Date.now()): boolean {
+  const round = state.round;
+  const buzzState = round?.buzz;
+  if (!round || !buzzState || buzzState.holderId === null) return false;
+
+  releaseBuzzer(state, buzzState, buzzState.holderId, now);
+  return true;
+}
+
+/**
+ * Takes the buzzer off a player who has spent their shot, and reopens it.
+ *
+ * When nobody is left who could still press, the round is finished in substance
+ * and the phase closes early rather than leaving the room watching a clock that
+ * cannot produce another answer.
+ */
+function releaseBuzzer(state: SessionState, buzzState: BuzzState, playerId: string, now: number): void {
+  if (!buzzState.spent.includes(playerId)) buzzState.spent.push(playerId);
+  buzzState.holderId = null;
+  buzzState.windowEndsAt = null;
+  buzzState.race = [];
+  buzzState.raceClosesAt = null;
+  state.lastActivityAt = now;
+
+  if (everyoneSpent(state, buzzState)) closeAnswers(state, now);
+}
+
+/** True when no seat is left that could still take the buzzer. */
+function everyoneSpent(state: SessionState, buzzState: BuzzState): boolean {
+  const contenders = Object.values(state.players).filter((player) => !buzzState.spent.includes(player.id));
+  return contenders.length === 0;
+}
+
+/**
+ * The next moment the server has to act on this session, and what for.
+ *
+ * The manager arms exactly one timer per session, which is a property worth
+ * keeping: two timers on one round is two ways for a stale one to fire into a
+ * phase it no longer belongs to. So the buzzer's two deadlines are folded in here
+ * rather than given timers of their own, and the earliest wins.
+ */
+export type SessionDeadline = { at: number; kind: 'phase' | 'buzz-race' | 'buzz-window' };
+
+export function nextDeadline(state: SessionState): SessionDeadline | null {
+  const round = state.round;
+  if (state.phase !== 'playing' || !round) return null;
+
+  const candidates: SessionDeadline[] = [];
+  if (round.phaseEndsAt !== null) candidates.push({ at: round.phaseEndsAt, kind: 'phase' });
+
+  if (round.phase === 'answering' && round.buzz) {
+    if (round.buzz.raceClosesAt !== null) candidates.push({ at: round.buzz.raceClosesAt, kind: 'buzz-race' });
+    if (round.buzz.windowEndsAt !== null) candidates.push({ at: round.buzz.windowEndsAt, kind: 'buzz-window' });
+  }
+
+  return candidates.sort((a, b) => a.at - b.at)[0] ?? null;
 }
 
 export interface SubmitOptions {
@@ -511,6 +751,28 @@ export function submitAnswer(options: SubmitOptions): SubmitResult {
   // physically arrived after the phase closed cannot score.
   if (round.phaseEndsAt !== null && receivedAt > round.phaseEndsAt + 1_500) {
     return { ok: false, error: 'Trop tard' };
+  }
+
+  /**
+   * In a race, only the winner of the buzzer may answer.
+   *
+   * Enforced here rather than by hiding the input, because hiding it is a drawing
+   * decision and this is the rule: a phone that kept its keyboard open, or a
+   * client written by somebody at the table, must not be able to answer out of
+   * turn. The window is checked too, so an answer typed after the buzzer has
+   * lapsed loses for the same reason a late packet does.
+   */
+  if (isBuzzerRound(state)) {
+    const buzzState = (round.buzz ??= emptyBuzzState());
+    if (buzzState.holderId === null) {
+      return { ok: false, error: 'Il faut buzzer d’abord' };
+    }
+    if (buzzState.holderId !== playerId) {
+      return { ok: false, error: 'Ce n’est pas votre tour' };
+    }
+    if (buzzState.windowEndsAt !== null && receivedAt > buzzState.windowEndsAt + 1_500) {
+      return { ok: false, error: 'Trop tard' };
+    }
   }
 
   /**
@@ -635,6 +897,26 @@ export function submitAnswer(options: SubmitOptions): SubmitResult {
 
   state.lastActivityAt = receivedAt;
 
+  /**
+   * What the buzzer costs, and what it buys.
+   *
+   * Wrong and the round is over for them: that is the whole risk of pressing, and
+   * it is what makes pressing early a gamble rather than a free option.
+   *
+   * Right and they keep the floor. A blind test asks for a title, an artist and a
+   * year, and taking the buzzer off somebody who has just named the title would
+   * turn a format built on holding the floor into three separate races with a
+   * pause between them. They hold it until the window runs out, they get one
+   * wrong, or there is nothing left to name.
+   */
+  if (isBuzzerRound(state) && round.buzz?.holderId === playerId) {
+    if (!correct) {
+      releaseBuzzer(state, round.buzz, playerId, receivedAt);
+    } else if (allFieldsSolved(round)) {
+      closeAnswers(state, receivedAt);
+    }
+  }
+
   const after = round.submissions.filter((submission) => submission.playerId === playerId);
 
   if (pooled) {
@@ -653,6 +935,20 @@ export function submitAnswer(options: SubmitOptions): SubmitResult {
     correct,
     attemptsLeft: Math.max(0, state.config.attemptsPerField - wrongAfter)
   };
+}
+
+/**
+ * Every answer on this round has been named by somebody.
+ *
+ * Judged across the round rather than per player, which is the right reading for a
+ * race and the wrong one for the simultaneous format: there, two players are
+ * separately racing to name the same three things, and one of them finishing does
+ * not end the other's round. Here only one person can be answering at all, so a
+ * board with nothing left on it is a round that is over.
+ */
+function allFieldsSolved(round: RoundState): boolean {
+  const solved = new Set(round.submissions.filter((s) => s.correct).map((s) => s.fieldKey));
+  return round.answers.length > 0 && round.answers.every((field) => solved.has(field.key));
 }
 
 /**
@@ -794,7 +1090,30 @@ export function toRoundView(state: SessionState, playerId: string | null, contex
     }),
     fields: round.answers.map((field) => redactAnswerField(field, revealed.includes(field.key))),
     solvedFieldKeys: solved,
-    lockedFieldKeys: locked
+    lockedFieldKeys: locked,
+    buzz: toBuzzView(state, playerId)
+  };
+}
+
+/**
+ * The buzzer as one recipient sees it.
+ *
+ * The holder's *name* is sent rather than left to the client to resolve, because
+ * the television and a player's phone both want to say "Marc a buzzé" and only one
+ * of them has the roster. Nothing here is a secret: who holds the buzzer is the
+ * most public fact in the format.
+ */
+function toBuzzView(state: SessionState, playerId: string | null): BuzzView | undefined {
+  if (!isBuzzerRound(state)) return undefined;
+  const buzzState = state.round?.buzz;
+  if (!buzzState) return undefined;
+
+  return {
+    holderId: buzzState.holderId,
+    holderName: buzzState.holderId ? (state.players[buzzState.holderId]?.name ?? null) : null,
+    windowEndsAt: buzzState.windowEndsAt,
+    racing: buzzState.raceClosesAt !== null,
+    spent: playerId !== null && buzzState.spent.includes(playerId)
   };
 }
 
@@ -979,6 +1298,9 @@ export function toSessionView(
         : undefined,
     skipped: isHost ? state.skipped : undefined,
     // The ceremony. An oral game scored nothing, so it has nothing to hand out.
-    final: state.phase === 'finished' && !state.config.oral ? { awards: computeAwards(state) } : undefined
+    final:
+      state.phase === 'finished' && !state.config.oral
+        ? { awards: computeAwards(state), rewards: state.rewards ?? [] }
+        : undefined
   };
 }

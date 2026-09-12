@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import { useNavigate, useParams } from 'react-router';
 
 import { api } from '../../api/client';
+import { mafiaBadgeMeta } from '../../app/mafiaBadges';
 import { ChatPanel } from '../../components/chat/ChatPanel';
 import { PauseOverlay, RecoveringMark } from '../../components/presence/PauseOverlay';
 import { useHeartbeat } from '../../hooks/useHeartbeat';
@@ -26,6 +27,7 @@ import { authorColour } from '../../ui/authorHue';
 import { cx } from '../../ui/cx';
 import { Button, Field, Input, Loading } from '../../ui';
 import { QuickEnd } from '../../ui/QuickEnd';
+import { Rewards } from '../../ui/Rewards';
 
 import { useLocale } from '../../i18n/locale-context';
 import { MafiaTown } from './MafiaTown';
@@ -807,13 +809,25 @@ export default function MafiaPlayer() {
               </tbody>
             </table>
           </div>
-          {rewards && (
-            <p className="mz-role-note">
-              {rewards
-                .filter((reward) => reward.total !== null)
-                .map((reward) => tk('mafia.ui.totalPoints', { name: reward.name, total: reward.total ?? 0 }))
-                .join(' · ') || tk('mafia.ui.signInToKeep')}
-            </p>
+          {/*
+            The career, in place of the footnote that used to be here.
+
+            That line printed everybody's running total and nothing else: a
+            receipt, at the exact moment the table is deciding whether to play
+            another. The badges, the title and the three nearest bars are the part
+            that answers that question, and none of them existed until now.
+
+            Your own row only. The table above is already the comparison — every
+            seat, its role and what it scored — and a career is the one thing on
+            this screen that is about the person holding the phone.
+          */}
+          {rewards && view.me && (
+            <Rewards
+              rewards={rewards.filter((reward) => reward.playerId === view.me?.playerId)}
+              meId={view.me.playerId}
+              currency="🩸"
+              meta={mafiaBadgeMeta}
+            />
           )}
           <QuickEnd code={code} fallbackGame="mafia" />
         </section>
@@ -1182,11 +1196,14 @@ export default function MafiaPlayer() {
                 )}
 
                 {/* The Marshall has the same power and never had the button. */}
-          {inDiscussion && me.alive && (me.role?.id === 'mayor' || me.role?.id === 'marshall') && !iAmRevealed && (
-                  <Button variant="ghost" onClick={() => socket?.emit('mafia:dayAction', { type: 'reveal' }, fail)}>
-                    {tk('mafia.ui.revealMayor')}
-                  </Button>
-                )}
+                {inDiscussion &&
+                  me.alive &&
+                  (me.role?.id === 'mayor' || me.role?.id === 'marshall') &&
+                  !iAmRevealed && (
+                    <Button variant="ghost" onClick={() => socket?.emit('mafia:dayAction', { type: 'reveal' }, fail)}>
+                      {tk('mafia.ui.revealMayor')}
+                    </Button>
+                  )}
               </div>
 
               {whisperTo !== null && (

@@ -53,6 +53,7 @@ export { parseEstimate, scoreEstimationRound, type EstimationGuess } from './sco
 
 export {
   buildLeaderboard,
+  buzzerScoringConfig,
   defaultScoringConfig,
   emptyPlayerRoundScore,
   finalizeRoundScores,
@@ -89,7 +90,10 @@ export {
   isJoinCode,
   joinCodeSchema,
   sessionConfigSchema,
+  type BadgeProgressView,
+  type BuzzView,
   type FinalAward,
+  type GameReward,
   type HostRoundView,
   type PlayerView,
   type RevealView,
@@ -104,11 +108,13 @@ export {
 export {
   SNAPSHOT_ON_EVERY_TRANSITION,
   answerPayloadSchema,
+  buzzPayloadSchema,
   hostActionSchema,
   joinPayloadSchema,
   revealChoicesPayloadSchema,
   type AnswerAck,
   type AnswerPayload,
+  type BuzzPayload,
   type ClientToServerEvents,
   type ClockPongPayload,
   type JoinAck,

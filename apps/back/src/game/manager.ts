@@ -11,7 +11,10 @@ import {
   advance,
   closeAnswers,
   createSession,
+  expireBuzzWindow,
+  nextDeadline,
   openAnswers,
+  resolveBuzzRace,
   toSessionView,
   type SessionState,
   type ViewContext
@@ -346,7 +349,10 @@ export class GameManager {
 
     state.resultsRecorded = true;
     try {
-      await resultsService.record(state);
+      // Kept on the session so the ceremony can show it. The screens read the
+      // session view, and this is the one thing in it that cannot be recomputed
+      // from the state alone.
+      state.rewards = await resultsService.record(state);
     } catch (error) {
       this.log.error({ err: error, code: state.code }, 'could not record game result');
     }
@@ -372,21 +378,36 @@ export class GameManager {
     }
 
     const round = state.round;
-    if (state.phase !== 'playing' || !round || round.phaseEndsAt === null) {
+    /**
+     * Whatever comes soonest, which since the buzzer is not always the phase.
+     *
+     * Still one timer. A raced round has up to three live deadlines — the phase,
+     * the arbitration window, the holder's window — and giving each its own timer
+     * is how a stale one ends up firing into a phase it no longer belongs to.
+     * `nextDeadline` picks the earliest and every firing re-arms, so the later
+     * ones are simply scheduled again once the earlier one has been dealt with.
+     */
+    const deadline = nextDeadline(state);
+    if (state.phase !== 'playing' || !round || !deadline) {
       return;
     }
 
-    const delay = Math.max(0, round.phaseEndsAt - Date.now());
+    const delay = Math.max(0, deadline.at - Date.now());
     const timer = setTimeout(() => {
       this.timers.delete(state.code);
-      void this.runScheduledTransition(state.code, round.id, round.phase);
+      void this.runScheduledTransition(state.code, round.id, round.phase, deadline.kind);
     }, delay);
 
     timer.unref();
     this.timers.set(state.code, timer);
   }
 
-  private async runScheduledTransition(code: string, roundId: string, phase: string): Promise<void> {
+  private async runScheduledTransition(
+    code: string,
+    roundId: string,
+    phase: string,
+    kind: 'phase' | 'buzz-race' | 'buzz-window' = 'phase'
+  ): Promise<void> {
     const state = this.sessions.get(code);
     // The round may have been advanced by the host in the meantime, in which case
     // this timer is stale and must do nothing.
@@ -395,6 +416,26 @@ export class GameManager {
     }
 
     try {
+      /**
+       * The buzzer's two deadlines do not change the phase, so they do not go
+       * through the phase transitions at all.
+       *
+       * Both are no-ops when the thing they were armed for has already happened —
+       * a race resolved by a later press arriving, a window ended by an answer —
+       * and both say so, which is what keeps a stale firing from broadcasting a
+       * view identical to the one everybody already has.
+       */
+      if (kind === 'buzz-race') {
+        if (resolveBuzzRace(state)) await this.afterTransition(state);
+        else this.scheduleNext(state);
+        return;
+      }
+      if (kind === 'buzz-window') {
+        if (expireBuzzWindow(state)) await this.afterTransition(state);
+        else this.scheduleNext(state);
+        return;
+      }
+
       if (phase === 'study') {
         await this.openAnswersFor(code);
       } else if (phase === 'answering') {

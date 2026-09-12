@@ -215,6 +215,33 @@ function apiSlotRaw(rung: ApiRung): { url?: string; key?: string; model?: string
   }[rung];
 }
 
+/**
+ * Fisher-Yates, because `sort(() => Math.random() - 0.5)` is not a shuffle.
+ *
+ * A comparator that answers at random is not a valid comparator, and the
+ * permutation it leaves is not uniform: with V8's sort, elements come out
+ * strongly correlated with where they went in. Which mattered here, because
+ * what goes in is seat order. The table was meant to draw for who opens the
+ * day and instead the low seats kept opening it, every round of every day.
+ *
+ * The same loop is written correctly in three other places in the tree
+ * (`game/session.ts`, `services/panel-service.ts`, `coronaz-core/rng.ts`);
+ * this one is local because bot turn order needs no crypto and no seed.
+ */
+function shuffled<T>(items: readonly T[]): T[] {
+  const copy = [...items];
+  for (let index = copy.length - 1; index > 0; index--) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    const here = copy[index];
+    const there = copy[swap];
+    if (here !== undefined && there !== undefined) {
+      copy[index] = there;
+      copy[swap] = here;
+    }
+  }
+  return copy;
+}
+
 function isApiRung(rung: Rung): rung is ApiRung {
   return rung.startsWith('api');
 }
@@ -924,6 +951,20 @@ export class MafiaBotDriver {
     }
     this.listenedAt.delete(code);
     this.testamentsFiled.delete(code);
+    /**
+     * The room's speech budget and the model's readings of its private rooms.
+     *
+     * Both are keyed by the table and both were missed here, so every code the
+     * process had ever seen kept one floor and one entry per private room, for
+     * as long as the process lived. Lobbies that never started counted too:
+     * `onChange` fills the floor in before it returns for a table that is not
+     * playing yet, so a code could be left an entry by a change that arrived
+     * after this ran.
+     */
+    this.floor.delete(code);
+    for (const key of [...this.roomHeard.keys()]) {
+      if (key === code || key.startsWith(code + '|')) this.roomHeard.delete(key);
+    }
     this.minds.forget(code);
   }
 
@@ -1829,7 +1870,7 @@ export class MafiaBotDriver {
     const turnMs = this.chain[0] === 'ollama' ? 1400 : 1200;
 
     for (let round = 1; round <= rounds; round++) {
-      const order = [...pool].sort(() => Math.random() - 0.5);
+      const order = shuffled(pool);
       order.forEach((botId, index) => {
         const at = ((round - 1) * pool.length + index) * turnMs + 200;
         this.later(code, at, () => this.decide(code, botId, task, 'day', round, rounds));
@@ -1941,13 +1982,24 @@ export class MafiaBotDriver {
       this.inFlight++;
       void this.speak(state, botId, decision, sayChannel)
         .then((spoken) => {
-          this.inFlight--;
           const fresh = this.hooks.get(code);
           if (fresh) this.apply(fresh, botId, task, channel, spoken, 'speak', true);
         })
         .catch((error: unknown) => {
-          this.inFlight--;
           this.log.error({ err: error, code, botId }, 'mafia bot line could not be applied');
+        })
+        /**
+         * Released exactly once, whatever happened.
+         *
+         * It used to be released in both the `then` and the `catch`, which are
+         * chained rather than exclusive: `apply` throwing ran the success path's
+         * release and then the failure path's, so one call handed back two slots.
+         * The counter drifted negative, `inFlight >= maxInFlight` stopped being
+         * true, and the cap that keeps a local model from being asked three
+         * things at once quietly stopped existing.
+         */
+        .finally(() => {
+          this.inFlight--;
         });
       return;
     }
@@ -1956,7 +2008,6 @@ export class MafiaBotDriver {
       this.inFlight++;
       void this.walkChain(state, botId, task, round, rounds)
         .then((decision) => {
-          this.inFlight--;
           const fresh = this.hooks.get(code);
           if (!fresh) return;
           this.apply(fresh, botId, task, channel, decision ?? this.scripted(fresh, botId, task, channel, round));
@@ -1968,6 +2019,15 @@ export class MafiaBotDriver {
          */
         .catch((error: unknown) => {
           this.log.error({ err: error, code, botId }, 'mafia bot decision could not be applied');
+        })
+        /**
+         * Released here for the same reason, and on the same single path. This
+         * one had no release on the failure side at all: a walk that rejected
+         * kept its slot for the life of the process, and four of those benched
+         * every seat at every table onto the phrasebook for good.
+         */
+        .finally(() => {
+          this.inFlight--;
         });
       return;
     }

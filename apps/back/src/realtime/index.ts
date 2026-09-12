@@ -59,6 +59,7 @@ import type { KickRefusal } from 'presence-core';
 import { accountOf } from './account.js';
 import {
   answerPayloadSchema,
+  buzzPayloadSchema,
   joinPayloadSchema,
   revealChoicesPayloadSchema,
   type ClientToServerEvents,
@@ -68,7 +69,7 @@ import { Server as SocketServer, type Socket } from 'socket.io';
 
 import { allowedOrigins } from '../env.js';
 import type { GameManager } from '../game/manager.js';
-import { joinSession, revealChoices, submitAnswer, type SessionState } from '../game/session.js';
+import { buzz, isBuzzerRound, joinSession, revealChoices, submitAnswer, type SessionState } from '../game/session.js';
 import { careerKey, czCareerService } from '../services/cz-career-service.js';
 import { resultsService } from '../services/results-service.js';
 import type { MafiaManager } from '../mafia/manager.js';
@@ -172,6 +173,22 @@ function mafiaViewerFor(data: SocketData): MafiaViewer {
   return data.mafiaHost ? { kind: 'host' } : { kind: 'spectator' };
 }
 
+/**
+ * The room name per game, in one place.
+ *
+ * Named rather than inlined because a join site and a push site that disagree
+ * about the string fail silently and identically to a dead socket: the table
+ * simply stops updating. One function each, used by both ends.
+ *
+ * Prefixed per game because the four games share a code space, and an
+ * unprefixed code would put a quiz and a raid that happened to be called the
+ * same thing in one room.
+ */
+const quizRoom = (code: string): string => `quiz:${code}`;
+const czRoom = (code: string): string => `cz:${code}`;
+const mafiaRoom = (code: string): string => `mafia:${code}`;
+const quickRoom = (code: string): string => `quick:${code}`;
+
 export function registerRealtime(
   app: FastifyInstance,
   games: GameManager,
@@ -190,6 +207,36 @@ export function registerRealtime(
   );
 
   /**
+   * The sockets attached to one game, rather than every socket on the server.
+   *
+   * Each of the pushes below wants the same thing: the handful of sockets on
+   * one table. They used to get there by walking `io.sockets.sockets` (every
+   * socket connected to the process, across all four games) and discarding the
+   * ones whose `data` named a different code. Socket.IO already keeps that
+   * index — every attach below joins a room — so the walk was O(everyone) to
+   * reach O(one table), and the room bookkeeping was never read by anything.
+   *
+   * Read through the adapter rather than `fetchSockets()` because these are
+   * synchronous transition callbacks: `fetchSockets` is async and would make
+   * every emitter below async for no gain on a single node.
+   *
+   * The `data` guard stays in every caller. Room membership is the fast path,
+   * not the authority: what a socket may see is decided by the capacity it
+   * attached in, and that decision is not something to re-express as a room
+   * name in a game where a wrong recipient means handing the wolves to the town.
+   */
+  function socketsIn(room: string): GameSocket[] {
+    const ids = io.sockets.adapter.rooms.get(room);
+    if (!ids) return [];
+    const found: GameSocket[] = [];
+    for (const id of ids) {
+      const socket = io.sockets.sockets.get(id);
+      if (socket) found.push(socket);
+    }
+    return found;
+  }
+
+  /**
    * Pushes the current state to everyone in a session.
    *
    * Each recipient gets their own projection, because what a player may see differs
@@ -197,7 +244,7 @@ export function registerRealtime(
    * answers. Broadcasting one shared payload would leak.
    */
   function broadcast(state: SessionState): void {
-    for (const socket of io.sockets.sockets.values()) {
+    for (const socket of socketsIn(quizRoom(state.code))) {
       const data = socket.data;
       if (data.code !== state.code) continue;
 
@@ -209,7 +256,7 @@ export function registerRealtime(
 
   /** Same projection-per-recipient rule as the quizzes: the fog is per role. */
   function czBroadcast(state: CzState): void {
-    for (const socket of io.sockets.sockets.values()) {
+    for (const socket of socketsIn(czRoom(state.code))) {
       const data = socket.data;
       if (data.czCode !== state.code || !data.czRole) continue;
       socket.emit('cz:state', toView(state, data.czRole));
@@ -226,7 +273,7 @@ export function registerRealtime(
    * there is nothing private in a trophy.
    */
   cz.onRewards((state, rewards) => {
-    for (const socket of io.sockets.sockets.values()) {
+    for (const socket of socketsIn(czRoom(state.code))) {
       if (socket.data.czCode !== state.code || !socket.data.czRole) continue;
       socket.emit('cz:rewards', rewards);
     }
@@ -239,7 +286,7 @@ export function registerRealtime(
    * checks channel visibility per recipient before delivering a single line.
    */
   function mafiaBroadcast(state: MafiaState): void {
-    for (const socket of io.sockets.sockets.values()) {
+    for (const socket of socketsIn(mafiaRoom(state.code))) {
       const data = socket.data;
       if (data.mafiaCode !== state.code) continue;
       if (data.mafiaPlayerId || data.mafiaHost || data.mafiaSpectator) {
@@ -252,7 +299,7 @@ export function registerRealtime(
 
   mafia.onMessage((state, message) => {
     const rules = chatRules();
-    for (const socket of io.sockets.sockets.values()) {
+    for (const socket of socketsIn(mafiaRoom(state.code))) {
       const data = socket.data;
       if (data.mafiaCode !== state.code) continue;
       if (data.mafiaPlayerId) {
@@ -268,7 +315,7 @@ export function registerRealtime(
   });
 
   mafia.onRewards((state, rewards) => {
-    for (const socket of io.sockets.sockets.values()) {
+    for (const socket of socketsIn(mafiaRoom(state.code))) {
       if (socket.data.mafiaCode !== state.code) continue;
       socket.emit('mafia:rewards', rewards);
     }
@@ -332,7 +379,7 @@ export function registerRealtime(
    */
   function quickBroadcast(lobby: QuickLobby, specs: QuickOptionSpec[]): void {
     const now = Date.now();
-    for (const socket of io.sockets.sockets.values()) {
+    for (const socket of socketsIn(quickRoom(lobby.code))) {
       if (socket.data.quickCode !== lobby.code) continue;
       socket.emit('quick:state', toQuickView(lobby, specs, socket.data.quickMemberId ?? null, now));
     }
@@ -341,18 +388,19 @@ export function registerRealtime(
   quick.onTransition(quickBroadcast);
 
   quick.onLaunch((lobby, launch) => {
-    for (const socket of io.sockets.sockets.values()) {
+    for (const socket of socketsIn(quickRoom(lobby.code))) {
       if (socket.data.quickCode !== lobby.code) continue;
       socket.emit('quick:launch', launch);
     }
   });
 
   quick.onClosed((code, reason) => {
-    for (const socket of io.sockets.sockets.values()) {
+    for (const socket of socketsIn(quickRoom(code))) {
       if (socket.data.quickCode !== code) continue;
       socket.emit('quick:closed', { code, reason });
       socket.data.quickCode = undefined;
       socket.data.quickMemberId = undefined;
+      void socket.leave(quickRoom(code));
     }
   });
 
@@ -411,7 +459,7 @@ export function registerRealtime(
       socket.data.code = state.code;
       socket.data.playerId = player.id;
       socket.data.isHost = false;
-      void socket.join(state.code);
+      void socket.join(quizRoom(state.code));
 
       respond({
         ok: true,
@@ -461,7 +509,7 @@ export function registerRealtime(
       socket.data.code = state.code;
       socket.data.playerId = undefined;
       socket.data.isHost = true;
-      void socket.join(state.code);
+      void socket.join(quizRoom(state.code));
 
       respond({ ok: true, session: games.view(state, null, true) });
 
@@ -547,11 +595,11 @@ export function registerRealtime(
 
         delete state.players[playerId];
 
-        for (const other of io.sockets.sockets.values()) {
+        for (const other of socketsIn(quizRoom(state.code))) {
           const data = other.data;
           if (data.code === state.code && data.playerId === playerId) {
             other.emit('session:error', { message: 'Vous avez été retiré de la partie' });
-            void other.leave(state.code);
+            void other.leave(quizRoom(state.code));
             data.code = undefined;
             data.playerId = undefined;
           }
@@ -602,11 +650,77 @@ export function registerRealtime(
       games.touch(state);
       respond({ ok: true, correct: result.correct, attemptsLeft: result.attemptsLeft });
 
+      /**
+       * A raced round has to tell the room; a simultaneous one must not.
+       *
+       * In the simultaneous format an answer changes nothing anybody else can see,
+       * and broadcasting it would leak the shape of the round: who has solved what
+       * is exactly the thing a player would love to read off a neighbour's screen.
+       *
+       * Under the buzzer that reasoning inverts, because an answer moves *public*
+       * state. A wrong one hands the buzzer back and puts its author out of the
+       * round, a right one can empty the board and end the phase early, and either
+       * way the deadline the server is waiting on has just changed — so the timer
+       * has to be re-armed or the round would sit on a window that no longer
+       * exists. `afterTransition` does all three.
+       */
+      if (isBuzzerRound(state)) {
+        void games.afterTransition(state);
+        return;
+      }
+
       // Points are deliberately not sent yet: they depend on the finishing order,
       // which is not known until answering closes. Only the player's own view
       // changes, so this is not a broadcast.
       socket.emit('session:state', games.view(state, playerId, false));
       void games.persist(state);
+    });
+
+    /**
+     * A press of the buzzer.
+     *
+     * Unlike an answer, this goes to the whole room: who holds the buzzer is the
+     * most public fact the format has, and the television has to say the name out
+     * loud. `afterTransition` is what does it — it persists, broadcasts the new
+     * view to everyone, and re-arms the session's timer, which here is the
+     * arbitration window that decides the race a quarter of a second from now.
+     */
+    socket.on('answer:buzz', (payload, ack) => {
+      // Before any parsing, exactly as an answer is: the race is decided on this.
+      const receivedAt = Date.now();
+      const respond = responder(ack);
+
+      const { code, playerId } = socket.data;
+      if (!code || !playerId) {
+        respond({ ok: false, error: "Vous n'êtes pas dans une partie" });
+        return;
+      }
+
+      const parsed = buzzPayloadSchema.safeParse(payload);
+      if (!parsed.success) {
+        respond({ ok: false, error: 'Buzz invalide' });
+        return;
+      }
+
+      const state = games.get(code);
+      if (!state) {
+        respond({ ok: false, error: 'Partie introuvable' });
+        return;
+      }
+
+      const result = buzz({
+        state,
+        playerId,
+        roundId: parsed.data.roundId,
+        claimedAt: parsed.data.clientTime,
+        receivedAt
+      });
+
+      respond(result.ok ? { ok: true } : { ok: false, error: result.error });
+      if (!result.ok) return;
+
+      games.touch(state);
+      void games.afterTransition(state);
     });
 
     socket.on('answer:revealChoices', (payload, ack) => {
@@ -675,7 +789,7 @@ export function registerRealtime(
       socket.data.mafiaPlayerId = as.kind === 'player' ? as.playerId : undefined;
       socket.data.mafiaHost = as.kind === 'host';
       socket.data.mafiaSpectator = as.kind === 'spectator';
-      void socket.join(`mafia:${code}`);
+      void socket.join(mafiaRoom(code));
     }
 
     /** The Mafia twin: this socket's table, if the payload holds the host token. */
@@ -689,7 +803,7 @@ export function registerRealtime(
     function czAttach(code: string, role: CzRole): void {
       socket.data.czCode = code;
       socket.data.czRole = role;
-      void socket.join(`cz:${code}`);
+      void socket.join(czRoom(code));
     }
 
     socket.on('cz:open', (payload, ack) => {
@@ -1351,6 +1465,7 @@ export function registerRealtime(
       quick.leave(parsed.data.code, member);
       socket.data.quickCode = undefined;
       socket.data.quickMemberId = undefined;
+      void socket.leave(quickRoom(parsed.data.code));
     });
 
     /** One room at a time: joining a second leaves the first. */
@@ -1359,8 +1474,10 @@ export function registerRealtime(
       if (previous && previous !== code && socket.data.quickMemberId) {
         quick.leave(previous, socket.data.quickMemberId);
       }
+      if (previous && previous !== code) void socket.leave(quickRoom(previous));
       socket.data.quickCode = code;
       socket.data.quickMemberId = memberId;
+      void socket.join(quickRoom(code));
     }
 
     socket.on('disconnect', () => {

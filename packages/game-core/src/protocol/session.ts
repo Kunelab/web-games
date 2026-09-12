@@ -67,6 +67,34 @@ export interface RoundView {
   solvedFieldKeys: string[];
   /** Field keys this player has used up their attempts on. */
   lockedFieldKeys: string[];
+  /** The race for the right to answer. Absent unless the round is a buzzer round. */
+  buzz?: BuzzView;
+}
+
+/**
+ * The buzzer, as one recipient sees it.
+ *
+ * Two of these fields are about the room and one is about you, which is why it is
+ * one object rather than two: a phone has to answer "may I press this" in a single
+ * glance, and that is a question about both.
+ */
+export interface BuzzView {
+  /** Who holds the exclusive shot, or null while the buzzer is open. */
+  holderId: string | null;
+  holderName: string | null;
+  /** Server time the holder's window closes. Null when nobody holds it. */
+  windowEndsAt: number | null;
+  /**
+   * A race is being arbitrated: presses are in, the winner is not yet decided.
+   *
+   * Drawn as "buzzed" rather than as "open", because the buzzer is in fact already
+   * gone. Showing it open for the couple of hundred milliseconds arbitration takes
+   * would invite a press that cannot win, which is the one thing a race must never
+   * do.
+   */
+  racing: boolean;
+  /** This recipient has spent their shot and is out for the round. */
+  spent: boolean;
 }
 
 /** Correct answers plus scores, sent only once answering has closed. */
@@ -129,6 +157,55 @@ export interface FinalAward {
   playerId: string;
   playerName: string;
   value: string;
+}
+
+/**
+ * How close a career is to one badge it has not earned yet.
+ *
+ * A count that climbs to a target, never a percentage, because "72 of 100" is an
+ * argument for one more game in a way "72%" is not. `unit` is a catalogue key
+ * rather than a word: the server owns the number and the client owns the noun,
+ * which is the same rule every other string on this wire follows.
+ */
+export interface BadgeProgressView {
+  key: string;
+  current: number;
+  target: number;
+  /** Catalogue key for the noun, e.g. `badge.unit.games`. */
+  unit: string;
+  /** This game moved the count, so the bar can say so. */
+  moved: boolean;
+}
+
+/**
+ * What one game bought one player: the end-of-game payoff.
+ *
+ * Ported from CoronaZ, where it was the answer to "after three evenings there is
+ * nothing left to chase". The quiz had the same hole and worse: tokens were
+ * credited at the final whistle and shown nowhere until somebody happened to open
+ * the shop, and the badge thresholds existed only as a title that silently
+ * appeared next to a nickname one day. A progression nobody watches advancing is
+ * a progression nobody believes in.
+ */
+export interface GameReward {
+  playerId: string;
+  name: string;
+  /** What this game paid, and the balance afterwards. */
+  gained: number;
+  /**
+   * The lifetime balance after banking, or null for a seat with no ledger.
+   *
+   * Nullable because Mafia seats bots, and a bot scores without banking: its row
+   * exists so the humans can compare, not because anything was credited. The quiz
+   * never sends null, and does not have to care that it could.
+   */
+  total: number | null;
+  /** Badges that fell tonight. */
+  newBadges: string[];
+  /** The title they now wear, when tonight is what changed it. */
+  newTitle: string | null;
+  /** The nearest unearned badges, closest first: the reason to play another. */
+  nextBadges: BadgeProgressView[];
 }
 
 /**
@@ -205,8 +282,8 @@ export interface SessionView {
   stageRound?: StageRoundView | null;
   /** Items excluded from this session because they were incomplete. */
   skipped?: { title: string; missing: string[] }[];
-  /** Present once the session is finished: the ceremony. */
-  final?: { awards: FinalAward[] };
+  /** Present once the session is finished: the ceremony, and what it paid. */
+  final?: { awards: FinalAward[]; rewards: GameReward[] };
 }
 
 export const sessionConfigSchema = z.object({
@@ -229,6 +306,35 @@ export const sessionConfigSchema = z.object({
   oral: z.boolean().default(false),
   /** How many wrong tries a player gets per field before it locks. */
   attemptsPerField: z.number().int().min(1).max(10).default(3),
+
+  /**
+   * The race format: one buzzer, and only whoever wins it may answer.
+   *
+   * The alternative to the position ladder rather than a layer on top of it. By
+   * default the room answers simultaneously and being first is worth a bigger
+   * multiplier, which is a fine way to score a quiz and a poor way to *play* one:
+   * nobody in the room can tell they are racing, because everybody is typing at
+   * once and the race is settled afterwards by arithmetic nobody sees.
+   *
+   * With this on, the race is the thing that happens. One player takes the buzzer,
+   * everyone else is locked out while they answer, and getting it wrong costs them
+   * the round rather than a fraction of a point. Scoring flattens to face value to
+   * match: see `buzzerScoringConfig`.
+   *
+   * Off by default. It is a different game, not a better one, and it wants a room
+   * that has agreed to play it.
+   */
+  buzzer: z.boolean().default(false),
+
+  /**
+   * How long the winner of the buzzer has to answer, in ms.
+   *
+   * Short on purpose. The window is the whole risk of the format: pressing before
+   * you know the answer has to be a real gamble, and it stops being one if you can
+   * buzz and then spend twenty seconds working it out. Eight seconds is enough to
+   * type a name you already have and not enough to find one you do not.
+   */
+  buzzerWindowMs: z.number().int().min(3_000).max(30_000).default(8_000),
   /** Advance automatically when the reveal timer ends, rather than waiting. */
   autoAdvance: z.boolean().default(true),
   scoring: scoringConfigSchema.default(scoringConfigSchema.parse({})),

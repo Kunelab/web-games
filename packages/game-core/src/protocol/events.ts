@@ -34,6 +34,21 @@ export const answerPayloadSchema = z.object({
 
 export type AnswerPayload = z.infer<typeof answerPayloadSchema>;
 
+/**
+ * A press of the buzzer.
+ *
+ * No field key: the buzzer is for the round, not for one answer. Whoever wins it
+ * may name anything on the item, which is what lets a blind test's title, artist
+ * and year stay one turn at the microphone rather than three separate races.
+ */
+export const buzzPayloadSchema = z.object({
+  roundId: z.string().min(1),
+  /** The player's own clock in server time. What the race is decided on. */
+  clientTime: z.number()
+});
+
+export type BuzzPayload = z.infer<typeof buzzPayloadSchema>;
+
 export const revealChoicesPayloadSchema = z.object({
   roundId: z.string().min(1),
   fieldKey: z.string().min(1).max(40)
@@ -75,6 +90,7 @@ export interface ClientToServerEvents {
   'session:leave': () => void;
   'clock:ping': (payload: { clientSent: number }, ack: (response: ClockPongPayload) => void) => void;
   'answer:submit': (payload: AnswerPayload, ack: (response: AnswerAck) => void) => void;
+  'answer:buzz': (payload: BuzzPayload, ack: (response: { ok: boolean; error?: string }) => void) => void;
   'answer:revealChoices': (
     payload: z.infer<typeof revealChoicesPayloadSchema>,
     ack: (response: { ok: boolean; choices?: string[] }) => void

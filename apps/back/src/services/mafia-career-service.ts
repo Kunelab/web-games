@@ -1,4 +1,11 @@
-import { pointsFor, type MafiaState } from 'mafia-core';
+import {
+  emptyMafiaStats,
+  mafiaReward,
+  pointsFor,
+  type MafiaCareerStats,
+  type MafiaReward,
+  type MafiaState
+} from 'mafia-core';
 import { eq } from 'drizzle-orm';
 
 import { db } from '../db/index.js';
@@ -6,24 +13,17 @@ import { mafiaCareers } from '../db/schema.js';
 
 /**
  * The Mafia wallet: lifetime points per nickname (accounts under `@login`),
- * earned by playing and only by playing. The store will spend from `points`;
- * the tallies feed titles later. Same nickname-ledger design as CzCareers.
+ * earned by playing and only by playing. The store spends from `points`; the
+ * tallies feed the badge ladder. Same nickname-ledger design as CzCareers.
+ *
+ * The shape and the ladder over it live in `mafia-core/careers`, with the rest of
+ * the rules: they are pure functions of these numbers, they need no database to
+ * be right, and keeping them there is what lets them be tested without one. This
+ * file is the part that cannot be pure — reading, writing, and banking a table.
  */
 
-export interface MafiaCareerStats {
-  points: number;
-  games: number;
-  wins: number;
-  soloWins: number;
-  kills: number;
-  survived: number;
-  /** Cosmetic unlock ids, spent from `points`. */
-  unlocked: string[];
-}
-
-export function emptyMafiaStats(): MafiaCareerStats {
-  return { points: 0, games: 0, wins: 0, soloWins: 0, kills: 0, survived: 0, unlocked: [] };
-}
+export type { MafiaCareerStats };
+export { emptyMafiaStats };
 
 export function mafiaLedger(player: { name: string; account?: string }): string {
   return player.account ? `@${player.account}` : player.name;
@@ -52,12 +52,15 @@ async function writeStats(name: string, stats: MafiaCareerStats): Promise<void> 
     });
 }
 
-export interface MafiaGameReward {
-  playerId: string;
-  name: string;
-  gained: number;
-  total: number | null;
-}
+/**
+ * What one table paid, per seat.
+ *
+ * The wire type from `mafia-core`, re-exported under the name the manager and the
+ * socket layer already use. It grew badges, a title and three bars this pass; it
+ * was points and a running total, which is a receipt rather than a reason to sit
+ * down again.
+ */
+export type MafiaGameReward = MafiaReward;
 
 export const mafiaCareerService = {
   async forName(name: string): Promise<MafiaCareerStats> {
@@ -76,12 +79,30 @@ export const mafiaCareerService = {
       const earned = state.points.filter((entry) => entry.playerId === player.playerId);
 
       if (player.isBot) {
-        rewards.push({ playerId: player.playerId, name: player.name, gained, total: null });
+        /**
+         * A bot banks nothing, so both snapshots are the same and every derived
+         * field comes back empty. Its row still carries what it scored, because
+         * comparing yourself to the machine is half of why the table reads this.
+         */
+        const nothing = emptyMafiaStats();
+        rewards.push(
+          mafiaReward({
+            playerId: player.playerId,
+            name: player.name,
+            before: nothing,
+            after: nothing,
+            gained,
+            total: null
+          })
+        );
         continue;
       }
 
       const ledger = mafiaLedger(player);
-      const stats = await readStats(ledger);
+      const before = await readStats(ledger);
+      // A copy, or the comparison below would be a snapshot of itself: the badge
+      // diff asks what changed tonight, and it cannot ask that of one object.
+      const stats: MafiaCareerStats = { ...before, unlocked: [...before.unlocked] };
       stats.points += gained;
       stats.games += 1;
       if (state.winners.some((winner) => winner.playerId === player.playerId)) {
@@ -100,7 +121,16 @@ export const mafiaCareerService = {
       if (player.alive) stats.survived += 1;
       await writeStats(ledger, stats);
 
-      rewards.push({ playerId: player.playerId, name: player.name, gained, total: stats.points });
+      rewards.push(
+        mafiaReward({
+          playerId: player.playerId,
+          name: player.name,
+          before,
+          after: stats,
+          gained,
+          total: stats.points
+        })
+      );
     }
 
     return rewards;
