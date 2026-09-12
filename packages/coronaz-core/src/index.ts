@@ -20,6 +20,7 @@ export {
   gmClassDef,
   zombieDef,
   itemDef,
+  isTwoHanded,
   loadoutPerkDef,
   gmLoadoutPerkDef,
   clampRarity,
