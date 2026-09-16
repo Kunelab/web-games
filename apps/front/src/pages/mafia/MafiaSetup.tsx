@@ -128,7 +128,15 @@ export default function MafiaSetup() {
   }
 
   const joinUrl = created ? `${window.location.origin}/mafia/rejoindre/${created.code}` : '';
-  const tvUrl = created ? `${window.location.origin}/mafia/tv/${created.code}` : '';
+  /**
+   * The town screen, opened as the host's own.
+   *
+   * The token rides in the fragment, which the browser never sends to a server
+   * and never puts in a `Referer`: it gets the big screen out of the lobby —
+   * bots, and a start button — without the join code alone buying anybody else
+   * the same. The TV wipes it from its address bar the moment it has read it.
+   */
+  const tvUrl = created ? `${window.location.origin}/mafia/tv/${created.code}#host=${created.hostToken}` : '';
 
   const choiceLabel =
     choice.mode === 'auto'

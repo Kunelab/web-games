@@ -809,6 +809,22 @@
 }
 
 /*
+ * What a cutout cannot carry: whose house this is, and that it is standing on
+ * ground rather than floating over it.
+ *
+ * The drawn villager wore the seat's colour; the painted one is the same person
+ * two dozen times over, so the colour moves to the mark under their feet. It is
+ * also the shadow, which is why it is there at all — a sprite with no contact
+ * shadow reads as a sticker on a photograph.
+ */
+.mz-villager-mark {
+  opacity: 0.5;
+}
+.mz-house-shadow {
+  fill: rgb(0 0 0 / 0.2);
+}
+
+/*
  * The one on the stand, picked out of two dozen identical silhouettes.
  *
  * A pale outline rather than a colour change: the seat hue is how the roster and
@@ -904,6 +920,25 @@
   --town-window-lit: #ffd98c;
   --town-stone: #3a3833;
   --town-wood: #2b1e14;
+}
+
+/*
+ * And the same nightfall over the painted town.
+ *
+ * The tokens above re-cut the drawn shapes one by one, which is right for them
+ * and impossible for a photograph of a house: a cutout has no `--town-roof` to
+ * turn down. So the sprites take the night as a filter — darker, cooler, a
+ * little less saturated, the shape a blue hour actually has — and only the
+ * sprites, so the lit windows and the ground tokens keep doing their own work.
+ *
+ * `transition` matches the tokens', so dusk falls on the whole board at once
+ * rather than the houses dimming a beat after the grass.
+ */
+.mz-town-canvas image {
+  transition: filter 900ms ease;
+}
+.mz-town.mz-town--night .mz-town-canvas image {
+  filter: brightness(0.46) saturate(0.7) hue-rotate(-8deg);
 }
 
 /*
@@ -1560,7 +1595,8 @@
   .mz-wall-l,
   .mz-wall-r,
   .mz-roof,
-  .mz-window {
+  .mz-window,
+  .mz-town-canvas image {
     transition: none;
   }
 }
@@ -1732,6 +1768,38 @@
 .mz-tv-btn:hover {
   border-color: var(--accent);
   color: var(--ink);
+}
+
+/*
+ * The lobby's two buttons, on the big screen.
+ *
+ * Sized off the viewport like everything else here, because this is read from
+ * the other side of a room rather than from a phone in somebody's hand, and
+ * disabled states have to be obvious at that distance — a greyed-out start
+ * button nobody can see is a room standing around waiting for a game to begin.
+ */
+.mz-tv-host {
+  display: flex;
+  gap: clamp(0.5rem, 1vw, 1rem);
+  justify-content: center;
+  margin-top: clamp(0.5rem, 1vw, 1rem);
+}
+
+.mz-tv-host .mz-tv-btn {
+  font-size: clamp(0.9rem, 1.5vw, 1.5rem);
+  padding: 0.5em 1.1em;
+}
+
+.mz-tv-btn--go {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.mz-tv-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: var(--edge);
+  color: var(--ink-dim);
 }
 
 .mz-tv-body {

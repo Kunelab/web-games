@@ -34,3 +34,6 @@ pnpm-debug.log*
 *.sw?
 
 my-private-manual.txt
+
+# Flight recorder: the last few games, local state like the database
+traces/

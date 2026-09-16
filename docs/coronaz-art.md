@@ -105,13 +105,19 @@ voit à travers. Un papier peint n'a pas à prévoir la découpe, elle est faite
 
 Hors du dossier `iso`, et hors manifeste : ceux-là sont chargés par nom.
 
-`apps/front/public/coronaz/heroes/<id>.jpg`, un par survivant, **carré**, 256 × 256
-minimum, cadré sur le visage — la grille de sélection les affiche en 4,5 à 6 rem de
-côté et le dossier en 5 rem, donc ce qui compte est lisible en petit. Les vingt
-identifiants sont dans
+`apps/front/public/games/coronaz/heroes/<id>.jpg`, un par survivant, **carré**,
+256 × 256 minimum, cadré sur le visage — la grille de sélection les affiche en 4,5 à
+6 rem de côté et le dossier en 5 rem, donc ce qui compte est lisible en petit. Les
+trente identifiants sont dans
 [data.ts](../packages/coronaz-core/src/data.ts) : `charles`, `johanna`, `chuck`,
 `yuri`, `sacha`, `nadia`, `marco`, `ines`, `bernard`, `awa`, `viktor`, `lea`,
-`omar`, `fatou`, `diego`, `suzanne`, `karim`, `margot`, `ethan`, `rosa`.
+`omar`, `fatou`, `diego`, `suzanne`, `karim`, `margot`, `ethan`, `rosa`, `elena`,
+`mei`, `ingrid`, `yuna`, `chiara`, `luka`, `haruto`, `mateo`, `jin`, `niko`.
+
+Les trente ont déjà été générés localement (krea2, cadrage photo d'identité) et
+attendent d'être installés. Les prompts exacts, seed par seed, sont dans
+[asset-prompts.md](asset-prompts.md), avec ceux des créatures et des pièces Mafia :
+c'est le document à ouvrir pour refaire un portrait sans refaire toute la série.
 
 Sans fichier, la grille affiche l’emoji du personnage sur un médaillon dont la
 teinte est stable par personnage : un roster complet et cohérent, en attendant.

@@ -69,7 +69,7 @@ const HEADS = [
  * Deterministic (`rng` is a constant) so the number moves when the *prompt*
  * changes and not when the dice do — the whole point is to compare runs.
  */
-function midGame(players: number, humans: number, chatLines: number): string {
+function midGame(players: number, humans: number, chatLines: number, said?: string): string {
   const rng = () => 0.5;
   const state: MafiaState = createMafiaGame({
     code: 'BUDG',
@@ -101,7 +101,7 @@ function midGame(players: number, humans: number, chatLines: number): string {
       state,
       speaker.playerId,
       'day',
-      `I was home last night, and I do not believe a word house ${1 + (index % 12)} has said all day.`,
+      said ?? `I was home last night, and I do not believe a word house ${1 + (index % 12)} has said all day.`,
       now
     );
   }
@@ -129,11 +129,28 @@ function breakdown(prompt: string): BudgetRow['sections'] {
  * it is the one that matters and the expensive one, because the transcript stops
  * being compressible: what a person typed is the content.
  */
-const SCENARIOS: { scenario: string; players: number; humans: number; chat: number; ceiling: number }[] = [
+const SCENARIOS: { scenario: string; players: number; humans: number; chat: number; ceiling: number; said?: string }[] = [
   { scenario: 'all bots, quiet day', players: 15, humans: 0, chat: 4, ceiling: 400 },
   { scenario: 'all bots, busy day', players: 15, humans: 0, chat: 30, ceiling: 450 },
   { scenario: '2 humans at the table', players: 15, humans: 2, chat: 30, ceiling: 700 },
-  { scenario: '5 humans, 24 seats', players: 24, humans: 5, chat: 40, ceiling: 950 }
+  { scenario: '5 humans, 24 seats', players: 24, humans: 5, chat: 40, ceiling: 950 },
+  /**
+   * The afternoon the ceilings exist for.
+   *
+   * The chat refuses anything past four hundred characters, and nothing stopped
+   * twenty-six of those reaching one briefing: two and a half thousand tokens
+   * of somebody else's typing, on every seat's turn, out of the same allowance
+   * per minute the whole table shares. The transcript is bounded in characters
+   * now, and this is what checks that it still is.
+   */
+  {
+    scenario: 'everybody typing the longest line the chat allows',
+    players: 24,
+    humans: 5,
+    chat: 40,
+    ceiling: 950,
+    said: 'x'.repeat(390)
+  }
 ];
 
 /**
@@ -166,8 +183,8 @@ ${mouthPrompt({ name: 'Kirby', slot: 7 }, intent, recent)}`;
 }
 
 export function measureBudget(): BudgetRow[] {
-  const deciding = SCENARIOS.map(({ scenario, players, humans, chat, ceiling }) => {
-    const prompt = midGame(players, humans, chat);
+  const deciding = SCENARIOS.map(({ scenario, players, humans, chat, ceiling, said }) => {
+    const prompt = midGame(players, humans, chat, said);
     return { scenario, players, humans, prompt: tokens(prompt), ceiling, sections: breakdown(prompt) };
   });
 

@@ -32,6 +32,7 @@ import { Rewards } from '../../ui/Rewards';
 
 import { useLocale } from '../../i18n/locale-context';
 import { MafiaTown } from './MafiaTown';
+import { useMafiaSound } from './mafiaSound';
 import './mafia.css';
 
 /**
@@ -315,6 +316,9 @@ export default function MafiaPlayer() {
     setPendingFirst(null);
     setCourtAsked(false);
   }
+
+  // Dawn, nightfall, a rope and a body. Above the early returns: a hook is a hook.
+  useMafiaSound(view);
 
   function join(event: FormEvent) {
     event.preventDefault();
@@ -625,7 +629,7 @@ export default function MafiaPlayer() {
       )}
 
       {/* --------------------------- the board itself --------------------------- */}
-      <MafiaTown players={view.players} mySlot={me.slot} night={isNight} zoom={zoom} />
+      <MafiaTown players={view.players} mySlot={me.slot} night={isNight} zoom={zoom} seed={code} />
 
       <div className="mz-zoom">
         <button

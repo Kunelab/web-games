@@ -40,6 +40,7 @@ import { eq, lt } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 
 import { db } from '../db/index.js';
+import { endTrace, forgetTrace, trace } from '../trace.js';
 import { mafiaSessions } from '../db/schema.js';
 import { mafiaCareerService, type MafiaGameReward } from '../services/mafia-career-service.js';
 import { MafiaBotDriver } from './bots.js';
@@ -107,6 +108,10 @@ export class MafiaManager {
   private readonly chatFlush = new Map<string, NodeJS.Timeout>();
   /** Tables whose careers are already banked; a table banks exactly once. */
   private readonly banked = new Set<string>();
+  /** The last beat written to each table's log, so a phase is recorded once. */
+  private readonly beats = new Map<string, string>();
+  /** How many deaths each table's log already knows about. */
+  private readonly mourned = new Map<string, number>();
   private listener: MafiaTransitionListener | null = null;
   private messageListener: MafiaMessageListener | null = null;
   private rewardListener: MafiaRewardListener | null = null;
@@ -217,6 +222,24 @@ export class MafiaManager {
   start(code: string): void {
     const state = this.mustGet(code);
     startMafia(state, Date.now(), this.rng);
+
+    /**
+     * The one place a table's whole cast is known and nothing has happened yet.
+     *
+     * Roles are written down here, at the deal, rather than at the end: a game
+     * that crashes, is swept or is killed by a power cut is exactly the game
+     * somebody wants to read afterwards, and a log that only names the roles of
+     * the games that finished tidily is no use for any of that.
+     */
+    trace('mafia', code, { config: state.config }).event('deal', {
+      seats: Object.values(state.players).map((player) => ({
+        slot: player.slot,
+        name: player.name,
+        bot: player.isBot,
+        role: player.role
+      }))
+    });
+
     this.afterChange(state);
   }
 
@@ -228,6 +251,19 @@ export class MafiaManager {
 
     state.lastActivityAt = Date.now();
     this.messageListener?.(state, result.message);
+
+    const speaker = state.players[playerId];
+    trace('mafia', code).event('chat', {
+      slot: speaker?.slot,
+      name: speaker?.name,
+      bot: speaker?.isBot,
+      channel,
+      text,
+      day: state.day,
+      phase: state.phase,
+      stage: state.stage
+    });
+
     // The bots' ear reads the square when a person has spoken in it, not on a
     // fixed clock; this is how it hears.
     this.bots.onChat(state, result.message);
@@ -235,12 +271,52 @@ export class MafiaManager {
     return { ok: true };
   }
 
+  /**
+   * A ballot, and the one thing a ballot is that nothing else here is: a move
+   * against a named seat.
+   *
+   * `afterChange` wakes the bots, but `onChange` is keyed on phase, day, stage
+   * and trial, so a vote cast during a discussion changes none of those and the
+   * table sleeps through it. The seat being voted for is exactly who ought to
+   * be woken, so the vote says so explicitly.
+   */
   vote(code: string, playerId: string, targetSlot: number | 'skip' | null): ActionOutcome {
-    return this.mutate(code, (state) => castVote(state, playerId, targetSlot, Date.now()));
+    const result = this.mutate(code, (state) => castVote(state, playerId, targetSlot, Date.now()));
+    if (result.ok) {
+      const state = this.sessions.get(code);
+      this.wrote(code, playerId, 'vote', { target: targetSlot });
+      if (state && !mafiaPaused(state)) this.bots.onVote(state);
+    }
+    return result;
   }
 
   ballot(code: string, playerId: string, verdict: 'guilty' | 'innocent' | 'abstain'): ActionOutcome {
-    return this.mutate(code, (state) => castBallot(state, playerId, verdict));
+    const result = this.mutate(code, (state) => castBallot(state, playerId, verdict));
+    if (result.ok) this.wrote(code, playerId, 'ballot', { verdict });
+    return result;
+  }
+
+  /**
+   * One move by one seat, as the recorder sees it.
+   *
+   * Written here rather than in the bot driver so that a person's move and a
+   * bot's move are the same record: the interesting comparison in a log of this
+   * game is nearly always "what did the table do", not "what did the bots do",
+   * and the driver only knows half of it.
+   */
+  private wrote(code: string, playerId: string, what: string, data: Record<string, unknown>): void {
+    const state = this.sessions.get(code);
+    const player = state?.players[playerId];
+    if (!state || !player) return;
+    trace('mafia', code).event(what, {
+      slot: player.slot,
+      name: player.name,
+      bot: player.isBot,
+      day: state.day,
+      phase: state.phase,
+      stage: state.stage,
+      ...data
+    });
   }
 
   nightAction(
@@ -249,7 +325,9 @@ export class MafiaManager {
     targetSlot: number | null,
     secondTargetSlot?: number | null
   ): ActionOutcome {
-    return this.mutate(code, (state) => setNightAction(state, playerId, targetSlot, secondTargetSlot));
+    const result = this.mutate(code, (state) => setNightAction(state, playerId, targetSlot, secondTargetSlot));
+    if (result.ok) this.wrote(code, playerId, 'night-action', { target: targetSlot, second: secondTargetSlot ?? null });
+    return result;
   }
 
   whisper(code: string, playerId: string, targetSlot: number, text: string): ActionOutcome {
@@ -271,17 +349,21 @@ export class MafiaManager {
     playerId: string,
     action: { type: 'jail'; targetSlot: number | null } | { type: 'reveal' } | { type: 'court' }
   ): ActionOutcome {
-    return this.mutate(code, (state) =>
+    const result = this.mutate(code, (state) =>
       action.type === 'jail'
         ? jailTarget(state, playerId, action.targetSlot)
         : action.type === 'court'
           ? callCourt(state, playerId, Date.now())
           : revealMayor(state, playerId, Date.now())
     );
+    if (result.ok) this.wrote(code, playerId, 'day-action', { ...action });
+    return result;
   }
 
   will(code: string, playerId: string, text: string): ActionOutcome {
-    return this.mutate(code, (state) => setLastWill(state, playerId, text));
+    const result = this.mutate(code, (state) => setLastWill(state, playerId, text));
+    if (result.ok) this.wrote(code, playerId, 'will', { text });
+    return result;
   }
 
   markConnected(code: string, playerId: string, connected: boolean): void {
@@ -361,6 +443,13 @@ export class MafiaManager {
     this.bots.forget(code);
     this.sessions.delete(code);
     this.banked.delete(code);
+    this.beats.delete(code);
+    this.mourned.delete(code);
+    // A table swept mid-game still closes its log, or its last minutes sit in a
+    // buffer that nothing will ever flush. A table that never started has no
+    // log, and `endTrace` will not invent one to close.
+    endTrace('mafia', code, { reason: 'swept', phase: state?.phase ?? 'gone' });
+    forgetTrace('mafia', code);
     if (state) await db.delete(mafiaSessions).where(eq(mafiaSessions.code, code));
   }
 
@@ -387,6 +476,7 @@ export class MafiaManager {
    */
   private afterChange(state: MafiaState): void {
     state.lastActivityAt = Date.now();
+    this.recordChange(state);
     this.listener?.(state);
     // This write covers anything chat was waiting to save.
     this.cancelChatFlush(state.code);
@@ -398,11 +488,76 @@ export class MafiaManager {
 
     if (state.phase === 'ended' && !this.banked.has(state.code)) {
       this.banked.add(state.code);
+      /**
+       * The masks come off in the log too.
+       *
+       * The deal was written down at the start, so this is only the outcome and
+       * who was still standing — but it is what turns a file of moves into a
+       * game somebody can reason about afterwards, because every claim in it
+       * can finally be scored against what was true.
+       */
+      endTrace('mafia', state.code, {
+        winners: state.winners,
+        day: state.day,
+        survivors: Object.values(state.players)
+          .filter((player) => player.alive)
+          .map((player) => ({ slot: player.slot, role: player.role })),
+        deaths: state.deaths.map((death) => ({
+          slot: state.players[death.playerId]?.slot,
+          role: state.players[death.playerId]?.role,
+          day: death.day,
+          phase: death.phase,
+          source: death.source ?? null
+        }))
+      });
       this.bots.forget(state.code);
       void mafiaCareerService
         .recordGame(state)
         .then((rewards) => this.rewardListener?.(state, rewards))
         .catch((error: unknown) => this.log.error({ err: error, code: state.code }, 'Mafia career banking failed'));
+    }
+  }
+
+  /**
+   * The phase clock and the graveyard, as they move.
+   *
+   * Called from the one funnel every change goes through, and keyed on the same
+   * signature the bot driver plans against, so a log and a table agree about
+   * what a "beat" is. Deaths are written the first time they appear rather than
+   * counted at the end: a night that killed two people is a different night
+   * from one that killed one, and the file should say so where it happened.
+   */
+  private recordChange(state: MafiaState): void {
+    const signature = `${state.phase}:${state.day}:${state.stage ?? '-'}:${state.trial?.accusedId ?? '-'}`;
+    if (this.beats.get(state.code) === signature) return;
+    this.beats.set(state.code, signature);
+
+    const log = trace('mafia', state.code);
+    log.event('phase', {
+      phase: state.phase,
+      day: state.day,
+      stage: state.stage ?? null,
+      onTrial: state.trial ? state.players[state.trial.accusedId]?.slot : null,
+      alive: Object.values(state.players).filter((player) => player.alive).length,
+      endsInMs: state.phaseEndsAt === null ? null : state.phaseEndsAt - Date.now()
+    });
+
+    const seen = this.mourned.get(state.code) ?? 0;
+    if (state.deaths.length > seen) {
+      for (const death of state.deaths.slice(seen)) {
+        const who = state.players[death.playerId];
+        log.event('death', {
+          slot: who?.slot,
+          name: who?.name,
+          bot: who?.isBot,
+          role: who?.role,
+          day: death.day,
+          phase: death.phase,
+          source: death.source ?? null,
+          hidden: death.hidden ?? false
+        });
+      }
+      this.mourned.set(state.code, state.deaths.length);
     }
   }
 

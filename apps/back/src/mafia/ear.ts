@@ -30,7 +30,7 @@
  *    to say, lying, which is a legal move in Mafia.
  */
 import type { ChatMessage } from 'chat-core';
-import type { ClaimKind, MafiaState, RoleId } from 'mafia-core';
+import type { Claim, ClaimKind, MafiaState, RoleId } from 'mafia-core';
 import { ROLES } from 'mafia-core';
 
 /** The shape the model must answer in. Every field is required, null when unused. */
@@ -46,16 +46,41 @@ export const HEARD_FORMAT = {
           speaker: { type: 'integer', description: 'The house number of whoever said it.' },
           kind: {
             type: 'string',
-            enum: ['accuse', 'clear', 'question', 'account-home', 'account-visited', 'role-claim', 'sighting'],
+            enum: [
+              'accuse',
+              'clear',
+              'question',
+              'account-home',
+              'account-visited',
+              'role-claim',
+              'sighting',
+              'ailing'
+            ],
             description: 'What they asserted.'
           },
           about: {
             type: ['integer', 'null'],
-            description: 'The house the claim is about. Null for account-home and role-claim.'
+            description: 'The house the claim is about. Null for account-home, role-claim and ailing.'
           },
-          role: { type: ['string', 'null'], description: 'For role-claim only: the role they said they are.' }
+          role: { type: ['string', 'null'], description: 'For role-claim only: the role they said they are.' },
+          ailment: {
+            type: ['string', 'null'],
+            enum: [
+              'poison',
+              'douse',
+              'healed',
+              'guarded',
+              'survived',
+              'silenced',
+              'blocked',
+              'controlled',
+              'bussed',
+              null
+            ],
+            description: 'For ailing only: what they say was done to them in the night.'
+          }
         },
-        required: ['speaker', 'kind', 'about', 'role']
+        required: ['speaker', 'kind', 'about', 'role', 'ailment']
       }
     }
   },
@@ -79,6 +104,10 @@ The claim kinds:
 - account-visited  "I went to X's house last night"                    -> about = X's house
 - sighting         "I saw someone go into X" / "X had a visitor"       -> about = X's house
 - role-claim       "I'm the Sheriff"                                   -> about = null, role = the role
+- ailing           what a player says was done to THEM last night      -> about = null, ailment = one of:
+    poison "I've been poisoned" · healed "the doctor saved me" · guarded "a bodyguard died for me"
+    survived "someone tried to kill me" · silenced "I was blackmailed" · blocked "I was roleblocked"
+    controlled "I was controlled" · bussed "I was swapped" · douse "I've been doused in petrol"
 
 Rules:
 - Report only what was ACTUALLY said. Never infer, never guess, never add a claim nobody made.
@@ -90,12 +119,65 @@ Rules:
 - Answer ONLY with the JSON object. Nothing before it, nothing after it.`;
 
 /** One assertion the ear believes it heard, before validation. */
-interface Heard {
+export interface Heard {
   speaker: number;
   kind: string;
   about: number | null;
   role: string | null;
+  ailment?: string | null;
 }
+
+/** One claim the ear heard and the board accepted. */
+export interface HeardClaim {
+  claimerId: string;
+  kind: ClaimKind;
+  targetSlot: number;
+  claimedRole?: RoleId;
+  account?: 'home' | 'visited';
+  ailment?: Claim['ailment'];
+}
+
+/**
+ * One the board refused, and why.
+ *
+ * The ear is the single most consequential thing a model does for this game and
+ * the hardest to see working: what reaches the board is a claim, what does not
+ * reach it is *nothing at all*, and the two look identical from the chat. Half
+ * the failures are not "the model misread the sentence" but "the model read it
+ * fine and this function threw the answer away" — a house number that is not a
+ * seat, a role the deal does not contain, a speaker who is dead, a claim about
+ * a corpse. Silently, every time, because dropping is the safe thing to do.
+ *
+ * So the drops come back with the entry that caused them. Nothing changes about
+ * what is filed; what changes is that "the bots ignored what I said" is now a
+ * question the recorder can answer.
+ */
+export interface DroppedClaim {
+  entry: Heard;
+  why:
+    | 'no such speaker'
+    | 'speaker is a bot'
+    | 'speaker is dead'
+    | 'no such house'
+    | 'about themselves'
+    | 'house is dead'
+    | 'role not in this game'
+    | 'unknown ailment'
+    | 'unknown kind';
+}
+
+/** What a seat may say was done to it, as the board spells them. */
+const AILMENTS = new Set([
+  'poison',
+  'douse',
+  'healed',
+  'guarded',
+  'survived',
+  'silenced',
+  'blocked',
+  'controlled',
+  'bussed'
+]);
 
 /**
  * The lines this table's people have typed since the ear last looked.
@@ -142,14 +224,37 @@ export function hearingPrompt(state: MafiaState, lines: ChatMessage[]): string {
     .map((player) => `${player.slot} ${player.name}${player.alive ? '' : ' (dead, last will)'}`)
     .join(', ');
 
-  const said = lines
-    .map((message) => {
-      const slot = message.authorId ? state.players[message.authorId]?.slot : undefined;
-      return `${slot ?? '?'}: ${message.text}`;
-    })
-    .join('\n');
+  return `Living houses: ${roster}\n\nLines to take notes on:\n${spoken(state, lines)}`;
+}
 
-  return `Living houses: ${roster}\n\nLines to take notes on:\n${said}`;
+/**
+ * The transcript, with one person's run of fragments joined into one line.
+ *
+ * People type "7", "where were you", "last night" as three messages, and a
+ * model handed those as three numbered lines does exactly what a person would
+ * not: it tries to make each one mean something. Two of them mean nothing, and
+ * the effort of deciding that is paid in tokens and in latency on every pass.
+ *
+ * Joining them is both cheaper and more accurate. It is the same coalescing the
+ * deterministic reader does — see `utterance` in `square.ts` — applied to the
+ * model's input, and on a chatty table it removes a third of the lines.
+ */
+function spoken(state: MafiaState, lines: readonly ChatMessage[]): string {
+  const said: { slot: number | string; text: string }[] = [];
+  let lastAuthor: string | null = null;
+
+  for (const message of lines) {
+    const slot = message.authorId ? state.players[message.authorId]?.slot : undefined;
+    const previous = said[said.length - 1];
+    if (previous && message.authorId && message.authorId === lastAuthor && previous.text.length < 300) {
+      previous.text = `${previous.text} ${message.text}`.replace(/\s+/g, ' ');
+      continue;
+    }
+    said.push({ slot: slot ?? '?', text: message.text });
+    lastAuthor = message.authorId;
+  }
+
+  return said.map((line) => `${line.slot}: ${line.text}`).join('\n');
 }
 
 /**
@@ -166,17 +271,33 @@ export function readHeard(
   raw: Record<string, unknown>,
   claimable: ReadonlySet<string>,
   /** Dead seats whose last will is among the lines, and who may therefore speak. */
-  testators: ReadonlySet<string> = new Set()
-): { claimerId: string; kind: ClaimKind; targetSlot: number; claimedRole?: RoleId; account?: 'home' | 'visited' }[] {
+  testators: ReadonlySet<string> = new Set(),
+  /** Filled with everything the board refused, for the recorder. See `DroppedClaim`. */
+  dropped: DroppedClaim[] = []
+): HeardClaim[] {
   const heard = Array.isArray(raw.claims) ? (raw.claims as Heard[]) : [];
   const bySlot = new Map(Object.values(state.players).map((player) => [player.slot, player]));
-  const filed: ReturnType<typeof readHeard> = [];
+  const filed: HeardClaim[] = [];
+  const drop = (entry: Heard, why: DroppedClaim['why']): undefined => {
+    dropped.push({ entry, why });
+    return undefined;
+  };
 
   for (const entry of heard.slice(0, 24)) {
     const speaker = typeof entry?.speaker === 'number' ? bySlot.get(entry.speaker) : undefined;
-    if (!speaker || speaker.isBot) continue;
+    if (!speaker) {
+      drop(entry, 'no such speaker');
+      continue;
+    }
+    if (speaker.isBot) {
+      drop(entry, 'speaker is a bot');
+      continue;
+    }
     // The living speak for themselves; the dead only through a will being read.
-    if (!speaker.alive && !testators.has(speaker.playerId)) continue;
+    if (!speaker.alive && !testators.has(speaker.playerId)) {
+      drop(entry, 'speaker is dead');
+      continue;
+    }
 
     const about = typeof entry.about === 'number' ? bySlot.get(entry.about) : undefined;
 
@@ -188,8 +309,18 @@ export function readHeard(
         // A claim about yourself is not a claim. One about a dead player is only
         // worth keeping from a will, where "3 came back bad" about a seat that
         // has since been hanged is exactly the corroboration the board wants.
-        if (!about || about.playerId === speaker.playerId) continue;
-        if (!about.alive && !testators.has(speaker.playerId)) continue;
+        if (!about) {
+          drop(entry, 'no such house');
+          continue;
+        }
+        if (about.playerId === speaker.playerId) {
+          drop(entry, 'about themselves');
+          continue;
+        }
+        if (!about.alive && !testators.has(speaker.playerId)) {
+          drop(entry, 'house is dead');
+          continue;
+        }
         filed.push({ claimerId: speaker.playerId, kind: entry.kind, targetSlot: about.slot });
         break;
 
@@ -198,7 +329,10 @@ export function readHeard(
         break;
 
       case 'account-visited':
-        if (!about) continue;
+        if (!about) {
+          drop(entry, 'no such house');
+          continue;
+        }
         filed.push({ claimerId: speaker.playerId, kind: 'account', targetSlot: about.slot, account: 'visited' });
         break;
 
@@ -206,7 +340,10 @@ export function readHeard(
         // Only a role this table could contain — the same test a bot's bluff has
         // to pass, for the same reason.
         const role = typeof entry.role === 'string' ? entry.role.toLowerCase() : null;
-        if (!role || !(role in ROLES) || !claimable.has(role)) continue;
+        if (!role || !(role in ROLES) || !claimable.has(role)) {
+          drop(entry, 'role not in this game');
+          continue;
+        }
         filed.push({
           claimerId: speaker.playerId,
           kind: 'role-claim',
@@ -216,7 +353,32 @@ export function readHeard(
         break;
       }
 
+      /**
+       * What a person says the night did to them.
+       *
+       * The bots could always file this and a person could not, which made the
+       * board asymmetric in the one direction that matters: "I was blackmailed,
+       * that is why I said nothing" and "the doctor healed me" are among the
+       * most load-bearing sentences anybody types, and they reached the board
+       * as nothing at all. The claim is always about the speaker.
+       */
+      case 'ailing': {
+        const ailment = typeof entry.ailment === 'string' ? entry.ailment.toLowerCase() : null;
+        if (!ailment || !AILMENTS.has(ailment)) {
+          drop(entry, 'unknown ailment');
+          continue;
+        }
+        filed.push({
+          claimerId: speaker.playerId,
+          kind: 'ailing',
+          targetSlot: speaker.slot,
+          ailment: ailment as Claim['ailment']
+        });
+        break;
+      }
+
       default:
+        drop(entry, 'unknown kind');
         continue;
     }
   }
@@ -326,13 +488,7 @@ export function roomPrompt(state: MafiaState, lines: ChatMessage[]): string {
     .filter((player) => player.alive)
     .map((player) => `${player.slot} ${player.name}`)
     .join(', ');
-  const said = lines
-    .map((message) => {
-      const slot = message.authorId ? state.players[message.authorId]?.slot : undefined;
-      return `${slot ?? '?'}: ${message.text}`;
-    })
-    .join('\n');
-  return `Living houses: ${roster}\n\nLines from the private room:\n${said}`;
+  return `Living houses: ${roster}\n\nLines from the private room:\n${spoken(state, lines)}`;
 }
 
 /** One entry from a room pass, validated against the table it came from. */

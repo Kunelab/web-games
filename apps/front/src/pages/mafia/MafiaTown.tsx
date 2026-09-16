@@ -1,4 +1,8 @@
+import { useEffect, useState } from 'react';
+
 import type { MafiaPublicPlayer } from 'mafia-core';
+
+import { mafiaFolkArt, mafiaTownArt } from '../../app/assets';
 
 /**
  * The town, and nothing but the town.
@@ -15,51 +19,132 @@ import type { MafiaPublicPlayer } from 'mafia-core';
  * at a glance across the room*: who is still standing, who is in the ground,
  * whether it is day or night, and whether the gallows is occupied.
  *
+ * **The houses stand on two streets that open towards you.** They used to ring a
+ * square, which meant a quarter of the town stood along the bottom edge with
+ * its back to the camera, in front of everything else, hiding the square it was
+ * supposed to surround. Now the plots form a chevron — one street running down
+ * to the left, one down to the right, nothing across the near side — so every
+ * roof is behind the square rather than in front of it, every house faces in,
+ * and the ground nearest the viewer is left clear for the people standing on it.
+ *
+ * **A seat's house is drawn at random.** Slot order used to be plot order, which
+ * made the town a bar chart of the join list: the first four to arrive owned one
+ * corner and the stragglers owned the opposite one, and anybody could read the
+ * lobby off the hill. The plot is drawn from the join code instead, so it is
+ * stable for the whole game and identical on every screen, and it tells you
+ * nothing about who sat down when.
+ *
  * Three layers, painted in that order: the ground and the square, then the
  * houses in depth order, then *the folk* — every villager, grave and pennant in
- * one pass on top. The third layer is not a flourish. Houses are sorted by tile
- * depth while a villager stands at the near corner of its own tile, which puts
- * it inside the next tile's footprint: with one group per plot, the neighbour's
- * roof was painted over half the town's heads. A villager is a player, and a
- * player is never scenery you can lose behind a wall.
+ * one pass on top. The third layer is not a flourish. A villager stands at the
+ * near corner of its own plot, which puts it inside the next plot's footprint:
+ * with one group per plot, the neighbour's roof was painted over half the
+ * town's heads. A villager is a player, and a player is never scenery you can
+ * lose behind a wall.
  *
- * Twenty-four plots sit on the ring of a 7×7 grid — the perimeter of that square
- * is exactly 24 cells, so a seat number is the same house forever, whatever it is
- * later dressed as. Everything paints from CSS custom properties (see the
- * `--town-*` block in mafia.css), which is the whole skinning seam: a new theme
- * is a block of colour tokens, and a house or villager skin later swaps the
- * shapes behind these same class names.
+ * The art is a set of cutouts under `public/games/mafia/`, and every one of them
+ * is allowed to be missing: the vector town underneath is the fallback, so a
+ * fresh checkout with no art in it still shows a town rather than a blank strip.
  */
 
-const TILE_W = 76;
-/** Shallow on purpose: a letterbox strip reads better above a list than a square. */
-const TILE_H = 26;
-const GRID = 7;
+/** Plot to plot along one street, in projected pixels. */
+const STEP_X = 54;
+const STEP_Y = 18;
+/** How far the innermost plot stands off the apex, so the two streets do not meet. */
+const APEX_GAP = 6;
+/** How far in front of the back street the near one runs, and how far it is inset. */
+const FRONT_Y = 62;
+const FRONT_X = 27;
+/** Six plots per street per row: two rows, two streets, twenty-four seats. */
+const PER_ROW = 6;
+
+/** How wide a house is drawn, and the box its cutout is fitted into. */
+const HOUSE_W = 72;
+const HOUSE_H = 80;
+const VILLAGER_W = 26;
+const VILLAGER_H = 46;
 
 interface Plot {
-  slot: number;
-  col: number;
-  row: number;
+  index: number;
+  x: number;
+  y: number;
+  /** Left street or right. Decides which way everything on it faces. */
+  side: 'left' | 'right';
 }
 
-/** The 24 ring cells, clockwise from the north corner. */
+/**
+ * Two streets of two rows, from the apex outwards.
+ *
+ * Twenty-four plots in one line would be a mile of village: at a step wide
+ * enough to see a door, the town is twice the width of a phone, and at a step
+ * narrow enough to fit, each house is a roof tile. Two rows halve the width and
+ * buy the one thing a flat chevron has none of, which is depth — the near row
+ * sits between the far one and the square, inset half a step so it reads as a
+ * second street rather than as a second copy of the first.
+ *
+ * The apex itself is left empty. It is where the two streets would meet, and a
+ * house there has no side to face.
+ */
 const PLOTS: Plot[] = (() => {
-  const cells: { col: number; row: number }[] = [];
-  for (let col = 0; col < GRID; col++) cells.push({ col, row: 0 });
-  for (let row = 1; row < GRID; row++) cells.push({ col: GRID - 1, row });
-  for (let col = GRID - 2; col >= 0; col--) cells.push({ col, row: GRID - 1 });
-  for (let row = GRID - 2; row >= 1; row--) cells.push({ col: 0, row });
-  return cells.map((cell, index) => ({ slot: index + 1, ...cell }));
+  const plots: Plot[] = [];
+  const add = (x: number, y: number, side: 'left' | 'right'): void => {
+    plots.push({ index: plots.length, x: side === 'right' ? x : -x, y, side });
+  };
+  for (let step = 1; step <= PER_ROW; step++) {
+    add(step * STEP_X + APEX_GAP, step * STEP_Y, 'right');
+    add(step * STEP_X + APEX_GAP, step * STEP_Y, 'left');
+  }
+  for (let step = 1; step <= PER_ROW; step++) {
+    add(step * STEP_X + APEX_GAP - FRONT_X, FRONT_Y + step * STEP_Y, 'right');
+    add(step * STEP_X + APEX_GAP - FRONT_X, FRONT_Y + step * STEP_Y, 'left');
+  }
+  return plots;
 })();
 
 /**
- * Painter's order: far plots first, so a near house overlaps the one behind it
- * instead of whichever happened to come next around the ring.
+ * Painter's order: far first, so a near house overlaps the one behind it.
+ *
+ * Each plot paints its house *and then its own villager*, rather than the town
+ * painting every roof and every person in two passes. The two-pass version was
+ * right when the houses were a single ring and wrong the moment there were two
+ * rows of them: a villager on the back street was painted over the roof of the
+ * house in front of it and appeared to be standing on the neighbour's thatch.
+ * Within a row the geometry keeps them clear of each other — a house is wider
+ * than a step, a villager is not — so painting in depth costs nothing and the
+ * one thing it fixes is the thing that looked broken.
  */
-const PAINT_ORDER = [...PLOTS].sort((a, b) => a.col + a.row - (b.col + b.row) || a.col - b.col);
+const PAINT_ORDER = [...PLOTS].sort((a, b) => a.y - b.y || Math.abs(a.x) - Math.abs(b.x));
 
-function project(col: number, row: number): { x: number; y: number } {
-  return { x: ((col - row) * TILE_W) / 2, y: ((col + row) * TILE_H) / 2 };
+/** The middle of the open ground the two streets enclose. */
+const SQUARE = { x: 0, y: FRONT_Y + PER_ROW * STEP_Y + 44 };
+
+/**
+ * Which plot a seat lives on, drawn from the table's own code.
+ *
+ * Deterministic, so every phone, television and reload agrees without the
+ * server having to carry a field for it; and shuffled, so the hill is not a
+ * picture of the join order. A seat keeps its house for the whole game, which
+ * is the property that matters: people navigate by "the one on the end".
+ */
+function plotsFor(seed: string): Map<number, Plot> {
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index++) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  let state = hash >>> 0;
+  const next = (): number => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 2 ** 32;
+  };
+
+  // Fisher-Yates, seeded. `sort(() => rng() - 0.5)` is not a shuffle.
+  const order = [...PLOTS];
+  for (let index = order.length - 1; index > 0; index--) {
+    const swap = Math.floor(next() * (index + 1));
+    [order[index], order[swap]] = [order[swap], order[index]];
+  }
+  return new Map(order.map((plot, index) => [index + 1, plot]));
 }
 
 /**
@@ -73,25 +158,59 @@ const seatHue = (slot: number): number => SEAT_HUES[(slot * 5) % SEAT_HUES.lengt
 const diamond = (x: number, y: number, w: number, h: number): string =>
   `${x},${y - h / 2} ${x + w / 2},${y} ${x},${y + h / 2} ${x - w / 2},${y}`;
 
+/**
+ * Whether this browser has the town's art.
+ *
+ * Probed once per page rather than per house: the whole set ships together, so
+ * one file answering for all of them is the truth and twenty-four onError
+ * handlers are not. Until it answers, the vector town is drawn — it is instant,
+ * it is never wrong, and it is what a checkout with no art in it gets forever.
+ */
+let artProbe: Promise<boolean> | null = null;
+function useTownArt(): boolean {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    artProbe ??= new Promise<boolean>((resolve) => {
+      const image = new Image();
+      image.onload = () => resolve(true);
+      image.onerror = () => resolve(false);
+      image.src = mafiaTownArt('house-village-day');
+    });
+    let mounted = true;
+    void artProbe.then((found) => {
+      if (mounted) setReady(found);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+  return ready;
+}
+
 export type TownTheme = 'village' | 'cite';
 
 export interface MafiaTownProps {
   players: MafiaPublicPlayer[];
   mySlot: number | null;
   night: boolean;
-  /** Skin hook. Colours only for now; house and villager art swap in later. */
+  /** The table's join code: what the plot shuffle is drawn from. */
+  seed?: string;
+  /** Skin hook. Colours only for now; a second set of cutouts swaps in later. */
   theme?: TownTheme;
   /**
    * How much board to fit in the frame. 1 is the town filling it; 1.5 pulls the
-   * camera back by half, which is what a twenty-four house ring needs before the
-   * names on the roster and the houses on the hill line up in one glance.
+   * camera back by half, which is what a twenty-four house street needs before
+   * the names on the roster and the houses on the hill line up in one glance.
    */
   zoom?: number;
 }
 
-export function MafiaTown({ players, mySlot, night, theme = 'village', zoom = 1 }: MafiaTownProps) {
+export function MafiaTown({ players, mySlot, night, seed = '', theme = 'village', zoom = 1 }: MafiaTownProps) {
+  const art = useTownArt();
   const bySlot = new Map(players.map((player) => [player.slot, player]));
-  const centre = project((GRID - 1) / 2, (GRID - 1) / 2);
+  // Plot to seat, which is the direction the painters need: they walk the town
+  // in depth order and ask who lives here.
+  const livesHere = new Map([...plotsFor(seed)].map(([slot, plot]) => [plot.index, slot]));
 
   /**
    * Who is at the barre, read off the roster rather than taken as a prop.
@@ -106,12 +225,12 @@ export function MafiaTown({ players, mySlot, night, theme = 'village', zoom = 1 
   // The camera pulls back by padding the box rather than scaling the drawing:
   // strokes and text keep their own weight that way, which is the whole reason
   // the scenery is an SVG.
-  const pad = 58 * zoom;
-  const corners = [project(0, 0), project(GRID - 1, 0), project(GRID - 1, GRID - 1), project(0, GRID - 1)];
-  const minX = Math.min(...corners.map((corner) => corner.x)) - pad;
-  const maxX = Math.max(...corners.map((corner) => corner.x)) + pad;
-  const minY = Math.min(...corners.map((corner) => corner.y)) - pad - 12 * zoom;
-  const maxY = Math.max(...corners.map((corner) => corner.y)) + pad;
+  const pad = 26 * zoom;
+  const reach = PER_ROW * STEP_X + APEX_GAP + HOUSE_W / 2;
+  const minX = -reach - pad;
+  const maxX = reach + pad;
+  const minY = -HOUSE_H - pad;
+  const maxY = SQUARE.y + 46 + pad;
 
   return (
     <div className={`mz-town${night ? ' mz-town--night' : ''}`} data-town-theme={theme}>
@@ -121,56 +240,80 @@ export function MafiaTown({ players, mySlot, night, theme = 'village', zoom = 1 
         aria-hidden="true"
         focusable="false"
       >
-        <polygon points={diamond(centre.x, centre.y, (GRID + 2) * TILE_W, (GRID + 2) * TILE_H)} className="mz-ground" />
+        <polygon
+          points={diamond(SQUARE.x, SQUARE.y - STEP_Y * 5, reach * 3, (SQUARE.y + HOUSE_H) * 1.8)}
+          className="mz-ground"
+        />
 
-        <g className="mz-square">
-          <polygon points={diamond(centre.x, centre.y, TILE_W * 2.4, TILE_H * 2.4)} className="mz-plaza" />
-          {accused ? <Gallows x={centre.x} y={centre.y} /> : <Fountain x={centre.x} y={centre.y} />}
-        </g>
+        {/*
+          The town, painted from the back of the hill forwards.
 
+          House then villager, plot by plot, so a person is in front of their own
+          house and behind whatever stands between them and the square. Graves
+          come along in the same pass, because a grave stands exactly where its
+          owner used to and a marker you cannot see marks nothing.
+        */}
         {PAINT_ORDER.map((plot) => {
-          const player = bySlot.get(plot.slot);
-          const { x, y } = project(plot.col, plot.row);
+          const slot = livesHere.get(plot.index);
+          const player = slot === undefined ? undefined : bySlot.get(slot);
+          // In front of the door, on the side the street faces.
+          const stood = { x: plot.x + (plot.side === 'right' ? -12 : 12), y: plot.y + 20 };
 
           return (
-            <g key={plot.slot} className={`mz-plot${player && !player.alive ? ' mz-plot--dead' : ''}`}>
-              <polygon points={diamond(x, y, TILE_W * 0.92, TILE_H * 0.92)} className="mz-plot-ground" />
-
-              {!player && <polygon points={diamond(x, y, TILE_W * 0.42, TILE_H * 0.42)} className="mz-plot-empty" />}
-              {player && <House x={x} y={y} night={night} barred={!player.alive} />}
+            <g key={plot.index} className={`mz-plot${player && !player.alive ? ' mz-plot--dead' : ''}`}>
+              <polygon points={diamond(plot.x, plot.y + 8, 62, 22)} className="mz-plot-ground" />
+              {!player && <polygon points={diamond(plot.x, plot.y + 8, 26, 10)} className="mz-plot-empty" />}
+              {player && <House plot={plot} art={art} night={night} barred={!player.alive} />}
+              {player && slot !== undefined && (
+                <>
+                  {mySlot === slot && <Pennant x={plot.x} y={plot.y} tall={player.alive} />}
+                  {/* Away at their own trial: the plot keeps the house, the square keeps them. */}
+                  {player.alive && slot !== accused?.slot && (
+                    <Villager x={stood.x} y={stood.y} hue={seatHue(slot)} art={art} facing={plot.side} />
+                  )}
+                  {!player.alive && <Tombstone x={stood.x} y={stood.y} art={art} />}
+                </>
+              )}
             </g>
           );
         })}
 
-        {/*
-          The folk, over every roof in the town.
-
-          Still in depth order among themselves, so a near villager overlaps the
-          one behind — what they no longer do is vanish under the house next
-          door. Graves come along because a grave stands exactly where its owner
-          used to, and a marker you cannot see marks nothing.
-        */}
-        <g className="mz-folk">
-          {PAINT_ORDER.map((plot) => {
-            const player = bySlot.get(plot.slot);
-            if (!player) return null;
-            const { x, y } = project(plot.col, plot.row);
-            const stood = { x: x + TILE_W * 0.24, y: y + TILE_H * 0.28 };
-
-            return (
-              <g key={plot.slot}>
-                {mySlot === plot.slot && <Pennant x={x} y={y} tall={player.alive} />}
-                {/* Away at their own trial: the plot keeps the house, the square keeps them. */}
-                {player.alive && plot.slot !== accused?.slot && (
-                  <Villager x={stood.x} y={stood.y} hue={seatHue(plot.slot)} />
-                )}
-                {!player.alive && <Tombstone x={stood.x} y={stood.y} />}
-              </g>
-            );
-          })}
+        {/* The square, in front of every house and behind nothing. */}
+        <g className="mz-square">
+          <polygon points={diamond(SQUARE.x, SQUARE.y, 186, 64)} className="mz-plaza" />
+          {accused ? (
+            <Prop
+              art={art}
+              file="prop-gallows"
+              x={SQUARE.x}
+              y={SQUARE.y}
+              w={78}
+              h={92}
+              fallback={<Gallows x={SQUARE.x} y={SQUARE.y} />}
+            />
+          ) : (
+            <Prop
+              art={art}
+              file="prop-fountain"
+              x={SQUARE.x}
+              y={SQUARE.y}
+              w={88}
+              h={70}
+              fallback={<Fountain x={SQUARE.x} y={SQUARE.y} />}
+            />
+          )}
 
           {/* Under the rope, in their own seat's colour, so the roster names them. */}
-          {accused && <Villager x={centre.x + 11} y={centre.y - 2} hue={seatHue(accused.slot)} accused />}
+          {accused && (
+            <Villager
+              x={SQUARE.x + 30}
+              y={SQUARE.y + 8}
+              hue={seatHue(accused.slot)}
+              art={art}
+              facing="right"
+              accused
+            />
+          )}
         </g>
       </svg>
     </div>
@@ -178,18 +321,102 @@ export function MafiaTown({ players, mySlot, night, theme = 'village', zoom = 1 
 }
 
 /**
- * A prism, a roof, a door, one window. The skin slot.
+ * A cutout, anchored by its feet.
  *
- * `barred` is the house of someone in the ground. The plot used to swap the
- * house out for a headstone, which quietly emptied the hill: by the endgame half
- * the ring was bare lawn, and a town that loses its houses stops reading as a
- * town. Nobody demolishes a house when its owner dies — they board it up. So
- * the house stays, planks go across the door and the window, and the lamp never
- * comes on again at night.
+ * `xMidYMax meet` is the whole trick: the art is trimmed to its own edges and
+ * every piece has a different aspect, so fitting it into a box that touches the
+ * ground at the bottom centre means a taller house and a squatter one both stand
+ * on the same spot without anybody measuring either.
  */
-function House({ x, y, night, barred = false }: { x: number; y: number; night: boolean; barred?: boolean }) {
-  const w = TILE_W * 0.5;
-  const h = TILE_H * 0.5;
+function Sprite({
+  file,
+  x,
+  y,
+  w,
+  h,
+  mirrored = false,
+  folk = false
+}: {
+  file: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  mirrored?: boolean;
+  folk?: boolean;
+}) {
+  return (
+    <image
+      href={folk ? mafiaFolkArt(file) : mafiaTownArt(file)}
+      x={-w / 2}
+      y={-h}
+      width={w}
+      height={h}
+      preserveAspectRatio="xMidYMax meet"
+      transform={`translate(${x} ${y})${mirrored ? ' scale(-1 1)' : ''}`}
+    />
+  );
+}
+
+/** A prop in the square: the art when it is there, the drawn one when it is not. */
+function Prop({
+  art,
+  file,
+  x,
+  y,
+  w,
+  h,
+  fallback
+}: {
+  art: boolean;
+  file: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  fallback: React.ReactNode;
+}) {
+  if (!art) return <>{fallback}</>;
+  return <Sprite file={file} x={x} y={y + 6} w={w} h={h} />;
+}
+
+/**
+ * A house, facing the square it stands on.
+ *
+ * The cutout is drawn with its door towards the lower left, so a house on the
+ * right-hand street already looks inward and one on the left-hand street is
+ * mirrored to match. That is the only rotation a flat sprite has, and it is the
+ * one that matters: a row of houses all facing the same way reads as wallpaper,
+ * and a house with its back to the square reads as a mistake.
+ *
+ * `barred` is the house of somebody in the ground. The plot used to swap the
+ * house out for a headstone, which quietly emptied the hill: by the endgame half
+ * the street was bare lawn, and a town that loses its houses stops reading as a
+ * town. Nobody demolishes a house when its owner dies — they board it up.
+ */
+function House({ plot, art, night, barred = false }: { plot: Plot; art: boolean; night: boolean; barred?: boolean }) {
+  if (art) {
+    return (
+      <g className={barred ? 'mz-house mz-house--barred' : 'mz-house'}>
+        <ellipse cx={plot.x} cy={plot.y + 4} rx={30} ry={9} className="mz-house-shadow" />
+        <Sprite
+          file={barred ? 'house-village-boarded' : 'house-village-day'}
+          x={plot.x}
+          y={plot.y + 8}
+          w={HOUSE_W}
+          h={HOUSE_H}
+          mirrored={plot.side === 'left'}
+        />
+      </g>
+    );
+  }
+  return <DrawnHouse x={plot.x} y={plot.y} night={night} barred={barred} />;
+}
+
+/** The town as it was drawn before there was any art, kept as the floor. */
+function DrawnHouse({ x, y, night, barred = false }: { x: number; y: number; night: boolean; barred?: boolean }) {
+  const w = 38;
+  const h = 13;
   const wall = 21;
   const roof = 13;
   const base = y + h / 2 - 2;
@@ -234,7 +461,45 @@ function Boards({ x, w, h, base, eave }: { x: number; w: number; h: number; base
   );
 }
 
-function Villager({ x, y, hue, accused = false }: { x: number; y: number; hue: number; accused?: boolean }) {
+/**
+ * A villager, facing the same way as the house behind them.
+ *
+ * The cutout carries no seat colour, so the tint moves to the ground under
+ * their feet: twenty-four identical models are a crowd, and the one thing the
+ * hill has to do is let you find your own seat in it.
+ */
+function Villager({
+  x,
+  y,
+  hue,
+  art,
+  facing,
+  accused = false
+}: {
+  x: number;
+  y: number;
+  hue: number;
+  art: boolean;
+  facing: 'left' | 'right';
+  accused?: boolean;
+}) {
+  if (art) {
+    return (
+      <g className={accused ? 'mz-villager mz-villager--accused' : 'mz-villager'}>
+        <ellipse cx={x} cy={y + 2} rx={9} ry={3.5} fill={`hsl(${hue} 52% 46%)`} className="mz-villager-mark" />
+        <Sprite
+          file={accused ? 'model-villager-accused' : 'model-villager-base'}
+          x={x}
+          y={y}
+          w={VILLAGER_W}
+          h={VILLAGER_H}
+          mirrored={facing === 'left'}
+          folk
+        />
+      </g>
+    );
+  }
+
   return (
     <g className={accused ? 'mz-villager mz-villager--accused' : 'mz-villager'}>
       <ellipse cx={x} cy={y + 7} rx={7} ry={3} className="mz-villager-shadow" />
@@ -247,7 +512,15 @@ function Villager({ x, y, hue, accused = false }: { x: number; y: number; hue: n
   );
 }
 
-function Tombstone({ x, y }: { x: number; y: number }) {
+function Tombstone({ x, y, art }: { x: number; y: number; art: boolean }) {
+  if (art) {
+    return (
+      <g className="mz-tomb">
+        <ellipse cx={x} cy={y + 2} rx={11} ry={4} className="mz-tomb-ground" />
+        <Sprite file="prop-tombstone" x={x} y={y + 2} w={34} h={34} />
+      </g>
+    );
+  }
   return (
     <g className="mz-tomb">
       <ellipse cx={x} cy={y + 5} rx={12} ry={4} className="mz-tomb-ground" />
@@ -279,14 +552,11 @@ function Gallows({ x, y }: { x: number; y: number }) {
 
 /** Your own plot, marked without a word on it. */
 function Pennant({ x, y, tall }: { x: number; y: number; tall: boolean }) {
-  const top = y - (tall ? 46 : 26);
+  const top = y - (tall ? 62 : 34);
   return (
     <g className="mz-pennant">
-      <line x1={x - TILE_W * 0.3} y1={y} x2={x - TILE_W * 0.3} y2={top} />
-      <polygon
-        points={`${x - TILE_W * 0.3},${top} ${x - TILE_W * 0.3 + 15},${top + 5} ${x - TILE_W * 0.3},${top + 10}`}
-        className="mz-pennant-flag"
-      />
+      <line x1={x - 30} y1={y} x2={x - 30} y2={top} />
+      <polygon points={`${x - 30},${top} ${x - 15},${top + 5} ${x - 30},${top + 10}`} className="mz-pennant-flag" />
     </g>
   );
 }

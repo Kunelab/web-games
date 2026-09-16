@@ -13,6 +13,7 @@ import {
   feelPressure,
   losingClock,
   makeBrain,
+  EVEN_TEMPERAMENT,
   steadyVote,
   suspicionParts,
   type Claim,
@@ -83,6 +84,20 @@ describe('the claims board', () => {
 
     const seenOut = board([saidHome, claim({ claimerSlot: 2, targetSlot: 3, kind: 'sighting' })]);
     assert.equal(contradicted(3, seenOut), true, 'a sighting against "I was home" is the catch');
+
+    /**
+     * And the seat that corrects itself is not held to the sentence it withdrew.
+     *
+     * People misspeak, and a reader turning a hesitant line into an alibi is a
+     * rope the person never asked for. The account they are standing on now is
+     * the one they answer for.
+     */
+    const corrected = board([
+      saidHome,
+      claim({ claimerSlot: 2, targetSlot: 3, kind: 'sighting' }),
+      claim({ claimerSlot: 3, targetSlot: 1, kind: 'account', account: 'visited' })
+    ]);
+    assert.equal(contradicted(3, corrected), false, 'the newest account is the one that counts');
   });
 
   it('admitting you went out cannot be contradicted', () => {
@@ -118,7 +133,14 @@ describe('the claims board', () => {
 describe('desperation in play', () => {
   it('rises for a seat with the town closing in, and eases when it lets go', () => {
     const state = table(['mafioso', 'citizen', 'citizen', 'citizen', 'doctor', 'sheriff']);
-    const brain = makeBrain(1, { aggression: 0.5, herd: 0.5, claimRate: 0.7, deceit: 0.5, courage: 0.5 });
+    const brain = makeBrain(1, {
+      aggression: 0.5,
+      herd: 0.5,
+      claimRate: 0.7,
+      deceit: 0.5,
+      courage: 0.5,
+      temperament: EVEN_TEMPERAMENT
+    });
     const self = playerBySlot(state, 1)!;
 
     // Three seats pointing at house 1.
@@ -212,7 +234,14 @@ describe('desperation in play', () => {
 });
 
 /** A middling personality: the herd factor is all `suspicionParts` reads off it. */
-const HERD_HALF = { aggression: 0.5, herd: 0.5, claimRate: 0.5, deceit: 0.5, courage: 0.5 };
+const HERD_HALF = {
+  aggression: 0.5,
+  herd: 0.5,
+  claimRate: 0.5,
+  deceit: 0.5,
+  courage: 0.5,
+  temperament: EVEN_TEMPERAMENT
+};
 
 describe('two seats claiming one unique role', () => {
   /**
@@ -320,7 +349,10 @@ describe('a second look at the ballot', () => {
   it('casts a vote when the seat has none standing', () => {
     const state = table(['sheriff', 'citizen', 'mafioso', 'doctor', 'citizen']);
     const self = seat(state, 1);
-    assert.deepEqual(steadyVote(self, board(state, []), null, 3, new Set(), () => 0), { slot: 3, skip: false });
+    assert.deepEqual(
+      steadyVote(self, board(state, []), null, 3, new Set(), () => 0),
+      { slot: 3, skip: false }
+    );
   });
 
   it('leaves a standing vote alone when the proposal is no better', () => {
@@ -341,7 +373,10 @@ describe('a second look at the ballot', () => {
       claim({ claimerSlot: 2, targetSlot: 3, kind: 'accuse' }),
       claim({ claimerSlot: 5, targetSlot: 3, kind: 'accuse' })
     ];
-    assert.deepEqual(steadyVote(self, board(state, claims), 4, 3, new Set(), () => 0), { slot: 3, skip: false });
+    assert.deepEqual(
+      steadyVote(self, board(state, claims), 4, 3, new Set(), () => 0),
+      { slot: 3, skip: false }
+    );
   });
 
   /**
@@ -382,11 +417,24 @@ describe('a second look at the ballot', () => {
   it('votes to hang nobody when the board holds no case against anyone', () => {
     // Twelve alive, so the parity clock is not pressing and a skip is honest.
     const state = table([
-      'sheriff', 'citizen', 'mafioso', 'doctor', 'citizen', 'lookout',
-      'escort', 'citizen', 'godfather', 'citizen', 'jailor', 'citizen'
+      'sheriff',
+      'citizen',
+      'mafioso',
+      'doctor',
+      'citizen',
+      'lookout',
+      'escort',
+      'citizen',
+      'godfather',
+      'citizen',
+      'jailor',
+      'citizen'
     ]);
     const self = seat(state, 1);
-    assert.deepEqual(steadyVote(self, board(state, []), null, null, new Set(), () => 0), { slot: null, skip: true });
+    assert.deepEqual(
+      steadyVote(self, board(state, []), null, null, new Set(), () => 0),
+      { slot: null, skip: true }
+    );
   });
 
   it('but never at the parity clock, where a wasted day loses the game', () => {

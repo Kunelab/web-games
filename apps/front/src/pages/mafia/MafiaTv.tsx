@@ -10,6 +10,7 @@ import { cx } from '../../ui/cx';
 import { Loading } from '../../ui';
 import { useT } from '../../i18n/locale-context';
 import { MafiaTown } from './MafiaTown';
+import { useMafiaSound } from './mafiaSound';
 import './mafia.css';
 
 /**
@@ -18,15 +19,18 @@ import './mafia.css';
  * A Mafia table is normally played apart — phones and laptops in different
  * houses — so this screen is an *addition* for the case where people are in one
  * room together: something to look at, at the scale of a room, while everyone
- * keeps their own secrets on their own device. It holds no seat, so every
- * mutation the server exposes refuses it; the only two buttons on it change what
- * this screen shows, never what the game does.
+ * keeps their own secrets on their own device. It holds no seat: it never votes,
+ * never speaks, never sees a role, and the server refuses every mutation that
+ * would need one.
  *
  * It claims a table with the join code alone. That is safe rather than lax: the
  * projection it receives is the host console's, which carries no `me`, no living
  * player's role, and only the square's chat — strictly less than any player at the
- * table already has. A secret in the URL would buy no privacy and cost the room
- * the one-tap setup that makes putting it on the TV worth doing.
+ * table already has.
+ *
+ * The one thing it *can* do beyond showing the game is open the lobby, and only
+ * when the host handed it the table itself. See `hostToken` below: a room whose
+ * only screen is the television could otherwise seat no bots and never start.
  *
  * **Spoiler mode is on by default**, because a big shared screen is the one
  * surface in an asymmetric-information game where a leak reaches everybody at
@@ -51,10 +55,42 @@ export default function MafiaTv() {
   const t = useT();
 
   const [claimError, setClaimError] = useState<Msg | null>(null);
+  /**
+   * The host's own console, when this screen *is* the host's screen.
+   *
+   * The television claims a table with the join code alone, which is right for
+   * a screen somebody put on the wall — and it meant that a host who set the
+   * table up on that screen could do nothing with it. No bots, no start button,
+   * a lobby that sits there forever. The obvious workaround, giving every
+   * spectator host powers, hands the game to anybody who reads the code off the
+   * wall, so it is not the fix.
+   *
+   * Instead the host's own "open the town screen" link carries the host token
+   * in the URL *fragment*. A fragment never leaves the browser: it is not sent
+   * with the request and not put in a `Referer`, so the token travels no
+   * further than the tab it was opened in. It is read once, kept where the rest
+   * of the app keeps it, and wiped from the address bar immediately — a token
+   * sitting in a URL bar in front of a room is a token the room has.
+   *
+   * A television opened with a bare code is exactly what it always was.
+   */
+  const [hostToken] = useState<string | null>(() => {
+    const handed = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('host');
+    if (handed) sessionStorage.setItem(`mafia:host:${code}`, handed);
+    return handed ?? sessionStorage.getItem(`mafia:host:${code}`);
+  });
   /** Off means "reveal nothing". Remembered per table so a reload keeps the choice. */
   const [spoilers, setSpoilers] = useState(() => localStorage.getItem(`mafia:tv:spoilers:${code}`) === 'on');
   const shellRef = useRef<HTMLDivElement>(null);
   const remaining = useCountdown(view?.phaseEndsAt ?? null, serverNow);
+
+  // And out of sight: a token left in an address bar in front of a room is a
+  // token the room has. Read above, wiped here, once.
+  useEffect(() => {
+    if (window.location.hash.includes('host=')) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }, []);
 
   useEffect(() => {
     if (!socket || !connected) return;
@@ -66,6 +102,9 @@ export default function MafiaTv() {
   useEffect(() => {
     localStorage.setItem(`mafia:tv:spoilers:${code}`, spoilers ? 'on' : 'off');
   }, [spoilers, code]);
+
+  // The room's ears. Above the early returns, because a hook is a hook.
+  useMafiaSound(view);
 
   function toggleFullscreen() {
     const node = shellRef.current;
@@ -87,6 +126,8 @@ export default function MafiaTv() {
 
   const isNight = view.phase === 'night';
   const joinUrl = `${window.location.origin}/mafia/rejoindre/${code}`;
+  /** Seats taken, which is what both lobby buttons are bounded by. */
+  const seated = view.players.length;
 
   /** What a dead row is allowed to say here. */
   function epitaph(player: MafiaPublicPlayer): { text: string; className: string } | null {
@@ -198,11 +239,37 @@ export default function MafiaTv() {
 
       <div className="mz-tv-body">
         <div className="mz-tv-stagearea">
-          <MafiaTown players={view.players} mySlot={null} night={isNight} />
+          <MafiaTown players={view.players} mySlot={null} night={isNight} seed={code} />
           {view.phase === 'lobby' && (
             <p className="mz-tv-invite">
               {t(msg('mafia.tv.joinAt'))} <strong>{joinUrl}</strong>
             </p>
+          )}
+          {/*
+            The two buttons a table cannot start without, and only for the screen
+            that proved it is the host's. Deliberately the same pair the phone
+            has and nothing more: this screen still never votes, never speaks and
+            never sees a role.
+          */}
+          {view.phase === 'lobby' && hostToken && (
+            <div className="mz-tv-host">
+              <button
+                type="button"
+                className="mz-tv-btn"
+                onClick={() => socket?.emit('mafia:addBots', { hostToken, count: 1 })}
+                disabled={seated >= view.maxPlayers}
+              >
+                {t(msg('mafia.ui.lobby.addBots'))}
+              </button>
+              <button
+                type="button"
+                className="mz-tv-btn mz-tv-btn--go"
+                onClick={() => socket?.emit('mafia:start', { hostToken })}
+                disabled={seated < view.minPlayers}
+              >
+                {t(msg('mafia.ui.lobby.start'))}
+              </button>
+            </div>
           )}
           {!spoilers && (
             <p className="mz-tv-note">{t(msg('mafia.tv.noSpoilers'))}</p>

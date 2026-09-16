@@ -1,7 +1,15 @@
-import { BADGE_ROLES, isEvilRole, type Claim, type PublicInfo, type VoteRecord } from './sim/policies.js';
+import {
+  BADGE_ROLES,
+  isEvilRole,
+  sheriffSuspects,
+  type Claim,
+  type PublicInfo,
+  type VoteRecord
+} from './sim/policies.js';
 import { roleDef, ROLES, type RoleId } from './roles.js';
 import type { DeathSource } from './messages.js';
-import type { MafiaState } from './state.js';
+import { tableRoleList, type MafiaState } from './state.js';
+import { slotPool } from './setups.js';
 
 /**
  * The killers with nobody to answer to. Past a couple of their corpses the whole
@@ -51,8 +59,9 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
       phase: death.phase,
       source: death.source ?? null
     }))
-    .filter((death): death is { slot: number; day: number; phase: 'day' | 'night'; source: DeathSource | null } =>
-      death.slot !== undefined
+    .filter(
+      (death): death is { slot: number; day: number; phase: 'day' | 'night'; source: DeathSource | null } =>
+        death.slot !== undefined
     );
 
   // What the dead said, joined with what was spoken while they lived.
@@ -134,6 +143,12 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
         })
         .filter((entry): entry is [number, number] => entry !== null)
     ),
+    /**
+     * The roster, expanded. Public on every screen, so nothing leaks by putting
+     * it here — and it is what lets a liar tell a lie the room could believe
+     * rather than one the role list flatly contradicts. See `rolesInPlay`.
+     */
+    rolesInPlay: new Set(tableRoleList(state, players.length).flatMap((token) => slotPool(token))),
     revealedMayorSlot: players.find((player) => player.revealed && player.alive)?.slot ?? null,
     trialSlot: state.trial ? (slotOf(state.trial.accusedId) ?? null) : null,
     claims
@@ -214,12 +229,16 @@ function readTestaments(state: MafiaState): Claim[] {
       const base = { day: entry.night, claimerSlot: player.slot, truthful: false } as const;
       switch (entry.kind) {
         case 'sheriff':
-          file({ ...base, targetSlot: entry.targetSlot, kind: entry.value === 'suspect' ? 'accuse' : 'clear' });
+          file({ ...base, targetSlot: entry.targetSlot, kind: sheriffSuspects(entry.value) ? 'accuse' : 'clear' });
           break;
         case 'role':
           // Guarded, so a stray string in a record cannot become a claim.
           if (entry.value in ROLES) {
-            file({ ...base, targetSlot: entry.targetSlot, kind: isEvilRole(entry.value as RoleId) ? 'accuse' : 'clear' });
+            file({
+              ...base,
+              targetSlot: entry.targetSlot,
+              kind: isEvilRole(entry.value as RoleId) ? 'accuse' : 'clear'
+            });
           }
           break;
         case 'visitors':

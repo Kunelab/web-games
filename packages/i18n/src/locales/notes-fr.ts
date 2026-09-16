@@ -16,11 +16,14 @@ export const notesFr: Catalogue = {
   'mafia.note.jailedNight': 'On vous a traîné en cellule pour la nuit. Le Geôlier vous écoute.',
   'mafia.note.jesterWon': 'Ils vous ont pendu. Vous avez gagné.',
   'mafia.note.execWon': 'Votre obsession se balance. Vous avez gagné.',
-  'mafia.note.griefMad': 'Votre obsession est morte sans corde. Le deuil vous rend fou : vous êtes désormais le Bouffon.',
+  'mafia.note.griefMad':
+    'Votre obsession est morte sans corde. Le deuil vous rend fou : vous êtes désormais le Bouffon.',
   'mafia.note.remembered': 'Tout vous revient : vous êtes {role}.',
   'mafia.note.promoted': 'Il faut bien que quelqu’un tienne le couteau. Vous êtes {role}.',
-  'mafia.note.kidnapDone': 'Vous avez gardé {name} dans un sac toute la nuit. Il n’a rien fait, et personne n’a pu l’atteindre.',
-  'mafia.note.audited': 'Un contrôle implacable : vos papiers, vos outils, votre vie d’avant — saisis. Vous êtes {role}.',
+  'mafia.note.kidnapDone':
+    'Vous avez gardé {name} dans un sac toute la nuit. Il n’a rien fait, et personne n’a pu l’atteindre.',
+  'mafia.note.audited':
+    'Un contrôle implacable : vos papiers, vos outils, votre vie d’avant — saisis. Vous êtes {role}.',
 
   /* -------------------------- ce que vous avez fait ------------------------- */
   'mafia.note.onAlert': 'Vous passez la nuit en alerte, fusil sur les genoux.',
@@ -70,7 +73,16 @@ export const notesFr: Catalogue = {
 
   /* ------------------------------ ce que vous avez vu ----------------------- */
   'mafia.note.familyAimed': 'La {family} a visé la maison {slot} cette nuit.',
-  'mafia.note.sheriffSuspect': '{name} est SUSPECT.',
+  /** L'aiguille, et ce qu'elle désigne : un nom, pas un haussement d'épaules. */
+  'mafia.note.sheriff.suspect': '{name} est SUSPECT.',
+  'mafia.note.sheriff.mafia': '{name} est un membre de la MAFIA.',
+  'mafia.note.sheriff.triad': '{name} est un membre de la TRIADE.',
+  'mafia.note.sheriff.cult': '{name} est un SECTATEUR.',
+  'mafia.note.sheriff.serial-killer': '{name} est un TUEUR EN SÉRIE.',
+  'mafia.note.sheriff.mass-murderer': '{name} est un TUEUR DE MASSE.',
+  'mafia.note.sheriff.arsonist': '{name} est un INCENDIAIRE.',
+  'mafia.note.sheriff.poisoner': '{name} est un EMPOISONNEUR.',
+  'mafia.note.sheriff.electromaniac': '{name} est un ÉLECTROMANE.',
   'mafia.note.sheriffClear': '{name} n’a rien de suspect.',
   'mafia.note.exactRole': '{name} est {role}.',
   'mafia.note.tradeLine': '{name} {line}.',

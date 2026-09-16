@@ -14,12 +14,13 @@ MAFIA_BOT_PROVIDER=openai,ollama
 
 | Rung            | What it is                                                          | Needs                            |
 | --------------- | ------------------------------------------------------------------- | -------------------------------- |
-| `api1`…`api4`   | Endpoints speaking `/chat/completions` — OpenRouter, Groq, Cerebras, a vLLM you host | `MAFIA_API_*_KEY` + `_MODEL`    |
+| `api1`…`api24`  | Endpoints speaking `/chat/completions` — OpenRouter, Groq, Cerebras, a vLLM you host | `MAFIA_API_*_KEY` + `_MODEL`    |
+| `api*`          | Every configured endpoint, in slot order                             | at least one of the above        |
 | `anthropic`     | The Claude API                                                       | `ANTHROPIC_API_KEY`              |
 | `ollama`        | A local daemon at `OLLAMA_URL`                                       | a running Ollama                 |
 | `scripted`      | Call nothing                                                         | —                                |
 
-`openai` is the old name for `api1` and still works. Slots 2–4 inherit slot 1's
+`openai` is the old name for `api1` and still works. Any slot inherits slot 1's
 URL and key, so several free models on one provider cost one line each:
 
 ```
@@ -214,8 +215,9 @@ Three different jobs, three different prompts, three different costs.
 | | job | prompt | when |
 | --- | --- | --- | --- |
 | **brain** | decide the turn | none — deterministic policy | always, first |
+| **parser** | read the humans | none — regular expressions | on every line a person types |
 | **mouth** | write one line | ~380 tok | when a rung is up |
-| **ear** | read the humans | ~550 tok | twice a day phase, once at dusk |
+| **ear** | read the humans, properly | ~550 tok | a few seconds behind the last line typed |
 
 The **brain** is `packages/mafia-core/src/sim/policies.ts` and calls nothing. It
 reads the claims ledger, the intel and the vote history directly, so it cannot
@@ -235,6 +237,37 @@ costs about twenty. It only ever *adds* claims, and its output is enum-typed and
 validated against the living roster, which bounds the blast radius of the one
 place that deliberately reads untrusted player text.
 
+Both readers now coalesce. People do not type paragraphs into a game chat: they
+type "7", then "where were you", then "last night". Read one at a time that is
+three fragments, two of which name nobody and one of which asserts nothing; read
+as one utterance it is a question put to house 7, which is what everybody else
+at the table read. The deterministic reader joins a speaker's consecutive lines
+before parsing (`utterance` in `square.ts`, 12 s window), and the ear is handed
+the same joined lines, which on a chatty table removes about a third of the
+transcript it is charged for. A seat's reply is held until the person stops
+typing (900 ms after the last fragment, ceiling 5 s), so it answers the finished
+thought once instead of the first third of it three times.
+
+A dead person's **last will** is read twice over: line by line by the
+deterministic reader the moment the town is shown it (a will is a list, so each
+line is its own night, and the missing "I" is implied unless the line names a
+house first), and again by the ear for what a pattern cannot see. A bot's will
+needs neither: it is rendered from the seat's own record, and `testamentClaims`
+reads that record straight off the board.
+
+The **parser** (`square.ts`) is the floor underneath it, and it is not a model at
+all. It runs synchronously on every line a person types, files what it is sure of
+— an accusation, a reprieve, an alibi, a journey, a sighting, a role claim, what
+the night did to somebody — and wakes the seat that was named. Measured on a
+table of twenty-three bots and one person: **the claim is on the board in 5 ms
+and the seat it named answers in 1.6 s, with no model anywhere in the loop.**
+
+The two readers cannot double-file: `BotMinds.record` keys a claim by claimer,
+target, kind, day and room, so whichever arrives first wins and the other is
+swallowed. What the ear adds is everything a pattern cannot see. What the parser
+adds is that the table answers *now*, and that it still answers at all when the
+whole chain is benched.
+
 `MAFIA_BOT_MIND=model` restores the original arrangement, where the model decides
 the whole turn from a full briefing (~1700 tok). Kept for comparison, and because
 letting a model *plan* is worth revisiting once there is a way to tell a good
@@ -248,6 +281,111 @@ local model — 181ms against 465ms, out of the same per-minute allowance. Takin
 notes is the hard job, because a misread claim goes on the board and stays there,
 so the ear always gets the front of the chain. Both still walk all the way down
 to the played brain.
+
+That is the derived arrangement. Where the endpoints genuinely differ in what
+they are good at, each errand can have its own chain:
+
+```
+MAFIA_CHAIN_LISTEN=api1,api2      # the notes: a mistake here is permanent
+MAFIA_CHAIN_DECIDE=api2,api1
+MAFIA_CHAIN_SPEAK=api3,api4       # one line of chat: take the fastest
+```
+
+The rungs must be ones the main chain already contains — this picks an order
+among what exists, it does not add credentials — and an override that survives
+nothing falls back to the main chain with a warning. Written out, the three of
+them spread a table's questions across four endpoints instead of queueing them
+all on the first.
+
+## As many endpoints as you have, one call each
+
+Twenty-four numbered slots, not four. Only the first four are declared in the
+schema; the rest are read straight out of the environment under the same names,
+and a slot may carry several models:
+
+```
+MAFIA_BOT_PROVIDER=api*,ollama          # every configured endpoint, then the box
+MAFIA_API_URL=https://api.groq.com/openai/v1
+MAFIA_API_KEY=gsk_…
+MAFIA_API_MODEL=openai/gpt-oss-120b
+MAFIA_API_MODELS=openai/gpt-oss-20b,qwen/qwen3.6-27b    # same key, more rungs
+MAFIA_API_7_URL=https://api.cerebras.ai/v1
+MAFIA_API_7_KEY=csk-…
+MAFIA_API_7_MODELS=llama-3.3-70b,qwen-3-32b
+```
+
+That is five rungs from two providers. `api*` expands to every slot that
+assembled, in order, so adding a free tier is a line of config and no change to
+the chain. The extra models on one slot become `api1b`, `api1c`, `api7b`…
+
+**One call in flight per endpoint.** `MAFIA_API_PARALLEL` defaults to 1, and
+the concurrency comes from having many endpoints rather than from leaning on
+any of them: twenty-two free tiers with one call each is twenty-two answers
+being written at the same moment, none of which looks like a burst to the
+provider receiving it. Four at once to the same free tier is what earns a 429,
+and a 429 benches that rung for a minute for every seat still waiting.
+
+**The pick is by measured behaviour, not by position.** A run of endpoints in
+the chain is a pool. Everything within 250 ms (or 1.6×) of the fastest is a
+candidate, an endpoint nobody has tried yet is *always* a candidate, and among
+the candidates the least busy wins with ties broken at random. So the quick ones
+carry most of the work, none of them carries all of it, an endpoint that starts
+answering slowly loses share before it ever has to refuse, and nothing is left
+unmeasured. When more questions arrive than there are idle endpoints, every
+endpoint that is up takes one, including the slow ones: ranking decides who is
+asked *first*, never who is asked at all.
+
+**The local model is one of the instances.** Put `ollama` in the pool and it
+competes on measured speed like the rest. It needs no special case to stay out
+of the way: it measures at ten seconds where an endpoint measures at four
+hundred milliseconds, so it is never within striking distance while any endpoint
+is free, and the moment they are all busy it is simply the next instance. A rung
+whose measured time does not fit in what is left of the phase is skipped
+entirely, so a twelve-second local model never takes a turn it cannot finish.
+
+**A stalled endpoint is not waited out.** If the chosen rung has not answered
+within `MAFIA_HEDGE_MS`, a second one is asked the same question and the first
+usable answer wins. Measured against a provider that stalls on a third of its
+calls: worst case **3018 ms → 676 ms**, with the extra request spent only on the
+tail, which is exactly where the spare capacity is.
+
+| Variable               | Default | What it does |
+| ---------------------- | ------- | ------------ |
+| `MAFIA_API_PARALLEL`   | `1`     | Calls in flight per endpoint. Raise it only for an endpoint that is actually yours. |
+| `MAFIA_LOCAL_PARALLEL` | `1`     | The same for Ollama. One GPU serialises the work whatever is asked of it, so queueing more converts answers into timeouts. |
+| `MAFIA_HEDGE_MS`       | `1200`  | How long to wait before asking a second endpoint the same question. `0` turns it off. |
+
+## What the prompt is actually made of
+
+Measured, on a real mid-game board:
+
+| Scenario | Prompt | Of which transcript |
+| --- | --- | --- |
+| all bots, quiet day | 305 tok | 188 |
+| all bots, busy day | 353 tok | 236 |
+| 2 people at the table | 612 tok | 495 |
+| 5 people, 24 seats | 803 tok | 683 |
+| 24 seats all typing the longest line the chat allows | 759 tok | 639 |
+| one turn through the mouth | 593 tok | fixed rulebook |
+
+**The transcript is the prompt.** Everything else — the roster, the roles dealt,
+the heatmap, the stance, the task — is a hundred tokens together and already
+pre-chewed. So the only optimisation worth making is to the transcript, and
+there are three:
+
+- **Coalesce.** A speaker's consecutive lines become one, which removes a
+  repeated `12 Name [HUMAN PLAYER]:` prefix per fragment and, more importantly,
+  stops the model looking for meaning in "last night" on its own.
+- **Bound it in characters, not lines.** The window was a line count and a line
+  is whatever somebody typed into it. The chat allows 400 characters, so
+  twenty-six lines could be 2,886 tokens of someone else's typing on *every
+  seat's turn* — three and a half times the ordinary briefing, out of the same
+  tokens-per-minute the whole table shares. Bounded at 2,200 characters, newest
+  first, the same afternoon costs 759. The last row of that table is the guard.
+- **Spend the room on people.** The window already scales with human presence
+  (6 lines with no people, 26 with several) and the summary shrinks to make room
+  rather than competing for it. A bot's line is mostly already on the claims
+  board; a person's line is the content.
 
 ## Keeping it honest
 

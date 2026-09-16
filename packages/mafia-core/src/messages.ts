@@ -202,10 +202,16 @@ export const NOTE = {
   healed: (): Msg => msg('mafia.note.healed'),
   healSaved: (): Msg => msg('mafia.note.healSaved'),
 
-  familyAimed: (family: Faction, slot: number): Msg =>
-    msg('mafia.note.familyAimed', { family: FACTION(family), slot }),
-  sheriff: (name: string, suspect: boolean): Msg =>
-    msg(suspect ? 'mafia.note.sheriffSuspect' : 'mafia.note.sheriffClear', { name }),
+  familyAimed: (family: Faction, slot: number): Msg => msg('mafia.note.familyAimed', { family: FACTION(family), slot }),
+  /**
+   * The needle, and what it pointed at.
+   *
+   * One key per verdict rather than a boolean, so the private feed says "is a
+   * SERIAL KILLER" where it used to say "is SUSPICIOUS" — the difference
+   * between a lead and a fact.
+   */
+  sheriff: (name: string, verdict: string): Msg =>
+    msg(verdict === 'clear' ? 'mafia.note.sheriffClear' : `mafia.note.sheriff.${verdict}`, { name }),
   exactRole: (name: string, role: RoleId): Msg => msg('mafia.note.exactRole', { name, role: ROLE.name(role) }),
   /** `trade` is a trade id from `RoleDef.investigated`, not a sentence. */
   tradeLine: (name: string, trade: string): Msg =>
@@ -235,6 +241,16 @@ export const M = {
 
   /* -------------------------------- the trial ------------------------------ */
   trialDragged: (name: string): Msg => msg('mafia.trial.dragged', { name }),
+  /**
+   * The gagged accused, spoken for.
+   *
+   * A blackmailed seat cannot type, and a trial is the one moment the whole room
+   * is waiting for exactly that seat to type. Left alone it reads as contempt,
+   * and the room hangs it for the silence. So the game says the one thing the
+   * seat is allowed to have said — which is also, deliberately, a sentence any
+   * seat that *can* speak may choose to say and then fall silent behind.
+   */
+  trialMuted: (name: string): Msg => msg('mafia.trial.muted', { name }),
   trialNoDefence: (name: string): Msg => msg('mafia.trial.noDefence', { name }),
   trialJudging: (name: string): Msg => msg('mafia.trial.judging', { name }),
   trialCourt: (name: string): Msg => msg('mafia.trial.court', { name }),

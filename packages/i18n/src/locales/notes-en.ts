@@ -74,7 +74,19 @@ export const notesEn: Catalogue = {
 
   /* -------------------------------- what you saw ---------------------------- */
   'mafia.note.familyAimed': 'The {family} aimed at house {slot} tonight.',
-  'mafia.note.sheriffSuspect': '{name} is SUSPICIOUS.',
+  /**
+   * The needle, by name. A sheriff that says "suspicious" hands the town an
+   * argument; one that says "a Serial Killer" hands it an instruction.
+   */
+  'mafia.note.sheriff.suspect': '{name} is SUSPICIOUS.',
+  'mafia.note.sheriff.mafia': '{name} is a member of the MAFIA.',
+  'mafia.note.sheriff.triad': '{name} is a member of the TRIAD.',
+  'mafia.note.sheriff.cult': '{name} is a CULTIST.',
+  'mafia.note.sheriff.serial-killer': '{name} is a SERIAL KILLER.',
+  'mafia.note.sheriff.mass-murderer': '{name} is a MASS MURDERER.',
+  'mafia.note.sheriff.arsonist': '{name} is an ARSONIST.',
+  'mafia.note.sheriff.poisoner': '{name} is a POISONER.',
+  'mafia.note.sheriff.electromaniac': '{name} is an ELECTROMANIAC.',
   'mafia.note.sheriffClear': '{name} has nothing suspicious about them.',
   'mafia.note.exactRole': '{name} is the {role}.',
   'mafia.note.tradeLine': '{name} {line}.',

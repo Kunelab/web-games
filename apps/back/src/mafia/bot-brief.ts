@@ -313,6 +313,21 @@ export function brief(view: MafiaView, board: PublicInfo, mind: BotMind, task: s
  * moment a table is genuinely reading each other is the two minutes somebody
  * spends arguing for their life.
  */
+/**
+ * The most a briefing will ever spend on what was said, and on any one line.
+ *
+ * Roughly five hundred tokens and forty-five words. Both are ceilings rather
+ * than targets: an ordinary afternoon comes in well under them, and what they
+ * exist for is the afternoon that does not.
+ */
+const TRANSCRIPT_CHARS = 2200;
+/**
+ * The chat itself refuses anything past four hundred characters, so this only
+ * ever bites a *merged* run — somebody who typed three long messages in a row —
+ * and a single message is never clipped. The total above is the real bound.
+ */
+const LINE_CHARS = 500;
+
 function transcript(view: MafiaView, window: number, humansPresent: boolean): string {
   // Authored lines only: the game's own announcements are already summarised
   // above, so this needs no renderer.
@@ -349,12 +364,50 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
     return ' (YOUR SECRET CHANNEL — the town cannot see this, and must never learn what is in it)';
   };
 
-  const rendered = recent.map((message) => {
+  /**
+   * One speaker's run of lines, as the one thing they were saying.
+   *
+   * People type "7", then "where were you", then "last night". Three lines in
+   * the log, one question at the table, and three lines in the briefing is both
+   * more tokens — the `4 Name [HUMAN PLAYER]:` prefix is most of a fragment —
+   * and harder to read: a model handed them separately dutifully tries to find
+   * a meaning in "last night" on its own. Same coalescing the readers do.
+   */
+  const merged: typeof recent = [];
+  for (const message of recent) {
+    const previous = merged[merged.length - 1];
+    if (previous && previous.authorName === message.authorName && previous.channel === message.channel) {
+      merged[merged.length - 1] = { ...previous, text: `${previous.text} ${message.text}` };
+      continue;
+    }
+    merged.push(message);
+  }
+
+  /**
+   * A hard bound on the transcript, in characters.
+   *
+   * The window is a line count, and a line is whatever somebody typed into it:
+   * twenty-six lines is two hundred tokens of ordinary chat and two thousand
+   * from one person pasting a wall of text. That is the prompt's whole budget,
+   * spent by a stranger, on every seat's turn for the rest of the phase — and
+   * on a free tier paid for in tokens per minute it is the difference between a
+   * table that talks and a table that does not.
+   *
+   * Newest first, because the oldest line is the one the room has moved past.
+   */
+  const rendered: string[] = [];
+  let left = TRANSCRIPT_CHARS;
+  for (let index = merged.length - 1; index >= 0; index--) {
+    const message = merged[index];
     const person = humanSlots.has(message.authorName) ? ' [HUMAN PLAYER]' : '';
     const slot = slots.get(message.authorName);
     const who = slot === undefined ? message.authorName : `${slot} ${message.authorName}`;
-    return `${who}${person}${room(message.channel)}: ${message.text}`;
-  });
+    const said = message.text.length > LINE_CHARS ? `${message.text.slice(0, LINE_CHARS)}…` : message.text;
+    const line = `${who}${person}${room(message.channel)}: ${said}`;
+    if (line.length > left && rendered.length > 0) break;
+    left -= line.length;
+    rendered.unshift(line);
+  }
 
   if (rendered.length === 0) return 'Nobody has spoken yet.';
   const header = humansPresent

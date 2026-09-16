@@ -108,7 +108,7 @@ const EASE = 0.72;
  * (three votes on its head), and those two produce very different play. That is
  * the point — panic is local, and local panic is what makes a table talk.
  */
-export function advanceDesperation(previous: number, pressure: Pressure): number {
+export function advanceDesperation(previous: number, pressure: Pressure, nerve = 1): number {
   if (pressure.day <= 0) return CALM;
 
   // The wagon, measured against how many votes it actually takes to hang.
@@ -123,7 +123,9 @@ export function advanceDesperation(previous: number, pressure: Pressure): number
 
   const floor = Math.min(1, Math.max(0, pressure.losingClock));
   const eased = Math.max(floor, previous * EASE);
-  return Math.min(1, Math.max(floor, eased + spike));
+  // `nerve` scales the spike, never the floor: a board that is lost is lost at
+  // any temperament, but how hard a wagon lands is a property of the person.
+  return Math.min(1, Math.max(floor, eased + spike * nerve));
 }
 
 /* --------------------------------- stance -------------------------------- */
