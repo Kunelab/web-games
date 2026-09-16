@@ -378,6 +378,140 @@ export const HEROES: readonly HeroDef[] = [
     blurb: 'coronaz.hero.rosa.blurb',
     emoji: '🎖️',
     cost: 400
+  },
+
+  /* ---------------------------- the second wave ---------------------------- */
+
+  /**
+   * Ten more survivors, and the first ten to share abilities with somebody else.
+   *
+   * The original twenty are one ability each, which is the cleanest possible design
+   * and also a hard ceiling: there are exactly twenty `HeroAbility` values, and the
+   * roster had used all of them. Growing past twenty therefore meant either
+   * inventing ten new mechanics — ten new rules in the engine, ten new things to
+   * balance, a different and much larger job than adding characters — or accepting
+   * that two people can be good at the same thing.
+   *
+   * This is the second. Each of these pairs an existing ability with a *different*
+   * favourite weapon and a different signature-perk trio, which is where the
+   * distinctness now lives: Mei and Inès are both quiet, but Mei's silence is spent
+   * on a blade and a picked lock while Inès's is spent on a submachine gun. They
+   * play differently while the rule behind them is the same.
+   *
+   * Priced from 250 to 500, above the original unlockables. That is deliberate and
+   * the economy tests hold it: `perks.test.ts` measures the cheapest unlockable in
+   * evenings played, so nothing here may undercut the 150 floor, and it measures the
+   * dearest against one very good raid, which only gets safer as the top price rises.
+   */
+  {
+    id: 'elena',
+    name: 'Elena',
+    hp: 40,
+    ability: 'fleet',
+    favoriteWeapon: 'smg',
+    personalPerks: ['elan', 'discret', 'vigile'],
+    blurb: 'coronaz.hero.elena.blurb',
+    emoji: '💨',
+    cost: 250
+  },
+  {
+    id: 'mei',
+    name: 'Mei',
+    hp: 40,
+    ability: 'silent',
+    favoriteWeapon: 'blade',
+    personalPerks: ['discret', 'pilleur', 'serrurier'],
+    blurb: 'coronaz.hero.mei.blurb',
+    emoji: '🌸',
+    cost: 300
+  },
+  {
+    id: 'ingrid',
+    name: 'Ingrid',
+    hp: 50,
+    ability: 'tough',
+    favoriteWeapon: 'scatter',
+    personalPerks: ['vigor', 'brave', 'serrurier'],
+    blurb: 'coronaz.hero.ingrid.blurb',
+    emoji: '🪓',
+    cost: 350
+  },
+  {
+    id: 'yuna',
+    name: 'Yuna',
+    hp: 40,
+    ability: 'medic',
+    favoriteWeapon: 'sidearm',
+    personalPerks: ['soigneur', 'courrier', 'vigor'],
+    blurb: 'coronaz.hero.yuna.blurb',
+    emoji: '🧪',
+    cost: 300
+  },
+  {
+    id: 'chiara',
+    name: 'Chiara',
+    hp: 40,
+    ability: 'lucky',
+    favoriteWeapon: 'magnum',
+    personalPerks: ['pilleur', 'fetiche', 'serrurier'],
+    blurb: 'coronaz.hero.chiara.blurb',
+    emoji: '🎲',
+    cost: 450
+  },
+  {
+    id: 'luka',
+    name: 'Luka',
+    hp: 40,
+    ability: 'daredevil',
+    favoriteWeapon: 'saw',
+    personalPerks: ['brave', 'vigor', 'fetiche'],
+    blurb: 'coronaz.hero.luka.blurb',
+    emoji: '⚡',
+    cost: 400
+  },
+  {
+    id: 'haruto',
+    name: 'Haruto',
+    hp: 40,
+    ability: 'assassin',
+    favoriteWeapon: 'pick',
+    personalPerks: ['fetiche', 'discret', 'elan'],
+    blurb: 'coronaz.hero.haruto.blurb',
+    emoji: '🌗',
+    cost: 350
+  },
+  {
+    id: 'mateo',
+    name: 'Mateo',
+    hp: 40,
+    ability: 'marksman',
+    favoriteWeapon: 'rifle',
+    personalPerks: ['vigile', 'discret', 'fetiche'],
+    blurb: 'coronaz.hero.mateo.blurb',
+    emoji: '🎞️',
+    cost: 450
+  },
+  {
+    id: 'jin',
+    name: 'Jin',
+    hp: 40,
+    ability: 'scout',
+    favoriteWeapon: 'club',
+    personalPerks: ['vigile', 'courrier', 'elan'],
+    blurb: 'coronaz.hero.jin.blurb',
+    emoji: '🧭',
+    cost: 300
+  },
+  {
+    id: 'niko',
+    name: 'Niko',
+    hp: 50,
+    ability: 'trophy',
+    favoriteWeapon: 'flamer',
+    personalPerks: ['brave', 'pilleur', 'courrier'],
+    blurb: 'coronaz.hero.niko.blurb',
+    emoji: '🏆',
+    cost: 500
   }
 ];
 

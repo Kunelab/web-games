@@ -65,6 +65,11 @@ export interface BotMind {
   mask: RoleId | null;
   /** What this seat has written down about the others, day by day. Append-only. */
   notes: WillNote[];
+  /**
+   * The day this seat opened its defence with "I am muted." and must now keep
+   * to it: a muted person does not say a second thing. See `defenceLine`.
+   */
+  mutedBluffDay?: number;
 }
 
 /** One line of a seat's own journal, written into its will as the days go. */
@@ -183,7 +188,10 @@ export class BotMinds {
       mind.saidThisRound = 0;
       const allies = new Set(
         Object.values(state.players)
-          .filter((other) => other.playerId !== player.playerId && other.alive && sameSide(state, player.playerId, other.playerId))
+          .filter(
+            (other) =>
+              other.playerId !== player.playerId && other.alive && sameSide(state, player.playerId, other.playerId)
+          )
           .map((other) => other.slot)
       );
       const felt = feelPressure(player, mind.brain, board, allies);
@@ -266,6 +274,41 @@ export class BotMinds {
         claim.room === extra?.room
     );
     if (alreadySaid) return;
+
+    /**
+     * An account replaces the account it corrects, rather than joining it.
+     *
+     * Every other kind of claim accumulates, because saying two things about
+     * two houses is two claims. An account is about the claimer's own night and
+     * there is only one of those: "I stayed home" followed by "I went to 4"
+     * is not a person holding two positions, it is a person correcting
+     * themselves, or a reader that got the first one wrong.
+     *
+     * Which happens, and is the reason this exists. Human speech reaches the
+     * board through two readers now, one of them a set of regular expressions
+     * running on a half-typed sentence, and the price of reading a hesitation
+     * as an alibi used to be permanent: the seat kept both entries and the town
+     * hanged them for the one they withdrew. The newest reading wins, so the
+     * better reader arriving a few seconds later genuinely corrects the quicker
+     * one, and a person who changes their story is answerable for the story
+     * they are actually telling.
+     *
+     * Same day only. Yesterday's account was about yesterday's night and is
+     * still evidence about it.
+     */
+    if (kind === 'account') {
+      for (let index = table.claims.length - 1; index >= 0; index--) {
+        const claim = table.claims[index];
+        if (
+          claim.kind === 'account' &&
+          claim.claimerSlot === claimer.slot &&
+          claim.day === state.day &&
+          claim.room === extra?.room
+        ) {
+          table.claims.splice(index, 1);
+        }
+      }
+    }
 
     table.claims.push({
       day: state.day,

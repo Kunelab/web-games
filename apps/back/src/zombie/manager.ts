@@ -54,6 +54,7 @@ import { eq, lt } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 
 import { db } from '../db/index.js';
+import { endTrace, forgetTrace, trace } from '../trace.js';
 import { gameResults, zombieSessions } from '../db/schema.js';
 import { czCareerService } from '../services/cz-career-service.js';
 import { userService } from '../services/user-service.js';
@@ -142,6 +143,8 @@ export class CzManager {
    * horde to a game master who had already stepped away from it.
    */
   private readonly handingOver = new Set<string>();
+  /** The last beat written to each raid's log, so a phase is recorded once. */
+  private readonly beats = new Map<string, string>();
 
   constructor(private readonly log: FastifyBaseLogger) {}
 
@@ -511,6 +514,16 @@ export class CzManager {
   drop(code: string): void {
     this.dropTimers(code);
     this.handingOver.delete(code);
+    const state = this.sessions.get(code);
+    endTrace('coronaz', code, {
+      phase: state?.phase ?? 'gone',
+      turn: state?.turn ?? 0,
+      survivors: Object.values(state?.heroes ?? {})
+        .filter((hero) => hero.alive)
+        .map((hero) => hero.name)
+    });
+    forgetTrace('coronaz', code);
+    this.beats.delete(code);
     this.sessions.delete(code);
   }
 
@@ -520,7 +533,35 @@ export class CzManager {
   }
 
   /** Persist, notify screens, arm whatever timer the new phase needs. */
+  /**
+   * The raid as the flight recorder sees it: one line per beat.
+   *
+   * Coarser than Mafia's on purpose. A raid has no model in it and no free-form
+   * speech to interpret, so what is worth keeping is the shape of the fight —
+   * whose turn it is, who is still standing, how much of the horde is left —
+   * and the actions that got it there. That is enough to answer the questions
+   * this game actually raises afterwards: where the party lost its health, which
+   * turn the horde took over, whether a bot spent its AP on anything.
+   */
+  private recordBeat(state: CzState): void {
+    const signature = `${state.phase}:${state.turn}`;
+    if (this.beats.get(state.code) === signature) return;
+    this.beats.set(state.code, signature);
+
+    const heroes = Object.values(state.heroes);
+    trace('coronaz', state.code).event('phase', {
+      phase: state.phase,
+      turn: state.turn,
+      alive: heroes.filter((hero) => hero.alive && !hero.escaped).length,
+      zombies: Object.keys(state.zombies).length,
+      kills: state.killsTotal,
+      keys: state.keysCollected,
+      hp: heroes.map((hero) => ({ name: hero.name, bot: hero.isBot ?? false, hp: hero.hp, ap: hero.ap, room: hero.roomId }))
+    });
+  }
+
   private async afterTransition(state: CzState): Promise<void> {
+    this.recordBeat(state);
     if (raidOver(state) && !state.resultsRecorded) {
       state.resultsRecorded = true;
       try {
@@ -540,6 +581,18 @@ export class CzManager {
     const state = this.sessions.get(code);
     if (!state) return;
     startGame(state);
+    trace('coronaz', code, { config: state.config }).event('deal', {
+      seed: state.seed,
+      objectives: state.objectives,
+      heroes: Object.values(state.heroes).map((hero) => ({
+        name: hero.name,
+        bot: hero.isBot ?? false,
+        skill: hero.bot?.skill ?? null,
+        mindset: hero.bot?.mindset ?? null,
+        hero: hero.heroId,
+        hp: hero.maxHp
+      }))
+    });
     await this.afterTransition(state);
   }
 
@@ -587,6 +640,12 @@ export class CzManager {
     const result = sayInRaid(state, playerId, text, Date.now());
     if (!result.ok) return { ok: false, error: result.error };
 
+    trace('coronaz', code).event('chat', {
+      name: state.heroes[playerId]?.name,
+      bot: state.heroes[playerId]?.isBot ?? false,
+      turn: state.turn,
+      text
+    });
     state.lastActivityAt = Date.now();
     void this.persist(state);
     this.listener?.(state);
@@ -650,7 +709,28 @@ export class CzManager {
     const state = this.sessions.get(code);
     if (!state) return { ok: false, error: 'Partie introuvable' };
 
+    const before = state.heroes[playerId];
     const result = applyHeroAction(state, playerId, action);
+
+    /**
+     * Every action either side of the door, refusals included.
+     *
+     * A refused action is the more interesting of the two: it is what a bot
+     * wasting its turn looks like, and what a phone that thinks it can reach a
+     * room it cannot looks like, and neither leaves any other trace.
+     */
+    trace('coronaz', code).event('act', {
+      name: before?.name,
+      bot: before?.isBot ?? false,
+      turn: state.turn,
+      phase: state.phase,
+      ap: before?.ap,
+      hp: before?.hp,
+      room: before?.roomId,
+      action,
+      ok: result.ok,
+      error: result.ok ? null : result.error
+    });
 
     /**
      * A refused action changes nothing, so it must TOUCH nothing. Running the

@@ -70,6 +70,28 @@ export function mafiaSkin(skinId: string): string {
   return `${ROOT}/mafia/skins/${skinId}.png`;
 }
 
+/**
+ * A cutout on the hill: a house, the fountain, the gallows, a grave.
+ *
+ * Named by what it is rather than by the render that produced it —
+ * `house-village-day`, not `house-village-day_00001_`. The counter belongs to
+ * the machine that made the picture; `scripts/art-cutout.mjs` strips it on the
+ * way in, along with the studio backdrop.
+ */
+export function mafiaTownArt(file: string): string {
+  return `${ROOT}/mafia/town/${file}.png`;
+}
+
+/** A person on the hill. Same rules, different folder. */
+export function mafiaFolkArt(file: string): string {
+  return `${ROOT}/mafia/folk/${file}.png`;
+}
+
+/** One sound from the table's own set. See `mafiaSound.ts`. */
+export function mafiaSfx(name: string): string {
+  return `${ROOT}/mafia/sfx/${name}.flac`;
+}
+
 /* --------------------------------------------------------------------- Quiz */
 
 export function quizCover(file: string): string {

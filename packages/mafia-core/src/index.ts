@@ -1,4 +1,16 @@
-export { ACTION, BODY, CAUSE, FACTION, M, MafiaError, NO, refusalOf, ROLE, SLOT, type DeathSource } from './messages.js';
+export {
+  ACTION,
+  BODY,
+  CAUSE,
+  FACTION,
+  M,
+  MafiaError,
+  NO,
+  refusalOf,
+  ROLE,
+  SLOT,
+  type DeathSource
+} from './messages.js';
 export {
   ACTION_LABELS,
   BYSTANDER_ROLES,
@@ -153,6 +165,16 @@ export {
   decideSecondTarget,
   type DayDecision,
   contradicted,
+  TEMPERAMENT_MIN,
+  TEMPERAMENT_MAX,
+  temperamentOf,
+  EVEN_TEMPERAMENT,
+  QUIET_TRADE,
+  sheriffSuspects,
+  isEvilRole,
+  tradeVerdict,
+  rolesWithTrade,
+  couldStillAct,
   DEFAULT_PROFILE,
   feelPressure,
   losingClock,
@@ -169,6 +191,8 @@ export {
   type Claim,
   type ClaimKind,
   type Personality,
+  type SheriffVerdict,
+  type Temperament,
   type PublicInfo,
   type SteadyVote,
   type VoteRecord

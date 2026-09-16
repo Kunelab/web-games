@@ -27,7 +27,8 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "mafia:budget": "tsx src/mafia/budget.ts"
+    "mafia:budget": "tsx src/mafia/budget.ts",
+    "trace": "tsx src/cli/trace.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

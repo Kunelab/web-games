@@ -346,3 +346,94 @@ enquêteurs meurent maintenant sur les perrons où ils allaient gratuitement.
   banc.
 - **La composition n'est jamais affichée** au lobby : la déduction se raisonne
   sur un pool de rôles connu.
+
+## Boîte noire : les dix dernières parties
+
+Tout ce qui est intéressant chez ces bots se passe entre le moment où quelqu'un
+appuie sur entrée et la seconde qui suit, et cette seconde ne laissait aucune
+trace : le chat montre la réponse, le journal du serveur montre un barreau
+d'échelle, et rien ne montrait le brouillon écrit par la politique, la
+revendication déposée par le lecteur, le prompt envoyé au modèle, la phrase
+renvoyée, ni laquelle des deux la table a réellement dite.
+
+`src/trace.ts` enregistre une partie par fichier, une ligne JSON par événement,
+et ne garde que les dernières (dix par défaut). Mafia et CoronaZ écrivent tous
+les deux ; Mafia écrit beaucoup plus, parce qu'il y a beaucoup plus à expliquer.
+
+| Événement | Ce qu'il dit |
+| --------- | ------------ |
+| `deal` | la distribution complète, écrite au début et pas à la fin : une partie qui plante est justement celle qu'on veut relire |
+| `phase` | chaque battement d'horloge, avec les vivants et le temps restant |
+| `chat` | chaque ligne dite, par qui, dans quel salon |
+| `parse` | ce que le lecteur déterministe a compris d'une ligne humaine, **y compris quand il n'a rien compris** |
+| `ear` | la transcription envoyée au modèle et les revendications qu'il en a tirées, côte à côte |
+| `room-parse`, `room-ear` | les mêmes deux lectures pour un salon privé |
+| `draft` | le brouillon de la politique : vote, cible, revendication, phrase de secours, et pourquoi la bouche a été appelée ou non |
+| `llm` | un appel : barreau, modèle, durée, prompt, réponse, ou le statut du refus |
+| `chain` | un barreau mis au banc, ou une marche qui a manqué de temps |
+| `unsaid` | une phrase décidée et jamais dite, avec la raison (budget de parole, doublon, salon inexistant) |
+| `vote`, `ballot`, `night-action`, `day-action`, `will` | chaque coup, humain comme bot, par la même porte |
+| `death`, `close` | le cimetière et l'issue |
+
+```
+pnpm --filter back trace                 # les dernières parties
+pnpm --filter back trace latest          # le résumé de la plus récente
+pnpm --filter back trace latest --talk   # et la conversation, lectures comprises
+pnpm --filter back trace latest --raw=llm
+```
+
+Le résumé répond aux quatre questions qu'on pose vraiment : en combien de temps
+la table a répondu à une personne, quel barreau a répondu et en combien de
+temps, ce que les deux lecteurs ont compris, et ce que les sièges ont décidé
+sans jamais le dire.
+
+`GAME_TRACE=off` coupe tout, `full` ne tronque plus les longues chaînes (le
+réglage des soirées où la question est « qu'y avait-il exactement dans ce
+prompt »), `GAME_TRACE_KEEP` change le nombre de parties gardées.
+
+## La ville : deux rues, aucune maison au premier plan
+
+Les vingt-quatre parcelles formaient l'anneau d'une grille 7×7, ce qui mettait un
+quart de la ville sur le bord bas de l'écran, dos à la caméra, devant tout le
+reste et masquant la place qu'elle était censée entourer. Elles forment
+maintenant un chevron : deux rues de deux rangées qui descendent vers le
+spectateur, rien en travers du premier plan, la place devant.
+
+- **La maison est tournée vers la place.** Le sprite est dessiné porte en bas à
+  gauche, donc la rue de droite le garde tel quel et celle de gauche le
+  retourne. C'est la seule rotation qu'un sprite plat autorise et c'est la
+  bonne : une rangée de maisons toutes orientées pareil se lit comme du papier
+  peint, et une maison qui tourne le dos à la place se lit comme un bug.
+- **La parcelle est tirée au sort**, à partir du code de la table. Avant, l'ordre
+  des sièges était l'ordre des parcelles : la colline était un diagramme de
+  l'ordre d'arrivée. Le tirage est déterministe, donc tous les écrans sont
+  d'accord sans que le serveur porte un champ de plus, et stable pour toute la
+  partie.
+- **Le villageois se tient devant sa propre porte.** Il était calé sur le coin
+  de la tuile suivante et semblait appartenir à la maison d'à côté.
+- **On peint par profondeur, maison puis habitant, parcelle par parcelle.** En
+  deux passes (tous les toits, puis tous les gens), un villageois de la rangée
+  du fond se retrouvait peint par-dessus le toit de la maison devant lui.
+- **Rien sur la colline ne doit trahir un rôle.** La ville est publique : les
+  modèles `doctor`, `mafia` et `sheriff` existent dans les rendus et n'ont rien
+  à y faire. Seuls le villageois neutre, l'accusé et le mort sont livrés.
+
+L'art vient de `D:\ComfyUI\output\final\mafia`, en RGB plat sur fond gris studio.
+`apps/front/scripts/art-cutout.mjs` le détoure (remplissage depuis les bords,
+bord adouci), le recadre sur le sujet et enlève le compteur de rendu. Si un
+fichier manque, la ville vectorielle d'origine reste dessinée dessous : une
+copie fraîche du dépôt sans art montre toujours une ville.
+
+## Le son
+
+Huit prises, pas une synthèse : `mafiaSound.ts`. CoronaZ synthétise parce qu'il
+lui faut une détonation par calibre ; Mafia veut l'inverse, une poignée de
+moments qui arrivent une fois et qui comptent (l'aube, la nuit, l'ouverture du
+procès, la corde, un corps, la fin).
+
+La difficulté n'est pas le son, c'est le *quand* : chaque événement est une
+transition observée par plusieurs écrans à la fois. Chaque signal est donc
+accroché à une valeur qui ne bouge qu'une fois, le premier état vu ne déclenche
+rien (ouvrir une table à minuit ne doit pas annoncer la nuit), et deux signaux
+dans le même tick ne se superposent pas. Coupure du son par appareil,
+`localStorage`, une clé.

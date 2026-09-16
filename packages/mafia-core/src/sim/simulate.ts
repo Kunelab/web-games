@@ -31,6 +31,7 @@ import {
   decideSecondTarget,
   isEvilRole,
   makePersonality,
+  sheriffSuspects,
   DEFAULT_PROFILE,
   type Brain,
   type Claim,
@@ -99,13 +100,10 @@ export function mulberry32(seed: number): () => number {
  * with extra steps — and it should be punished as one, which it now is.
  */
 function bluffFor(accused: MafiaPlayer, info: PublicInfo, rng: () => number): RoleId | null {
-  const spoken = new Set(
-    info.claims.filter((claim) => claim.kind === 'role-claim').map((claim) => claim.claimedRole)
-  );
+  const spoken = new Set(info.claims.filter((claim) => claim.kind === 'role-claim').map((claim) => claim.claimedRole));
   const buried = new Set(info.deadRoles.values());
   const options = (Object.keys(ROLES) as RoleId[]).filter(
-    (role) =>
-      roleDef(role).faction === 'town' && role !== accused.role && !spoken.has(role) && !buried.has(role)
+    (role) => roleDef(role).faction === 'town' && role !== accused.role && !spoken.has(role) && !buried.has(role)
   );
   return options.length === 0 ? null : (options[Math.floor(rng() * options.length)] ?? null);
 }
@@ -131,10 +129,7 @@ export function simulateGame(options: SimOptions): SimResult {
   const players = Object.values(state.players);
   const profile: Personality = { ...DEFAULT_PROFILE, ...options.profile };
   const brains = new Map<string, Brain>(
-    players.map((player) => [
-      player.playerId,
-      makeBrain(player.slot, makePersonality(profile, rng))
-    ])
+    players.map((player) => [player.playerId, makeBrain(player.slot, makePersonality(profile, rng))])
   );
   bindPersonalities([...brains.values()]);
 
@@ -155,8 +150,7 @@ export function simulateGame(options: SimOptions): SimResult {
     return new Set(players.filter((other) => playerFamily(other) === family).map((other) => other.slot));
   };
 
-  const brainOf = (slot: number): Brain | undefined =>
-    [...brains.values()].find((brain) => brain.slot === slot);
+  const brainOf = (slot: number): Brain | undefined => [...brains.values()].find((brain) => brain.slot === slot);
 
   const claims: Claim[] = [];
   /** Final accusations of past days, for the town's pattern-readers. */
@@ -176,9 +170,9 @@ export function simulateGame(options: SimOptions): SimResult {
           ? target?.role === claim.claimedRole
           : claim.kind === 'account'
             ? // An account is honest when it matches where the seat actually went.
-              (claim.account === 'home'
-                ? (brainOf(claim.claimerSlot)?.wentTo ?? null) === null
-                : (brainOf(claim.claimerSlot)?.wentTo ?? null) === claim.targetSlot)
+              claim.account === 'home'
+              ? (brainOf(claim.claimerSlot)?.wentTo ?? null) === null
+              : (brainOf(claim.claimerSlot)?.wentTo ?? null) === claim.targetSlot
             : claim.kind === 'question' || claim.kind === 'taunt'
               ? true // neither states a fact, so neither can be a lie
               : targetEvil;
@@ -224,7 +218,7 @@ export function simulateGame(options: SimOptions): SimResult {
             day: state.day,
             claimerSlot: player.slot,
             targetSlot: entry.targetSlot,
-            kind: entry.value === 'suspect' ? 'accuse' : 'clear',
+            kind: sheriffSuspects(entry.value) ? 'accuse' : 'clear',
             truthful: false
           });
         }
@@ -233,7 +227,13 @@ export function simulateGame(options: SimOptions): SimResult {
         for (const entry of player.intel) {
           if (entry.kind !== 'tracked') continue;
           if ((entry.slots ?? []).some((slot) => wasNightDeathAt(slot, entry.night))) {
-            stampAndPush({ day: state.day, claimerSlot: player.slot, targetSlot: entry.targetSlot, kind: 'accuse', truthful: false });
+            stampAndPush({
+              day: state.day,
+              claimerSlot: player.slot,
+              targetSlot: entry.targetSlot,
+              kind: 'accuse',
+              truthful: false
+            });
           }
         }
       }
@@ -241,19 +241,32 @@ export function simulateGame(options: SimOptions): SimResult {
         for (const entry of player.intel) {
           if (entry.kind !== 'visitors' || !wasNightDeathAt(entry.targetSlot, entry.night)) continue;
           for (const visitor of entry.slots ?? []) {
-            stampAndPush({ day: state.day, claimerSlot: player.slot, targetSlot: visitor, kind: 'accuse', truthful: false });
+            stampAndPush({
+              day: state.day,
+              claimerSlot: player.slot,
+              targetSlot: visitor,
+              kind: 'accuse',
+              truthful: false
+            });
           }
         }
       }
 
       // The liars' poisoned testaments.
-      const liar = isEvilRole(role) || role === 'jester' || role === 'scumbag' || role === 'witch' || role === 'executioner';
+      const liar =
+        isEvilRole(role) || role === 'jester' || role === 'scumbag' || role === 'witch' || role === 'executioner';
       if (liar) {
         const marks = players.filter((other) => other.alive && other.playerId !== player.playerId);
         const count = 1 + Math.floor(rng() * 2);
         for (let i = 0; i < count && marks.length > 0; i++) {
           const mark = marks[Math.floor(rng() * marks.length)];
-          stampAndPush({ day: state.day, claimerSlot: player.slot, targetSlot: mark.slot, kind: 'accuse', truthful: false });
+          stampAndPush({
+            day: state.day,
+            claimerSlot: player.slot,
+            targetSlot: mark.slot,
+            kind: 'accuse',
+            truthful: false
+          });
         }
       }
     }
@@ -270,7 +283,9 @@ export function simulateGame(options: SimOptions): SimResult {
     const self = state.players[playerId];
     const family = self ? playerFamily(self) : null;
     if (!family) return [];
-    return players.filter((player) => playerFamily(player) === family && player.alive).flatMap((player) => player.intel);
+    return players
+      .filter((player) => playerFamily(player) === family && player.alive)
+      .flatMap((player) => player.intel);
   };
 
   const shuffledAlive = () => {
@@ -310,7 +325,14 @@ export function simulateGame(options: SimOptions): SimResult {
           feelPressure(player, brains.get(player.playerId)!, dawn, teammatesOf(player.playerId));
         }
         for (const player of shuffledAlive()) {
-          const decision = decideDay(player, brains.get(player.playerId)!, publicInfo(), teammatesOf(player.playerId), knownEvilFor(player.playerId), rng);
+          const decision = decideDay(
+            player,
+            brains.get(player.playerId)!,
+            publicInfo(),
+            teammatesOf(player.playerId),
+            knownEvilFor(player.playerId),
+            rng
+          );
           // Ground truth is stamped at push time, where the full state is
           // known — the brains themselves never see other players' roles.
           for (const claim of decision.publishes) stampAndPush(claim);
@@ -324,7 +346,14 @@ export function simulateGame(options: SimOptions): SimResult {
         for (let pass = 0; pass < 3 && state.stage === 'discussion'; pass++) {
           for (const player of shuffledAlive()) {
             if (state.stage !== 'discussion') break;
-            const decision = decideDay(player, brains.get(player.playerId)!, publicInfo(), teammatesOf(player.playerId), knownEvilFor(player.playerId), rng);
+            const decision = decideDay(
+              player,
+              brains.get(player.playerId)!,
+              publicInfo(),
+              teammatesOf(player.playerId),
+              knownEvilFor(player.playerId),
+              rng
+            );
             if (decision.voteSlot !== null) {
               castVote(state, player.playerId, decision.voteSlot, now);
             }
@@ -388,7 +417,11 @@ export function simulateGame(options: SimOptions): SimResult {
       if (accusedSlot !== null) {
         for (const player of shuffledAlive()) {
           if (player.slot === accusedSlot) continue;
-          castBallot(state, player.playerId, decideBallot(player, brains.get(player.playerId)!, info, accusedSlot, teammatesOf(player.playerId), rng));
+          castBallot(
+            state,
+            player.playerId,
+            decideBallot(player, brains.get(player.playerId)!, info, accusedSlot, teammatesOf(player.playerId), rng)
+          );
         }
       }
       advance();
@@ -430,7 +463,6 @@ export function simulateGame(options: SimOptions): SimResult {
 
     advance();
   }
-
 
   return tally(state, options, claims);
 }
@@ -483,7 +515,8 @@ function tally(state: MafiaState, options: SimOptions, claims: Claim[]): SimResu
     jesterLynches: lynched.filter((death) => death.role === 'jester').length,
     townLynches: lynched.filter((death) => roleDef(death.role).faction === 'town').length,
     nightDeaths: state.deaths.filter((death) => death.phase === 'night').length,
-    vigMisfires: state.deaths.filter((death) => death.source === 'vigilante' && roleDef(death.role).faction === 'town').length,
+    vigMisfires: state.deaths.filter((death) => death.source === 'vigilante' && roleDef(death.role).faction === 'town')
+      .length,
     saves: state.points.filter((entry) => entry.reason === 'save').length,
     executions: executed.length,
     wrongExecutions: executed.filter((death) => !isEvilRole(death.role)).length,

@@ -44,6 +44,7 @@ export const fr: Catalogue = {
 
   /* ------------------------------- the trial ------------------------------ */
   'mafia.trial.dragged': 'La ville traîne {name} à la barre. Défendez-vous !',
+  'mafia.trial.muted': '{name} : « Je suis muet. »',
   'mafia.trial.noDefence': '{name} est traîné à la barre. Le Prévôt refuse la défense : votez !',
   'mafia.trial.judging': 'La ville juge {name} : coupable ou innocent ?',
   'mafia.trial.court':

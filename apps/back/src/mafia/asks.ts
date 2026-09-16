@@ -84,6 +84,202 @@ const CORRECTION = /\b(?:no wait|wait|actually|scratch that|forget (?:that|it)|n
 const FIRST_PERSON = /\b(?:i'?m|i am|im|me|myself|je suis|j'?suis|c'?est moi|moi)\b[^.!?]{0,16}$/i;
 
 /**
+ * Saying what you think somebody else is, which is not a claim about yourself.
+ *
+ * "I think the sheriff is 7" puts a first-person marker twelve characters in
+ * front of a role name, which is all the test above looks for — so the reader
+ * filed the speaker as the Sheriff on the strength of a sentence that named
+ * somebody else. A reporting verb between the two is the tell, and it is worth
+ * checking because a false role claim is the most expensive mistake either
+ * reader can make: it is the one thing the whole table reasons from.
+ */
+const REPORTING = /\b(?:think|thinks|thought|believe|believes|guess|bet|say|says|said|suspect|suspects|reckon|wonder|hope|pense|crois|croit|dis|dit|suppose|parie|suspecte|imagine)\b/i;
+
+/**
+ * Accents off, case off.
+ *
+ * A person types "Geralt" for "Géralt" and "ELIAS" for "Elias", and a reader
+ * that misses either is a reader the table has to type carefully for. Folding
+ * happens once per line and once per name rather than per comparison.
+ */
+export function fold(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase();
+}
+
+/**
+ * Houses spelled out, for the people who type them that way.
+ *
+ * Deliberately short of `one`/`un`/`une`/`neuf`: those are articles and
+ * adjectives far more often than they are houses, and a reader that turns
+ * "there is one of them lying" into a request for house 1 is worse than a
+ * reader that misses "take one". Everything here is only ever accepted behind
+ * a cue word (see `NUMBER_CUE`), which is what keeps "two of us saw it" from
+ * naming house 2.
+ */
+const NUMBER_WORDS: Record<string, number> = {
+  two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+  deux: 2, trois: 3, quatre: 4, cinq: 5, sept: 7, huit: 8, dix: 10,
+  onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16, vingt: 20
+};
+
+/**
+ * The words a spelled-out house is allowed to stand behind.
+ *
+ * A number word is only a house when somebody is doing something to it. This is
+ * the short list of verbs that do things to houses, in both languages, and it
+ * is read in the dozen characters before the word.
+ */
+const NUMBER_CUE =
+  /\b(?:house|seat|vote|votes|voting|take|takes|kill|kills|hang|lynch|target|trust|spare|save|skip|check|it'?s|maison|siege|vote[rz]?|tue[rz]?|prend|prends|prenez|pendre|lynche[rz]?|cible|confiance|epargne|verifie|c'?est)\b[^.!?]{0,12}$/i;
+
+/** Words too common to be read as a misspelt name. */
+const NOT_A_NAME = new Set([
+  'that', 'this', 'they', 'them', 'then', 'than', 'what', 'when', 'were', 'where', 'with', 'your',
+  'yeah', 'well', 'just', 'like', 'know', 'said', 'says', 'sure', 'stop', 'dont', 'cant', 'wont',
+  'mafia', 'town', 'vote', 'night', 'last', 'home', 'house', 'been', 'have', 'here', 'there',
+  'dans', 'chez', 'avec', 'pour', 'mais', 'donc', 'quoi', 'nuit', 'jour', 'vote', 'tour', 'bien',
+  'alors', 'etait', 'etais', 'suis', 'sais', 'dire', 'fait', 'fais', 'tout', 'tous', 'plus'
+]);
+
+/**
+ * One mistake apart, where a mistake includes two letters swapped.
+ *
+ * Plain edit distance calls "aragron" two mistakes away from "Aragorn" and
+ * refuses it, which is exactly backwards: transposing two letters is the single
+ * commonest thing a fast typist does, and it is the one this has to catch.
+ */
+function within1(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+
+  let at = 0;
+  while (at < a.length && at < b.length && a[at] === b[at]) at++;
+
+  if (a.length === b.length) {
+    // Two letters swapped, or one letter wrong.
+    if (a[at] === b[at + 1] && a[at + 1] === b[at] && a.slice(at + 2) === b.slice(at + 2)) return true;
+    return a.slice(at + 1) === b.slice(at + 1);
+  }
+
+  // One letter too many on one side.
+  const [short, long] = a.length < b.length ? [a, b] : [b, a];
+  return short.slice(at) === long.slice(at + 1);
+}
+
+/** One house named in a line, and where in the line it was named. */
+export interface SeatHit {
+  slot: number;
+  who: string;
+  at: number;
+  end: number;
+  /** A digit or the name as written. A fuzzy hit is a guess and loses ties. */
+  exact: boolean;
+}
+
+/**
+ * Every house a line names, by number, by name, by a misspelt name, or spelled
+ * out in words.
+ *
+ * The strict pass came first and is still what answers nearly every line: a
+ * bare number that is not part of a longer one, or the name exactly as the
+ * roster spells it. What it missed is everything a person actually types —
+ * "galadriel" without the accent, "Galad", "Gandlaf", "take ten" — and each of
+ * those misses is a house named in a room that the game then acts as though
+ * nobody named.
+ *
+ * So there are four passes, and they are ranked. An exact hit always beats a
+ * guess over the same stretch of text, a guess is only made on a token long
+ * enough for the guess to mean something, and a spelled-out number is only a
+ * house when a verb in front of it is doing something to a house.
+ */
+export function seatHits(text: string, seats: readonly { slot: number; name: string }[]): SeatHit[] {
+  const line = fold(text);
+  const hits: SeatHit[] = [];
+
+  for (const seat of seats) {
+    const digits = String(seat.slot);
+    for (const match of line.matchAll(new RegExp(`(?<![0-9])${digits}(?![0-9])`, 'g'))) {
+      if (match.index !== undefined) {
+        hits.push({ slot: seat.slot, who: seat.name, at: match.index, end: match.index + digits.length, exact: true });
+      }
+    }
+    const name = fold(seat.name);
+    for (let at = line.indexOf(name); at >= 0; at = line.indexOf(name, at + 1)) {
+      const before = line[at - 1];
+      const after = line[at + name.length];
+      if ((before && /[\p{L}\p{N}]/u.test(before)) || (after && /[\p{L}\p{N}]/u.test(after))) continue;
+      hits.push({ slot: seat.slot, who: seat.name, at, end: at + name.length, exact: true });
+    }
+  }
+
+  /**
+   * The guesses, over the line's own words.
+   *
+   * A token is read against every seat's full name and against each word of it
+   * that is long enough to stand alone, so "Boba", "Fett" and "Boba Fett" all
+   * answer for the same seat. Four characters is the floor for a shortening and
+   * five for a typo, because below that the guess is noise: "Neo" and "Loki"
+   * are only ever matched exactly.
+   */
+  for (const token of line.matchAll(/[\p{L}\p{N}]{4,}/gu)) {
+    const word = token[0];
+    const at = token.index;
+    if (at === undefined || NOT_A_NAME.has(word)) continue;
+    if (hits.some((hit) => at < hit.end && hit.at < at + word.length)) continue;
+
+    for (const seat of seats) {
+      const keys = [fold(seat.name), ...fold(seat.name).split(/[^\p{L}\p{N}]+/u)].filter((key) => key.length >= 4);
+      /**
+       * A shortening or a typo, and deliberately not the other direction.
+       *
+       * "Galad" for Galadriel is a person being quick; a word that merely
+       * *starts* with a name is a different word, and reading it as the name is
+       * how "that is baloonish" becomes a contract on house 3. The name has to
+       * contain what was typed, or be one mistake away from it.
+       */
+      const matched = keys.some(
+        (key) =>
+          (key.startsWith(word) && word.length >= 4) ||
+          (Math.min(key.length, word.length) >= 5 && within1(key, word))
+      );
+      if (matched) {
+        hits.push({ slot: seat.slot, who: seat.name, at, end: at + word.length, exact: false });
+        break;
+      }
+    }
+  }
+
+  // Spelled-out houses, behind a cue.
+  for (const token of line.matchAll(/[\p{L}]{3,}/gu)) {
+    const word = token[0];
+    const at = token.index;
+    const slot = NUMBER_WORDS[word];
+    if (at === undefined || slot === undefined) continue;
+    if (!seats.some((seat) => seat.slot === slot)) continue;
+    if (hits.some((hit) => at < hit.end && hit.at < at + word.length)) continue;
+    if (!NUMBER_CUE.test(line.slice(Math.max(0, at - 16), at))) continue;
+    const seat = seats.find((entry) => entry.slot === slot);
+    if (seat) hits.push({ slot, who: seat.name, at, end: at + word.length, exact: false });
+  }
+
+  hits.sort((left, right) => left.at - right.at || Number(right.exact) - Number(left.exact));
+
+  const kept: SeatHit[] = [];
+  for (const hit of hits) {
+    // Overlapping readings of the same stretch of text: "13" inside "Geralt 13".
+    const last = kept[kept.length - 1];
+    if (last && hit.at < last.end) continue;
+    kept.push(hit);
+  }
+  return kept;
+}
+
+/**
  * Every house a line names, in the order it names them, and what was wanted.
  *
  * By number and by name, because a table calls people both ways in the same
@@ -98,34 +294,13 @@ export function mentions(
   text: string,
   seats: readonly { slot: number; name: string }[]
 ): { slot: number; who: string; kind: RoomAsk['kind']; at: number }[] {
-  const line = text.toLowerCase();
-  const hits: { slot: number; who: string; at: number; end: number }[] = [];
-
-  for (const seat of seats) {
-    const digits = String(seat.slot);
-    for (const match of line.matchAll(new RegExp(`(?<![0-9])${digits}(?![0-9])`, 'g'))) {
-      if (match.index !== undefined) {
-        hits.push({ slot: seat.slot, who: seat.name, at: match.index, end: match.index + digits.length });
-      }
-    }
-    const name = seat.name.toLowerCase();
-    for (let at = line.indexOf(name); at >= 0; at = line.indexOf(name, at + 1)) {
-      const before = line[at - 1];
-      const after = line[at + name.length];
-      if ((before && /[\p{L}\p{N}]/u.test(before)) || (after && /[\p{L}\p{N}]/u.test(after))) continue;
-      hits.push({ slot: seat.slot, who: seat.name, at, end: at + name.length });
-    }
-  }
-
-  hits.sort((left, right) => left.at - right.at);
+  const line = fold(text);
+  const hits = seatHits(text, seats);
 
   const found: { slot: number; who: string; kind: RoomAsk['kind']; at: number }[] = [];
   let previous: { end: number; kind: RoomAsk['kind'] } | null = null;
 
   for (const hit of hits) {
-    // Overlapping readings of the same stretch of text: "13" inside "Geralt 13".
-    if (previous && hit.at < previous.end) continue;
-
     const gap = line.slice(previous?.end ?? 0, hit.at);
     let kind: RoomAsk['kind'];
     if (previous && CONNECTOR.test(gap)) {
@@ -158,7 +333,9 @@ function roleNames(): { name: string; role: RoleId }[] {
   const seen = new Map<string, RoleId>();
   for (const id of Object.keys(ROLES) as RoleId[]) {
     for (const locale of ['en', 'fr'] as const) {
-      const rendered = say(locale)(ROLE.name(id)).toLowerCase().trim();
+      // Folded, like the lines they are looked for in: nobody types "Médecin"
+      // with the accent when they are arguing for their life.
+      const rendered = fold(say(locale)(ROLE.name(id))).trim();
       if (rendered) seen.set(rendered, id);
     }
     seen.set(id.replace(/-/g, ' '), id);
@@ -169,11 +346,12 @@ function roleNames(): { name: string; role: RoleId }[] {
 
 /** The role somebody claims for themselves in one line, if they claim one. */
 export function selfClaim(text: string): RoleId | null {
-  const line = text.toLowerCase();
+  const line = fold(text);
   for (const { name, role } of roleNames()) {
     const at = line.indexOf(name);
     if (at < 0) continue;
-    if (FIRST_PERSON.test(line.slice(Math.max(0, at - 20), at))) return role;
+    const runUp = line.slice(Math.max(0, at - 20), at);
+    if (FIRST_PERSON.test(runUp) && !REPORTING.test(runUp)) return role;
   }
   return null;
 }

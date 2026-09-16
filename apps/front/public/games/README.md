@@ -23,6 +23,11 @@ games/
     logo.svg
     roles/<roleId>.jpg   role portraits — the id from mafia-core's ROLES
     skins/<skinId>.png   avatar skins sold in the shop
+    town/<file>.png      houses and props on the hill: house-village-day,
+                         house-village-boarded, prop-fountain, prop-gallows,
+                         prop-tombstone
+    folk/<file>.png      the people on it: model-villager-base, -accused, -dead
+    sfx/<name>.flac      the eight cues in mafiaSound.ts
   quiz/
     logo.svg
     covers/<file>        artwork for published quizzes
@@ -41,6 +46,27 @@ games/
   broken page. That is what lets art be commissioned one piece at a time.
 - **Portraits are square**, at least 512×512, framed head-and-shoulders. See
   `docs/coronaz-art.md` for the CoronaZ commission brief.
+- **Nothing on the Mafia hill may identify a role.** The town is public: every
+  player and every spectator sees every house and every villager on it, so a
+  sprite that looks like a doctor or a mafioso hands out the one thing the whole
+  game is about. `folk/` holds the plain villager, the accused and the dead, and
+  nothing else — role art belongs on a role card, which only its owner reads.
+
+## Rendered art arrives with a backdrop
+
+Anything generated (ComfyUI and friends) comes out as flat RGB on a studio grey,
+512×512, with a render counter in the filename. None of that can go on a board:
+a cutout needs alpha, its own edges, and a name.
+
+```
+node apps/front/scripts/art-cutout.mjs <in-dir> <out-dir> [--max=384]
+```
+
+It keys the backdrop out by flooding from the borders (so shadows the same value
+as the backdrop survive), feathers the edge, crops to the subject and strips the
+counter: `house-village-day_00001_.png` becomes `house-village-day.png` at about
+a third of the size. Re-runnable; drop new renders in the source folder and run
+it again.
 
 Site chrome — the favicon, the KuneLab mark, the webfonts — stays at the root of
 `public/`. It belongs to the site rather than to any game.

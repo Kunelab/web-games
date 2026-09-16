@@ -47,6 +47,7 @@ export const en: Catalogue = {
 
   /* ------------------------------- the trial ------------------------------ */
   'mafia.trial.dragged': 'The town drags {name} to the stand. Defend yourself!',
+  'mafia.trial.muted': '{name}: “I am muted.”',
   'mafia.trial.noDefence': '{name} is dragged to the stand. The Marshall refuses a defence: vote!',
   'mafia.trial.judging': 'The town judges {name}: guilty or innocent?',
   'mafia.trial.court': 'A voice booms: “EXCEPTIONAL COURT!” {name} is judged on the spot, without a defence.',

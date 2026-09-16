@@ -204,6 +204,13 @@ const envSchema = z.object({
    * URL and key fall back to slot one, so three free models on the same
    * provider cost three lines of config rather than nine — which is the common
    * case, because the useful axis is usually the model and not the vendor.
+   *
+   * Slots beyond the fourth are not declared here, because declaring
+   * twenty-four of them three times over is seventy-two lines of schema to say
+   * one thing. They are read straight out of the environment by `apiSlots`
+   * below, under exactly the same names: `MAFIA_API_7_MODEL` and so on, up to
+   * `MAFIA_API_24_*`. These four stay declared so a typo in the common case
+   * still fails loudly at boot.
    */
   MAFIA_API_2_URL: blankIsUnset(),
   MAFIA_API_2_KEY: blankIsUnset(),
@@ -214,6 +221,24 @@ const envSchema = z.object({
   MAFIA_API_4_URL: blankIsUnset(),
   MAFIA_API_4_KEY: blankIsUnset(),
   MAFIA_API_4_MODEL: blankIsUnset(),
+
+  /**
+   * Several models on one endpoint, in one line.
+   *
+   * The useful axis is usually the model rather than the vendor: one Groq key
+   * serves a dozen free models that contend for different pools and therefore
+   * fail at different moments. Listing each as its own numbered slot means
+   * repeating the URL and the key a dozen times, so a slot may name several
+   * models instead and each becomes a rung of its own.
+   *
+   *   MAFIA_API_MODELS=openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.6-27b
+   *
+   * The slot's own `_MODEL` stays first when both are given.
+   */
+  MAFIA_API_MODELS: blankIsUnset(),
+  MAFIA_API_2_MODELS: blankIsUnset(),
+  MAFIA_API_3_MODELS: blankIsUnset(),
+  MAFIA_API_4_MODELS: blankIsUnset(),
 
   /**
    * How long a rung sits out after it refuses.
@@ -247,7 +272,82 @@ const envSchema = z.object({
    * reads the mouth's three hundred tokens in a few seconds; an API answers in
    * one.
    */
-  MAFIA_BOT_SPEAK_MS: z.coerce.number().int().min(1000).max(60_000).default(10_000)
+  MAFIA_BOT_SPEAK_MS: z.coerce.number().int().min(1000).max(60_000).default(10_000),
+
+  /**
+   * A chain of its own for each kind of question, when the endpoints differ in
+   * what they are good at.
+   *
+   * Same syntax as `MAFIA_BOT_PROVIDER`, and the rungs must be ones that chain
+   * already contains — this picks an order among what exists, it does not add
+   * credentials. Unset means "use the main chain", which is what every
+   * deployment did before these existed.
+   *
+   *   MAFIA_CHAIN_LISTEN=api1,api2      the notes: a mistake here is permanent
+   *   MAFIA_CHAIN_SPEAK=api3,api4       one line of chat: take the fastest
+   *   MAFIA_CHAIN_DECIDE=api2,api1
+   *
+   * Written out, the three of them spread one table's questions across four
+   * endpoints instead of queueing them all on the first.
+   */
+  MAFIA_CHAIN_DECIDE: blankIsUnset(),
+  MAFIA_CHAIN_SPEAK: blankIsUnset(),
+  MAFIA_CHAIN_LISTEN: blankIsUnset(),
+
+  /**
+   * How many questions one endpoint may be answering at once.
+   *
+   * One, and the concurrency comes from having many endpoints rather than from
+   * leaning on any of them. Twenty-two free tiers with one call each in flight
+   * is twenty-two answers being written at the same moment, none of which looks
+   * like a burst to the provider receiving it; four calls at once to the same
+   * free tier is the thing that earns a 429, and a 429 costs the rung a minute
+   * on the bench for every seat still waiting.
+   *
+   * Raise it only for an endpoint that is actually yours — a paid tier, or a
+   * vLLM you host. The local default is one for a different reason: a single
+   * GPU serialises the work whatever is asked of it, so queueing more only
+   * converts answers into timeouts.
+   */
+  MAFIA_API_PARALLEL: z.coerce.number().int().min(1).max(32).default(1),
+  MAFIA_LOCAL_PARALLEL: z.coerce.number().int().min(1).max(8).default(1),
+
+  /**
+   * How long to wait for an endpoint before asking a second one the same thing.
+   *
+   * Free tiers are not slow on average, they are slow *sometimes*: a few hundred
+   * milliseconds at the median and ten seconds in the tail. The tail is what a
+   * person at the table experiences, because an answer that arrives late arrives
+   * after the moment it was about.
+   *
+   * With twenty endpoints configured, waiting out a bad draw is the one thing
+   * there is no reason to do. The extra request is spent only on the tail, which
+   * is exactly where the spare capacity is. `0` turns it off; note-taking gets
+   * twice this, being a bigger question whose answer is worth more.
+   */
+  MAFIA_HEDGE_MS: z.coerce.number().int().min(0).max(30_000).default(1200),
+
+  /**
+   * The flight recorder: how much of a game is written down as it is played.
+   *
+   * `off` writes nothing at all. `on` is the default and records every move,
+   * every model call and every reading of what a person typed, with the long
+   * strings clipped. `full` clips nothing, which is what you want when the
+   * question is "what exactly was in that prompt".
+   *
+   * It exists because everything interesting about these bots happens in the
+   * half second between a person pressing enter and a seat answering, and that
+   * half second leaves no trace anywhere: the chat shows the answer, the log
+   * shows a rung, and nothing shows the draft the policy wrote, the claim the
+   * parser filed, the prompt the model got or the sentence it sent back.
+   */
+  GAME_TRACE: z.enum(['off', 'on', 'full']).default('on'),
+
+  /** Where the traces go. Relative paths resolve against the API package. */
+  GAME_TRACE_DIR: z.string().default('./traces'),
+
+  /** How many finished games are kept per game, newest first. */
+  GAME_TRACE_KEEP: z.coerce.number().int().min(1).max(200).default(10)
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -275,6 +375,77 @@ export const isProduction = env.NODE_ENV === 'production';
  * they saw in a root-level script.
  */
 export const databaseFile = isAbsolute(env.DATABASE_FILE) ? env.DATABASE_FILE : resolve(packageRoot, env.DATABASE_FILE);
+
+/** The most numbered API slots that will ever be read. One per seat at a full table. */
+export const MAX_API_SLOTS = 24;
+
+/** One OpenAI-compatible endpoint, assembled and ready to call. */
+export interface ApiSlot {
+  /** `api1`, `api7`… the name it is known by in a chain. */
+  rung: string;
+  url: string;
+  key: string;
+  model: string;
+}
+
+/**
+ * Every endpoint this deployment can actually reach, in slot order.
+ *
+ * Read from the environment rather than declared, because the useful number of
+ * these turned out to be "as many as there are free tiers", and twenty-four
+ * declarations of three fields each is seventy-two lines of schema that say one
+ * thing. The names are the ones that were always used: `MAFIA_API_URL`,
+ * `MAFIA_API_KEY`, `MAFIA_API_MODEL` for the first, and `MAFIA_API_<n>_*` after
+ * it.
+ *
+ * Two shorthands, because the config is otherwise mostly repetition:
+ *
+ *  - **URL and key fall back to slot one.** Twelve free models behind one Groq
+ *    key cost one line each.
+ *  - **A slot may name several models** through `_MODELS`, and each becomes a
+ *    rung of its own: `api3`, `api3b`, `api3c`. That is how a handful of
+ *    providers becomes twenty-two rungs without twenty-two blocks of config.
+ *
+ * A slot with no model or no key does not exist. That is checked here rather
+ * than at the call site so the boot line is the truth about what the server can
+ * do.
+ */
+function readApiSlots(): ApiSlot[] {
+  const raw = (name: string): string | undefined => {
+    const value = process.env[name];
+    return value && value.trim() ? value.trim() : undefined;
+  };
+  const firstUrl = env.MAFIA_API_URL;
+  const firstKey = env.MAFIA_API_KEY;
+
+  const slots: ApiSlot[] = [];
+  for (let index = 1; index <= MAX_API_SLOTS; index++) {
+    const suffix = index === 1 ? '' : `_${index}`;
+    const url = raw(`MAFIA_API${suffix}_URL`) ?? firstUrl;
+    const key = raw(`MAFIA_API${suffix}_KEY`) ?? firstKey;
+    const models = [raw(`MAFIA_API${suffix}_MODEL`), ...(raw(`MAFIA_API${suffix}_MODELS`)?.split(',') ?? [])]
+      .map((model) => model?.trim())
+      .filter((model): model is string => !!model);
+
+    if (!key || models.length === 0) continue;
+    // One rung per model, the first keeping the plain slot name so existing
+    // chains ("api1,api2,ollama") mean exactly what they always meant.
+    const seen = new Set<string>();
+    for (const [offset, model] of models.entries()) {
+      if (seen.has(model)) continue;
+      seen.add(model);
+      slots.push({ rung: offset === 0 ? `api${index}` : `api${index}${String.fromCharCode(97 + offset)}`, url, key, model });
+    }
+  }
+  return slots;
+}
+
+export const apiSlots: ApiSlot[] = readApiSlots();
+
+/** Where the flight recorder writes, as an absolute path. Same rule as the database. */
+export const traceDir = isAbsolute(env.GAME_TRACE_DIR)
+  ? env.GAME_TRACE_DIR
+  : resolve(packageRoot, env.GAME_TRACE_DIR);
 
 /** The canonical frontend origin, used when a single value is needed. */
 export const frontOrigin = `${env.FRONT_PROTOCOL}://${env.FRONT_URL}${env.FRONT_PORT}`;

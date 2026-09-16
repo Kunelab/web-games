@@ -170,6 +170,33 @@ export const DEFAULT_CONFIG: MafiaConfig = {
  * same information as sentences for humans; bots and future UI read this, which
  * needs no rendering at all.
  */
+/**
+ * What a sheriff's needle came back saying.
+ *
+ * `clear`, or the camp it pointed at. It used to be a boolean, which threw away
+ * the one thing that makes the role worth playing: "suspicious" is a shrug the
+ * town argues about, while "a Serial Killer" is a name, a threat level and an
+ * instruction. A framed seat reads as its framer's family, because that is what
+ * the frame is for; `suspect` is the catch-all for a seat that reads badly
+ * without belonging to anybody, which is the Scumbag's whole job.
+ */
+export type SheriffVerdict =
+  | 'clear'
+  | 'suspect'
+  | 'mafia'
+  | 'triad'
+  | 'cult'
+  | 'serial-killer'
+  | 'mass-murderer'
+  | 'arsonist'
+  | 'poisoner'
+  | 'electromaniac';
+
+/** Every verdict except `clear` is the needle moving. */
+export function sheriffSuspects(value: string): boolean {
+  return value !== 'clear';
+}
+
 export interface IntelEntry {
   night: number;
   /**
@@ -232,6 +259,34 @@ export interface MafiaPlayer {
   charged: boolean;
   /** Night the poisoner struck; death comes the following night unless cured. */
   poisonedNight: number | null;
+  /**
+   * The night somebody came for this seat and it lived, and what held.
+   *
+   * The single most valuable thing a town seat can say out loud, and until now
+   * it could only say it as prose: the engine told the victim "you were healed"
+   * in a notification, which a person reads and a bot cannot reason from. On
+   * the record it is evidence — "a doctor is alive and was on me on night 3"
+   * narrows the board for everybody, and "a bodyguard died for me" is checkable
+   * against the corpse in the square the same morning.
+   *
+   * `doctor` and `bodyguard` are what the victim genuinely learns; `self` is
+   * armour of its own (night immunity, a vest, a veteran's alert) and says far
+   * less, because it points at the seat's own role rather than at a saviour.
+   * Absent on a table persisted before this existed, and read as "never".
+   */
+  rescuedNight?: number | null;
+  rescuedBy?: 'doctor' | 'bodyguard' | 'self' | null;
+  /**
+   * The night somebody interfered with this seat, and how.
+   *
+   * The three things a person says the next morning before anything else —
+   * "I got roleblocked", "I was witched", "I was transported" — because each
+   * one explains a missing or wrong result and proves a role is at the table.
+   * The engine has always told the seat in a notification; a bot could not
+   * reason from prose, so it never said it. Latest wins, as with `rescuedNight`.
+   */
+  disturbedNight?: number | null;
+  disturbedBy?: 'block' | 'control' | 'swap' | null;
   /** Day number this player may not speak on (the blackmailer's gag). */
   silencedDay: number | null;
   /** What examiners see instead of the real role (imposteur, actrice, diva). */
@@ -309,6 +364,10 @@ export function seatPlayer(input: {
     doused: false,
     charged: false,
     poisonedNight: null,
+    rescuedNight: null,
+    rescuedBy: null,
+    disturbedNight: null,
+    disturbedBy: null,
     silencedDay: null,
     disguiseRole: null,
     bondPartnerId: null,
@@ -606,9 +665,7 @@ export function voteWeight(player: MafiaPlayer): number {
 
 /** Everything this player has banked: live during the game, and on the podium. */
 export function pointsFor(state: MafiaState, playerId: string): number {
-  return state.points
-    .filter((entry) => entry.playerId === playerId)
-    .reduce((sum, entry) => sum + entry.amount, 0);
+  return state.points.filter((entry) => entry.playerId === playerId).reduce((sum, entry) => sum + entry.amount, 0);
 }
 
 /** The jail channel is per night, so yesterday's interrogation stays sealed. */
@@ -690,22 +747,29 @@ export function chatRules(): ChannelRules<MafiaState> {
       }
       if (channel === 'mason') return state.phase === 'night' && isMason(member);
       if (channel === jailChannel(state.day)) {
-        return (
-          state.phase === 'night' &&
-          (state.jailedId === memberId || (member.role === 'jailor' && state.jailedId !== null))
-        );
+        if (state.phase !== 'night') return false;
+        /**
+         * A gag does not stop at the cell door.
+         *
+         * The blackmailer's letter says "one word tomorrow" and the night in
+         * the cell is part of that tomorrow: a prisoner silenced the night
+         * before sits in front of the jailor and cannot answer, which is the
+         * cruellest and most useful thing the role does. It also closes a hole
+         * the town could walk through — a gagged seat had one room left where
+         * it could still say "I am the Doctor, check me", and the whole point
+         * of the gag is that it cannot.
+         *
+         * The jailor's own gag is its own business: it is the one asking.
+         */
+        if (state.jailedId === memberId) return member.silencedDay !== state.day;
+        return member.role === 'jailor' && state.jailedId !== null;
       }
       // Whispers: daylight only, between two living players, and a gagged
       // mouth whispers no better than it talks.
       const pm = pmParticipants(channel);
       if (pm) {
         const other = state.players[pm[0] === memberId ? pm[1] : pm[0]];
-        return (
-          state.phase === 'day' &&
-          pm.includes(memberId) &&
-          member.silencedDay !== state.day &&
-          !!other?.alive
-        );
+        return state.phase === 'day' && pm.includes(memberId) && member.silencedDay !== state.day && !!other?.alive;
       }
       return false;
     }

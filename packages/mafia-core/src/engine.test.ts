@@ -23,9 +23,7 @@ import { en } from 'i18n/locales/en';
 import { fr } from 'i18n/locales/fr';
 
 import type { RoleId } from './roles.js';
-import {
-  chatRules,
-  ANONYMOUS, createMafiaGame, playerBySlot, type MafiaState } from './state.js';
+import { chatRules, ANONYMOUS, createMafiaGame, playerBySlot, type MafiaState } from './state.js';
 import { toMafiaView } from './view.js';
 
 /**
@@ -256,13 +254,33 @@ describe('mafia engine', () => {
     assert.ok(sheriff.notifications.some((note) => t(note).includes('n’a rien de suspect')));
   });
 
-  it('framing flips the sheriff result', () => {
+  /**
+   * A frame does not merely trip the needle, it aims it: the sheriff reads the
+   * framer's own family, which is what makes the power worth a night.
+   */
+  it('framing points the sheriff at the framer’s family', () => {
     const state = table(['sheriff', 'citizen', 'framer', 'godfather', 'doctor', 'escort']);
     advanceMafia(state, 0, lcg(1));
     setNightAction(state, bySlot(state, 3).playerId, 2); // frame the citizen
     setNightAction(state, bySlot(state, 1).playerId, 2); // sheriff checks the citizen
     advanceMafia(state, 1, lcg(1));
-    assert.ok(bySlot(state, 1).notifications.some((note) => t(note).includes('SUSPECT')));
+    const sheriff = bySlot(state, 1);
+    assert.ok(sheriff.notifications.some((note) => t(note).includes('MAFIA')));
+    assert.equal(sheriff.intel.find((entry) => entry.kind === 'sheriff' && entry.targetSlot === 2)?.value, 'mafia');
+  });
+
+  /** And the needle names the blade rather than shrugging at it. */
+  it('the sheriff names a lone killer', () => {
+    const state = table(['sheriff', 'serial-killer', 'citizen', 'godfather', 'doctor', 'escort']);
+    advanceMafia(state, 0, lcg(1));
+    setNightAction(state, bySlot(state, 1).playerId, 2); // sheriff checks the serial killer
+    advanceMafia(state, 1, lcg(1));
+    const sheriff = bySlot(state, 1);
+    assert.equal(
+      sheriff.intel.find((entry) => entry.kind === 'sheriff' && entry.targetSlot === 2)?.value,
+      'serial-killer'
+    );
+    assert.ok(sheriff.notifications.some((note) => t(note).includes('TUEUR EN SÉRIE')));
   });
 
   it('jail blocks and protects; execution kills the prisoner', () => {
@@ -479,7 +497,7 @@ describe('mafia engine', () => {
     assert.ok(overrun.winners.some((w) => w.playerId === thrivingWitch.playerId));
   });
 
-  it("scores every solo win as a solo win, not only the hanged jester", () => {
+  it('scores every solo win as a solo win, not only the hanged jester', () => {
     const state = table(['godfather', 'citizen', 'witch']);
     advanceMafia(state, 0, lcg(1));
     setNightAction(state, bySlot(state, 1).playerId, 2);

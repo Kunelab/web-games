@@ -1,0 +1,226 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
+import { seatHits } from './asks.js';
+import { readSquare, type Seat } from './square.js';
+
+/** A table with the awkward names on it: an accent, a two-worder, a short one. */
+const SEATS: Seat[] = [
+  { slot: 3, name: 'Aragorn' },
+  { slot: 4, name: 'Galadriel' },
+  { slot: 7, name: 'Géralt' },
+  { slot: 10, name: 'Boba Fett' },
+  { slot: 11, name: 'Loki' },
+  { slot: 13, name: 'Neo' }
+];
+
+/** Every claim of a kind, as slots, so an assertion reads like the sentence did. */
+function about(text: string, speaker: number, kind: string): number[] {
+  return readSquare(text, speaker, SEATS)
+    .filter((claim) => claim.kind === kind)
+    .map((claim) => claim.targetSlot)
+    .sort((left, right) => left - right);
+}
+
+describe('naming a house', () => {
+  it('reads a bare number and an exact name', () => {
+    assert.deepEqual(
+      seatHits('7 and Aragorn were both out', SEATS).map((hit) => hit.slot),
+      [7, 3]
+    );
+  });
+
+  it('does not read a house out of a longer number', () => {
+    assert.deepEqual(seatHits('131 votes', SEATS), []);
+  });
+
+  it('reads a name typed without its accent', () => {
+    assert.deepEqual(
+      seatHits('geralt is quiet', SEATS).map((hit) => hit.slot),
+      [7]
+    );
+  });
+
+  it('reads a shortened name and a mistyped one', () => {
+    assert.deepEqual(
+      seatHits('galad has not said a word', SEATS).map((hit) => hit.slot),
+      [4]
+    );
+    assert.deepEqual(
+      seatHits('aragron is lying', SEATS).map((hit) => hit.slot),
+      [3]
+    );
+  });
+
+  it('reads either word of a two-word name', () => {
+    assert.deepEqual(
+      seatHits('fett went out', SEATS).map((hit) => hit.slot),
+      [10]
+    );
+  });
+
+  it('refuses a guess at a short name', () => {
+    // "Neo" is three letters: a typo of it is not recoverable, only exact.
+    assert.deepEqual(seatHits('nio did something', SEATS), []);
+    assert.deepEqual(
+      seatHits('neo did something', SEATS).map((hit) => hit.slot),
+      [13]
+    );
+  });
+
+  it('reads a spelled-out house only behind a cue', () => {
+    assert.deepEqual(
+      seatHits('vote eleven', SEATS).map((hit) => hit.slot),
+      [11]
+    );
+    assert.deepEqual(seatHits('eleven of us are still alive', SEATS), []);
+  });
+
+  it('prefers the exact reading where two overlap', () => {
+    const hits = seatHits('Loki 11 again', SEATS);
+    assert.deepEqual(
+      hits.map((hit) => hit.slot),
+      [11, 11]
+    );
+    assert.ok(hits.every((hit) => hit.exact));
+  });
+});
+
+describe('reading the square', () => {
+  it('files an accusation with its house', () => {
+    assert.deepEqual(about('7 is mafia, look at the votes', 3, 'accuse'), [7]);
+    assert.deepEqual(about('geralt est louche depuis le debut', 3, 'accuse'), [7]);
+    assert.deepEqual(about("i'm voting 11", 3, 'accuse'), [11]);
+    assert.deepEqual(about('on pend 11', 3, 'accuse'), [11]);
+  });
+
+  it('files a clearing, and reads a refusal as one', () => {
+    assert.deepEqual(about('4 is town, I trust her', 3, 'clear'), [4]);
+    assert.deepEqual(about('not 11, please', 3, 'clear'), [11]);
+    assert.deepEqual(about('7 is not sus at all', 3, 'clear'), [7]);
+    assert.deepEqual(about("j'ai confiance en aragorn", 4, 'clear'), [3]);
+  });
+
+  it('files a question put to a house', () => {
+    assert.deepEqual(about('7, where were you last night?', 3, 'question'), [7]);
+    assert.deepEqual(about('11?', 3, 'question'), [11]);
+    assert.deepEqual(about('geralt explique toi', 3, 'question'), [7]);
+  });
+
+  it('files an alibi and a journey', () => {
+    assert.deepEqual(
+      readSquare('I stayed home all night', 3, SEATS),
+      [{ kind: 'account', targetSlot: 3, account: 'home' }]
+    );
+    assert.deepEqual(
+      readSquare('i went to 7 last night', 3, SEATS),
+      [{ kind: 'account', targetSlot: 7, account: 'visited' }]
+    );
+    assert.deepEqual(
+      readSquare('je suis alle chez galadriel', 3, SEATS),
+      [{ kind: 'account', targetSlot: 4, account: 'visited' }]
+    );
+  });
+
+  it('files a sighting', () => {
+    assert.deepEqual(about('i saw someone go into 4', 3, 'sighting'), [4]);
+    assert.deepEqual(about('11 had a visitor last night', 3, 'sighting'), [11]);
+    assert.deepEqual(about("j'ai vu quelqu'un chez geralt", 3, 'sighting'), [7]);
+  });
+
+  it('files what the night did to the speaker', () => {
+    assert.deepEqual(readSquare('i was healed last night', 3, SEATS), [
+      { kind: 'ailing', targetSlot: 3, ailment: 'healed' }
+    ]);
+    assert.deepEqual(readSquare("on m'a empoisonne, je meurs demain", 3, SEATS), [
+      { kind: 'ailing', targetSlot: 3, ailment: 'poison' }
+    ]);
+    assert.deepEqual(readSquare('i was blackmailed, i cannot say more', 3, SEATS), [
+      { kind: 'ailing', targetSlot: 3, ailment: 'silenced' }
+    ]);
+  });
+
+  it('files a role claim', () => {
+    const filed = readSquare('i am the sheriff and 7 came back bad', 3, SEATS);
+    assert.deepEqual(filed.find((claim) => claim.kind === 'role-claim'), {
+      kind: 'role-claim',
+      targetSlot: 3,
+      claimedRole: 'sheriff'
+    });
+    assert.deepEqual(
+      filed.filter((claim) => claim.kind === 'accuse').map((claim) => claim.targetSlot),
+      [7]
+    );
+  });
+
+  it('keeps a verdict with the house it was passed on', () => {
+    /**
+     * Both of these were read wrongly before the windows learned where a clause
+     * ends, and the first was caught in a real trace on the first line typed at
+     * it: "lying" is twenty characters from house 4 and belongs to a house that
+     * is not at the table.
+     */
+    assert.deepEqual(readSquare('i think the sheriff is 4 and 99 is lying', 3, SEATS), []);
+
+    const two = readSquare('7 is sus, 4 is fine', 3, SEATS);
+    assert.deepEqual(two.filter((claim) => claim.kind === 'accuse').map((claim) => claim.targetSlot), [7]);
+    assert.deepEqual(two.filter((claim) => claim.kind === 'clear').map((claim) => claim.targetSlot), [4]);
+
+    // And a comma inside one report still belongs to it: the shape every
+    // sheriff's will is written in.
+    assert.deepEqual(about('N2: checked 7, came back bad', 3, 'accuse'), [7]);
+  });
+
+  it('does not read an opinion about somebody else as a role claim', () => {
+    // The expensive false positive: a first-person marker a few characters in
+    // front of a role name, in a sentence that is about another house.
+    assert.deepEqual(readSquare('i think the sheriff is 7', 3, SEATS).filter((c) => c.kind === 'role-claim'), []);
+    assert.deepEqual(readSquare('je crois que le sherif est 7', 3, SEATS).filter((c) => c.kind === 'role-claim'), []);
+    assert.equal(readSquare('i am the sheriff', 3, SEATS)[0]?.claimedRole, 'sheriff');
+  });
+
+  it('never files a claim about the speaker from somebody else', () => {
+    assert.deepEqual(about('3 is mafia', 3, 'accuse'), []);
+  });
+
+  it('says nothing about banter', () => {
+    assert.deepEqual(readSquare('hello everyone', 3, SEATS), []);
+    assert.deepEqual(readSquare('lol', 3, SEATS), []);
+    assert.deepEqual(readSquare('good luck all, have fun', 3, SEATS), []);
+  });
+
+  it('reads a will one night at a time', () => {
+    /**
+     * A will is a list, not a sentence, so each line is read on its own: the
+     * opposite of chat, where three lines in a row are one thought.
+     */
+    const will = [
+      'N1: stayed home, nothing to report',
+      'N2: checked 7, came back bad',
+      'N3: I went to 4, they are clean',
+      'I am the sheriff'
+    ];
+    const filed = will.flatMap((line) => readSquare(line, 3, SEATS, { implicitSelf: true }));
+
+    assert.deepEqual(
+      filed.filter((claim) => claim.kind === 'accuse').map((claim) => claim.targetSlot),
+      [7]
+    );
+    assert.ok(filed.some((claim) => claim.kind === 'account' && claim.account === 'home'));
+    assert.ok(filed.some((claim) => claim.kind === 'account' && claim.account === 'visited' && claim.targetSlot === 4));
+    assert.ok(filed.some((claim) => claim.kind === 'role-claim' && claim.claimedRole === 'sheriff'));
+  });
+
+  it('does not put a will\'s implicit "I" in front of a named house', () => {
+    // "7 stayed home" is a report about 7, even in a will, and filing it as the
+    // author's own alibi would be the reader inventing an alibi.
+    const filed = readSquare('7 stayed home all night, they said', 3, SEATS, { implicitSelf: true });
+    assert.ok(!filed.some((claim) => claim.kind === 'account' && claim.targetSlot === 3));
+  });
+
+  it('reads two assertions out of one line', () => {
+    const filed = readSquare('not 4, 11 is the liar here', 3, SEATS);
+    assert.deepEqual(filed.filter((claim) => claim.kind === 'clear').map((claim) => claim.targetSlot), [4]);
+    assert.deepEqual(filed.filter((claim) => claim.kind === 'accuse').map((claim) => claim.targetSlot), [11]);
+  });
+});
