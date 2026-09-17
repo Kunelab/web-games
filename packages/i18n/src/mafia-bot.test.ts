@@ -78,9 +78,22 @@ const WHOLE_RECORD: Record<string, RegExp[]> = {
     /\bnever explains?\b/i,
     /\bsince day one\b/i,
     /\btwo days\b/i,
-    /\banswered everything\b/i
+    /\banswered everything\b/i,
+    /**
+     * And the shapes that got past the list above, because a report of
+     * somebody's record does not have to say "always" to be one. A taunt's mark
+     * is drawn out of a hat — see `decideDay` — so "Not much from 14" and
+     * "Anyone heard 14 today?" landed on the loudest seat at the table as
+     * readily as on the quietest, and the board filed the loud one as quiet.
+     */
+    /\b(?:not much|nothing|barely a word) (?:from|out of)\b/i,
+    /\banyone heard\b/i,
+    /\b(?:has|have) been (?:quiet|silent)\b/i
   ],
   fr: [
+    /\bpas grand-chose (?:de|d[’'])\b/i,
+    /\bquelqu[’']un a entendu\b/i,
+    /\b(?:est|sont) rest[ée]s? (?:muet|silencieu)/i,
     /\btoute la partie\b/i,
     /\btous les jours\b/i,
     /\bà chaque fois\b/i,

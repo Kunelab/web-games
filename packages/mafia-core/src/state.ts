@@ -279,14 +279,21 @@ export interface MafiaPlayer {
   /**
    * The night somebody interfered with this seat, and how.
    *
-   * The three things a person says the next morning before anything else —
-   * "I got roleblocked", "I was witched", "I was transported" — because each
-   * one explains a missing or wrong result and proves a role is at the table.
-   * The engine has always told the seat in a notification; a bot could not
-   * reason from prose, so it never said it. Latest wins, as with `rescuedNight`.
+   * The four things a person says the next morning before anything else —
+   * "I got roleblocked", "I was witched", "I was transported", "I was in the
+   * cell" — because each one explains a missing or wrong result and proves a
+   * role is at the table. The engine has always told the seat in a
+   * notification; a bot could not reason from prose, so it never said it.
+   * Latest wins, as with `rescuedNight`.
+   *
+   * `jail` is the one of the four the room can settle without trusting
+   * anybody: the man with the keys is sitting right there and either confirms
+   * it or does not, so two seats claiming the same cell is one of them caught.
+   * It is kept apart from `block` for that reason alone — both take the night
+   * away, only one leaves a witness.
    */
   disturbedNight?: number | null;
-  disturbedBy?: 'block' | 'control' | 'swap' | null;
+  disturbedBy?: 'block' | 'control' | 'swap' | 'jail' | null;
   /** Day number this player may not speak on (the blackmailer's gag). */
   silencedDay: number | null;
   /** What examiners see instead of the real role (imposteur, actrice, diva). */

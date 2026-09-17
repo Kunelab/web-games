@@ -459,6 +459,8 @@ const CLAIM_VALUE: Record<ClaimKind, number> = {
  * turns describing its own night.
  */
 const AILMENT_VALUE: Record<string, number> = {
+  // The only one with a living witness: the jailor confirms it, or catches a liar.
+  jailed: 4.8,
   guarded: 4.5,
   silenced: 4,
   healed: 3.5,
@@ -4245,6 +4247,8 @@ export class MafiaBotDriver {
             return line('controlled', 6);
           case 'bussed':
             return line('bussed', 6);
+          case 'jailed':
+            return line('jailed', 6);
           default:
             return line('poisoned', 6);
         }
@@ -4307,6 +4311,8 @@ export class MafiaBotDriver {
             return 'tell the square a witch controlled you last night and sent you somewhere you did not choose';
           case 'bussed':
             return 'tell the square you were transported last night, so anything aimed at you landed elsewhere';
+          case 'jailed':
+            return 'tell the square the jailor had you in the cell last night, so you did nothing and he can confirm it';
           default:
             return 'tell the square you were poisoned last night and ask the doctor to heal you tonight, or you die at dawn';
         }
@@ -4695,6 +4701,16 @@ export class MafiaBotDriver {
     if (!self?.role || !me) return null;
 
     if (self.role === 'jailor') {
+      /**
+       * The threat, only while there is one.
+       *
+       * "I can kill you from here" and "I have one execution" were two of the twelve questions and came up whatever
+       * was left in the jailor's hand — so a Jailor who had spent all three went on promising a lever he could not
+       * pull, and a prisoner who called the bluff by waking up alive had caught the phrasebook rather than the player.
+       */
+      if (self.charges > 0 && hashCode(botId + ':threat:' + state.day) % 4 === 0) {
+        return t(vary('mafia.bot.jail.threat', 3, botId + ':threat:' + state.day));
+      }
       return t(msg('mafia.bot.jail.ask.' + (1 + (hashCode(botId + ':ask:' + state.day) % 12))));
     }
 
@@ -5046,7 +5062,15 @@ export class MafiaBotDriver {
     const t = say(spokenLocale(state));
     const nameOf = (slot: number): string =>
       Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
-    const flavour = t(msg(`mafia.bot.will.${1 + (hashCode(botId) % 9)}`));
+    /**
+     * The line at the bottom, chosen against what is above it.
+     *
+     * Three of the nine point upwards — "Everything I had is above", "I told you what I knew", "I was wrong about
+     * plenty" — and a Citizen with no power, no findings and nothing written down dies with a will that is that
+     * sentence and nothing else, pointing at a blank page. The other six stand on their own, so they are what a bare
+     * will gets. Picked below, once there is something to weigh it against.
+     */
+    const STANDS_ALONE = [2, 4, 5, 6, 8, 9];
 
     /**
      * Whose will this is, and whose nights it lists.
@@ -5136,6 +5160,15 @@ export class MafiaBotDriver {
           day: note.day,
           who: nameOf(note.slot)
         })
+      )
+    );
+
+    const bare = !signed && nights.length === 0 && notes.length === 0 && going.length === 0;
+    const flavour = t(
+      msg(
+        bare
+          ? `mafia.bot.will.${STANDS_ALONE[hashCode(botId) % STANDS_ALONE.length]}`
+          : `mafia.bot.will.${1 + (hashCode(botId) % 9)}`
       )
     );
 
@@ -5288,8 +5321,23 @@ export class MafiaBotDriver {
        */
       const told = this.lastAccount(board, me.slot);
       if (told?.account === 'visited') {
+        /**
+         * Naming the night, because the account may not be about last night.
+         *
+         * `lastAccount` is the latest one on the board and nothing says it was
+         * given today: a seat that admitted a visit on day two and has been
+         * quiet since stood up on day five and said "I was at 4 last night" —
+         * an alibi for a night it had never spoken about, contradicting its own
+         * record in the same breath it cited it. A claim filed on day D is an
+         * account of night D − 1, so that is the night it says.
+         */
         return {
-          text: t(vary('mafia.bot.defend.visited', 3, botId + ':stand:' + state.day, { who: nameOf(told.targetSlot) })),
+          text: t(
+            vary('mafia.bot.defend.visited', 3, botId + ':stand:' + state.day, {
+              who: nameOf(told.targetSlot),
+              night: told.day - 1
+            })
+          ),
           claim: null
         };
       }
@@ -5332,7 +5380,10 @@ export class MafiaBotDriver {
     if (account?.account === 'visited') {
       return {
         text: t(
-          vary('mafia.bot.defend.visited', 3, botId + ':stand:' + state.day, { who: nameOf(account.targetSlot) })
+          vary('mafia.bot.defend.visited', 3, botId + ':stand:' + state.day, {
+            who: nameOf(account.targetSlot),
+            night: account.day - 1
+          })
         ),
         claim: null
       };
