@@ -80,6 +80,21 @@ export interface MafiaConfig {
   judgementMs: number;
   /** Extra discussion granted after a spared trial. */
   aftermathMs: number;
+  /**
+   * How long a day must be *talked* before it can be ended.
+   *
+   * The bots reach their verdict in the first second, because the policy brain
+   * has the whole board the moment the day opens and nothing about it changes
+   * by waiting. On an empty board that verdict is "no case, skip", so day two
+   * ended before anybody had read the dawn report — reported from a real table,
+   * where the human had not finished typing hello.
+   *
+   * The cure is not to make the bots slower at thinking. It is to say that a
+   * day has a minimum length: accusations and skips are refused until it has
+   * passed, the talk happens in that window, and the vote is then taken against
+   * a board that has something on it.
+   */
+  voteLockMs: number;
   /** Trials a single day may hold before night falls by exhaustion. */
   trialsPerDay: number;
   /** Days before a draw is called. */
@@ -141,6 +156,7 @@ export const DEFAULT_CONFIG: MafiaConfig = {
   minPlayers: 4,
   dayMs: 120_000,
   firstDayMs: 35_000,
+  voteLockMs: 15_000,
   nightMs: 40_000,
   /**
    * The trial, at a length somebody can actually use.
@@ -519,6 +535,11 @@ export interface MafiaState {
   /** Server deadline of the running phase; clients render the countdown. */
   phaseEndsAt: number | null;
   players: Record<string, MafiaPlayer>;
+  /**
+   * When this day's ballot opens. Null outside a day, and on tables that
+   * predate the field — an absent lock is no lock, so old saves keep working.
+   */
+  voteOpensAt?: number | null;
   /** Day accusations: voter id -> accused id, or `SKIP_VOTE`. */
   votes: Record<string, string>;
   /**

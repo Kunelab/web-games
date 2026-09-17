@@ -78,7 +78,8 @@ const CONNECTOR = /^[\s,;:]*(?:and|or|nor|plus|then|ou|et|ni|puis)?[\s,;:]*$/i;
  * "no" in it belongs to the sentence being withdrawn. Everything up to and
  * including the correction is dropped before the run-up is read.
  */
-const CORRECTION = /\b(?:no wait|wait|actually|scratch that|forget (?:that|it)|non attends|attends|en fait|plutôt|plutot)\b/gi;
+const CORRECTION =
+  /\b(?:no wait|wait|actually|scratch that|forget (?:that|it)|non attends|attends|en fait|plutôt|plutot)\b/gi;
 
 /** "I am the …", in the two languages the game ships. */
 const FIRST_PERSON = /\b(?:i'?m|i am|im|me|myself|je suis|j'?suis|c'?est moi|moi)\b[^.!?]{0,16}$/i;
@@ -93,7 +94,8 @@ const FIRST_PERSON = /\b(?:i'?m|i am|im|me|myself|je suis|j'?suis|c'?est moi|moi
  * checking because a false role claim is the most expensive mistake either
  * reader can make: it is the one thing the whole table reasons from.
  */
-const REPORTING = /\b(?:think|thinks|thought|believe|believes|guess|bet|say|says|said|suspect|suspects|reckon|wonder|hope|pense|crois|croit|dis|dit|suppose|parie|suspecte|imagine)\b/i;
+const REPORTING =
+  /\b(?:think|thinks|thought|believe|believes|guess|bet|say|says|said|suspect|suspects|reckon|wonder|hope|pense|crois|croit|dis|dit|suppose|parie|suspecte|imagine)\b/i;
 
 /**
  * Accents off, case off.
@@ -120,11 +122,39 @@ export function fold(text: string): string {
  * naming house 2.
  */
 const NUMBER_WORDS: Record<string, number> = {
-  two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
-  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
-  seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
-  deux: 2, trois: 3, quatre: 4, cinq: 5, sept: 7, huit: 8, dix: 10,
-  onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16, vingt: 20
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  deux: 2,
+  trois: 3,
+  quatre: 4,
+  cinq: 5,
+  sept: 7,
+  huit: 8,
+  dix: 10,
+  onze: 11,
+  douze: 12,
+  treize: 13,
+  quatorze: 14,
+  quinze: 15,
+  seize: 16,
+  vingt: 20
 };
 
 /**
@@ -139,11 +169,64 @@ const NUMBER_CUE =
 
 /** Words too common to be read as a misspelt name. */
 const NOT_A_NAME = new Set([
-  'that', 'this', 'they', 'them', 'then', 'than', 'what', 'when', 'were', 'where', 'with', 'your',
-  'yeah', 'well', 'just', 'like', 'know', 'said', 'says', 'sure', 'stop', 'dont', 'cant', 'wont',
-  'mafia', 'town', 'vote', 'night', 'last', 'home', 'house', 'been', 'have', 'here', 'there',
-  'dans', 'chez', 'avec', 'pour', 'mais', 'donc', 'quoi', 'nuit', 'jour', 'vote', 'tour', 'bien',
-  'alors', 'etait', 'etais', 'suis', 'sais', 'dire', 'fait', 'fais', 'tout', 'tous', 'plus'
+  'that',
+  'this',
+  'they',
+  'them',
+  'then',
+  'than',
+  'what',
+  'when',
+  'were',
+  'where',
+  'with',
+  'your',
+  'yeah',
+  'well',
+  'just',
+  'like',
+  'know',
+  'said',
+  'says',
+  'sure',
+  'stop',
+  'dont',
+  'cant',
+  'wont',
+  'mafia',
+  'town',
+  'vote',
+  'night',
+  'last',
+  'home',
+  'house',
+  'been',
+  'have',
+  'here',
+  'there',
+  'dans',
+  'chez',
+  'avec',
+  'pour',
+  'mais',
+  'donc',
+  'quoi',
+  'nuit',
+  'jour',
+  'vote',
+  'tour',
+  'bien',
+  'alors',
+  'etait',
+  'etais',
+  'suis',
+  'sais',
+  'dire',
+  'fait',
+  'fais',
+  'tout',
+  'tous',
+  'plus'
 ]);
 
 /**
@@ -244,8 +327,7 @@ export function seatHits(text: string, seats: readonly { slot: number; name: str
        */
       const matched = keys.some(
         (key) =>
-          (key.startsWith(word) && word.length >= 4) ||
-          (Math.min(key.length, word.length) >= 5 && within1(key, word))
+          (key.startsWith(word) && word.length >= 4) || (Math.min(key.length, word.length) >= 5 && within1(key, word))
       );
       if (matched) {
         hits.push({ slot: seat.slot, who: seat.name, at, end: at + word.length, exact: false });
@@ -340,8 +422,59 @@ function roleNames(): { name: string; role: RoleId }[] {
     }
     seen.set(id.replace(/-/g, ' '), id);
   }
-  ROLE_NAMES = [...seen].map(([name, role]) => ({ name, role })).sort((left, right) => right.name.length - left.name.length);
+  ROLE_NAMES = [...seen]
+    .map(([name, role]) => ({ name, role }))
+    .sort((left, right) => right.name.length - left.name.length);
   return ROLE_NAMES;
+}
+
+/** The abbreviations a table actually types, per role. */
+const ROLE_NICKNAMES: Partial<Record<RoleId, string[]>> = {
+  'serial-killer': ['sk'],
+  godfather: ['gf'],
+  veteran: ['vet'],
+  vigilante: ['vig', 'vigi'],
+  doctor: ['doc', 'medic'],
+  bodyguard: ['bg'],
+  executioner: ['exe', 'exec'],
+  consigliere: ['consig'],
+  lookout: ['lo'],
+  'bus-driver': ['bd'],
+  investigator: ['invest'],
+  'mass-murderer': ['mm'],
+  blackmailer: ['bm'],
+  survivor: ['surv'],
+  'mason-leader': ['mason leader'],
+  escort: ['esc'],
+  arsonist: ['arso'],
+  janitor: ['jani'],
+  amnesiac: ['amne'],
+  cultist: ['cult'],
+  electromaniac: ['electro'],
+  coroner: ['coro'],
+  marshall: ['marshal', 'marsh'],
+  disguiser: ['disg'],
+  interrogator: ['interro'],
+  detective: ['detec']
+};
+
+/**
+ * A nickname found as a whole word.
+ *
+ * Separate from the name table because the names are matched with `indexOf`,
+ * which is right for "serial killer" and catastrophic for "sk": it would fire
+ * inside "asked", "risky" and "skip". Two-letter abbreviations only work with a
+ * boundary on both sides.
+ */
+function nicknameAt(line: string): { at: number; role: RoleId } | null {
+  let best: { at: number; role: RoleId } | null = null;
+  for (const [role, words] of Object.entries(ROLE_NICKNAMES) as [RoleId, string[]][]) {
+    for (const word of words) {
+      const found = new RegExp(`\\b${word}\\b`, 'i').exec(line);
+      if (found && (best === null || found.index < best.at)) best = { at: found.index, role };
+    }
+  }
+  return best;
 }
 
 /** The role somebody claims for themselves in one line, if they claim one. */
@@ -353,7 +486,26 @@ export function selfClaim(text: string): RoleId | null {
     const runUp = line.slice(Math.max(0, at - 20), at);
     if (FIRST_PERSON.test(runUp) && !REPORTING.test(runUp)) return role;
   }
+  // And the same test against what people type instead of the name.
+  const nick = nicknameAt(line);
+  if (nick) {
+    const runUp = line.slice(Math.max(0, nick.at - 20), nick.at);
+    if (FIRST_PERSON.test(runUp) && !REPORTING.test(runUp)) return nick.role;
+  }
   return null;
+}
+
+/**
+ * The role a line *names*, whoever it belongs to — "the gf", "who is the vet".
+ *
+ * Distinct from `selfClaim`, which asks whether the speaker claimed it. This
+ * asks only whether a role was mentioned, which is what resolving "veteran,
+ * where were you" into a house needs.
+ */
+export function roleNamed(text: string): RoleId | null {
+  const line = fold(text);
+  for (const { name, role } of roleNames()) if (line.includes(name)) return role;
+  return nicknameAt(line)?.role ?? null;
 }
 
 /**

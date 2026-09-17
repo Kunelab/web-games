@@ -200,7 +200,62 @@ export type ClaimKind =
    * and that is exactly what makes it a comfortable lie, which is why liars
    * tell it too.
    */
-  | 'ailing';
+  | 'ailing'
+  /**
+   * "We need to vote." / "Let us skip today."
+   *
+   * The room pushing on the clock rather than on a person. It names nobody, so
+   * no suspicion moves — and it was the single most consequential sentence the
+   * board could not hear: `steadyVote` skips a day whose evidence is below
+   * `NO_CASE_CEILING`, which on day two is every day, so the bots ended day two
+   * in the first second while a person was still typing. A human asking for a
+   * vote is the one thing that should override a machine's verdict that there
+   * is nothing to vote on.
+   */
+  | 'urge'
+  /**
+   * "Why me?" / "Who put my name up?"
+   *
+   * The reciprocal of `question`: not a seat being asked to account for itself,
+   * but a seat demanding that its accusers account for *theirs*. The reason is
+   * already computed — `why()` builds one for every accusation a bot makes and
+   * throws it away unless the line happens to carry it — so this costs nothing
+   * to answer and turns a silent wagon into an argument.
+   */
+  | 'demand'
+  /**
+   * "He cannot be the doctor."
+   *
+   * Denying somebody else's badge, which is not the same as calling them mafia
+   * and was being flattened into `accuse` — losing the one thing that makes it
+   * checkable, which is *which* badge is contested. Two seats claiming one role
+   * is already a contradiction the board knows how to price; one seat denying
+   * another's claim is the same contradiction asserted by a voice that can
+   * itself be weighed.
+   */
+  | 'counter-claim'
+  /**
+   * "Spare me and I will prove it tonight."
+   *
+   * A bet the room can settle, which is rarer and worth more than a bluff. The
+   * Town Crier speaks anonymously in the dark and can give that up to name
+   * itself; a Mayor can reveal; a Sheriff can name tomorrow's check in advance.
+   * Each converts an unfalsifiable claim into one the next dawn either confirms
+   * or hangs them for — and gives the town a reason to wait a day rather than
+   * pull the rope on a board with nothing on it.
+   */
+  | 'promise'
+  /**
+   * "The sheriff checked 3 and got nothing."
+   *
+   * Somebody else's claim, repeated. Real tables run on this and the board had
+   * no way to tell it from a firsthand report, which matters because it is the
+   * cheapest lie available: nobody can fabricate the Sheriff's check, but
+   * anybody can fabricate having *heard* it. Carried with the seat it is
+   * attributed to, so it can be weighed below the thing it claims to relay and
+   * contradicted by the seat it is put in the mouth of.
+   */
+  | 'relay';
 
 /** A public statement about a house. `truthful` is ground truth, sim-stamped. */
 export interface Claim {
@@ -227,6 +282,39 @@ export interface Claim {
    * guess is still the best available.
    */
   night?: number;
+  /**
+   * urge only: which way the speaker is pushing the day.
+   *
+   * `vote` is "we have to hang somebody", `skip` is "there is nothing here
+   * today". Read by `steadyVote`, which otherwise decides that on its own and
+   * decides it instantly.
+   */
+  urge?: 'vote' | 'skip';
+  /**
+   * counter-claim only: the badge being denied to `targetSlot`.
+   *
+   * Without it the denial is just an accusation and the room cannot check the
+   * thing that makes it answerable — whether anybody else is standing up for
+   * that same role.
+   */
+  deniedRole?: RoleId;
+  /**
+   * promise only: what the speaker is offering to prove, and by when.
+   *
+   * `night` is a thing the next dawn settles — the Crier naming itself in the
+   * dark, a Sheriff announcing tomorrow's check in advance. `now` is settled on
+   * the spot, which is the Mayor's sash. Kept apart because only the first is a
+   * reason to *wait*, and waiting is the whole point of hearing it.
+   */
+  promise?: 'night' | 'now';
+  /**
+   * relay only: the seat this is being attributed to.
+   *
+   * The speaker is not making this claim, they are reporting it. Weighed below
+   * a firsthand claim and answerable by the seat named, who can simply say they
+   * never said it.
+   */
+  relayedFrom?: number;
   /** role-claim only: "je suis <rôle>" (targetSlot is the claimer). */
   claimedRole?: RoleId;
   /**

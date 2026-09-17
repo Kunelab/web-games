@@ -17,6 +17,7 @@ export const screenFr: Catalogue = {
   'mafia.refuse.deadNoVote': 'Les morts ne votent pas',
   'mafia.refuse.notNow': 'Pas maintenant',
   'mafia.refuse.firstDay': 'Pas de vote le premier jour',
+  'mafia.refuse.stillTalking': 'Trop tôt : la ville discute encore',
   'mafia.refuse.badTarget': 'Cible invalide',
   'mafia.refuse.needsSecondTarget': 'Il faut désigner une seconde maison',
   'mafia.refuse.sameTwice': 'Deux fois la même maison',
@@ -700,9 +701,12 @@ export const screenFr: Catalogue = {
   'mafia.bot.dump.jailedTried.1': 'Nuit {night} : {who} était dans ma cellule, et il a essayé d’agir depuis là.',
   'mafia.bot.dump.jailedTried.2': 'J’ai enfermé {who} la nuit {night}. Il a tendu la main vers quelque chose.',
   'mafia.bot.dump.jailedTried.3': 'Nuit {night} : {who} l’a passée au cachot et n’est pas resté tranquille.',
-  'mafia.bot.dump.controlledKill.1': 'Nuit {night} : j’ai pris la main de {who} et l’ai envoyée sur {house}. {house} ne s’est pas réveillé.',
-  'mafia.bot.dump.controlledKill.2': 'J’ai dirigé {who} sur {house} la nuit {night}, et {house} est mort. {who} porte quelque chose.',
-  'mafia.bot.dump.controlledKill.3': 'Nuit {night} : la main de {who}, pointée sur {house}. Il y avait un corps chez {house} au matin.',
+  'mafia.bot.dump.controlledKill.1':
+    'Nuit {night} : j’ai pris la main de {who} et l’ai envoyée sur {house}. {house} ne s’est pas réveillé.',
+  'mafia.bot.dump.controlledKill.2':
+    'J’ai dirigé {who} sur {house} la nuit {night}, et {house} est mort. {who} porte quelque chose.',
+  'mafia.bot.dump.controlledKill.3':
+    'Nuit {night} : la main de {who}, pointée sur {house}. Il y avait un corps chez {house} au matin.',
   'mafia.bot.dump.controlledIdle.1': 'Nuit {night} : j’ai pris la main de {who} et elle était vide.',
   'mafia.bot.dump.controlledIdle.2': 'J’avais {who} la nuit {night}. Il ne faisait rien du tout.',
   'mafia.bot.dump.controlledIdle.3': 'Nuit {night} : {who} n’avait aucun ordre à donner. Faites-en ce que vous voulez.',

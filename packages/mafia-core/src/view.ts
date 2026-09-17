@@ -187,6 +187,8 @@ export interface MafiaView {
    * back untouched when play resumes — see `presence`.
    */
   phaseEndsAt: number | null;
+  /** When accusations open, so a phone can grey the buttons until then. */
+  voteOpensAt: number | null;
   /**
    * Who the table is waiting for, and any vote to carry on without them.
    *
@@ -214,7 +216,14 @@ export interface MafiaView {
    * argument, and the whole history of a nine-day game is not something anybody
    * scrolls back through on a phone.
    */
-  voteLog: { day: number; voter: string; voterSlot: number; target: string | null; targetSlot: number | null; skip: boolean }[];
+  voteLog: {
+    day: number;
+    voter: string;
+    voterSlot: number;
+    target: string | null;
+    targetSlot: number | null;
+    skip: boolean;
+  }[];
   /** Weighted "hang nobody" votes, and the majority that would carry them. */
   skipVotes: number;
   voteThreshold: number;
@@ -354,7 +363,6 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
 
   const accused = state.trial ? state.players[state.trial.accusedId] : null;
 
-
   let me: MafiaViewMe | null = null;
   if (viewer.kind === 'player') {
     const self = state.players[viewer.playerId];
@@ -424,7 +432,12 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
         alive: self.alive,
         role:
           def && self.role
-            ? { id: self.role, name: ROLE.name(self.role), faction: def.faction, description: ROLE.description(self.role) }
+            ? {
+                id: self.role,
+                name: ROLE.name(self.role),
+                faction: def.faction,
+                description: ROLE.description(self.role)
+              }
             : null,
         charges: def?.charges !== undefined ? self.charges : null,
         teammates: (() => {
@@ -435,8 +448,7 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
         })(),
         obsessionSlot: obsession?.slot ?? null,
         jailed: state.jailedId === self.playerId && state.phase === 'night',
-        jailTargetSlot:
-          self.role === 'jailor' && state.jailedId ? (state.players[state.jailedId]?.slot ?? null) : null,
+        jailTargetSlot: self.role === 'jailor' && state.jailedId ? (state.players[state.jailedId]?.slot ?? null) : null,
         action: legalNightAction(state, self.playerId),
         actionTargetSlot: submittedSlot,
         actionSecondTargetSlot: submittedSecondSlot,
@@ -478,6 +490,7 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
     day: state.day,
     stage: state.stage,
     phaseEndsAt: state.phaseEndsAt,
+    voteOpensAt: state.voteOpensAt ?? null,
     presence: mafiaPresenceView(state, now, viewer.kind === 'player' ? viewer.playerId : null),
     maxPlayers: state.config.maxPlayers,
     minPlayers: state.config.minPlayers,

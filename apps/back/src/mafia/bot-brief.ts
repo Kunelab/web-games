@@ -10,6 +10,7 @@ import {
 } from 'mafia-core';
 import type { Locale } from 'i18n';
 import type { BotMind } from './bot-mind.js';
+import { screen } from './guard.js';
 import { say } from './say.js';
 
 /**
@@ -321,6 +322,12 @@ export function brief(view: MafiaView, board: PublicInfo, mind: BotMind, task: s
  * exist for is the afternoon that does not.
  */
 const TRANSCRIPT_CHARS = 2200;
+
+/**
+ * How many of a person's lines are carried back into the window when the bots
+ * have talked over them. Small on purpose: see `transcript`.
+ */
+const HUMAN_FLOOR = 4;
 /**
  * The chat itself refuses anything past four hundred characters, so this only
  * ever bites a *merged* run — somebody who typed three long messages in a row —
@@ -332,7 +339,29 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
   // Authored lines only: the game's own announcements are already summarised
   // above, so this needs no renderer.
   const spoken = view.chat.filter((message) => message.authorId);
-  const recent = spoken.slice(-window);
+  const humanNames = new Set(view.players.filter((player) => !player.isBot).map((player) => player.name));
+
+  /**
+   * A person's words keep their place in the window whatever the bots do.
+   *
+   * The window was the last N lines and nothing else, which on a table with
+   * fifteen talking bots is a window onto the bots. A person types one sentence,
+   * eleven seats answer it, and by the next turn the sentence itself has fallen
+   * out of the briefing — while the header above it says, in capitals, that
+   * what people said matters more than the numbers.
+   *
+   * So the tail is taken as before and then the most recent human lines are put
+   * back if they fell out of it. Bounded, because the point is that a person is
+   * not drowned out, not that a person may flood the prompt: past a handful the
+   * rest is the same argument said again, and the character budget below still
+   * has the last word.
+   */
+  const tail = spoken.slice(-window);
+  const kept = new Set(tail);
+  const rescued = spoken
+    .filter((message) => humanNames.has(message.authorName) && !kept.has(message))
+    .slice(-HUMAN_FLOOR);
+  const recent = [...rescued, ...tail].sort((left, right) => spoken.indexOf(left) - spoken.indexOf(right));
 
   // The defendant's words, wherever they fell in the log.
   if (view.trial) {
@@ -343,7 +372,6 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
     recent.unshift(...defence);
   }
 
-  const humanSlots = new Set(view.players.filter((player) => !player.isBot).map((player) => player.name));
   const slots = new Map(view.players.map((player) => [player.name, player.slot]));
 
   /**
@@ -399,10 +427,14 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
   let left = TRANSCRIPT_CHARS;
   for (let index = merged.length - 1; index >= 0; index--) {
     const message = merged[index];
-    const person = humanSlots.has(message.authorName) ? ' [HUMAN PLAYER]' : '';
+    const person = humanNames.has(message.authorName) ? ' [HUMAN PLAYER]' : '';
     const slot = slots.get(message.authorName);
     const who = slot === undefined ? message.authorName : `${slot} ${message.authorName}`;
-    const said = message.text.length > LINE_CHARS ? `${message.text.slice(0, LINE_CHARS)}…` : message.text;
+    // Screened here rather than at the chat, because the square is for people
+    // and this line is for a model: a human reading the same message sees it
+    // exactly as typed. See `guard.ts`.
+    const clean = screen(message.text).text;
+    const said = clean.length > LINE_CHARS ? `${clean.slice(0, LINE_CHARS)}…` : clean;
     const line = `${who}${person}${room(message.channel)}: ${said}`;
     if (line.length > left && rendered.length > 0) break;
     left -= line.length;

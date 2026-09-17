@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { seatHits } from './asks.js';
+import { roleNamed, seatHits, selfClaim } from './asks.js';
 import { readSquare, type Seat } from './square.js';
 
 /** A table with the awkward names on it: an accent, a two-worder, a short one. */
@@ -108,18 +108,15 @@ describe('reading the square', () => {
   });
 
   it('files an alibi and a journey', () => {
-    assert.deepEqual(
-      readSquare('I stayed home all night', 3, SEATS),
-      [{ kind: 'account', targetSlot: 3, account: 'home' }]
-    );
-    assert.deepEqual(
-      readSquare('i went to 7 last night', 3, SEATS),
-      [{ kind: 'account', targetSlot: 7, account: 'visited' }]
-    );
-    assert.deepEqual(
-      readSquare('je suis alle chez galadriel', 3, SEATS),
-      [{ kind: 'account', targetSlot: 4, account: 'visited' }]
-    );
+    assert.deepEqual(readSquare('I stayed home all night', 3, SEATS), [
+      { kind: 'account', targetSlot: 3, account: 'home' }
+    ]);
+    assert.deepEqual(readSquare('i went to 7 last night', 3, SEATS), [
+      { kind: 'account', targetSlot: 7, account: 'visited' }
+    ]);
+    assert.deepEqual(readSquare('je suis alle chez galadriel', 3, SEATS), [
+      { kind: 'account', targetSlot: 4, account: 'visited' }
+    ]);
   });
 
   it('files a sighting', () => {
@@ -142,11 +139,14 @@ describe('reading the square', () => {
 
   it('files a role claim', () => {
     const filed = readSquare('i am the sheriff and 7 came back bad', 3, SEATS);
-    assert.deepEqual(filed.find((claim) => claim.kind === 'role-claim'), {
-      kind: 'role-claim',
-      targetSlot: 3,
-      claimedRole: 'sheriff'
-    });
+    assert.deepEqual(
+      filed.find((claim) => claim.kind === 'role-claim'),
+      {
+        kind: 'role-claim',
+        targetSlot: 3,
+        claimedRole: 'sheriff'
+      }
+    );
     assert.deepEqual(
       filed.filter((claim) => claim.kind === 'accuse').map((claim) => claim.targetSlot),
       [7]
@@ -163,8 +163,14 @@ describe('reading the square', () => {
     assert.deepEqual(readSquare('i think the sheriff is 4 and 99 is lying', 3, SEATS), []);
 
     const two = readSquare('7 is sus, 4 is fine', 3, SEATS);
-    assert.deepEqual(two.filter((claim) => claim.kind === 'accuse').map((claim) => claim.targetSlot), [7]);
-    assert.deepEqual(two.filter((claim) => claim.kind === 'clear').map((claim) => claim.targetSlot), [4]);
+    assert.deepEqual(
+      two.filter((claim) => claim.kind === 'accuse').map((claim) => claim.targetSlot),
+      [7]
+    );
+    assert.deepEqual(
+      two.filter((claim) => claim.kind === 'clear').map((claim) => claim.targetSlot),
+      [4]
+    );
 
     // And a comma inside one report still belongs to it: the shape every
     // sheriff's will is written in.
@@ -174,8 +180,14 @@ describe('reading the square', () => {
   it('does not read an opinion about somebody else as a role claim', () => {
     // The expensive false positive: a first-person marker a few characters in
     // front of a role name, in a sentence that is about another house.
-    assert.deepEqual(readSquare('i think the sheriff is 7', 3, SEATS).filter((c) => c.kind === 'role-claim'), []);
-    assert.deepEqual(readSquare('je crois que le sherif est 7', 3, SEATS).filter((c) => c.kind === 'role-claim'), []);
+    assert.deepEqual(
+      readSquare('i think the sheriff is 7', 3, SEATS).filter((c) => c.kind === 'role-claim'),
+      []
+    );
+    assert.deepEqual(
+      readSquare('je crois que le sherif est 7', 3, SEATS).filter((c) => c.kind === 'role-claim'),
+      []
+    );
     assert.equal(readSquare('i am the sheriff', 3, SEATS)[0]?.claimedRole, 'sheriff');
   });
 
@@ -220,7 +232,138 @@ describe('reading the square', () => {
 
   it('reads two assertions out of one line', () => {
     const filed = readSquare('not 4, 11 is the liar here', 3, SEATS);
-    assert.deepEqual(filed.filter((claim) => claim.kind === 'clear').map((claim) => claim.targetSlot), [4]);
-    assert.deepEqual(filed.filter((claim) => claim.kind === 'accuse').map((claim) => claim.targetSlot), [11]);
+    assert.deepEqual(
+      filed.filter((claim) => claim.kind === 'clear').map((claim) => claim.targetSlot),
+      [4]
+    );
+    assert.deepEqual(
+      filed.filter((claim) => claim.kind === 'accuse').map((claim) => claim.targetSlot),
+      [11]
+    );
+  });
+});
+
+describe('sentences from a real table', () => {
+  /** Every claim of every kind, as `kind:slot`, so an assertion reads like the line did. */
+  const read = (text: string, speaker = 1): string[] =>
+    readSquare(text, speaker, SEATS)
+      .map(
+        (claim) =>
+          claim.kind +
+          (claim.claimedRole ? '(' + claim.claimedRole + ')' : '') +
+          (claim.ailment ? '(' + claim.ailment + ')' : '') +
+          (claim.targetSlot === speaker ? '' : ':' + String(claim.targetSlot))
+      )
+      .sort();
+
+  it('reads a blunt accusation, however it is worded', () => {
+    assert.deepEqual(read('7 is evil'), ['accuse:7']);
+    assert.deepEqual(read('4 is mafia'), ['accuse:4']);
+    assert.deepEqual(read('Loki is suspicious'), ['accuse:11']);
+    assert.deepEqual(read('13 might be the SK'), ['accuse:13']);
+  });
+
+  it('reads a defence offered for somebody else', () => {
+    assert.deepEqual(read('4 is framed, he is innocent'), ['clear:4']);
+  });
+
+  /**
+   * The jailor's own report, which the cell cue used to steal.
+   *
+   * "I am jailor, I jailed 8" is the man with the keys describing his night. The
+   * bare verb read it as him having *been* jailed and filed the ailment on him —
+   * on the one seat whose word about a cell is worth anything, and the seat
+   * least able to have been in one.
+   */
+  it('does not read a jailor jailing somebody as the jailor being jailed', () => {
+    const claims = read('I am jailor, I jailed 10 and there was no kill that night');
+    assert.deepEqual(claims, ['role-claim(jailor)']);
+    assert.ok(!claims.some((claim) => claim.includes('jailed)')), 'the jailor was filed as a prisoner');
+  });
+
+  it('still reads every way of saying you were the one in the cell', () => {
+    for (const line of [
+      'I was jailed last night',
+      'Jailed last night, so I did nothing.',
+      'the jailor had me last night',
+      'I spent last night in jail'
+    ]) {
+      assert.ok(read(line).includes('ailing(jailed)'), line);
+    }
+  });
+
+  /**
+   * What people type instead of a role's name.
+   *
+   * Nobody writes "the Serial Killer" in a chat box. The table was built from
+   * the catalogue's two languages, which is every word the game prints and none
+   * of the words it is played in.
+   */
+  it('reads the abbreviations a table actually uses', () => {
+    assert.equal(selfClaim('I am the vet'), 'veteran');
+    assert.equal(selfClaim('im sk'), 'serial-killer');
+    assert.equal(selfClaim('I am gf'), 'godfather');
+    assert.equal(selfClaim('i am vigi'), 'vigilante');
+    assert.equal(selfClaim('im the doc'), 'doctor');
+    assert.equal(selfClaim('I am the medic'), 'doctor');
+    assert.equal(selfClaim('I am the exec'), 'executioner');
+    assert.equal(selfClaim('im arso'), 'arsonist');
+    assert.equal(selfClaim('I am the jani'), 'janitor');
+    assert.equal(selfClaim('im amne'), 'amnesiac');
+    assert.equal(selfClaim('i am cult'), 'cultist');
+    assert.equal(selfClaim('im electro'), 'electromaniac');
+    assert.equal(selfClaim('I am coro'), 'coroner');
+    assert.equal(selfClaim('im disg'), 'disguiser');
+    assert.equal(selfClaim('I am detec'), 'detective');
+  });
+
+  /**
+   * Jester has no abbreviation here on purpose.
+   *
+   * "jest" resolved it, and "you jest" and "in jest" are ordinary English — a
+   * role nobody actually shortens is not worth the sentences it would swallow.
+   * Kept as a test so it does not get added back on the reasoning that it looks
+   * like it belongs in the list.
+   */
+  it('leaves alone the shortenings that are ordinary words', () => {
+    assert.equal(selfClaim('you jest'), null);
+    assert.equal(selfClaim('in jest'), null);
+    for (const line of ['cultivate the garden', 'electronic', 'coronavirus', 'interrogation room', 'disguise']) {
+      assert.equal(selfClaim(line), null, line);
+    }
+  });
+
+  /**
+   * And the reason those are matched on a word boundary rather than by
+   * `indexOf`: two letters live inside a great many ordinary words.
+   */
+  it('does not find a role inside an ordinary word', () => {
+    for (const line of ['I asked him already', 'that was risky', 'lets skip', 'execute him', 'medical attention']) {
+      assert.equal(selfClaim(line), null, line);
+    }
+  });
+
+  it('reads a role named without anybody claiming it', () => {
+    assert.equal(roleNamed('who is the vet ?'), 'veteran');
+    assert.equal(roleNamed('the gf is still alive'), 'godfather');
+    assert.equal(roleNamed('nothing here'), null);
+  });
+
+  /**
+   * Lines the board has no shape for.
+   *
+   * Filing nothing is the right answer today — there is no claim kind for a call
+   * to action, for explaining a past vote, or for asking why you are being
+   * voted. Kept as tests so that stays a decision rather than an accident: if a
+   * kind is ever added for them, these are the lines it has to catch.
+   */
+  it('files nothing for the things the board cannot hold', () => {
+    for (const line of [
+      'we need to vote',
+      'we have to vote because it is starting to be difficult for town',
+      'why me ?'
+    ]) {
+      assert.deepEqual(read(line), [], line);
+    }
   });
 });
