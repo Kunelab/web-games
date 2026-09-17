@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { MafiaPublicPlayer } from 'mafia-core';
 
 import { mafiaFolkArt, mafiaTownArt } from '../../app/assets';
+import { authorColour } from '../../ui/authorHue';
 
 /**
  * The town, and nothing but the town.
@@ -47,14 +48,30 @@ import { mafiaFolkArt, mafiaTownArt } from '../../app/assets';
  * fresh checkout with no art in it still shows a town rather than a blank strip.
  */
 
-/** Plot to plot along one street, in projected pixels. */
-const STEP_X = 54;
-const STEP_Y = 18;
+/**
+ * Plot to plot along one street, in projected pixels.
+ *
+ * Wider and shallower than it was, because the frame it lives in is a strip.
+ * The town measured 732 by 366 — two to one — inside a band that is four or
+ * five to one on any desktop, and an SVG that preserves its aspect ratio
+ * answers that by shrinking to fit the *height* and leaving a third of the
+ * width empty on each side. That is the whole of "the houses do not reach the
+ * edge": they were reaching the edge of the drawing, and the drawing was
+ * floating in the middle of the box.
+ *
+ * Stretching the picture would have been the cheap fix and the wrong one: these
+ * are photographs of houses now, and a horizontally scaled photograph of a
+ * house looks like a house that has been sat on. So the *town* is wider
+ * instead — a longer street, a shallower hill — which costs nothing because the
+ * plots were never anywhere near each other horizontally.
+ */
+const STEP_X = 78;
+const STEP_Y = 13;
 /** How far the innermost plot stands off the apex, so the two streets do not meet. */
-const APEX_GAP = 6;
+const APEX_GAP = 10;
 /** How far in front of the back street the near one runs, and how far it is inset. */
-const FRONT_Y = 62;
-const FRONT_X = 27;
+const FRONT_Y = 48;
+const FRONT_X = 39;
 /** Six plots per street per row: two rows, two streets, twenty-four seats. */
 const PER_ROW = 6;
 
@@ -148,12 +165,20 @@ function plotsFor(seed: string): Map<number, Plot> {
 }
 
 /**
- * Seat tint. Stepped through a coarse wheel rather than 360/24, because fifteen
- * degrees apart makes neighbours identical and the point of a colour is to tell
- * two of them apart.
+ * Seat tint, taken from the same palette the roster and the chat print.
+ *
+ * It used to be its own wheel of twelve, keyed on the slot number, while the
+ * roster coloured a name with a completely different function keyed on the
+ * name. Both were "the seat's colour" and they agreed about nothing — so the
+ * mark under a villager's feet, whose entire job is to say which of two dozen
+ * identical silhouettes you are looking at, pointed at a different row of the
+ * list than the one it belonged to.
+ *
+ * `authorColour` is now the one answer, and it is keyed on the name because
+ * that is the only thing the roster, the chat and the hill all hold. See
+ * `authorHue.ts`, which has said this was the point since it was written.
  */
-const SEAT_HUES = [8, 32, 48, 96, 150, 180, 200, 224, 262, 292, 320, 344];
-const seatHue = (slot: number): number => SEAT_HUES[(slot * 5) % SEAT_HUES.length] ?? 0;
+const seatColour = (name: string): string => authorColour(name);
 
 const diamond = (x: number, y: number, w: number, h: number): string =>
   `${x},${y - h / 2} ${x + w / 2},${y} ${x},${y + h / 2} ${x - w / 2},${y}`;
@@ -187,6 +212,42 @@ function useTownArt(): boolean {
   return ready;
 }
 
+/**
+ * How wide the board is against how tall, watched rather than assumed.
+ *
+ * A phone holds this in a band not much wider than it is tall; a desktop holds
+ * it in one five times wider. There is no single viewBox that fills both, and
+ * picking either one means the other is letterboxed — which is what was
+ * happening, and what made the middle of the town sit somewhere other than the
+ * middle of the frame.
+ *
+ * Starts at the desktop shape rather than at zero, so the first paint is close
+ * and the observer only ever corrects it. A board that renders once at 1:1 and
+ * then jumps is worse than one that is briefly a little wide.
+ */
+function useAspect(): [React.RefObject<HTMLDivElement | null>, number] {
+  const frame = useRef<HTMLDivElement | null>(null);
+  const [aspect, setAspect] = useState(3.4);
+
+  useEffect(() => {
+    const element = frame.current;
+    if (!element) return;
+    const watch = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      if (!box || box.height <= 0) return;
+      // Clamped: a degenerate box during a transition should not throw the
+      // camera to infinity and back.
+      setAspect(Math.max(1, Math.min(8, box.width / box.height)));
+    });
+    watch.observe(element);
+    return () => {
+      watch.disconnect();
+    };
+  }, []);
+
+  return [frame, aspect];
+}
+
 export type TownTheme = 'village' | 'cite';
 
 export interface MafiaTownProps {
@@ -207,6 +268,7 @@ export interface MafiaTownProps {
 
 export function MafiaTown({ players, mySlot, night, seed = '', theme = 'village', zoom = 1 }: MafiaTownProps) {
   const art = useTownArt();
+  const [frame, aspect] = useAspect();
   const bySlot = new Map(players.map((player) => [player.slot, player]));
   // Plot to seat, which is the direction the painters need: they walk the town
   // in depth order and ask who lives here.
@@ -222,21 +284,43 @@ export function MafiaTown({ players, mySlot, night, seed = '', theme = 'village'
    */
   const accused = players.find((player) => player.onTrial && player.alive) ?? null;
 
-  // The camera pulls back by padding the box rather than scaling the drawing:
-  // strokes and text keep their own weight that way, which is the whole reason
-  // the scenery is an SVG.
+  /**
+   * The camera: how much board to show, and where the middle of it is.
+   *
+   * It pulls back by padding the box rather than scaling the drawing, so strokes
+   * and text keep their own weight — which is the whole reason the scenery is an
+   * SVG rather than a picture.
+   *
+   * The part that was wrong is the *shape*. A viewBox is fitted into its element
+   * with preserveAspectRatio, so a 2:1 drawing in a 5:1 strip is scaled down
+   * until its height fits and then centred, with the leftover width split into
+   * two empty margins. Two things followed, and they are the two that were
+   * reported: the houses stopped well short of the edges, and the middle of the
+   * town was not the middle of the frame, because the frame's middle is the
+   * middle of the *element* and the drawing was only occupying the part of it
+   * the fit left over.
+   *
+   * So the box is grown to the element's own aspect ratio, around the centre of
+   * the content rather than around the origin. Growing rather than cropping:
+   * whichever way the strip is shaped, everything that was visible stays
+   * visible, and the extra is ground.
+   */
   const pad = 26 * zoom;
   const reach = PER_ROW * STEP_X + APEX_GAP + HOUSE_W / 2;
-  const minX = -reach - pad;
-  const maxX = reach + pad;
-  const minY = -HOUSE_H - pad;
-  const maxY = SQUARE.y + 46 + pad;
+  const wide = 2 * (reach + pad);
+  const tall = SQUARE.y + 46 + pad + HOUSE_H + pad;
+  const middleY = (SQUARE.y + 46 + pad + (-HOUSE_H - pad)) / 2;
+
+  const width = Math.max(wide, tall * aspect);
+  const height = Math.max(tall, wide / aspect);
+  const minX = -width / 2;
+  const minY = middleY - height / 2;
 
   return (
-    <div className={`mz-town${night ? ' mz-town--night' : ''}`} data-town-theme={theme}>
+    <div className={`mz-town${night ? ' mz-town--night' : ''}`} data-town-theme={theme} ref={frame}>
       <svg
         className="mz-town-canvas"
-        viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
+        viewBox={`${minX} ${minY} ${width} ${height}`}
         aria-hidden="true"
         focusable="false"
       >
@@ -269,7 +353,7 @@ export function MafiaTown({ players, mySlot, night, seed = '', theme = 'village'
                   {mySlot === slot && <Pennant x={plot.x} y={plot.y} tall={player.alive} />}
                   {/* Away at their own trial: the plot keeps the house, the square keeps them. */}
                   {player.alive && slot !== accused?.slot && (
-                    <Villager x={stood.x} y={stood.y} hue={seatHue(slot)} art={art} facing={plot.side} />
+                    <Villager x={stood.x} y={stood.y} tint={seatColour(player.name)} art={art} facing={plot.side} />
                   )}
                   {!player.alive && <Tombstone x={stood.x} y={stood.y} art={art} />}
                 </>
@@ -308,7 +392,7 @@ export function MafiaTown({ players, mySlot, night, seed = '', theme = 'village'
             <Villager
               x={SQUARE.x + 30}
               y={SQUARE.y + 8}
-              hue={seatHue(accused.slot)}
+              tint={seatColour(accused.name)}
               art={art}
               facing="right"
               accused
@@ -400,7 +484,14 @@ function House({ plot, art, night, barred = false }: { plot: Plot; art: boolean;
       <g className={barred ? 'mz-house mz-house--barred' : 'mz-house'}>
         <ellipse cx={plot.x} cy={plot.y + 4} rx={30} ry={9} className="mz-house-shadow" />
         <Sprite
-          file={barred ? 'house-village-boarded' : 'house-village-day'}
+          /*
+           * A boarded house looks the same after dark, because nobody lights a
+           * lamp in it. The other two are separate paintings and the night one
+           * has been sitting unused in the art set: `night` reached this
+           * component, was handed straight to the vector fallback, and the
+           * branch that actually draws the town ignored it.
+           */
+          file={barred ? 'house-village-boarded' : night ? 'house-village-night' : 'house-village-day'}
           x={plot.x}
           y={plot.y + 8}
           w={HOUSE_W}
@@ -424,9 +515,18 @@ function DrawnHouse({ x, y, night, barred = false }: { x: number; y: number; nig
 
   return (
     <g className={barred ? 'mz-house mz-house--barred' : 'mz-house'}>
-      <polygon points={`${x - w / 2},${base - h / 2} ${x},${base} ${x},${base - wall} ${x - w / 2},${eave}`} className="mz-wall-l" />
-      <polygon points={`${x + w / 2},${base - h / 2} ${x},${base} ${x},${base - wall} ${x + w / 2},${eave}`} className="mz-wall-r" />
-      <polygon points={`${x - w / 2},${eave} ${x},${base - wall} ${x + w / 2},${eave} ${x},${eave - roof}`} className="mz-roof" />
+      <polygon
+        points={`${x - w / 2},${base - h / 2} ${x},${base} ${x},${base - wall} ${x - w / 2},${eave}`}
+        className="mz-wall-l"
+      />
+      <polygon
+        points={`${x + w / 2},${base - h / 2} ${x},${base} ${x},${base - wall} ${x + w / 2},${eave}`}
+        className="mz-wall-r"
+      />
+      <polygon
+        points={`${x - w / 2},${eave} ${x},${base - wall} ${x + w / 2},${eave} ${x},${eave - roof}`}
+        className="mz-roof"
+      />
       <rect
         x={x + w * 0.1}
         y={eave + 7}
@@ -471,14 +571,15 @@ function Boards({ x, w, h, base, eave }: { x: number; w: number; h: number; base
 function Villager({
   x,
   y,
-  hue,
+  tint,
   art,
   facing,
   accused = false
 }: {
   x: number;
   y: number;
-  hue: number;
+  /** The seat's colour, the same one the roster prints beside their name. */
+  tint: string;
   art: boolean;
   facing: 'left' | 'right';
   accused?: boolean;
@@ -486,7 +587,7 @@ function Villager({
   if (art) {
     return (
       <g className={accused ? 'mz-villager mz-villager--accused' : 'mz-villager'}>
-        <ellipse cx={x} cy={y + 2} rx={9} ry={3.5} fill={`hsl(${hue} 52% 46%)`} className="mz-villager-mark" />
+        <ellipse cx={x} cy={y + 2} rx={9} ry={3.5} fill={tint} className="mz-villager-mark" />
         <Sprite
           file={accused ? 'model-villager-accused' : 'model-villager-base'}
           x={x}
@@ -505,9 +606,10 @@ function Villager({
       <ellipse cx={x} cy={y + 7} rx={7} ry={3} className="mz-villager-shadow" />
       <path
         d={`M ${x - 5} ${y + 5} Q ${x - 6} ${y - 6} ${x} ${y - 7} Q ${x + 6} ${y - 6} ${x + 5} ${y + 5} Z`}
-        fill={`hsl(${hue} 52% 46%)`}
+        fill={tint}
       />
-      <circle cx={x} cy={y - 11} r={4.5} fill={`hsl(${hue} 40% 70%)`} />
+      {/* The head, lightened off the same colour rather than off a second hue. */}
+      <circle cx={x} cy={y - 11} r={4.5} fill={tint} opacity={0.72} />
     </g>
   );
 }
@@ -524,7 +626,10 @@ function Tombstone({ x, y, art }: { x: number; y: number; art: boolean }) {
   return (
     <g className="mz-tomb">
       <ellipse cx={x} cy={y + 5} rx={12} ry={4} className="mz-tomb-ground" />
-      <path d={`M ${x - 7} ${y + 4} L ${x - 7} ${y - 11} Q ${x} ${y - 20} ${x + 7} ${y - 11} L ${x + 7} ${y + 4} Z`} className="mz-tomb-stone" />
+      <path
+        d={`M ${x - 7} ${y + 4} L ${x - 7} ${y - 11} Q ${x} ${y - 20} ${x + 7} ${y - 11} L ${x + 7} ${y + 4} Z`}
+        className="mz-tomb-stone"
+      />
     </g>
   );
 }
