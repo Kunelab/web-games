@@ -219,6 +219,40 @@ export interface IntelEntry {
     | 'spied'
     | 'blocked'
     | 'swapped'
+    /**
+     * The jailor's own night: who was in the cell, and whether they tried
+     * anything from inside it.
+     *
+     * The one working role in this game that kept no record at all. Jailing is
+     * a day action that writes `state.jailedId` and nothing else, so a real
+     * Jailor reached its own last will with not one night to put in it — while
+     * an Escort's `blocked` entries render as "Night 3: I held X at home",
+     * which reads exactly like a jailor's line. The honest Jailor was mute and
+     * the liars were circumstantial. Reported from a real table, where three
+     * seats claimed the badge and the one telling the truth had the thinnest
+     * will of the three.
+     *
+     * `value` is `'quiet'` or `'tried'`: a prisoner who submitted an action is
+     * a prisoner the jailor watched reach for something, which is exactly the
+     * evidence an execution is supposed to rest on.
+     */
+    | 'jailed'
+    /**
+     * The Witch's own night: whose hand she took, where she sent it, and
+     * whether there was anything in it.
+     *
+     * She had no memory at all, and picked her victim uniformly at random every
+     * night of the game — "honest mischief" was the whole of her strategy. But
+     * taking a hand is an *experiment*: a seat that had something to redirect
+     * holds a night power, and if the house she sent it to is a corpse in the
+     * morning, the hand she is holding is holding a knife. That is worth
+     * knowing, and worth going back to.
+     *
+     * `value` is `'sent'` when there was an order to redirect and `'idle'` when
+     * the seat was doing nothing; `slots` carries the destination, so the
+     * morning's dead can be checked against it.
+     */
+    | 'controlled'
     | 'went';
   targetSlot: number;
   /** sheriff: 'suspect' | 'clear'; trade: the trade line; role: a RoleId; saved/doused: constants. */
@@ -507,6 +541,16 @@ export interface MafiaState {
   nightActions: Record<string, NightAction>;
   /** Who the jailor locked up for tonight (chosen during the day). */
   jailedId: string | null;
+  /**
+   * The hands that pulled the rope on a Jester, waiting for the night.
+   *
+   * The Jester wins by being hanged and then, in the morning, one of the seats
+   * that voted him guilty is found dead of remorse. Held here between the
+   * verdict and the dawn because the two happen in different phases, and
+   * cleared as soon as it is spent. Absent on a table with no Jester in the
+   * ground, and on one persisted before this existed.
+   */
+  jesterHaunt?: string[];
   chat: ChatState;
   /**
    * Public record of every completed trial: after the verdict, the town sees

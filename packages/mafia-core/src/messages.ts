@@ -357,13 +357,16 @@ export type DeathSource =
   | 'veteran'
   | 'mafia'
   | 'triad'
-  | 'cult';
+  | 'cult'
+  /** The Jester's last laugh: a hand that pulled the rope, and could not live with it. */
+  | 'remorse';
 
 const SOURCE = (source: DeathSource): Msg => msg(`mafia.source.${source}`);
 
 export const CAUSE = {
   lynched: (): Msg => msg('mafia.cause.lynched'),
   grief: (): Msg => msg('mafia.cause.grief'),
+  remorse: (): Msg => msg('mafia.cause.remorse'),
   guard: (name: string): Msg => msg('mafia.cause.guard', { name }),
   bodyguard: (): Msg => msg('mafia.cause.bodyguard'),
   killedBy: (source: DeathSource): Msg => msg('mafia.cause.killedBy', { source: SOURCE(source) }),

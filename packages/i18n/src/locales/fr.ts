@@ -88,6 +88,8 @@ export const fr: Catalogue = {
   /* ---------------------- how somebody died, and by whose hand --------------- */
   'mafia.cause.lynched': 'pendu par la ville',
   'mafia.cause.grief': 'mort de chagrin',
+  /** Le dernier rire du Bouffon : une des mains qui ont tiré la corde. */
+  'mafia.cause.remorse': 'mort de remords',
   'mafia.cause.guard': 'mort en protégeant {name}',
   'mafia.cause.bodyguard': 'abattu par un garde du corps',
   'mafia.cause.killedBy': 'tué par {source}',
@@ -104,6 +106,7 @@ export const fr: Catalogue = {
   'mafia.source.mafia': 'la Mafia',
   'mafia.source.triad': 'la Triade',
   'mafia.source.cult': 'la Secte',
+  'mafia.source.remorse': 'sa propre conscience',
 
   /* -------------------------------- endings ------------------------------- */
   'mafia.win.town': 'La ville est purgée. La Ville l’emporte !',

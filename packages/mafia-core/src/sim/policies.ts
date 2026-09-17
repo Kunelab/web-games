@@ -78,6 +78,50 @@ export interface Temperament {
   haste: number;
 }
 
+/**
+ * The ways a person at the table does not behave like a policy.
+ *
+ * Every bot in this file is a well-behaved correspondent: asked a question it
+ * answers, having answered it does not change its story, and having settled on
+ * a vote it needs real evidence to move. People are none of those things, and
+ * the gap matters more than it sounds, because the whole human-facing half of
+ * this brain has never once run in the bench — every bench game is bots, so
+ * `humanSlots` is empty, the one line that reads it multiplies nothing, and any
+ * rule about a seat that ignores the room has nothing to fire on.
+ *
+ * So the bench can seat people-shaped players: the same brain, with the four
+ * habits that actually distinguish a person from a policy at a Mafia table.
+ * Not an attempt at realism. It is coverage — a way to make the human paths
+ * run, and to see what the bots do when somebody stonewalls them.
+ *
+ * All zero by default, and every one of them is read behind a `> 0` guard so
+ * an unquirked table draws exactly the random numbers it drew before.
+ */
+export interface Quirks {
+  /** Chance of letting a question aimed at this seat go unanswered. */
+  stonewall: number;
+  /** Chance of volunteering a fresh account that does not match the standing one. */
+  waffle: number;
+  /** How much less evidence it takes to move this seat off its vote, 0..1. */
+  lateSwitch: number;
+  /** Chance of asking again, of a seat that answered the first ask with nothing. */
+  press: number;
+}
+
+/** The policy's own habits: answers when asked, keeps its story, holds its vote. */
+export const NO_QUIRKS: Quirks = { stonewall: 0, waffle: 0, lateSwitch: 0, press: 0 };
+
+/**
+ * A quirk fires, without touching the random stream when it cannot.
+ *
+ * The short-circuit is the whole point: `rng() < 0` is still a draw, and a
+ * bench whose every seat rolled four extra numbers a day would no longer be
+ * the bench the balance numbers were measured against.
+ */
+function quirked(chance: number, rng: () => number): boolean {
+  return chance > 0 && rng() < chance;
+}
+
 export interface Personality {
   /** Propensity to vote without hard evidence. */
   aggression: number;
@@ -91,6 +135,8 @@ export interface Personality {
   courage: number;
   /** The meter coefficients. See `Temperament`. */
   temperament: Temperament;
+  /** The people-shaped habits. Absent, as for every bot, means none. See `Quirks`. */
+  quirks?: Quirks;
 }
 
 /** The average player: every meter at exactly its face value. */
@@ -106,7 +152,24 @@ export const DEFAULT_PROFILE: Personality = {
   claimRate: 0.7,
   deceit: 0.4,
   courage: 0.5,
-  temperament: EVEN_TEMPERAMENT
+  temperament: EVEN_TEMPERAMENT,
+  quirks: NO_QUIRKS
+};
+
+/**
+ * A seat that plays like somebody typing, for the bench.
+ *
+ * Tuned to be awkward rather than strong: it talks early, it does not always
+ * answer, it changes its story, and it moves its vote on less than a bot would.
+ * A table that handles this one gracefully is a table that handles a person.
+ */
+export const HUMAN_PROFILE: Partial<Personality> = {
+  aggression: 0.65,
+  herd: 0.35,
+  claimRate: 0.85,
+  deceit: 0.5,
+  courage: 0.6,
+  quirks: { stonewall: 0.45, waffle: 0.25, lateSwitch: 0.6, press: 0.5 }
 };
 
 /**
@@ -146,6 +209,24 @@ export interface Claim {
   targetSlot: number;
   kind: ClaimKind;
   truthful: boolean;
+  /**
+   * The night this is *about*, when it is about a night at all.
+   *
+   * `day` means two different things depending on where the claim came from,
+   * and always has: a spoken claim carries the day it was said, so the night it
+   * describes is the one before; a claim read out of a will carries the night
+   * itself, because that is what the record it was built from stores. The board
+   * knew this and worked around it for deduplication, and the driver did not —
+   * so every reason a bot gave off a dead seat's will named a night one too
+   * early. "You were seen on night 2" about a sighting made on night 3, which
+   * the room can check and find false, from the one source that was telling the
+   * truth. Reported from a real table.
+   *
+   * So the night is written down rather than inferred. Absent on a claim that
+   * is not about a night, and on one built before this existed, where the old
+   * guess is still the best available.
+   */
+  night?: number;
   /** role-claim only: "je suis <rôle>" (targetSlot is the claimer). */
   claimedRole?: RoleId;
   /**
@@ -316,7 +397,9 @@ export function makePersonality(profile: Personality, rng: () => number): Person
     claimRate: jitter(profile.claimRate),
     deceit: jitter(profile.deceit),
     courage: jitter(profile.courage),
-    temperament: { nerve: coefficient(), suspicion: coefficient(), haste: coefficient() }
+    temperament: { nerve: coefficient(), suspicion: coefficient(), haste: coefficient() },
+    // Carried through untouched: a habit is a habit, not a meter to roll.
+    quirks: profile.quirks ?? NO_QUIRKS
   };
 }
 
@@ -682,6 +765,38 @@ export const BADGE_ROLES: ReadonlySet<RoleId> = new Set<RoleId>([
  * badge is at least one liar, and neither claimant gets the benefit until the
  * room sorts them out.
  */
+/**
+ * Where a board's derived answers are kept, and why it is not a WeakMap.
+ *
+ * Several things here are pure functions of the board and are asked the same
+ * question hundreds of times per decision. They used to cache against the board
+ * object's identity, which was correct and nearly useless: `toPublicInfo` hands
+ * back a fresh object whenever a single vote moves, and a vote moves on almost
+ * every read during the afternoon, so the caches were thrown away four times a
+ * day per seat.
+ *
+ * The builder therefore hangs a scratch container on the board and carries the
+ * *same* container onto the next board whenever only the votes changed, so what
+ * does not depend on the votes survives. It is attached non-enumerably, so a
+ * caller that builds a variant with `{ ...board, voteHistory }` gets a board
+ * with no container and falls back to the map below, which is keyed by identity
+ * and therefore always correct. See `BoardMemo` in `observe.ts`.
+ */
+export const BOARD_MEMO = Symbol.for('mafia.boardMemo');
+
+const LOOSE_MEMO = new WeakMap<PublicInfo, Record<string, unknown>>();
+
+function boardMemo(info: PublicInfo): Record<string, unknown> {
+  const carried = (info as unknown as Record<symbol, unknown>)[BOARD_MEMO];
+  if (carried) return carried as Record<string, unknown>;
+  let loose = LOOSE_MEMO.get(info);
+  if (!loose) {
+    loose = {};
+    LOOSE_MEMO.set(info, loose);
+  }
+  return loose;
+}
+
 export function uncontestedBadge(slot: number, info: PublicInfo): RoleId | null {
   return badgesOf(info).get(slot) ?? null;
 }
@@ -857,11 +972,108 @@ export function provenLiar(slot: number, info: PublicInfo): boolean {
  * The number it returns is a nudge, not a verdict — it sits alongside the
  * evidence in `suspicion` rather than above it.
  */
-export function buddyScore(targetSlot: number, info: PublicInfo): number {
-  const days = new Set(info.voteHistory.map((entry) => entry.day));
-  if (days.size < 3) return 0;
+/**
+ * The ballots, indexed by day, with the table's own rate of agreeing with itself.
+ *
+ * Built once per board rather than per seat: `buddyScore` is asked about every
+ * house by every seat on every pass, and it used to scan the whole history
+ * twice per candidate partner.
+ */
+interface VoteIndex {
+  /** day -> voter slot -> the house they closed the day on. */
+  byDay: Map<number, Map<number, number>>;
+  /**
+   * Every day-pair of seats who both voted, and how many of those agreed.
+   *
+   * Kept as the two totals rather than as a rate so a pair can be measured
+   * against the table *minus itself*. See `buddyScore`.
+   */
+  pairs: number;
+  agreed: number;
+}
 
+function voteIndexOf(info: PublicInfo): VoteIndex {
+  const memo = boardMemo(info);
+  const cached = memo.voteIndex as VoteIndex | undefined;
+  if (cached) return cached;
+
+  const byDay = new Map<number, Map<number, number>>();
+  for (const entry of info.voteHistory) {
+    let day = byDay.get(entry.day);
+    if (!day) {
+      day = new Map();
+      byDay.set(entry.day, day);
+    }
+    day.set(entry.voterSlot, entry.targetSlot);
+  }
+
+  let pairs = 0;
+  let agreed = 0;
+  for (const day of byDay.values()) {
+    const ballots = [...day.values()];
+    for (let i = 0; i < ballots.length; i++) {
+      for (let j = i + 1; j < ballots.length; j++) {
+        pairs++;
+        if (ballots[i] === ballots[j]) agreed++;
+      }
+    }
+  }
+
+  const index: VoteIndex = { byDay, pairs, agreed };
+  memo.voteIndex = index;
+  return index;
+}
+
+/**
+ * What the ballots say about a seat, and who they say it with.
+ *
+ * The partner comes back with the number because a read nobody can name is
+ * worse than no read at all. This one was worth a fifth of a lynch and had no
+ * sentence behind it anywhere in the driver, so when it fired it fired on every
+ * seat at once, silently, off public information — which is precisely how five
+ * bots land on one house in one beat with nothing to say for themselves. Now it
+ * can be quoted.
+ */
+export interface BuddyRead {
+  score: number;
+  /** The seat this one has been shadowing, when there is one. */
+  partner: number | null;
+}
+
+export function buddyScore(targetSlot: number, info: PublicInfo): number {
+  return buddyRead(targetSlot, info).score;
+}
+
+export function buddyRead(targetSlot: number, info: PublicInfo): BuddyRead {
+  const { byDay, pairs, agreed } = voteIndexOf(info);
+  if (byDay.size < 3) return { score: 0, partner: null };
+
+  /**
+   * Measured against how much this table agrees with itself, not against zero.
+   *
+   * The read is "these two vote together and never against each other", and as
+   * a raw rate it was worthless the moment the ballots actually started being
+   * recorded. Every seat at this table computes the same suspicion from the
+   * same public board, so the square herds: on a normal afternoon most pairs
+   * who both voted voted for the same house, and a flat `together / bothVoted`
+   * therefore handed +1.2 of evidence to half the town for the crime of
+   * agreeing with the room. Measured: turning the ballots back on cost 1.3
+   * points of lynch accuracy, all of it here.
+   *
+   * What is suspicious is agreeing *more than this table agrees anyway*. On a
+   * square that scattered its votes, two seats who never once crossed stand
+   * out and the read fires as it was meant to; on a square that voted as one
+   * bloc all game, nobody stands out and it stays quiet, which is correct —
+   * when everybody looks like partners, nobody is evidence.
+   *
+   * The pair is measured against the table *minus itself*, or a bonded pair
+   * would be most of the very average it is supposed to stand out from, and
+   * the tighter the pair the higher the bar it set for itself. With nobody
+   * else on the record there is no table to compare to, and the read falls
+   * back to the plain rate.
+   */
   let best = 0;
+  let partner: number | null = null;
   for (const other of info.aliveSlots) {
     if (other === targetSlot) continue;
 
@@ -869,22 +1081,153 @@ export function buddyScore(targetSlot: number, info: PublicInfo): number {
     let against = 0;
     let bothVoted = 0;
 
-    for (const day of days) {
-      const mine = info.voteHistory.find((entry) => entry.day === day && entry.voterSlot === targetSlot);
-      const theirs = info.voteHistory.find((entry) => entry.day === day && entry.voterSlot === other);
-      if (!mine || !theirs) continue;
+    for (const day of byDay.values()) {
+      const mine = day.get(targetSlot);
+      const theirs = day.get(other);
+      if (mine === undefined || theirs === undefined) continue;
       bothVoted++;
-      if (mine.targetSlot === theirs.targetSlot) together++;
-      if (mine.targetSlot === other || theirs.targetSlot === targetSlot) against++;
+      if (mine === theirs) together++;
+      if (mine === other || theirs === targetSlot) against++;
     }
 
     if (bothVoted < 3 || against > 0 || together < 2) continue;
-    // How much of their shared record was spent agreeing.
-    best = Math.max(best, together / bothVoted);
+
+    const otherPairs = pairs - bothVoted;
+    const baseline = otherPairs > 0 ? (agreed - together) / otherPairs : 0;
+    const room = 1 - baseline;
+    if (room <= 0) continue;
+
+    // How much of their shared record was spent agreeing, over and above what
+    // agreeing with this table is worth at all.
+    const edge = (together / bothVoted - baseline) / room;
+    if (edge > best) {
+      best = edge;
+      partner = other;
+    }
   }
 
-  return best * 1.2;
+  return { score: best * BUDDY_WEIGHT, partner: best > 0 ? partner : null };
 }
+
+/**
+ * What the buddy read is worth, and why it is worth so little.
+ *
+ * It was 1.2, which is most of a lynch, and it was measured: of the seats it
+ * pointed at, 35.1% were evil, against 37.6% of the seats it looked at. It
+ * fired slightly *worse* than chance, on one seat in nine, and it cost 1.3
+ * points of the town's lynch accuracy from the day the ballots it reads were
+ * first recorded properly.
+ *
+ * The premise is sound at a table of people and hollow at this one. Every seat
+ * here scores the same public board, so the square herds: "these two vote
+ * together" describes the whole room, and "these two never crossed" describes
+ * every pair that spent the game voting the day's wagon instead of each other.
+ * Measuring the pair against the table's own rate of agreeing with itself, and
+ * against the table minus the pair, did not rescue it — there is no signal to
+ * recover.
+ *
+ * Kept, at a nudge's worth, for the table this game is actually for. A human
+ * square scatters its votes, and there the read is the oldest one in Mafia and
+ * a genuine pleasure to have pointed out. It must simply never again be allowed
+ * to build a wagon on its own.
+ */
+const BUDDY_WEIGHT = 0.3;
+
+/**
+ * The seats a killer would be a fool to kill, and how sorry it would be.
+ *
+ * Every killing role in this game picked its target by asking which seat was
+ * loudest, best trusted, or closest to a badge — that is, by asking who was
+ * most *useful to the town*. Nobody ever asked who was useful to the killer.
+ * So the family would routinely knife the one seat that had stood up at a
+ * brother's trial and voted innocent, the seat whose vote they could count on
+ * tomorrow, the seat doing their argument for them. A real family protects that
+ * seat with its life. It is the oldest instinct in the game and it was missing
+ * entirely.
+ *
+ * What counts as a friend is only what the *record* shows, so this is the same
+ * public board everybody else reads and no seat learns anything it should not:
+ *
+ *  - **They voted to spare one of ours, at a trial, in public.** The loudest of
+ *    the four and the only one that cost them something to do.
+ *  - **They vouched for one of ours out loud**, or refused to accuse them.
+ *  - **They follow our lead**: they keep closing the day on the house we were
+ *    already on. Whether they are a friend or merely a follower does not
+ *    matter — the effect on tomorrow's vote is identical.
+ *  - And against all of that, **anything they have done to us**: a guilty
+ *    ballot at a brother's trial, or an accusation, and they are not a friend,
+ *    they are an enemy who once happened to agree.
+ *
+ * `mine` is whoever this killer counts as its own: the family for a mafioso or
+ * a triad enforcer, and nobody but itself for a butcher working alone — the
+ * solo killer's friends are the seats who defended *it*, which is the same
+ * question asked of a smaller side.
+ *
+ * Returns only the seats worth sparing, with how strongly. Sparing is a
+ * preference and never an obligation: a killer with nobody else to visit still
+ * visits, because a night not spent killing is a night the town gets for free.
+ */
+export function friendlySeats(self: MafiaPlayer, info: PublicInfo, allies: ReadonlySet<number>): Map<number, number> {
+  const mine = new Set<number>(allies);
+  mine.add(self.slot);
+
+  const score = new Map<number, number>();
+  const add = (slot: number, amount: number): void => {
+    if (mine.has(slot) || !info.aliveSlots.includes(slot)) return;
+    score.set(slot, (score.get(slot) ?? 0) + amount);
+  };
+
+  // The stand: who spoke for us with a ballot, and who voted to hang us.
+  for (const trial of info.trials) {
+    if (!mine.has(trial.accusedSlot)) continue;
+    for (const slot of trial.innocentSlots) add(slot, 2.5);
+    for (const slot of trial.guiltySlots) add(slot, -3);
+  }
+
+  // The square: who vouched for us, and who named us.
+  for (const claim of info.claims) {
+    if (!mine.has(claim.targetSlot) || mine.has(claim.claimerSlot)) continue;
+    if (claim.kind === 'clear') add(claim.claimerSlot, 1.5);
+    if (claim.kind === 'accuse') add(claim.claimerSlot, -2.5);
+  }
+
+  /**
+   * The ballot box: who keeps ending the day where we already were.
+   *
+   * Only where we pointed at somebody who is not one of us, or the whole thing
+   * is circular: a seat "following our lead" onto a brother we were bussing is
+   * a seat helping hang him.
+   */
+  const { byDay } = voteIndexOf(info);
+  for (const day of byDay.values()) {
+    const ours = new Set<number>();
+    for (const slot of mine) {
+      const target = day.get(slot);
+      if (target !== undefined && !mine.has(target)) ours.add(target);
+    }
+    if (ours.size === 0) continue;
+    for (const [voter, target] of day) {
+      if (ours.has(target)) add(voter, 0.9);
+    }
+  }
+
+  for (const [slot, value] of score) if (value < FRIEND_ENOUGH) score.delete(slot);
+  return score;
+}
+
+/**
+ * How much of a friend a seat has to be before a knife goes elsewhere.
+ *
+ * One innocent ballot at a brother's trial clears it on its own, and so does a
+ * vouching plus a couple of afternoons spent voting our way. Deliberately
+ * reachable: the cost of sparing somebody who was not really a friend is one
+ * night's knife pointed at the second name on the list, and the cost of killing
+ * a real one is the vote that would have saved the next brother.
+ */
+const FRIEND_ENOUGH = 2.4;
+
+/** A butcher's side: itself and nobody else. */
+const EMPTY_SIDE: ReadonlySet<number> = new Set<number>();
 
 /**
  * Why a seat looks guilty, split into the two things that are not the same.
@@ -1221,7 +1564,16 @@ export function steadyVote(
   if (standing === proposed) return { slot: null, skip: false };
 
   /* --------------------- otherwise, only for a real gain ----------------- */
-  return scoreOf(proposed) - scoreOf(standing) >= SWITCH_MARGIN
+  /**
+   * The hysteresis, softened for a seat that changes its mind easily.
+   *
+   * `SWITCH_MARGIN` is what stops a bot reading as a weathervane, and it is
+   * right for a bot. A person is a weathervane: they park a vote, hear an
+   * argument, and move on much less than this. Read off the seat rather than
+   * passed in, the same way `temperamentOf` is, so no caller has to care.
+   */
+  const margin = SWITCH_MARGIN * (1 - quirksOf(self.slot).lateSwitch);
+  return scoreOf(proposed) - scoreOf(standing) >= margin
     ? { slot: proposed, skip: false }
     : { slot: null, skip: false };
 }
@@ -1244,14 +1596,21 @@ let herdBySlot: Map<number, number> = new Map();
  * even temperament, which is what a bare board in a test should do.
  */
 let temperamentBySlot: Map<number, Temperament> = new Map();
+let quirksBySlot: Map<number, Quirks> = new Map();
 
 export function temperamentOf(slot: number): Temperament {
   return temperamentBySlot.get(slot) ?? EVEN_TEMPERAMENT;
 }
 
+/** This seat's people-shaped habits. An unbound seat has none. See `Quirks`. */
+export function quirksOf(slot: number): Quirks {
+  return quirksBySlot.get(slot) ?? NO_QUIRKS;
+}
+
 export function bindPersonalities(brains: Brain[]): void {
   herdBySlot = new Map(brains.map((brain) => [brain.slot, brain.personality.herd]));
   temperamentBySlot = new Map(brains.map((brain) => [brain.slot, brain.personality.temperament]));
+  quirksBySlot = new Map(brains.map((brain) => [brain.slot, brain.personality.quirks ?? NO_QUIRKS]));
 }
 function brainHerd(self: MafiaPlayer): number {
   return herdBySlot.get(self.slot) ?? 0.5;
@@ -1316,6 +1675,8 @@ export function decideDay(
   // everything below reads it rather than recomputing danger ad hoc.
   const agenda = agendaOf(role);
   const stance = stanceOf(agenda, brain.desperation, brain.personality);
+  /** The people-shaped habits, all zero for a bot. See `Quirks`. */
+  const quirks = brain.personality.quirks ?? NO_QUIRKS;
 
   const publish = (
     targetSlot: number,
@@ -1327,6 +1688,8 @@ export function decideDay(
     if (!alreadyClaimed(info, self.slot, targetSlot, kind)) {
       decision.publishes.push({
         day: info.day,
+        // Said today, so it is last night it is talking about. See `Claim.night`.
+        night: Math.max(1, info.day - 1),
         claimerSlot: self.slot,
         targetSlot,
         kind,
@@ -1782,6 +2145,25 @@ export function decideDay(
       );
       const asked = unaccounted[Math.floor(rng() * unaccounted.length)];
       if (asked !== undefined) publish(asked, 'question');
+      /**
+       * Asking again, of somebody who let the first one go.
+       *
+       * The pool above deliberately skips anyone already asked, which is right
+       * for finding the quiet ones and wrong for everything after: a seat that
+       * was asked on Tuesday and never answered is the most interesting seat at
+       * the table, and the square dropped the subject entirely. Pressing is a
+       * habit, not a policy, so only a seat that has it does it.
+       */
+      else if (quirked(quirks.press, rng)) {
+        const dodging = others.filter(
+          (slot) =>
+            !teammates.has(slot) &&
+            info.claims.some((claim) => claim.kind === 'question' && claim.targetSlot === slot) &&
+            !info.claims.some((claim) => claim.kind === 'account' && claim.claimerSlot === slot)
+        );
+        const again = dodging[Math.floor(rng() * dodging.length)];
+        if (again !== undefined) publish(again, 'question');
+      }
     }
 
     /**
@@ -1805,7 +2187,17 @@ export function decideDay(
     const alreadyAnswered = info.claims.some(
       (claim) => claim.kind === 'account' && claim.claimerSlot === self.slot && claim.day === info.day
     );
-    if (beingAsked && !alreadyAnswered) {
+    /**
+     * Or not answering, which no bot has ever done and every person does.
+     *
+     * A policy asked a question answers it, so the square's one piece of
+     * social leverage has never yet met a seat that simply does not reply.
+     * Checked before the answer rather than after, so a stonewalling seat
+     * leaves the question standing and the room can make something of it.
+     */
+    const stonewalls = beingAsked && !alreadyAnswered && quirked(quirks.stonewall, rng);
+
+    if (beingAsked && !alreadyAnswered && !stonewalls) {
       const honest = rng() < stance.answerHonestly;
       if (honest && brain.wentTo !== null && brain.wentTo !== self.slot) {
         publish(brain.wentTo, 'account', undefined, 'visited');
@@ -1814,6 +2206,29 @@ export function decideDay(
       } else {
         // The comfortable lie, and the one the record can catch.
         publish(self.slot, 'account', undefined, 'home');
+      }
+    }
+
+    /**
+     * Changing the story, unprompted.
+     *
+     * "I was home. Well, I went to 4's first, then home." Nobody in this file
+     * has ever done it, so `contradicted`'s newest-account-wins rule — written
+     * precisely because people correct themselves — has never had a correction
+     * to read in the bench. A seat that waffles gives the room a second account
+     * that does not match the first, which is the raw material for both the
+     * rule and the reads built on it.
+     */
+    if (!beingAsked && quirks.waffle > 0 && info.day >= 2) {
+      const mine = info.claims.filter((claim) => claim.kind === 'account' && claim.claimerSlot === self.slot);
+      const standing = mine[mine.length - 1];
+      if (standing && standing.day < info.day && quirked(quirks.waffle, rng)) {
+        if (standing.account === 'home') {
+          const elsewhere = others[Math.floor(rng() * others.length)];
+          if (elsewhere !== undefined) publish(elsewhere, 'account', undefined, 'visited');
+        } else {
+          publish(self.slot, 'account', undefined, 'home');
+        }
       }
     }
 
@@ -2504,10 +2919,25 @@ export function decideNightTarget(
     return candidates;
   };
 
+  /**
+   * The knife steps over the seats that have been doing our work for us.
+   *
+   * A preference, not a rule: if every house left belongs to a friend, somebody
+   * still dies tonight, because a night the killers spend being sentimental is
+   * a night the town gets for nothing. See `friendlySeats`.
+   */
+  const spare = (candidates: number[], allies: ReadonlySet<number>): number[] => {
+    if (candidates.length <= 1) return candidates;
+    const friends = friendlySeats(self, info, allies);
+    if (friends.size === 0) return candidates;
+    const rest = candidates.filter((slot) => !friends.has(slot));
+    return rest.length > 0 ? rest : candidates;
+  };
+
   /* ------------------------------ the killers ----------------------------- */
 
   if (actionType === 'kill' && familyOf(role) !== null) {
-    const pool = dodged(legalTargets);
+    const pool = spare(dodged(legalTargets), teammates);
     // The whole hit list, best head first — the clutch slip decides how far
     // down the list tonight's knife actually goes.
     const ranked: number[] = [];
@@ -2548,7 +2978,9 @@ export function decideNightTarget(
   }
 
   if (role === 'serial-killer' || actionType === 'poison' || actionType === 'rampage') {
-    const pool = dodged(legalTargets);
+    // A butcher has no family, so its friends are whoever spoke for *it*. Same
+    // question, smaller side. See `friendlySeats`.
+    const pool = spare(dodged(legalTargets), EMPTY_SIDE);
     // Prefer the loud voices — with the slip toward the second-loudest — but
     // half the nights, feed wherever hunger points.
     const loudList = credibleClaimersRanked(info, new Set([self.slot])).filter((slot) => pool.includes(slot));
@@ -2745,6 +3177,61 @@ export function decideNightTarget(
     const top = scored[0];
     if (top && top.score >= 1.5) return top.slot;
     return rng() < 0.4 ? random() : null;
+  }
+
+  /**
+   * The Witch goes back to the hand she found a knife in.
+   *
+   * She used to pick her victim uniformly at random, every night, for the whole
+   * game — the one role in this file with no idea what it was doing. But every
+   * control is an experiment with a published result: she is told whether the
+   * seat had an order to redirect, she chose where it went, and the morning
+   * says who died. A seat whose redirected order was followed by a corpse at
+   * the destination is a seat holding a killing power, and the right thing to
+   * do with it is to take it again, and keep taking it.
+   *
+   * The inference is honest about being a guess. The destination may have been
+   * killed by somebody else entirely that night, and she will never know which;
+   * that is the price of the only experiment she can run, and it is still far
+   * better than the dice. A seat caught twice is the one she stops doubting.
+   *
+   * Ranked: the hands that produced a corpse, most often first; then the seats
+   * she has never tried, because an untried hand is the only way to learn
+   * anything new; and last the ones that turned out to be holding nothing, who
+   * are almost certainly powerless and worth a night only when there is nobody
+   * else left.
+   */
+  if (actionType === 'control') {
+    const kills = new Map<number, number>();
+    const idle = new Set<number>();
+    const tried = new Set<number>();
+    for (const entry of self.intel) {
+      if (entry.kind !== 'controlled') continue;
+      tried.add(entry.targetSlot);
+      if (entry.value === 'idle') {
+        idle.add(entry.targetSlot);
+        continue;
+      }
+      idle.delete(entry.targetSlot);
+      const [destination] = entry.slots ?? [];
+      if (destination === undefined) continue;
+      const fell = info.deaths.some(
+        (death) => death.slot === destination && death.phase === 'night' && death.day === entry.night
+      );
+      if (fell) kills.set(entry.targetSlot, (kills.get(entry.targetSlot) ?? 0) + 1);
+    }
+
+    const armed = legalTargets
+      .filter((slot) => kills.has(slot))
+      .sort((left, right) => (kills.get(right) ?? 0) - (kills.get(left) ?? 0));
+    if (armed.length > 0 && rng() < 0.8) return pickRanked(armed, rng, 0.2);
+
+    const fresh = legalTargets.filter((slot) => !tried.has(slot) && slot !== self.slot);
+    if (fresh.length > 0) return fresh[Math.floor(rng() * fresh.length)] ?? null;
+
+    const known = legalTargets.filter((slot) => !idle.has(slot) && slot !== self.slot);
+    if (known.length > 0) return known[Math.floor(rng() * known.length)] ?? null;
+    return random();
   }
 
   if (actionType === 'convert' || actionType === 'recruit') return random();

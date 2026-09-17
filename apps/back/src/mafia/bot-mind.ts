@@ -5,6 +5,7 @@ import {
   contradicted,
   DEFAULT_PROFILE,
   feelPressure,
+  closingAccusations,
   isLodgeMate,
   makeBrain,
   makePersonality,
@@ -224,16 +225,21 @@ export class BotMinds {
     bindPersonalities(brains);
   }
 
-  /** Files the day's closing accusations, once, before night falls. */
+  /**
+   * Files the day's closing accusations, once, before night falls.
+   *
+   * Read off `state.voteLog` rather than off `state.votes`. This runs at
+   * nightfall, and by then the live ballot box has been cleared twice — once by
+   * the wagon that opened the trial and once by nightfall itself — so on every
+   * day that actually put somebody on trial it filed nothing at all. The days
+   * the town did something were the days the record forgot. See
+   * `closingAccusations`.
+   */
   closeDay(state: MafiaState): void {
     const table = this.memory(state.code);
     if (table.recordedDay === state.day) return;
     table.recordedDay = state.day;
-    for (const [voterId, targetId] of Object.entries(state.votes)) {
-      const voter = state.players[voterId];
-      const target = state.players[targetId];
-      if (voter && target) table.voteHistory.push({ day: state.day, voterSlot: voter.slot, targetSlot: target.slot });
-    }
+    for (const record of closingAccusations(state, state.day)) table.voteHistory.push(record);
     if (table.voteHistory.length > MAX_VOTE_HISTORY) {
       table.voteHistory.splice(0, table.voteHistory.length - MAX_VOTE_HISTORY);
     }
@@ -312,6 +318,16 @@ export class BotMinds {
 
     table.claims.push({
       day: state.day,
+      /**
+       * Said today, so it is last night it is talking about.
+       *
+       * Written down rather than left for the driver to infer, because the
+       * driver's guess was wrong for every claim read out of a will: those
+       * carry the night in `day`, so subtracting one from it named a night too
+       * early. `extra` wins, which is how a testament sets its own. See
+       * `Claim.night`.
+       */
+      night: Math.max(1, state.day - 1),
       claimerSlot: claimer.slot,
       targetSlot,
       kind,

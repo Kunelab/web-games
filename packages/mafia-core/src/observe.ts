@@ -1,5 +1,6 @@
 import {
   BADGE_ROLES,
+  BOARD_MEMO,
   isEvilRole,
   sheriffSuspects,
   type Claim,
@@ -8,7 +9,7 @@ import {
 } from './sim/policies.js';
 import { roleDef, ROLES, type RoleId } from './roles.js';
 import type { DeathSource } from './messages.js';
-import { tableRoleList, type MafiaState } from './state.js';
+import { tableRoleList, type MafiaState, type VoteNote } from './state.js';
 import { slotPool } from './setups.js';
 
 /**
@@ -17,21 +18,6 @@ import { slotPool } from './setups.js';
  */
 const LONE_BLADES = new Set<DeathSource>(['serialKiller', 'massMurderer', 'arsonist', 'electromaniac', 'poison']);
 
-/**
- * The town as anybody in it can see it, assembled from authoritative state.
- *
- * This exists because two very different brains need to agree about the board.
- * The headless simulator runs thousands of games a minute off it; the live server
- * builds the same thing to brief an LLM. When those two disagree about what is
- * public, the bench stops predicting the game — so there is one builder, here,
- * and both callers use it.
- *
- * Everything in the result is genuinely public: the living, the identified dead,
- * last night's corpses, the running accusations, the trial record with its
- * ballots. The two arguments are the parts the *game* does not store in a
- * structured form — spoken claims and the history of past days' accusations —
- * which each caller accumulates as it goes.
- */
 /**
  * A role that stands for its camp, for a graveyard that only named the camp.
  *
@@ -48,110 +34,397 @@ function campStandIn(role: RoleId): RoleId {
   return 'citizen';
 }
 
+/**
+ * One game's board, kept between reads and rebuilt a layer at a time.
+ *
+ * A board read is the single hottest thing the bench does: every seat asks for
+ * one before every decision, and a day of twenty-four seats with three voting
+ * passes asks for the better part of a hundred. Almost nothing changes between
+ * two of them. A vote moves; the graveyard, the roster, the role list and the
+ * claims pile all stay exactly where they were.
+ *
+ * So the pieces are grouped by what makes them stale and each group is rebuilt
+ * only when its own inputs move:
+ *
+ * - **roster**: the expanded role list, which is fixed for the whole game.
+ * - **grave**: everything read off the graveyard and the seating — the deaths,
+ *   the revealed roles, the living, the sash. Moves when somebody dies, is
+ *   converted, or reveals.
+ * - **claims**: the claims pile with the wills folded in, and what the record
+ *   proves from it. Moves when somebody speaks or somebody dies.
+ * - **trials**: the public trial record. Moves when a trial ends.
+ * - **votes**: rebuilt on every read, because it genuinely does change on
+ *   almost every one.
+ *
+ * Staleness is decided by *comparison*, never by a hash: the previous seating
+ * and the previous ballot box are kept beside the layers and compared field by
+ * field. Twenty-four integer comparisons cost nothing next to the rebuild they
+ * skip, and unlike a fingerprint they cannot collide — a board that silently
+ * failed to notice a death would be the worst bug this file could have.
+ */
+interface BoardCache {
+  /** Seating as it was when `grave` was built: one entry per player, in order. */
+  seatAlive: boolean[];
+  seatRevealed: boolean[];
+  seatRole: (RoleId | null)[];
+  deathCount: number;
+  hiddenCount: number;
+  day: number;
+
+  rolesInPlay: Set<RoleId>;
+
+  grave: {
+    deaths: PublicInfo['deaths'];
+    deadRoles: Map<number, RoleId>;
+    lastNightDeathSlots: Set<number>;
+    nightDeathsTotal: number;
+    totalDead: number;
+    rampage: number;
+    aliveSlots: number[];
+    humanSlots: Set<number>;
+    revealedMayorSlot: number | null;
+  } | null;
+
+  /** The `spoken` array this claims layer was built from, and its length then. */
+  spokenRef: Claim[] | null;
+  spokenLen: number;
+  claims: Claim[];
+  provenRoles: Map<number, RoleId>;
+
+  trialLogLen: number;
+  trials: PublicInfo['trials'];
+
+  /** The ballot box as it was on the last read, key and value side by side. */
+  voteKeys: string[];
+  voteVals: string[];
+  votes: Map<number, number>;
+
+  /** The last board handed out, returned again when literally nothing moved. */
+  info: PublicInfo | null;
+  voteHistoryRef: VoteRecord[] | null;
+  voteHistoryLen: number;
+  /** Per-board working memory, kept alive across reads that only moved a vote. */
+  memo: BoardMemo;
+}
+
+/**
+ * Scratch space the policies hang their per-board answers on.
+ *
+ * `claimerWeight` and friends are pure functions of the board, and they are
+ * asked the same question hundreds of times per decision, so they cache. The
+ * container lives here rather than on the board object because a board is
+ * rebuilt whenever a single vote moves, and none of what they cache depends on
+ * the votes — throwing the work away four times a day per seat was most of what
+ * the caching was supposed to save.
+ *
+ * Attached to the board non-enumerably on purpose. A caller that builds a
+ * variant with `{ ...board, voteHistory }` gets a board with no scratch space
+ * rather than one carrying answers computed against the other history, and
+ * simply pays for a cold read.
+ */
+export interface BoardMemo {
+  [key: string]: unknown;
+}
+
+const BOARDS = new WeakMap<MafiaState, BoardCache>();
+
+/** Has the seating moved since the cached layers were built? */
+function seatingMoved(cache: BoardCache, players: MafiaState['players'][string][]): boolean {
+  const { seatAlive, seatRevealed, seatRole } = cache;
+  if (seatAlive.length !== players.length) return true;
+  for (let i = 0; i < players.length; i++) {
+    const player = players[i];
+    if (seatAlive[i] !== player.alive || seatRevealed[i] !== player.revealed || seatRole[i] !== player.role) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Has the ballot box moved? Compared entry by entry, in insertion order. */
+function ballotsMoved(cache: BoardCache, votes: Record<string, string>): boolean {
+  const { voteKeys, voteVals } = cache;
+  let index = 0;
+  for (const voterId in votes) {
+    if (index >= voteKeys.length || voteKeys[index] !== voterId || voteVals[index] !== votes[voterId]) return true;
+    index++;
+  }
+  return index !== voteKeys.length;
+}
+
+/**
+ * The town as anybody in it can see it, assembled from authoritative state.
+ *
+ * This exists because two very different brains need to agree about the board.
+ * The headless simulator runs thousands of games a minute off it; the live server
+ * builds the same thing to brief an LLM. When those two disagree about what is
+ * public, the bench stops predicting the game — so there is one builder, here,
+ * and both callers use it.
+ *
+ * Everything in the result is genuinely public: the living, the identified dead,
+ * last night's corpses, the running accusations, the trial record with its
+ * ballots. The two arguments are the parts the *game* does not store in a
+ * structured form — spoken claims and the history of past days' accusations —
+ * which each caller accumulates as it goes.
+ *
+ * The result is shared, not copied: two reads that found the same board hand
+ * back the same object, and a read that only saw a vote move reuses every
+ * collection that did not. Nothing downstream writes to a board, and nothing
+ * may start to.
+ */
 export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: VoteRecord[]): PublicInfo {
   const players = Object.values(state.players);
   const slotOf = (playerId: string): number | undefined => state.players[playerId]?.slot;
 
-  const deaths = state.deaths
-    .map((death) => ({
-      slot: slotOf(death.playerId),
-      day: death.day,
-      phase: death.phase,
-      source: death.source ?? null
-    }))
-    .filter(
-      (death): death is { slot: number; day: number; phase: 'day' | 'night'; source: DeathSource | null } =>
-        death.slot !== undefined
-    );
+  let cache = BOARDS.get(state);
+  if (!cache) {
+    cache = {
+      seatAlive: [],
+      seatRevealed: [],
+      seatRole: [],
+      deathCount: -1,
+      hiddenCount: -1,
+      day: -1,
+      /**
+       * The roster, expanded. Public on every screen, so nothing leaks by
+       * putting it here — and it is what lets a liar tell a lie the room could
+       * believe rather than one the role list flatly contradicts.
+       *
+       * Dealt once and never again: the setup is fixed before the first night,
+       * so re-sorting and re-expanding it on every board read was pure waste,
+       * and it was one of the two most expensive things a read did.
+       */
+      rolesInPlay: new Set<RoleId>(tableRoleList(state, players.length).flatMap((token) => slotPool(token))),
+      grave: null,
+      spokenRef: null,
+      spokenLen: -1,
+      claims: [],
+      provenRoles: new Map(),
+      trialLogLen: -1,
+      trials: [],
+      voteKeys: [],
+      voteVals: [],
+      votes: new Map(),
+      info: null,
+      voteHistoryRef: null,
+      voteHistoryLen: -1,
+      memo: {}
+    };
+    BOARDS.set(state, cache);
+  }
 
-  // What the dead said, joined with what was spoken while they lived.
-  const claims = [...spoken, ...testamentClaims(state, spoken)];
+  let hiddenCount = 0;
+  for (const death of state.deaths) if (death.hidden) hiddenCount++;
 
-  return {
-    day: state.day,
-    deaths,
-    humanSlots: new Set(players.filter((player) => !player.isBot).map((player) => player.slot)),
-    provenRoles: provenRoles(state, claims, deaths),
-    aliveSlots: players.filter((player) => player.alive).map((player) => player.slot),
-    /**
-     * A janitor-cleaned corpse keeps its secret from the public board, and so
-     * does a table playing without role reveals — the graveyard only knows what
-     * the game agreed to say out loud.
-     */
-    deadRoles: new Map(
-      players
-        .filter(
-          (player) =>
-            !player.alive &&
-            player.role !== null &&
-            (state.config.revealOnDeath ?? 'role') !== 'none' &&
-            !state.deaths.some((death) => death.playerId === player.playerId && death.hidden)
-        )
-        /**
-         * Under a faction-reveal table, a stand-in of the right camp.
-         *
-         * This map is how the board remembers what the graveyard turned out to
-         * be, and almost everything downstream only asks it a *camp* question:
-         * `trustOf` scores old ballots by whether the corpse was evil,
-         * `parityPressure` counts dead evils, `possibilitySet` eliminates.
-         * None of them needs the exact role.
-         *
-         * It used to be populated only under full role reveal, so on a table set
-         * to reveal factions the map came back empty and the entire trust system
-         * silently did nothing — nobody was ever held responsible for having
-         * voted to spare a mafioso, which is the loudest tell in the game. The
-         * town played on with no memory of who had protected whom.
-         *
-         * A faction-revealed corpse therefore reports a *representative* role of
-         * its camp rather than its own. Anything that wants the real one asks the
-         * player; anything that wants the camp gets a truthful answer either way,
-         * which is exactly as much as the table said out loud.
-         */
-        .map((player) => [
-          player.slot,
-          (state.config.revealOnDeath ?? 'role') === 'role' ? player.role! : campStandIn(player.role!)
-        ])
-    ),
-    lastNightDeathSlots: new Set(
-      state.deaths
-        .filter((death) => death.phase === 'night' && death.day === state.day - 1)
-        .map((death) => slotOf(death.playerId))
-        .filter((slot): slot is number => slot !== undefined)
-    ),
-    nightDeathsTotal: state.deaths.filter((death) => death.phase === 'night').length,
-    totalDead: state.deaths.length,
-    trials: (state.trialLog ?? []).map((trial) => ({
+  /**
+   * The graveyard layer. `hiddenCount` is watched alongside the death count
+   * because a janitor marks a corpse cleaned after it was filed, and a board
+   * that missed that would keep naming a role the town was never told.
+   */
+  const graveStale =
+    cache.grave === null ||
+    cache.deathCount !== state.deaths.length ||
+    cache.hiddenCount !== hiddenCount ||
+    cache.day !== state.day ||
+    seatingMoved(cache, players);
+
+  if (graveStale) {
+    cache.deathCount = state.deaths.length;
+    cache.hiddenCount = hiddenCount;
+    cache.day = state.day;
+    cache.seatAlive.length = 0;
+    cache.seatRevealed.length = 0;
+    cache.seatRole.length = 0;
+    for (const player of players) {
+      cache.seatAlive.push(player.alive);
+      cache.seatRevealed.push(player.revealed);
+      cache.seatRole.push(player.role);
+    }
+    cache.grave = buildGrave(state, players, slotOf);
+  }
+  const grave = cache.grave!;
+
+  /** The claims layer: what was said, plus the wills, plus what that proves. */
+  const claimsStale = graveStale || cache.spokenRef !== spoken || cache.spokenLen !== spoken.length;
+  if (claimsStale) {
+    cache.spokenRef = spoken;
+    cache.spokenLen = spoken.length;
+    // What the dead said, joined with what was spoken while they lived.
+    cache.claims = [...spoken, ...testamentClaims(state, spoken)];
+    cache.provenRoles = provenRoles(state, cache.claims, grave.deaths);
+  }
+
+  /** The trial record, which only moves when a trial ends. */
+  const trialLogLen = (state.trialLog ?? []).length;
+  const trialsStale = graveStale || cache.trialLogLen !== trialLogLen;
+  if (trialsStale) {
+    cache.trialLogLen = trialLogLen;
+    cache.trials = (state.trialLog ?? []).map((trial) => ({
       day: trial.day,
       accusedSlot: slotOf(trial.accusedId) ?? 0,
       lynched: trial.lynched,
       guiltySlots: trial.guiltyIds.map(slotOf).filter((slot): slot is number => slot !== undefined),
       innocentSlots: trial.innocentIds.map(slotOf).filter((slot): slot is number => slot !== undefined)
-    })),
+    }));
+  }
+
+  /** The ballot box, which usually has. */
+  const ballotsStale = cache.info === null || ballotsMoved(cache, state.votes);
+  if (ballotsStale) {
+    cache.voteKeys.length = 0;
+    cache.voteVals.length = 0;
+    const votes = new Map<number, number>();
+    for (const voterId in state.votes) {
+      const targetId = state.votes[voterId];
+      cache.voteKeys.push(voterId);
+      cache.voteVals.push(targetId);
+      const voter = slotOf(voterId);
+      const target = slotOf(targetId);
+      if (voter !== undefined && target !== undefined) votes.set(voter, target);
+    }
+    cache.votes = votes;
+  }
+
+  const historyMoved = cache.voteHistoryRef !== voteHistory || cache.voteHistoryLen !== voteHistory.length;
+  cache.voteHistoryRef = voteHistory;
+  cache.voteHistoryLen = voteHistory.length;
+
+  const trialSlot = state.trial ? (slotOf(state.trial.accusedId) ?? null) : null;
+
+  // Nothing moved at all: hand back the very board they were given last time,
+  // so everything keyed on its identity stays warm.
+  if (
+    !graveStale &&
+    !claimsStale &&
+    !trialsStale &&
+    !ballotsStale &&
+    !historyMoved &&
+    cache.info &&
+    cache.info.trialSlot === trialSlot
+  ) {
+    return cache.info;
+  }
+
+  // The scratch space survives a read that only moved a vote or the trial; a
+  // new claim, a death or a fresh history invalidates what it holds.
+  if (graveStale || claimsStale || trialsStale || historyMoved) cache.memo = {};
+
+  const info: PublicInfo = {
+    day: state.day,
+    deaths: grave.deaths,
+    humanSlots: grave.humanSlots,
+    provenRoles: cache.provenRoles,
+    aliveSlots: grave.aliveSlots,
+    deadRoles: grave.deadRoles,
+    lastNightDeathSlots: grave.lastNightDeathSlots,
+    nightDeathsTotal: grave.nightDeathsTotal,
+    totalDead: grave.totalDead,
+    trials: cache.trials,
     voteHistory,
+    rampage: grave.rampage,
+    votes: cache.votes,
+    rolesInPlay: cache.rolesInPlay,
+    revealedMayorSlot: grave.revealedMayorSlot,
+    trialSlot,
+    claims: cache.claims
+  };
+  Object.defineProperty(info, BOARD_MEMO, {
+    value: cache.memo,
+    enumerable: false,
+    writable: true
+  });
+  cache.info = info;
+  return info;
+}
+
+/** Everything a board reads off the graveyard and the seating. */
+function buildGrave(
+  state: MafiaState,
+  players: MafiaState['players'][string][],
+  slotOf: (playerId: string) => number | undefined
+): NonNullable<BoardCache['grave']> {
+  const reveal = state.config.revealOnDeath ?? 'role';
+
+  const deaths: PublicInfo['deaths'] = [];
+  const lastNightDeathSlots = new Set<number>();
+  const hiddenIds = new Set<string>();
+  let nightDeathsTotal = 0;
+  let rampage = 0;
+  for (const death of state.deaths) {
+    if (death.hidden) hiddenIds.add(death.playerId);
+    if (death.phase === 'night') {
+      nightDeathsTotal++;
+      if (death.day === state.day - 1) {
+        const slot = slotOf(death.playerId);
+        if (slot !== undefined) lastNightDeathSlots.add(slot);
+      }
+    }
+    if (death.source !== undefined && LONE_BLADES.has(death.source)) rampage++;
+    const slot = slotOf(death.playerId);
+    if (slot === undefined) continue;
+    deaths.push({
+      slot,
+      day: death.day,
+      phase: death.phase,
+      source: death.source ?? null
+    });
+  }
+
+  const aliveSlots: number[] = [];
+  const humanSlots = new Set<number>();
+  const deadRoles = new Map<number, RoleId>();
+  let revealedMayorSlot: number | null = null;
+  for (const player of players) {
+    if (!player.isBot) humanSlots.add(player.slot);
+    if (player.alive) {
+      aliveSlots.push(player.slot);
+      if (player.revealed && revealedMayorSlot === null) revealedMayorSlot = player.slot;
+      continue;
+    }
+    /**
+     * A janitor-cleaned corpse keeps its secret from the public board, and so
+     * does a table playing without role reveals — the graveyard only knows what
+     * the game agreed to say out loud.
+     */
+    if (player.role === null || reveal === 'none' || hiddenIds.has(player.playerId)) continue;
+    /**
+     * Under a faction-reveal table, a stand-in of the right camp.
+     *
+     * This map is how the board remembers what the graveyard turned out to
+     * be, and almost everything downstream only asks it a *camp* question:
+     * `trustOf` scores old ballots by whether the corpse was evil,
+     * `parityPressure` counts dead evils, `possibilitySet` eliminates.
+     * None of them needs the exact role.
+     *
+     * It used to be populated only under full role reveal, so on a table set
+     * to reveal factions the map came back empty and the entire trust system
+     * silently did nothing — nobody was ever held responsible for having
+     * voted to spare a mafioso, which is the loudest tell in the game. The
+     * town played on with no memory of who had protected whom.
+     *
+     * A faction-revealed corpse therefore reports a *representative* role of
+     * its camp rather than its own. Anything that wants the real one asks the
+     * player; anything that wants the camp gets a truthful answer either way,
+     * which is exactly as much as the table said out loud.
+     */
+    deadRoles.set(player.slot, reveal === 'role' ? player.role : campStandIn(player.role));
+  }
+
+  return {
+    deaths,
+    deadRoles,
+    lastNightDeathSlots,
     /**
      * Corpses signed by a lone blade. The dawn report names the weapon, so the
      * count is public — and past a couple of them everyone smells the bigger
      * threat, which briefly puts the families on the town's side.
      */
-    rampage: state.deaths.filter((death) => death.source !== undefined && LONE_BLADES.has(death.source)).length,
-    votes: new Map(
-      Object.entries(state.votes)
-        .map(([voterId, targetId]) => {
-          const voter = slotOf(voterId);
-          const target = slotOf(targetId);
-          return voter !== undefined && target !== undefined ? ([voter, target] as [number, number]) : null;
-        })
-        .filter((entry): entry is [number, number] => entry !== null)
-    ),
-    /**
-     * The roster, expanded. Public on every screen, so nothing leaks by putting
-     * it here — and it is what lets a liar tell a lie the room could believe
-     * rather than one the role list flatly contradicts. See `rolesInPlay`.
-     */
-    rolesInPlay: new Set(tableRoleList(state, players.length).flatMap((token) => slotPool(token))),
-    revealedMayorSlot: players.find((player) => player.revealed && player.alive)?.slot ?? null,
-    trialSlot: state.trial ? (slotOf(state.trial.accusedId) ?? null) : null,
-    claims
+    rampage,
+    nightDeathsTotal,
+    totalDead: state.deaths.length,
+    aliveSlots,
+    humanSlots,
+    revealedMayorSlot
   };
 }
 
@@ -226,10 +499,20 @@ function readTestaments(state: MafiaState): Claim[] {
     if (!record || record.hidden) continue;
 
     for (const entry of player.intel) {
-      const base = { day: entry.night, claimerSlot: player.slot, truthful: false } as const;
+      const base = {
+        day: entry.night,
+        // Written down rather than left to be guessed from `day`. See `Claim.night`.
+        night: entry.night,
+        claimerSlot: player.slot,
+        truthful: false
+      } as const;
       switch (entry.kind) {
         case 'sheriff':
-          file({ ...base, targetSlot: entry.targetSlot, kind: sheriffSuspects(entry.value) ? 'accuse' : 'clear' });
+          file({
+            ...base,
+            targetSlot: entry.targetSlot,
+            kind: sheriffSuspects(entry.value) ? 'accuse' : 'clear'
+          });
           break;
         case 'role':
           // Guarded, so a stray string in a record cannot become a claim.
@@ -248,7 +531,12 @@ function readTestaments(state: MafiaState): Claim[] {
           file({ ...base, targetSlot: entry.targetSlot, kind: 'sighting' });
           break;
         case 'went':
-          file({ ...base, targetSlot: entry.targetSlot, kind: 'account', account: 'visited' });
+          file({
+            ...base,
+            targetSlot: entry.targetSlot,
+            kind: 'account',
+            account: 'visited'
+          });
           break;
         default:
           break;
@@ -267,7 +555,9 @@ function readTestaments(state: MafiaState): Claim[] {
  * about where the victim went, and the jailor's execution needs no deduction,
  * so those are not here.
  */
-const PORCH_KILLS: Partial<Record<DeathSource, RoleId>> = { veteran: 'veteran' };
+const PORCH_KILLS: Partial<Record<DeathSource, RoleId>> = {
+  veteran: 'veteran'
+};
 
 /**
  * What the record proves about the living. See `PublicInfo.provenRoles`.
@@ -355,4 +645,47 @@ function provenRoles(state: MafiaState, claims: Claim[], deaths: PublicInfo['dea
   }
 
   return proven;
+}
+
+/**
+ * The accusation each seat ended a day on, read off the authoritative log.
+ *
+ * `voteHistory` is what the town's pattern-readers run on: `buddyScore` looks
+ * for two seats whose lines never crossed, `monomaniacScore` for a seat that
+ * votes one head every afternoon. Both need several days of ballots to say
+ * anything, and both were being handed almost nothing.
+ *
+ * The cause was the same on both sides of the game, reached from opposite
+ * directions. Everybody was snapshotting `state.votes`, the *live* ballot box —
+ * and a wagon that reaches the threshold opens a trial, which clears that box
+ * on the spot. The simulator recorded before night fell, but only while the
+ * stage was still `discussion`, which a day that opened a trial had already
+ * left; the live server recorded at nightfall, by which point the box had been
+ * emptied twice over. So a day was written down only when nobody was ever put
+ * on trial — and the days the town actually did something, which are the only
+ * days worth reading, were exactly the ones that vanished. Measured on a table
+ * of twelve to twenty: 0.49 recorded ballots per day, where a voting day should
+ * produce one per living seat. Both reads have been dead since they were
+ * written.
+ *
+ * `state.voteLog` is the real record and always was: every accusation of the
+ * game in the order it was cast, written before the trial can clear anything,
+ * withdrawals and skips included. The closing position is the last entry each
+ * seat left that day, which is what the field has always claimed to hold.
+ *
+ * A seat that withdrew and never re-voted, or that voted to hang nobody, closed
+ * the day accusing nobody and is simply absent — the readers count days a pair
+ * *both* voted, so a missing ballot must not read as a ballot for nobody.
+ */
+export function closingAccusations(state: MafiaState, day: number): VoteRecord[] {
+  const last = new Map<number, VoteNote>();
+  for (const note of state.voteLog ?? []) {
+    if (note.day === day) last.set(note.voterSlot, note);
+  }
+  const records: VoteRecord[] = [];
+  for (const [voterSlot, note] of last) {
+    if (note.skip || note.targetSlot === null) continue;
+    records.push({ day, voterSlot, targetSlot: note.targetSlot });
+  }
+  return records;
 }

@@ -25,6 +25,7 @@ import {
   spokenLocale,
   steadyVote,
   suspicion,
+  buddyRead,
   suspicionParts,
   tableRoleList,
   toMafiaView,
@@ -337,6 +338,39 @@ const QUIET_FORMS: Record<string, unknown>[] = [
  * Found the honest way: a Cerebras key that answered two requests and then
  * returned `402 payment_required` to everything, forever.
  */
+/**
+ * Every request shape worth trying, best first.
+ *
+ * Two axes, and they fail the same way — a 400 — so they are walked as one list
+ * rather than as two nested searches.
+ *
+ * The first axis is how to ask a reasoning model to be quiet; see `QUIET_FORMS`.
+ * The second is how hard to ask for the answer's shape, and it is the one that
+ * was missing. `json_object` means "valid JSON" and stops there: asked that
+ * loosely, gpt-oss-120b read four lines of a village square perfectly and
+ * answered with a bare `[{"type": "accuse", "about": 5}, …]` — no wrapper, no
+ * speaker, no `kind`. `extractJson` drops arrays on the floor, so every one of
+ * those answers was binned unread and the ear filed nothing from the two
+ * fastest rungs in the chain, on every pass, for the life of the deployment.
+ *
+ * `json_schema` with `strict` is the same question asked properly, and the
+ * same three models went from nothing filed to every claim filed. Not every
+ * endpoint supports it, which is what the fallback half of this list is for.
+ */
+const REQUEST_SHAPES: { schema: boolean; quiet: Record<string, unknown> }[] = [
+  ...QUIET_FORMS.map((quiet) => ({ schema: true, quiet })),
+  ...QUIET_FORMS.map((quiet) => ({ schema: false, quiet }))
+];
+
+/**
+ * "I do not know what you just sent me", in the two dialects it is said in.
+ *
+ * Both mean the same thing and both mean try the next shape: Groq says 400 for
+ * an unsupported `reasoning` key, Mistral says 422 for the same key under the
+ * name `extra_forbidden`. Measured, on a live key for each.
+ */
+const UNDERSTOOD_NOTHING = new Set([400, 422]);
+
 const PERMANENT_REFUSALS = new Set([401, 402, 403]);
 
 /**
@@ -538,6 +572,13 @@ interface Ask {
   user: string;
   /** JSON schema, for endpoints that honour one. */
   format: Record<string, unknown>;
+  /**
+   * What this question is called, for the endpoints that want the schema named
+   * and for the dialect cache, which has to tell one question from another: a
+   * slot can satisfy one of these schemas and not the next. Defaults to
+   * `answer`, which is what a single unnamed question was always called.
+   */
+  formatName?: string;
   maxTokens: number;
   temperature?: number;
   /** How long one request may take, when the errand is in more of a hurry than the transport's default. */
@@ -647,11 +688,20 @@ const DECIDE_PROPERTIES = {
   }
 } as const;
 
-/** Ollama structured output: every key required, null when unused. */
-const DECIDE_FORMAT = {
+/**
+ * Ollama structured output: every key required, null when unused.
+ *
+ * Closed, like every other schema this file asks for. Strict structured output
+ * refuses an object that leaves the door open, and this is the one question
+ * asked on every bot turn — so leaving it open meant the whole strict half of
+ * `REQUEST_SHAPES` failed on the hottest path and the search paid for four
+ * refusals per rung before it reached the shapes that could ever work.
+ */
+export const DECIDE_FORMAT = {
   type: 'object',
   properties: DECIDE_PROPERTIES,
-  required: ['say', 'targetSlot', 'verdict', 'claim', 'claimSlot', 'claimRole']
+  required: ['say', 'targetSlot', 'verdict', 'claim', 'claimSlot', 'claimRole'],
+  additionalProperties: false
 };
 
 /**
@@ -804,14 +854,23 @@ export class MafiaBotDriver {
    */
   private lastAnswered = 'scripted';
   /**
-   * Which `QUIET_FORMS` entry this slot accepts, once we have found out.
+   * Which `REQUEST_SHAPES` entry this slot accepts, once we have found out.
    *
    * Learned on first contact and kept for the life of the process: the cascade
-   * costs up to three wasted requests exactly once per slot, and one request per
-   * decision thereafter. Not configuration, because getting it wrong is silent
-   * and the endpoint already knows the answer.
+   * costs a few wasted requests exactly once, and one request per decision
+   * thereafter. Not configuration, because getting it wrong is silent and the
+   * endpoint already knows the answer.
+   *
+   * Keyed by the question as well as the slot, because the answer differs by
+   * question. Measured on Groq: `gpt-oss-20b` satisfies the ear's schema and
+   * `gpt-oss-120b` does not — it answers, and the endpoint rejects its own
+   * model's output with "Generated JSON does not match the expected schema".
+   * The same 120b handles the mouth's one-string schema without complaint. One
+   * verdict per slot would have the ear teach the mouth to stop asking
+   * properly, and the mouth teach the ear to start again, for as long as the
+   * process lived.
    */
-  private readonly dialect = new Map<ApiRung, number>();
+  private readonly dialect = new Map<string, number>();
   /**
    * This trial's leanings, per table, thrown away when the trial closes.
    *
@@ -1645,6 +1704,7 @@ export class MafiaBotDriver {
         system: JURY_RULES,
         user: prompt,
         format: JURY_FORMAT,
+        formatName: 'jury',
         // Room for a reasoning model to think and still list every juror.
         maxTokens: 1500,
         // Reading an argument, not writing one: the same trial twice should
@@ -1703,6 +1763,7 @@ export class MafiaBotDriver {
           system: HEARD_RULES,
           user: hearingPrompt(state, lines),
           format: HEARD_FORMAT,
+          formatName: 'heard',
           /**
            * Generous on purpose, and measured.
            *
@@ -1791,6 +1852,22 @@ export class MafiaBotDriver {
        * answered with — which is precisely what could not be done before, since
        * both were built, used and thrown away inside this method.
        */
+      /**
+       * A pass that read something and filed nothing, said out loud.
+       *
+       * This is the signature of every silent failure the ear has had: the rung
+       * answers, the watermark moves, the lines are marked read, and no claim
+       * reaches the board. It looked exactly like a quiet table for the whole
+       * life of a deployment. Lines in and claims out are both already in the
+       * trace below, but nobody reads a trace they have no reason to open.
+       */
+      if (lines.length > 0 && filed.length === 0) {
+        this.log.warn(
+          { code, lines: lines.length, dropped: refused.length, rung: this.lastAnswered },
+          'mafia bots: the ear read lines and filed nothing'
+        );
+      }
+
       trace('mafia', code).event('ear', {
         lines: lines.map((line) => ({ slot: fresh.players[line.authorId ?? '']?.slot, text: line.text })),
         wills: wills.length,
@@ -1865,7 +1942,11 @@ export class MafiaBotDriver {
      * `record` deduplicates, so the reading simply gets better as the sentence
      * finishes rather than being wrong once and right later.
      */
-    const said = utterance(state.chat.messages.filter((line) => line.channel === message.channel), author.playerId, message.at);
+    const said = utterance(
+      state.chat.messages.filter((line) => line.channel === message.channel),
+      author.playerId,
+      message.at
+    );
     const filed = readSquare(said || message.text, author.slot, seats);
 
     /**
@@ -2296,6 +2377,7 @@ export class MafiaBotDriver {
           system: ROOM_RULES,
           user: roomPrompt(state, lines),
           format: ROOM_FORMAT,
+          formatName: 'room',
           // A short room and a short answer: this is note-taking, not argument.
           maxTokens: 900,
           // The same lines should produce the same notes twice running.
@@ -2944,6 +3026,7 @@ export class MafiaBotDriver {
         system: mouthRules(tongue),
         user: mouthPrompt({ name: self.name, slot: self.slot }, intent, recent),
         format: MOUTH_FORMAT,
+        formatName: 'mouth',
         // One short line. The ceiling is for a model that decides to explain
         // itself; `readLine` throws that away anyway.
         maxTokens: 400,
@@ -2967,6 +3050,19 @@ export class MafiaBotDriver {
     const seats = new Set(Object.values(state.players).map((player) => player.name.toLowerCase()));
     const said = answer ? readLine(answer, intent, { name: self.name, slot: self.slot }, seats) : intent.fallback;
     this.spokeWith(state, botId, answer ? this.lastAnswered : 'scripted');
+
+    /**
+     * A seat that chose to say nothing, written down as a choice.
+     *
+     * Otherwise silence and a dead chain look identical from the outside, which
+     * is the failure mode this whole file keeps running into: the played brain
+     * is meant to be invisible when it works, so "nobody spoke" could mean the
+     * bots decided to listen or mean every endpoint was rate limited. One line
+     * in the recorder tells the two apart.
+     */
+    if (said === null) {
+      trace('mafia', state.code).event('silence', { botId, slot: self.slot, room, rung: this.lastAnswered });
+    }
 
     return { ...decision, say: said };
   }
@@ -4434,7 +4530,7 @@ export class MafiaBotDriver {
     if (seen) {
       return vary('mafia.bot.why.seen', 3, botId + ':w:' + targetSlot, {
         who: nameOf(seen.claimerSlot),
-        night: Math.max(1, seen.day - 1)
+        night: seen.night ?? Math.max(1, seen.day - 1)
       });
     }
 
@@ -4477,13 +4573,28 @@ export class MafiaBotDriver {
     if (visit) {
       return vary('mafia.bot.why.admitted', 3, botId + ':w:' + targetSlot, {
         who: nameOf(visit.targetSlot),
-        night: Math.max(1, visit.day - 1)
+        night: visit.night ?? Math.max(1, visit.day - 1)
       });
     }
 
     // 8. A seat that has never said anything is a seat nobody can be wrong about.
     if (board.day >= 2 && !board.claims.some((claim) => claim.claimerSlot === targetSlot)) {
       return vary('mafia.bot.why.silent', 3, botId + ':w:' + targetSlot);
+    }
+
+    /**
+     * Two names that have never crossed on a ballot.
+     *
+     * Below the silence rung because it is worth far less than it sounds: see
+     * `BUDDY_WEIGHT` for what the read actually measured. It is here at all
+     * because it used to be worth a fifth of a lynch with no sentence anywhere
+     * behind it, so a table that moved on it moved for a reason none of its
+     * seats could give — which is how a square hangs somebody nobody has said
+     * anything about.
+     */
+    const buddy = buddyRead(targetSlot, board);
+    if (buddy.partner !== null) {
+      return vary('mafia.bot.why.buddy', 3, botId + ':w:' + targetSlot, { who: nameOf(buddy.partner) });
     }
 
     // 9. The wagon itself, which is a reason people really do give.
@@ -5335,7 +5446,7 @@ export class MafiaBotDriver {
           text: t(
             vary('mafia.bot.defend.visited', 3, botId + ':stand:' + state.day, {
               who: nameOf(told.targetSlot),
-              night: told.day - 1
+              night: told.night ?? Math.max(1, told.day - 1)
             })
           ),
           claim: null
@@ -5382,7 +5493,7 @@ export class MafiaBotDriver {
         text: t(
           vary('mafia.bot.defend.visited', 3, botId + ':stand:' + state.day, {
             who: nameOf(account.targetSlot),
-            night: account.day - 1
+            night: account.night ?? Math.max(1, account.day - 1)
           })
         ),
         claim: null
@@ -5574,6 +5685,44 @@ export class MafiaBotDriver {
         return corpse !== undefined
           ? t(vary('mafia.bot.dump.blockedDead', 3, salt, { night: entry.night, who, house: nameOf(corpse) }))
           : t(vary('mafia.bot.dump.blocked', 3, salt, { night: entry.night, who }));
+      }
+      /**
+       * The cell, which is the one night's work in this game with a witness.
+       *
+       * The jailor kept no record until now and so had nothing to sign, which
+       * left the only badge the room can corroborate with the thinnest will at
+       * the table. A prisoner that reached for something is the evidence an
+       * execution is meant to rest on, so it is said apart.
+       */
+      case 'jailed':
+        return t(
+          vary(entry.value === 'tried' ? 'mafia.bot.dump.jailedTried' : 'mafia.bot.dump.jailedQuiet', 3, salt, {
+            night: entry.night,
+            who
+          })
+        );
+      /**
+       * The Witch's experiment, and its result.
+       *
+       * The only role that learns by doing rather than by looking, so its will
+       * is the only one that can say "I know that seat has a knife because I
+       * put it in somebody's back myself". Said only when the destination
+       * actually fell, because an empty hand is barely worth the line and a
+       * redirection with nobody dead proves nothing at all.
+       */
+      case 'controlled': {
+        const [destination] = entry.slots ?? [];
+        if (entry.value === 'idle') {
+          return t(vary('mafia.bot.dump.controlledIdle', 3, salt, { night: entry.night, who }));
+        }
+        if (destination === undefined || !fell(destination)) return null;
+        return t(
+          vary('mafia.bot.dump.controlledKill', 3, salt, {
+            night: entry.night,
+            who,
+            house: nameOf(destination)
+          })
+        );
       }
       case 'swapped': {
         // Everything aimed at one house arrived at the other, so a death at one
@@ -6189,7 +6338,7 @@ export class MafiaBotDriver {
       if (!response.ok) throw new Error(`ollama ${response.status}`);
 
       const payload = (await response.json()) as { message?: { content?: string } };
-      return extractJson(payload.message?.content ?? '');
+      return orRefuse('ollama', extractJson(payload.message?.content ?? ''));
     } finally {
       clearTimeout(timeout);
     }
@@ -6204,15 +6353,17 @@ export class MafiaBotDriver {
    * benching the rung and moving down, rather than by knowing anything about
    * any particular one of them.
    *
-   * `response_format: json_object` is asked for and not relied on: some of
-   * these endpoints honour it, some ignore it, and `extractJson` copes with
-   * either. Same reasoning as the local brain, for the same reason.
+   * The answer's shape is asked for as strictly as the endpoint will allow —
+   * `json_schema` where it is understood, `json_object` where it is not — and
+   * `extractJson` still copes with what comes back. It used to ask only the
+   * loose way, and being relaxed about the shape cost every answer from the
+   * models that took the invitation; see `REQUEST_SHAPES`.
    */
   private async openAiAsk(request: Ask, rung: ApiRung): Promise<Record<string, unknown>> {
     const slot = apiSlot(rung);
     if (!slot) throw new RungError(`${rung} unconfigured`);
 
-    const send = async (extras: Record<string, unknown>): Promise<Response> =>
+    const send = async (shape: (typeof REQUEST_SHAPES)[number]): Promise<Response> =>
       fetch(`${slot.url}/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${slot.key}` },
@@ -6221,36 +6372,53 @@ export class MafiaBotDriver {
           model: slot.model,
           temperature: request.temperature ?? 0.8,
           max_tokens: request.maxTokens,
-          response_format: { type: 'json_object' },
+          response_format: shape.schema
+            ? {
+                type: 'json_schema',
+                json_schema: { name: request.formatName ?? 'answer', strict: true, schema: request.format }
+              }
+            : { type: 'json_object' },
           messages: [
             { role: 'system', content: request.system },
             { role: 'user', content: request.user }
           ],
-          ...extras
+          ...shape.quiet
         })
       });
 
     /**
-     * Find the dialect this slot speaks, then keep speaking it.
+     * Find the dialect this slot speaks for this question, then keep speaking it.
      *
-     * Every form that is not understood comes back 400, so walking forward on a
-     * 400 is the whole search. It runs once — from then on `dialect` sends the
-     * request that worked, and a call costs one round trip like any other.
+     * A shape that is not understood comes back 400 or 422 — an unsupported
+     * reasoning key and an unsatisfiable schema alike — so walking forward on
+     * either is the whole search. It runs once per slot per question; from then
+     * on `dialect` sends the request that worked and a call costs one round
+     * trip like any other.
+     *
+     * 422 is in there because Mistral answers `422 extra_forbidden` where Groq
+     * answers 400, for the identical complaint: a body key it does not know.
+     * Walking forward on 400 alone, the search read that as a real failure and
+     * gave up on the whole endpoint at the first quiet form — so a working key
+     * with a perfectly good model behind it looked like a dead rung.
      */
-    const from = this.dialect.get(rung) ?? 0;
+    const asked = `${rung}:${request.formatName ?? 'answer'}`;
+    const from = this.dialect.get(asked) ?? 0;
     let response: Response | null = null;
-    for (let form = from; form < QUIET_FORMS.length; form++) {
-      response = await send(QUIET_FORMS[form]);
-      if (response.status !== 400) {
-        if (!this.dialect.has(rung)) {
-          this.dialect.set(rung, form);
-          this.log.info({ rung, model: slot.model, form: QUIET_FORMS[form] }, 'mafia bots: endpoint dialect learned');
+    for (let form = from; form < REQUEST_SHAPES.length; form++) {
+      response = await send(REQUEST_SHAPES[form]);
+      if (!UNDERSTOOD_NOTHING.has(response.status)) {
+        if (!this.dialect.has(asked)) {
+          this.dialect.set(asked, form);
+          this.log.info(
+            { rung, model: slot.model, schema: REQUEST_SHAPES[form].schema, quiet: REQUEST_SHAPES[form].quiet },
+            'mafia bots: endpoint dialect learned'
+          );
         }
         break;
       }
       // A remembered form that has started refusing is no longer remembered:
       // the model behind a slot can be changed under us.
-      if (form === from) this.dialect.delete(rung);
+      if (form === from) this.dialect.delete(asked);
     }
 
     if (!response) throw new RungError(`${rung} no usable request shape`);
@@ -6264,7 +6432,7 @@ export class MafiaBotDriver {
     // status here is deliberately absent: it is a transient provider problem,
     // not a verdict on the key.
     if (payload.error) throw new RungError(`${rung}: ${payload.error.message ?? 'upstream error'}`);
-    return extractJson(payload.choices?.[0]?.message?.content ?? '');
+    return orRefuse(rung, extractJson(payload.choices?.[0]?.message?.content ?? ''));
   }
 
   private async anthropicAsk(request: Ask): Promise<Record<string, unknown>> {
@@ -6456,6 +6624,27 @@ function isKnownRole(role: string | null): role is string {
  * JSON, a ```json fence, or JSON buried in chatter. Anything else is an empty
  * decision — the scripted brain covers it.
  */
+/**
+ * An answer, or a refusal — never silence dressed as an answer.
+ *
+ * `attemptOn` calls a rung successful on any promise that *resolves*; it never
+ * looks at the value. So a rung that answers 200 with a shape `extractJson`
+ * cannot read returns `{}`, the walk counts that as the answer, and the rungs
+ * below it are never asked at all. One endpoint returning bare arrays turns
+ * into the whole chain filing nothing, which is exactly what it looked like
+ * when `json_object` was the only shape ever requested: the ear "worked",
+ * every pass, and produced no claims.
+ *
+ * `{}` is never a real answer here. Every schema this file asks for has a
+ * required property, so an empty object means the extraction failed, not that
+ * the model had nothing to say — "nobody asserted anything" is `{claims: []}`,
+ * which has a key and passes.
+ */
+function orRefuse(rung: Rung, parsed: Record<string, unknown>): Record<string, unknown> {
+  if (Object.keys(parsed).length === 0) throw new RungError(`${rung} unreadable answer`);
+  return parsed;
+}
+
 function extractJson(content: string): Record<string, unknown> {
   const candidates = [content, /```(?:json)?\s*([\s\S]*?)```/.exec(content)?.[1], /\{[\s\S]*\}/.exec(content)?.[0]];
   for (const candidate of candidates) {

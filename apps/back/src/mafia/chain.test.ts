@@ -67,6 +67,26 @@ before(async () => {
   port = (server.address() as { port: number }).port;
 
   /**
+   * A table with nothing on it but what this test puts there.
+   *
+   * `readApiSlots` reads the *environment*, and a developer with a real .env has
+   * a dozen live slots in it — so this asserted an exact list of rungs and
+   * failed on any machine that could actually talk to a provider, naming the
+   * working configuration as the bug.
+   *
+   * Blanked rather than deleted, because `env.ts` opens with `import
+   * 'dotenv/config'`: deleting a variable here just lets dotenv put it back from
+   * .env when the module is imported below, since dotenv declines to overwrite
+   * only what is already set. An empty string *is* already set, and
+   * `readApiSlots` reads empty as absent, so this is the one way to say "there
+   * is no slot here" that survives the import.
+   */
+  for (let slot = 1; slot <= 24; slot++) {
+    const suffix = slot === 1 ? '' : `_${slot}`;
+    for (const part of ['URL', 'KEY', 'MODEL', 'MODELS']) process.env[`MAFIA_API${suffix}_${part}`] = '';
+  }
+
+  /**
    * One endpoint that stalls and three that answer, which is the shape of an
    * evening on free tiers: they are not slow, one of them is slow right now.
    */
@@ -172,13 +192,25 @@ describe('the chain', () => {
       await driver.askChain({ system: 'system', user: 'user', format: {}, maxTokens: 50 }, { code: 'TEST' }, 'decide');
     }
 
-    const board = new Map(driver.scoreboard().map((row) => [row.model, row]));
-    const quick = board.get('quick-model');
-    const stalled = board.get('stall-model');
-    assert.ok(quick && stalled);
+    /**
+     * The quick endpoints as a group, because which of them takes a call is
+     * not the question.
+     *
+     * Three of the four rungs answer quickly and two of those are the same
+     * slot's second and third models, so six calls spread across them however
+     * the ranking happens to fall. Asserting on `quick-model` alone therefore
+     * failed about one run in eight, when the traffic went to `quick-b` and
+     * `quick-c` instead — a correct chain, a red test. What is under test is
+     * that the stalled rung does not keep its share, and that is a question
+     * about the slow one against all the fast ones.
+     */
+    const board = driver.scoreboard();
+    const stalled = board.find((row) => row.model === 'stall-model');
+    assert.ok(stalled, 'the stalled endpoint is on the board');
+    const quick = board.filter((row) => row.model !== 'stall-model').reduce((sum, row) => sum + row.ok, 0);
     assert.ok(
-      quick.ok > stalled.ok,
-      `the slow endpoint kept its share: quick ${String(quick.ok)}, stalled ${String(stalled.ok)}`
+      quick > stalled.ok,
+      `the slow endpoint kept its share: quick ${String(quick)}, stalled ${String(stalled.ok)}`
     );
     driver.stop();
   });
