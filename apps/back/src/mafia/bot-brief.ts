@@ -4,9 +4,14 @@ import {
   SLOT,
   claimerWeight,
   contradicted,
+  deductions,
+  provenLiar,
+  rank,
   trustOf,
+  type Deduction,
   type MafiaView,
-  type PublicInfo
+  type PublicInfo,
+  type RoleId
 } from 'mafia-core';
 import type { Locale } from 'i18n';
 import type { BotMind } from './bot-mind.js';
@@ -37,6 +42,57 @@ import { say } from './say.js';
  * strong are included. A calm townie gets two lines; a cornered mafioso gets six
  * and they are all about survival.
  */
+
+const WIN_LINE: Partial<Record<RoleId, string>> = {
+  survivor:
+    'YOU WIN WITH ANYBODY, as long as you are alive at the end — town, mafia, a lone killer, it does not matter. ' +
+    'That makes claiming Survivor a real choice with a cost on both sides: it tells the room you are no threat, which ' +
+    'buys you safety, and it also makes you a free vote nobody will ever protect. Never be the most suspicious seat, ' +
+    'and never be the most useful one either.',
+  amnesiac:
+    'You are nobody yet. You win by REMEMBERING a dead player\'s role and then winning as that role, so the graveyard ' +
+    'is your role list: stay alive, watch what dies, and take the badge that is worth the most to whoever is winning.',
+  lover:
+    'You and your partner win together, whoever else wins, as long as you are BOTH alive at the end. If one of you ' +
+    'dies the other dies of grief, so your partner\'s safety is your own and protecting them is not sentiment.',
+  cultist: 'You win when the cult outnumbers the rest. Converting is how you grow; every convert is another vote.',
+  mayor:
+    'Revealing makes your vote count THREE, and paints a target on you for every killer at the table. Reveal when ' +
+    'three votes settle it, not before.',
+  marshall:
+    'Revealing turns the day into an assembly line: no defence, and several hangings in one afternoon. It is one use ' +
+    'of enormous force and it works just as well on the town, so spend it on a day the room already agrees.',
+  jailor:
+    'The seat you jail cannot act, cannot be killed by anyone else, and can be executed by you. You have a few ' +
+    'executions for the whole game; executing a townie costs you the rest of them.',
+  veteran:
+    'On alert you kill EVERY visitor, including the doctor trying to save you and the sheriff checking you. It is a ' +
+    'trap, not armour: the town loses people on your porch.',
+  vigilante:
+    'You have a few bullets. Shooting a townie is worse than not shooting at all — it is a kill the mafia did not ' +
+    'have to make.',
+  crier:
+    'You speak into the night ANONYMOUSLY, and the room never learns which seat it was. That is also your proof: if ' +
+    'they are about to hang you, you can promise to name yourself in the dark tonight, and the next dawn settles it. ' +
+    'It costs you the anonymity that keeps you alive, so it is a last card.',
+  jester:
+    'You WIN if the town HANGS you, and nothing else counts. Look like a liar, never like a jester: a room that ' +
+    'suspects a jester simply stops voting.',
+  executioner:
+    'You win only if your target is HANGED BY THE TOWN. If they die at night instead you have lost, so keeping them ' +
+    'alive at night matters as much as pushing them by day.',
+  witch: 'You win whenever the town loses, whoever beats them. You need not kill anybody: you need the town to fail.',
+  scumbag: 'You win whenever the town loses. Survive, and help the wrong side quietly.',
+  judge: 'You win whenever the town loses. Your court is one use of enormous force — spend it where it does damage.',
+  auditor: 'You win whenever the town loses. Blend in; you are not trying to win the day, you are trying to lose it for them.'
+};
+
+/** The win condition this seat needs spelled out, if its role has one. */
+function winLine(view: MafiaView): string | null {
+  const role = view.me?.role?.id;
+  return role ? (WIN_LINE[role] ?? null) : null;
+}
+
 export function stanceLine(mind: BotMind, view: MafiaView): string {
   const s = mind.stance;
   const orders: string[] = [];
@@ -75,6 +131,8 @@ export function stanceLine(mind: BotMind, view: MafiaView): string {
       orders.push('You win by staying alive. Be useful, be liked, never be the most suspicious.');
       break;
   }
+  const win = winLine(view);
+  if (win) orders.push(win);
   if (strong(s.seekInfo, 0.45)) {
     orders.push('ASK somebody what they did last night, and remember the answer.');
   }
@@ -178,12 +236,48 @@ function pressure(view: MafiaView, board: PublicInfo): string[] {
 
 function heatmap(view: MafiaView, board: PublicInfo, limit: number): string[] {
   const caught = new Set(board.aliveSlots.filter((slot) => contradicted(slot, board)));
+
+  /**
+   * The order, taken from the ranking rather than invented here.
+   *
+   * This used to sort by `notes.length + votesAgainst` — by *how many kinds of
+   * remark a seat had attracted* — so a seat caught in a flat contradiction and
+   * nothing else ranked below a seat with three harmless notes, and the model
+   * was handed the least interesting people first. `rank` answers the question
+   * the sort was trying to ask, it answers it with a fitted likelihood ratio per
+   * piece of evidence, and its ordering is measured: the seats it puts at the
+   * top are killers nine times in ten.
+   *
+   * The probability itself is deliberately not printed. It is well calibrated
+   * at the top and worthless at the bottom (see `rank`), so a number next to
+   * every name would be four-fifths noise dressed as precision, and a model
+   * handed "0.34" will reason about the 0.34. The order carries the signal and
+   * the notes carry the argument.
+   */
+  const standing = rank(board);
+  const place = new Map(standing.map((suspect, index) => [suspect.slot, index]));
+  const worst = standing.filter((suspect) => suspect.against.length > 0).slice(0, 3);
+  const flagged = new Set(worst.map((suspect) => suspect.slot));
+
   const rows = view.players
     .filter((player) => player.alive)
     .map((player) => {
       const notes: string[] = [];
       if (player.votesAgainst > 0) notes.push(`${player.votesAgainst} votes`);
       if (caught.has(player.slot)) notes.push('CAUGHT LYING');
+
+      /**
+       * What the record itself contradicts, which the model could not see.
+       *
+       * `deductions` has moved the voting since the day it was written and
+       * reached the briefing through nothing at all: a bot could *cite* one
+       * when it accused, and a model being asked to decide a turn was never
+       * told that house 3 claimed to be poisoned on night 1 and is still
+       * standing. The one kind of evidence on this board that needs no witness
+       * and can be checked by anybody, missing from the sheet.
+       */
+      for (const finding of deductions(player.slot, board).slice(0, 2)) notes.push(caughtBy(finding));
+
       const trust = trustOf(player.slot, board);
       if (trust >= 2) notes.push('has hanged killers before');
       else if (trust <= -2) notes.push('tried to save killers');
@@ -195,14 +289,59 @@ function heatmap(view: MafiaView, board: PublicInfo, limit: number): string[] {
       if (account)
         notes.push(account.account === 'home' ? 'says they never left home' : `says they went to ${account.targetSlot}`);
       if (player.revealedMayor) notes.push('revealed Mayor');
-      const weight = claimerWeight(player.slot, board);
-      if (weight === 0 && board.claims.some((claim) => claim.claimerSlot === player.slot)) notes.push('proven liar');
-      return { slot: player.slot, name: player.name, notes, score: notes.length + player.votesAgainst };
+
+      /**
+       * A voice the record has written off, which stopped being sayable.
+       *
+       * The test was `claimerWeight === 0`, and a floor of 0.2 was put under
+       * living seats on the day the trust meter stopped being a cliff — so this
+       * has printed for nobody since, silently. `provenLiar` is what the phrase
+       * was always reaching for: vouching for a revealed killer, or being one.
+       */
+      if (provenLiar(player.slot, board)) notes.push('proven liar');
+
+      return { slot: player.slot, name: player.name, notes, order: place.get(player.slot) ?? 99 };
     })
     .filter((row) => row.notes.length > 0)
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => a.order - b.order)
     .slice(0, limit);
-  return rows.map((row) => `${row.slot}. ${row.name} — ${row.notes.join(', ')}`);
+
+  return rows.map((row) => {
+    const lead = flagged.has(row.slot) ? ' [WORTH A LOOK]' : '';
+    return `${row.slot}. ${row.name}${lead} — ${row.notes.join(', ')}`;
+  });
+}
+
+/**
+ * One deduction as a phrase for the sheet, not as a line of dialogue.
+ *
+ * The catalogue already holds twenty-seven ways of *saying* each of these; what
+ * a briefing wants is the flattest possible statement of the fact, in English,
+ * because the model is reasoning with it rather than repeating it.
+ */
+function caughtBy(finding: Deduction): string {
+  switch (finding.kind) {
+    case 'poison-survived':
+      return `said poisoned on night ${finding.night} and is still alive`;
+    case 'visited-a-corpse':
+      return `claims a visit to ${finding.otherSlot} on night ${finding.night}, who was already dead`;
+    case 'guarded-nobody-died':
+      return `claims a bodyguard died for them on night ${finding.night}, when nobody died`;
+    case 'two-in-one-cell':
+      return `both they and ${finding.otherSlot} claim the cell on night ${finding.night}`;
+    case 'acted-from-the-cell':
+      return `claims the cell on night ${finding.night} and a visit the same night`;
+    case 'impossible-ailment':
+      return `claims a ${finding.ailment} nobody left alive could have done`;
+    case 'role-not-in-play':
+      return `claims ${finding.role}, which this game never dealt`;
+    case 'relay-denied':
+      return `quoted ${finding.otherSlot}, who denies saying it`;
+    case 'broken-promise':
+      return `promised proof on night ${finding.night} and gave none`;
+    default:
+      return 'contradicted by the record';
+  }
 }
 
 /**
@@ -297,6 +436,7 @@ export function brief(view: MafiaView, board: PublicInfo, mind: BotMind, task: s
     .map((message) => say(locale)(message.msg!));
   if (dawn.length > 0) lines.push(`This morning:\n${dawn.join('\n')}`);
 
+  lines.push(legalMoves(view));
   lines.push(transcript(view, window, humans > 0));
   lines.push(...pressure(view, board));
   lines.push(stanceLine(mind, view));
@@ -334,6 +474,90 @@ const HUMAN_FLOOR = 4;
  * and a single message is never clipped. The total above is the real bound.
  */
 const LINE_CHARS = 500;
+
+
+/**
+ * The moves that exist for this seat at this moment.
+ *
+ * The briefing told a bot its mood, its agenda, the board and the transcript,
+ * and never once what it was allowed to *do*. That was survivable while the
+ * model only chose words — the policy picked the move — and it is not
+ * survivable now that the model is asked to decide, because a model that does
+ * not know the rules invents them: it heals as a Sheriff, votes on day one,
+ * targets a corpse, and the engine refuses all of it while the seat does
+ * nothing at all.
+ *
+ * The engine already knows every answer here — `legalNightAction` computes the
+ * legal targets, `voteThreshold` the majority, the stage the rest — so this is
+ * not teaching the model the rulebook. It is handing it the one page that
+ * applies. Which is also why it is cheap: fifty tokens about *this* seat beats
+ * a thousand about all fifty-six roles, and it is right rather than
+ * approximately remembered.
+ */
+function legalMoves(view: MafiaView): string {
+  const me = view.me;
+  if (!me?.alive) return 'You are dead. You may only talk in the graveyard; the living cannot hear you.';
+
+  const lines: string[] = ['WHAT YOU MAY DO RIGHT NOW — these are the only legal moves; anything else is refused:'];
+
+  if (view.phase === 'night') {
+    if (me.jailed) {
+      lines.push('- You are in the cell tonight. You have no power to use and the square cannot hear you.');
+    } else if (me.action) {
+      const targets = me.action.targets.length > 0 ? me.action.targets.join(', ') : 'yourself only';
+      lines.push(`- Tonight your power is ${me.action.type}. Legal targets: ${targets}.`);
+      if (me.action.secondTargets?.length) {
+        lines.push(`- It needs a second house as well. Legal second targets: ${me.action.secondTargets.join(', ')}.`);
+      }
+      if (me.action.charges !== null) lines.push(`- You have ${me.action.charges} use(s) of it left, for the whole game.`);
+    } else {
+      lines.push('- You have no power to use tonight. You can only talk where you are allowed to talk.');
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * The day, in the order it actually happens.
+   *
+   * A trial is two beats and a model that has not been told that treats the
+   * defence as the verdict — it argues its case in the round where nobody is
+   * listening yet, and says nothing in the round that decides.
+   */
+  if (view.stage === 'defense') {
+    lines.push(
+      view.trial?.slot === me.slot
+        ? '- You are ON THE STAND. This is your defence and it is the last thing said before the vote. Nobody else may speak.'
+        : `- House ${view.trial?.slot ?? '?'} is on the stand defending themselves. You listen; you do not speak.`
+    );
+    return lines.join('\n');
+  }
+  if (view.stage === 'judgement') {
+    lines.push(
+      view.trial?.slot === me.slot
+        ? '- You are on trial and the room is voting guilty or innocent. The accused does not vote.'
+        : `- Vote GUILTY or INNOCENT on house ${view.trial?.slot ?? '?'}. Guilty hangs them; a tie spares them.`
+    );
+    return lines.join('\n');
+  }
+
+  if (view.day <= 1) {
+    lines.push('- There is NO VOTE on the first day. Nobody can be hanged today. All you can do is talk.');
+    return lines.join('\n');
+  }
+  if (view.voteOpensAt !== null && Date.now() < view.voteOpensAt) {
+    const wait = Math.ceil((view.voteOpensAt - Date.now()) / 1000);
+    lines.push(`- The ballot is not open yet — about ${wait}s of talking left. You cannot accuse or skip until it opens.`);
+  } else {
+    lines.push('- You may accuse one house, or vote to skip the day. Changing your mind is free until the count lands.');
+    const leader = view.players.filter((player) => player.alive).sort((a, b) => b.votesAgainst - a.votesAgainst)[0];
+    lines.push(
+      leader && leader.votesAgainst > 0
+        ? `- ${view.voteThreshold} votes put somebody on the stand. House ${leader.slot} has ${leader.votesAgainst}; ${view.skipVotes} want to skip.`
+        : `- ${view.voteThreshold} votes put somebody on the stand, where they defend themselves and the room then votes guilty or innocent. Nobody is targeted yet.`
+    );
+  }
+  return lines.join('\n');
+}
 
 function transcript(view: MafiaView, window: number, humansPresent: boolean): string {
   // Authored lines only: the game's own announcements are already summarised

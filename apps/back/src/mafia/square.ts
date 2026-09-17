@@ -28,7 +28,7 @@
  */
 import type { Claim, ClaimKind, RoleId } from 'mafia-core';
 
-import { fold, seatHits, selfClaim } from './asks.js';
+import { fold, roleNamed, seatHits, selfClaim } from './asks.js';
 
 /** One assertion read off a line, in the shape `BotMinds.record` takes. */
 export interface SquareClaim {
@@ -38,6 +38,10 @@ export interface SquareClaim {
   account?: 'home' | 'visited';
   ailment?: Claim['ailment'];
   claimedRole?: RoleId;
+  /** See `Claim` for these: they belong to the newer kinds. */
+  urge?: Claim['urge'];
+  deniedRole?: RoleId;
+  promise?: Claim['promise'];
 }
 
 /** A seat at the table, as this reader needs it. */
@@ -197,6 +201,60 @@ const AILMENTS: { ailment: NonNullable<Claim['ailment']>; cue: RegExp }[] = [
 
 /* ------------------------------ the reading ------------------------------ */
 
+/**
+ * "We need to vote." / "Let's skip today."
+ *
+ * Names nobody, so nothing above catches it, and it is the sentence that
+ * decides whether a day happens at all: `steadyVote` ends a thin afternoon on
+ * its own authority, and a person asking for a vote is the one thing that
+ * should outweigh a machine's verdict that there is nothing to vote on.
+ *
+ * Deliberately demanding about the first person plural. "We" or an imperative,
+ * because "he wants to skip" is a report about somebody else and "you should
+ * vote him" is an accusation, and filing either as this seat's own push would
+ * put a position in their mouth they never took.
+ */
+const URGE_VOTE =
+  /\b(?:we (?:need|have|got) to vote|we must vote|let'?s vote|vote (?:now|today|someone|somebody)|can'?t (?:skip|pass) again|no more skipping|il faut voter|on doit voter|votons|on vote)\b/i;
+const URGE_SKIP =
+  /\b(?:let'?s skip|we should skip|skip (?:today|it|this day)|no vote today|nothing here today|not enough (?:to go on|evidence)|on passe|passons|on skip|rien aujourd'?hui|pas assez d'?(?:infos|elements))\b/i;
+
+/**
+ * "Why me?" — the accused asking an accuser to show its working.
+ *
+ * Aimed at whoever is pushing hardest when the line names nobody, which is the
+ * ordinary case: somebody under a wagon rarely stops to name which of their
+ * accusers they mean.
+ */
+const DEMAND =
+  /\b(?:why me|why am i|on what (?:basis|grounds)|what did i (?:do|even do)|who (?:put my name|named me|started this)|based on what|pourquoi moi|sur quoi|qu'?est-ce que j'?ai fait|qui m'?a (?:nomme|accuse))\b/i;
+
+/**
+ * "He can't be the doctor." — denying a badge rather than calling somebody evil.
+ *
+ * Read apart from an accusation because the checkable part is *which* badge is
+ * contested: the board can weigh that against everybody else standing up for
+ * the same role, and it cannot do anything at all with "he is lying".
+ */
+const DENIES =
+  /\b(?:can'?t be|is not|isn'?t|ain'?t|never was|n'?est pas|ne peut pas etre|c'?est pas)\s+(?:the |a |an |le |la |un |une )?/i;
+
+/** "Spare me and I'll prove it tonight." A bet the next dawn settles. */
+const PROMISE =
+  /\b(?:i(?:'?ll| will) prove it|prove it tonight|wait (?:one|a) (?:more )?(?:night|day)|give me (?:one|a) night|i(?:'?ll| will) (?:name myself|say my name|speak tonight)|you'?ll (?:see|know) (?:tomorrow|at dawn)|je (?:le )?prouverai|attendez (?:une|cette) nuit|donnez-moi une nuit|demain vous saurez)\b/i;
+
+/**
+ * "He keeps saying we should skip." / "7 said he would prove it."
+ *
+ * Somebody reporting what another seat said, which reads exactly like the seat
+ * saying it and means the opposite: filing it would put a position in this
+ * speaker's mouth that they were quoting rather than taking. Only guards the
+ * kinds where that confusion is possible — a push on the clock and a promise —
+ * because those are the two that are about the speaker and carry no house.
+ */
+const REPORTED =
+  /\b(?:he|she|they|him|her|them|\d{1,2}|il|elle|ils|elles|lui)\s+(?:said|says|keeps saying|kept saying|told|wants|wanted|claims|claimed|a dit|dit|disait|veut|voulait|pretend)\b/i;
+
 /** The window a cue is looked for in, either side of a house. */
 const NEAR = 44;
 
@@ -270,6 +328,14 @@ export function readSquare(
      * author.
      */
     implicitSelf?: boolean;
+    /**
+     * Who to read an unaddressed "why me?" as being put to.
+     *
+     * The seat currently pushing hardest against the speaker, which the caller
+     * knows and this reader cannot. Absent, an unaddressed demand is dropped
+     * rather than guessed at.
+     */
+    accuser?: number;
   } = {}
 ): SquareClaim[] {
   const line = fold(text);
@@ -292,6 +358,40 @@ export function readSquare(
   // "I am the Sheriff." The room parser already knows how to read one.
   const role = selfClaim(text);
   if (role) add({ kind: 'role-claim', targetSlot: speakerSlot, claimedRole: role });
+
+  /**
+   * Pushing on the clock rather than on a person.
+   *
+   * Filed against the speaker's own house because it is about them and not
+   * about anybody else, and checked before the per-house loop so that "we need
+   * to vote 7" records both the push and the accusation.
+   */
+  const quoting = REPORTED.test(line);
+  if (!quoting) {
+    if (URGE_VOTE.test(line)) add({ kind: 'urge', targetSlot: speakerSlot, urge: 'vote' });
+    else if (URGE_SKIP.test(line)) add({ kind: 'urge', targetSlot: speakerSlot, urge: 'skip' });
+  }
+
+  /** "Spare me and I will prove it tonight." */
+  if (PROMISE.test(line) && !quoting && (explicit || options.implicitSelf === true)) {
+    add({ kind: 'promise', targetSlot: speakerSlot, promise: 'night' });
+  }
+
+  /**
+   * "Why me?", put to whoever the line names, or to the loudest accuser when
+   * it names nobody.
+   *
+   * The unaddressed form is by far the commoner one — somebody under a wagon
+   * rarely stops to pick which accuser they mean — and `options.accuser` is
+   * how the caller says who that is. Without one the question is still worth
+   * recording against the seat named, if any.
+   */
+  if (DEMAND.test(line)) {
+    const at = line.search(DEMAND);
+    const aimed = hits.find((hit) => hit.at >= at) ?? hits[0];
+    const who = aimed?.slot ?? options.accuser;
+    if (who !== undefined && who !== speakerSlot) add({ kind: 'demand', targetSlot: who });
+  }
 
   // What was done to this seat in the night.
   for (const { ailment, cue } of AILMENTS) {
@@ -357,6 +457,20 @@ export function readSquare(
     const evilAt = near.search(EVIL);
     const goodAt = near.search(GOOD);
     const rope = AGAINST.test(before.slice(-24)) || AGAINST.test(after.slice(0, 18));
+
+    /**
+     * "He cannot be the Doctor" — a denial of a badge, not of a person.
+     *
+     * Checked before the evil/good verdicts, because the words that carry it
+     * ("is not", "can't be") are the same ones `NEGATED` uses, and read as a
+     * verdict the sentence comes out as a *clearing* of the seat whose badge is
+     * being torn up. Which is backwards, and was the reading until now.
+     */
+    const badge = roleNamed(after) ?? roleNamed(before);
+    if (badge && DENIES.test(near)) {
+      add({ kind: 'counter-claim', targetSlot: hit.slot, deniedRole: badge });
+      continue;
+    }
 
     // "not 11" is a reprieve whatever else the line is doing.
     if (refused) {

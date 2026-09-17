@@ -26,6 +26,7 @@ import { fr } from 'i18n/locales/fr';
 import type { RoleId } from './roles.js';
 import { chatRules, ANONYMOUS, createMafiaGame, playerBySlot, type MafiaState } from './state.js';
 import { toMafiaView } from './view.js';
+import { simulateGame } from './sim/simulate.js';
 
 /**
  * What the square actually said, in French.
@@ -556,6 +557,34 @@ describe('mafia engine', () => {
       checkVictory(state, 1000);
       assert.equal(state.phase, 'day');
     });
+  });
+
+  /**
+   * A game that reaches the end and hangs somebody on the way.
+   *
+   * Every other test here checks one rule in isolation, and a fifteen-second
+   * ballot lock passed all of them while making the game unplayable: the lock
+   * is longer than a simulated day, so every vote in every game was refused and
+   * nothing was ever hanged. Town win rate went from 45% to nought and the
+   * suite stayed green, because nothing in it played a game to the end.
+   *
+   * So this asserts the coarsest possible thing, which is exactly what was
+   * missing: games finish, ropes get pulled, and some of them are the right
+   * ones.
+   */
+  it('plays whole games that actually hang people', () => {
+    let lynches = 0;
+    let evilLynches = 0;
+    let decided = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      const result = simulateGame({ players: 15, seed });
+      lynches += result.lynches;
+      evilLynches += result.evilLynches;
+      if (result.winner !== 'draw') decided++;
+    }
+    assert.ok(lynches > 20, `twenty games produced only ${String(lynches)} hangings — the ballot is blocked`);
+    assert.ok(evilLynches > 0, 'not one hanging in twenty games caught an evil seat');
+    assert.ok(decided > 10, `only ${String(decided)} of twenty games reached a winner`);
   });
 
   it('a parasite wins only when the town does not', () => {
