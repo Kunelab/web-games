@@ -19,6 +19,7 @@ export const screenEn: Catalogue = {
   'mafia.refuse.deadNoVote': 'The dead do not vote',
   'mafia.refuse.notNow': 'Not now',
   'mafia.refuse.firstDay': 'No vote on the first day',
+  'mafia.refuse.stillTalking': 'Too early — the town is still talking',
   'mafia.refuse.badTarget': 'Invalid target',
   'mafia.refuse.needsSecondTarget': 'Name a second house too',
   'mafia.refuse.sameTwice': 'The same house twice',
@@ -773,9 +774,12 @@ export const screenEn: Catalogue = {
   'mafia.bot.dump.jailedTried.1': 'Night {night}: {who} was in my cell, and he tried to work from it.',
   'mafia.bot.dump.jailedTried.2': 'I locked {who} up on night {night}. He reached for something.',
   'mafia.bot.dump.jailedTried.3': 'Night {night}: {who} spent it in my cell and did not sit still.',
-  'mafia.bot.dump.controlledKill.1': 'Night {night}: I took {who}’s hand and sent it at {house}. {house} did not wake up.',
-  'mafia.bot.dump.controlledKill.2': 'I steered {who} onto {house} on night {night}, and {house} died. {who} is carrying something.',
-  'mafia.bot.dump.controlledKill.3': 'Night {night}: {who}’s hand, pointed at {house}. There was a body at {house} in the morning.',
+  'mafia.bot.dump.controlledKill.1':
+    'Night {night}: I took {who}’s hand and sent it at {house}. {house} did not wake up.',
+  'mafia.bot.dump.controlledKill.2':
+    'I steered {who} onto {house} on night {night}, and {house} died. {who} is carrying something.',
+  'mafia.bot.dump.controlledKill.3':
+    'Night {night}: {who}’s hand, pointed at {house}. There was a body at {house} in the morning.',
   'mafia.bot.dump.controlledIdle.1': 'Night {night}: I took {who}’s hand and there was nothing in it.',
   'mafia.bot.dump.controlledIdle.2': 'I had {who} on night {night}. He was doing nothing at all.',
   'mafia.bot.dump.controlledIdle.3': 'Night {night}: {who} had no order to give. Make of that what you like.',

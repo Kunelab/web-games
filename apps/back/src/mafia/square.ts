@@ -107,7 +107,7 @@ const VISITED_BY =
 
 /** The vocabulary of an accusation. */
 const EVIL =
-  /\b(?:sus|suspicious|suspect|suspecte|suspects|mafia|maf|scum|evil|wolf|liar|lying|lies|lied|guilty|shady|dodgy|fishy|bad|dirty|red|louche|chelou|menteur|menteuse|ment|mentait|coupable|bizarre|traitre|traite|rouge|mauvais)\b/i;
+  /\b(?:sus|suspicious|suspect|suspecte|suspects|mafia|maf|scum|evil|wolf|liar|lying|lies|lied|guilty|shady|dodgy|fishy|bad|dirty|red|louche|chelou|menteur|menteuse|ment|mentait|coupable|bizarre|traitre|traite|rouge|mauvais|sk|serial killer|tueur en serie)\b/i;
 
 /**
  * A house pulled out of the line of fire, immediately before it is named.
@@ -129,7 +129,8 @@ const AGAINST =
   /\b(?:vote|votes|voting|voted|hang|hanging|lynch|lynching|eliminate|kill|rope|pend|pends|pendre|pendez|lynche|lynchez|lyncher|elimine|eliminez|contre|dehors|sortez)\b/i;
 
 /** Pulling one back. */
-const NEGATED = /\b(?:not|no|never|dont|don'?t|doesn'?t|isn'?t|ain'?t|stop|pas|jamais|plus|arrete|arretez|surtout pas)\b/i;
+const NEGATED =
+  /\b(?:not|no|never|dont|don'?t|doesn'?t|isn'?t|ain'?t|stop|pas|jamais|plus|arrete|arretez|surtout pas)\b/i;
 
 /** A question put to a house rather than about one. */
 const ASKED =
@@ -147,20 +148,51 @@ const ASKED =
  */
 const AILMENTS: { ailment: NonNullable<Claim['ailment']>; cue: RegExp }[] = [
   { ailment: 'poison', cue: /\b(?:poisoned|poison|empoisonne|empoisonnee|du poison)\b/i },
-  { ailment: 'silenced', cue: /\b(?:blackmail(?:ed)?|silenced|gagged|muted|can'?t speak|fait taire|baillonne|maitre chanteur|je peux pas parler)\b/i },
-  { ailment: 'guarded', cue: /\b(?:bodyguard|guarded|a guard|protected me|garde du corps|protege par|on m'?a protege)\b/i },
-  { ailment: 'healed', cue: /\b(?:healed|the doctor|doc saved|patched (?:me )?up|soigne|soignee|le medecin|le docteur|on m'?a soigne)\b/i },
+  {
+    ailment: 'silenced',
+    cue: /\b(?:blackmail(?:ed)?|silenced|gagged|muted|can'?t speak|fait taire|baillonne|maitre chanteur|je peux pas parler)\b/i
+  },
+  {
+    ailment: 'guarded',
+    cue: /\b(?:bodyguard|guarded|a guard|protected me|garde du corps|protege par|on m'?a protege)\b/i
+  },
+  {
+    ailment: 'healed',
+    cue: /\b(?:healed|the doctor|doc saved|patched (?:me )?up|soigne|soignee|le medecin|le docteur|on m'?a soigne)\b/i
+  },
   // Before `blocked`, which "couldn't act" also matches: a night in the cell is
   // the more specific reading, and the only one with a witness to check it by.
   {
     ailment: 'jailed',
-    cue: /\b(?:jailed|in jail|the jail(?:or|er)|in the cell|locked up|kidnapped|emprisonne|emprisonnee|en cellule|en prison|le geolier|enferme|enfermee|kidnappe|kidnappee)\b/i
+    /**
+     * Passive only, because the active verb belongs to somebody else entirely.
+     *
+     * "I am jailor, I jailed 8" is the man with the keys reporting his own
+     * night, and the bare verb read it as him having *been* jailed — a false
+     * ailment filed on the one seat whose word on this is worth anything, and
+     * the accusation against 8 lost in the same breath. The jailor is also the
+     * reason "the jailor" cannot be a cue on its own: every seat that mentions
+     * him would be claiming his cell.
+     */
+    cue: /(?<!\bi )\b(?:jailed|in jail|in the cell|locked up|kidnapped|emprisonne|emprisonnee|en cellule|en prison|enferme|enfermee|kidnappe|kidnappee)\b|\bthe jail(?:or|er) (?:had|took|held|grabbed) me\b|\ble geolier m'?a (?:pris|garde)\b/i
   },
-  { ailment: 'blocked', cue: /\b(?:roleblock(?:ed)?|role blocked|blocked|distracted|escorted|couldn'?t act|bloque|bloquee|empeche|distrait|j'?ai pas pu agir)\b/i },
-  { ailment: 'controlled', cue: /\b(?:controlled|mind ?controlled|the witch|puppet|controle|controlee|la sorciere|manipule)\b/i },
-  { ailment: 'bussed', cue: /\b(?:bus driver|bussed|bus'?d|swapped|switched houses|chauffeur de bus|echange de maison|on a echange)\b/i },
+  {
+    ailment: 'blocked',
+    cue: /\b(?:roleblock(?:ed)?|role blocked|blocked|distracted|escorted|couldn'?t act|bloque|bloquee|empeche|distrait|j'?ai pas pu agir)\b/i
+  },
+  {
+    ailment: 'controlled',
+    cue: /\b(?:controlled|mind ?controlled|the witch|puppet|controle|controlee|la sorciere|manipule)\b/i
+  },
+  {
+    ailment: 'bussed',
+    cue: /\b(?:bus driver|bussed|bus'?d|swapped|switched houses|chauffeur de bus|echange de maison|on a echange)\b/i
+  },
   { ailment: 'douse', cue: /\b(?:doused|petrol|gasoline|gas(?:oline)? on me|arrosoir|asperge|essence|arrose)\b/i },
-  { ailment: 'survived', cue: /\b(?:survived|attacked|tried to kill me|attempt on me|i was attacked|survecu|attaque|on a essaye de me tuer|j'?ai failli mourir)\b/i }
+  {
+    ailment: 'survived',
+    cue: /\b(?:survived|attacked|tried to kill me|attempt on me|i was attacked|survecu|attaque|on a essaye de me tuer|j'?ai failli mourir)\b/i
+  }
 ];
 
 /* ------------------------------ the reading ------------------------------ */
@@ -246,8 +278,7 @@ export function readSquare(
   const filed: SquareClaim[] = [];
   const add = (claim: SquareClaim): void => {
     const already = filed.some(
-      (other) =>
-        other.kind === claim.kind && other.targetSlot === claim.targetSlot && other.ailment === claim.ailment
+      (other) => other.kind === claim.kind && other.targetSlot === claim.targetSlot && other.ailment === claim.ailment
     );
     if (!already) filed.push(claim);
   };
@@ -256,8 +287,7 @@ export function readSquare(
 
   /** Is what is being said at this point in the line about the speaker? */
   const explicit = SELF.test(line);
-  const mine = (at: number): boolean =>
-    explicit || (options.implicitSelf === true && !hits.some((hit) => hit.at < at));
+  const mine = (at: number): boolean => explicit || (options.implicitSelf === true && !hits.some((hit) => hit.at < at));
 
   // "I am the Sheriff." The room parser already knows how to read one.
   const role = selfClaim(text);

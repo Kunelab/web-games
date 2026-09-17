@@ -58,6 +58,7 @@ import {
   HEARD_FORMAT,
   HEARD_RULES,
   hearingPrompt,
+  type Square,
   readHeard,
   readRoomAsks,
   type DroppedClaim,
@@ -68,6 +69,7 @@ import {
   unreadWills
 } from './ear.js';
 import { JURY_FORMAT, JURY_RULES, juryPrompt, readJury, type JuryLean } from './jury.js';
+import { screen } from './guard.js';
 import { MOUTH_FORMAT, mouthPrompt, mouthRules, readLine, type Intent } from './mouth.js';
 import { readSquare, utterance, type SquareClaim } from './square.js';
 import { fumble, protectedWords } from './typos.js';
@@ -1761,7 +1763,7 @@ export class MafiaBotDriver {
       const answer = await this.askChain(
         {
           system: HEARD_RULES,
-          user: hearingPrompt(state, lines),
+          user: hearingPrompt(state, lines, this.squareOf(state)),
           format: HEARD_FORMAT,
           formatName: 'heard',
           /**
@@ -3176,13 +3178,14 @@ export class MafiaBotDriver {
       const hedged = second !== null && isApiRung(second);
 
       const first = this.attemptOn(rung, attempt, { ...context, errand, round }, code);
-      let outcome = hedged
-        ? await Promise.race([first, sleep(hedgeMs).then(() => 'waited' as const)])
-        : await first;
+      let outcome = hedged ? await Promise.race([first, sleep(hedgeMs).then(() => 'waited' as const)]) : await first;
 
       if (outcome === 'waited' && second) {
         if (code) trace('mafia', code).event('hedge', { ...context, errand, slow: rung, alsoAsking: second });
-        outcome = await firstUsable([first, this.attemptOn(second, attempt, { ...context, errand, round, hedge: true }, code)]);
+        outcome = await firstUsable([
+          first,
+          this.attemptOn(second, attempt, { ...context, errand, round, hedge: true }, code)
+        ]);
       }
 
       if (outcome !== 'waited' && outcome.ok) {
@@ -3199,7 +3202,10 @@ export class MafiaBotDriver {
         this.lastAnswered = this.modelName(outcome.rung);
         if (!this.answered.has(outcome.rung)) {
           this.answered.add(outcome.rung);
-          this.log.info({ rung: outcome.rung, model: this.modelName(outcome.rung) }, 'mafia bots: this brain is answering');
+          this.log.info(
+            { rung: outcome.rung, model: this.modelName(outcome.rung) },
+            'mafia bots: this brain is answering'
+          );
         }
         return outcome.value;
       }
@@ -4257,7 +4263,8 @@ export class MafiaBotDriver {
     const mine = lines.filter((message) => named.test(message.text));
     return (mine.length > 0 ? mine : lines).slice(-2).map((message) => ({
       who: message.authorName,
-      text: clip(message.text.replace(/\s+/g, ' ').trim(), 160)
+      // Quoted back to a model, so screened; the room still sees the original.
+      text: clip(screen(message.text).text.replace(/\s+/g, ' ').trim(), 160)
     }));
   }
 
@@ -5518,6 +5525,42 @@ export class MafiaBotDriver {
         )
       ),
       claim: null
+    };
+  }
+
+  /**
+   * What the room is looking at, so a vague line has a referent.
+   *
+   * People do not talk in house numbers. They say "the sheriff", or ask "what
+   * did you do last night" of nobody in particular and mean whoever everybody
+   * is already staring at. Handed only a list of names, the reader resolves
+   * neither and files nothing — which is how a player asking the Town Crier
+   * what it had said on night two got no answer at all: the line was read, no
+   * house was found in it, and the crier never learned it had been asked.
+   */
+  private squareOf(state: MafiaState): Square {
+    const board = this.minds.board(state);
+    const claimed = new Map<number, string>();
+    for (const claim of board.claims) {
+      if (claim.kind === 'role-claim' && claim.claimedRole) {
+        claimed.set(claim.claimerSlot, ROLES[claim.claimedRole].name);
+      }
+    }
+    const tally = new Map<number, number>();
+    for (const target of board.votes.values()) tally.set(target, (tally.get(target) ?? 0) + 1);
+    let mostVoted: number | null = null;
+    let best = 0;
+    for (const [slot, count] of tally) {
+      if (count > best) {
+        best = count;
+        mostVoted = slot;
+      }
+    }
+    const accused = state.trial ? state.players[state.trial.accusedId] : null;
+    return {
+      claimed: [...claimed].map(([slot, role]) => ({ slot, role })),
+      onTrial: accused?.slot ?? null,
+      mostVoted
     };
   }
 

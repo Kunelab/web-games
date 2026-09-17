@@ -74,6 +74,7 @@ export const NO = {
   deadNoVote: (): Msg => msg('mafia.refuse.deadNoVote'),
   notNow: (): Msg => msg('mafia.refuse.notNow'),
   firstDay: (): Msg => msg('mafia.refuse.firstDay'),
+  stillTalking: (): Msg => msg('mafia.refuse.stillTalking'),
   badTarget: (): Msg => msg('mafia.refuse.badTarget'),
   /** A Witch or a Bus Driver named one house where the power wants two. */
   needsSecondTarget: (): Msg => msg('mafia.refuse.needsSecondTarget'),

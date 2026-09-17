@@ -562,6 +562,15 @@ export function castVote(
   if (!voter?.alive) return { ok: false, error: NO.deadNoVote() };
   if (state.phase !== 'day' || state.stage !== 'discussion') return { ok: false, error: NO.notNow() };
   if (state.day <= 1) return { ok: false, error: NO.firstDay() };
+  /**
+   * Withdrawing is always allowed; committing waits for the floor.
+   *
+   * A seat that has changed its mind must be able to take its name off a wagon
+   * at any moment — the lock is on ending the day early, not on thinking again.
+   */
+  if (targetSlot !== null && state.voteOpensAt != null && now < state.voteOpensAt) {
+    return { ok: false, error: NO.stillTalking() };
+  }
 
   if (targetSlot === null) {
     delete state.votes[voterId];
@@ -1141,6 +1150,15 @@ function beginDay(state: MafiaState, now: number, announcements: Announcement[])
   // Day one has no corpse to argue about and no rope to pull, so it runs on its
   // own much shorter clock. Older persisted tables predate the field.
   state.phaseEndsAt = now + (state.day === 1 ? (state.config.firstDayMs ?? 35_000) : state.config.dayMs);
+  /**
+   * The ballot opens a little after the day does.
+   *
+   * Day one is exempt: there is no vote on it at all, so a lock would be a lock
+   * on nothing. Every other day gets a window in which the only thing anybody
+   * can do is talk — which is the point, because the vote that follows is then
+   * taken against a board that has something on it.
+   */
+  state.voteOpensAt = state.day === 1 ? null : now + (state.config.voteLockMs ?? 15_000);
 
   announce(state, M.dayHeader(state.day), now);
   for (const line of announcements) {
