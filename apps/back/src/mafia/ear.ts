@@ -75,6 +75,7 @@ export const HEARD_FORMAT = {
               'blocked',
               'controlled',
               'bussed',
+              'jailed',
               null
             ],
             description: 'For ailing only: what they say was done to them in the night.'
@@ -108,6 +109,7 @@ The claim kinds:
     poison "I've been poisoned" · healed "the doctor saved me" · guarded "a bodyguard died for me"
     survived "someone tried to kill me" · silenced "I was blackmailed" · blocked "I was roleblocked"
     controlled "I was controlled" · bussed "I was swapped" · douse "I've been doused in petrol"
+    jailed "I was in the cell last night" / "the jailor had me"
 
 Rules:
 - Report only what was ACTUALLY said. Never infer, never guess, never add a claim nobody made.

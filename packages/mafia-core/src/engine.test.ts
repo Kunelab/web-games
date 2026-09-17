@@ -8,6 +8,7 @@ import {
   castBallot,
   castVote,
   chatLineFor,
+  checkVictory,
   chatVisibleTo,
   jailTarget,
   joinMafia,
@@ -472,6 +473,89 @@ describe('mafia engine', () => {
     assert.equal(purge.phase, 'ended');
     const townWinners = purge.winners.filter((w) => w.kind === 'town');
     assert.equal(townWinners.length, 3);
+  });
+
+  /**
+   * The endgame nobody has to sit through.
+   *
+   * A lone killer used to have exactly one victory condition — everybody left
+   * is a bystander — so a Serial Killer and one Sheriff at dawn played out a
+   * full day of a decided game and then a night, and only then heard the
+   * headline. The Sheriff cannot hang him (one vote out of two never reaches a
+   * majority), cannot outlive him and cannot hit back. That is the whole of
+   * `beyondSaving`, and everything here is one of its exits.
+   */
+  describe('a lone killer wins the moment the last seat cannot stop him', () => {
+    /** The ending, without a night in between: `checkVictory` on the morning. */
+    const settles = (roles: RoleId[]): MafiaState => {
+      const state = table(roles);
+      checkVictory(state, 1000);
+      return state;
+    };
+
+    it('crowns him against a seat with nothing to answer with', () => {
+      for (const townie of ['sheriff', 'citizen', 'lookout', 'coroner'] as RoleId[]) {
+        const state = settles(['serial-killer', townie]);
+        assert.equal(state.phase, 'ended', `a serial killer beats a lone ${townie} without playing the night`);
+        assert.ok(state.winners.some((w) => w.kind === 'solo-killer'));
+      }
+    });
+
+    it('crowns the slow blades on the same morning', () => {
+      // The fire and the poison take another night to land; the outcome does not.
+      for (const killer of ['arsonist', 'poisoner', 'electromaniac', 'mass-murderer'] as RoleId[]) {
+        assert.equal(settles([killer, 'citizen']).phase, 'ended', `${killer} against one citizen is over`);
+      }
+    });
+
+    it('waits for the porch, the cell and the badge', () => {
+      // A veteran shoots back at 2, a jailor's lever is 3, and a mayor who
+      // stands up votes for three — which is the majority of two seats plus him.
+      for (const clutch of ['veteran', 'jailor', 'mayor'] as RoleId[]) {
+        assert.equal(settles(['serial-killer', clutch]).phase, 'day', `a ${clutch} still has the game`);
+      }
+    });
+
+    it('waits for anything that can take the night away from him', () => {
+      for (const clutch of ['escort', 'bus-driver'] as RoleId[]) {
+        assert.equal(settles(['serial-killer', clutch]).phase, 'day', `a ${clutch} still has the game`);
+      }
+    });
+
+    it('does not count a power that cannot be pointed at its own owner', () => {
+      // Neither may heal or guard itself, so the last doctor alive is a doctor
+      // who dies — and a rule that called that a rescue would never end.
+      for (const alone of ['doctor', 'bodyguard'] as RoleId[]) {
+        assert.equal(settles(['serial-killer', alone]).phase, 'ended', `a lone ${alone} cannot save itself`);
+      }
+    });
+
+    it('weighs the blade against the armour rather than naming roles', () => {
+      // The Stump does not die at night. A serial killer's blade is power 2 and
+      // goes through that; a massacre is power 1 and never will.
+      assert.equal(settles(['serial-killer', 'stump']).phase, 'ended');
+      assert.equal(settles(['mass-murderer', 'stump']).phase, 'day');
+      // And a bullet is power 1 against a killer who is night-immune to a man.
+      assert.equal(settles(['serial-killer', 'vigilante']).phase, 'ended');
+    });
+
+    it('leaves a rope the room can still reach', () => {
+      // Two seats out of three make the majority, so the day is a real day.
+      assert.equal(settles(['serial-killer', 'citizen', 'citizen']).phase, 'day');
+    });
+
+    it('will not cut a rope that hangs the killer too', () => {
+      // Grief takes the partner of anybody who dies, so this knife cannot be used.
+      const state = table(['serial-killer', 'citizen']);
+      const killer = bySlot(state, 1);
+      const lover = bySlot(state, 2);
+      killer.bondPartnerId = lover.playerId;
+      killer.bondKind = 'lover';
+      lover.bondPartnerId = killer.playerId;
+      lover.bondKind = 'lover';
+      checkVictory(state, 1000);
+      assert.equal(state.phase, 'day');
+    });
   });
 
   it('a parasite wins only when the town does not', () => {

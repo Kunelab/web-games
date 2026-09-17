@@ -150,6 +150,12 @@ const AILMENTS: { ailment: NonNullable<Claim['ailment']>; cue: RegExp }[] = [
   { ailment: 'silenced', cue: /\b(?:blackmail(?:ed)?|silenced|gagged|muted|can'?t speak|fait taire|baillonne|maitre chanteur|je peux pas parler)\b/i },
   { ailment: 'guarded', cue: /\b(?:bodyguard|guarded|a guard|protected me|garde du corps|protege par|on m'?a protege)\b/i },
   { ailment: 'healed', cue: /\b(?:healed|the doctor|doc saved|patched (?:me )?up|soigne|soignee|le medecin|le docteur|on m'?a soigne)\b/i },
+  // Before `blocked`, which "couldn't act" also matches: a night in the cell is
+  // the more specific reading, and the only one with a witness to check it by.
+  {
+    ailment: 'jailed',
+    cue: /\b(?:jailed|in jail|the jail(?:or|er)|in the cell|locked up|kidnapped|emprisonne|emprisonnee|en cellule|en prison|le geolier|enferme|enfermee|kidnappe|kidnappee)\b/i
+  },
   { ailment: 'blocked', cue: /\b(?:roleblock(?:ed)?|role blocked|blocked|distracted|escorted|couldn'?t act|bloque|bloquee|empeche|distrait|j'?ai pas pu agir)\b/i },
   { ailment: 'controlled', cue: /\b(?:controlled|mind ?controlled|the witch|puppet|controle|controlee|la sorciere|manipule)\b/i },
   { ailment: 'bussed', cue: /\b(?:bus driver|bussed|bus'?d|swapped|switched houses|chauffeur de bus|echange de maison|on a echange)\b/i },

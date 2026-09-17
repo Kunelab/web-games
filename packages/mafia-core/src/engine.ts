@@ -127,7 +127,7 @@ function rescued(player: MafiaPlayer, night: number, by: 'doctor' | 'bodyguard' 
 }
 
 /** Records that somebody got in this seat's way tonight; see `disturbedNight`. */
-function disturbed(player: MafiaPlayer, night: number, by: 'block' | 'control' | 'swap'): void {
+function disturbed(player: MafiaPlayer, night: number, by: 'block' | 'control' | 'swap' | 'jail'): void {
   player.disturbedNight = night;
   player.disturbedBy = by;
 }
@@ -1445,7 +1445,19 @@ function resolveNight(state: MafiaState, _rng: () => number): Announcement[] {
     return player?.alive ? player : null;
   };
   const blocked = new Set<string>();
-  if (jailedId) blocked.add(jailedId);
+  /**
+   * A cell takes the night like a roleblock, and is remembered as its own thing.
+   *
+   * It was remembered as nothing at all: `blocked` swallowed the prisoner and no `disturbed` was filed, so a Sheriff
+   * who spent the night in jail woke with no result, no explanation for it, and nothing to say when the square asked
+   * — while `why.silent` votes people for having nothing to say. The jailor can corroborate this one, which makes it
+   * the only one of the four with a witness.
+   */
+  if (jailedId) {
+    blocked.add(jailedId);
+    const prisoner = state.players[jailedId];
+    if (prisoner) disturbed(prisoner, state.day, 'jail');
+  }
 
   // Yesterday's borrowed faces wash off before tonight's are painted on.
   for (const player of players) player.disguiseRole = null;
@@ -2385,6 +2397,120 @@ function endGame(state: MafiaState, now: number, headline: Msg, ending: Ending):
   announceReveal(state, M.unmasked(roster), now);
 }
 
+/**
+ * What a killer's worst night can put through a door.
+ *
+ * Read off the attacks `resolveNight` actually pushes, because the whole value of this table is that it matches
+ * them: a fire is power 3 and a massacre is power 1, and a rule that guessed "a killer kills" would hand the
+ * arsonist's win to the mass murderer standing in front of a night-immune seat he can never touch. Poison is the odd
+ * one — `resolveNight` zeroes the target's armour before it lands — so it is written as 3 here, which is the same
+ * thing said in the only language this function speaks.
+ */
+const BLADE: Partial<Record<RoleId, number>> = {
+  'serial-killer': 2,
+  'mass-murderer': 1,
+  arsonist: 3,
+  poisoner: 3,
+  electromaniac: 3
+};
+
+/**
+ * Powers that can still change a night, whoever holds them.
+ *
+ * Not "powers that are useful" — powers that make tonight something other than a foregone conclusion. A roleblock, a
+ * redirection or a swap takes the killer's night away; a cell takes his whole day; a memory turns a bystander into
+ * somebody with a gun. Healing and guarding are on the list and gated separately below, because neither can be
+ * pointed at its own owner.
+ */
+const INTERFERES: ReadonlySet<NightActionType> = new Set<NightActionType>([
+  'block',
+  'control',
+  'swap',
+  'kidnap',
+  'jail-execute',
+  'heal',
+  'guard',
+  'remember'
+]);
+
+/**
+ * Whether the seats about to lose can still do anything about it.
+ *
+ * The rule the endgame was missing. A Serial Killer and one Sheriff at dawn is not an open game: the Sheriff cannot
+ * hang anybody — one vote out of two never reaches a majority — and the blade comes through his door tonight. The
+ * table played the day out anyway, everybody already knowing how it ended, then played the night, and only then was
+ * told. The families never had this problem because parity settles them on the same morning; a lone killer needed it
+ * said out loud.
+ *
+ * Deliberately pessimistic about the killer's side: anything at all that could still turn the night defers the crown,
+ * because ending a game one night late costs a phase and ending one a night early steals a win somebody was about to
+ * earn. Every entry below is something `resolveNight` or `castVote` can genuinely do tonight, not something that
+ * merely sounds dangerous.
+ *
+ * Deliberately *not* on the list: the Marshall. A revealed Marshall skips the defence and raises the day's trial cap,
+ * and neither moves the majority a rope needs — with two seats alive the survivor still cannot reach it, so the badge
+ * changes nothing about this particular morning.
+ */
+function beyondSaving(state: MafiaState, killers: readonly MafiaPlayer[], rest: readonly MafiaPlayer[]): boolean {
+  if (rest.length === 0) return true;
+
+  /**
+   * The rope first, because it is the one answer every seat holds.
+   *
+   * Counted as weight rather than heads, and a Mayor counts for three whether or not he has stood up yet: revealing
+   * is a free action he can take on this very afternoon, and a rule that ignored it would end the game on the one
+   * seat still holding a lynch. The threshold moves with him, so both sides of the comparison are recomputed as
+   * though the badge were already out.
+   */
+  const standing = rest.some((player) => player.role === 'mayor' && !player.revealed) ? 2 : 0;
+  const table = alivePlayers(state).reduce((sum, player) => sum + voteWeight(player), 0) + standing;
+  const theirs = rest.reduce((sum, player) => sum + voteWeight(player), 0) + standing;
+  if (theirs >= Math.floor(table / 2) + 1) return false;
+
+  const blade = Math.max(0, ...killers.map((player) => BLADE[player.role!] ?? 1));
+  const killerIds = new Set(killers.map((player) => player.playerId));
+
+  for (const player of rest) {
+    const def = roleDef(player.role!);
+
+    // A door the blade does not open. Only the massacre is blunt enough to care.
+    if (def.nightImmune && blade <= 1) return false;
+
+    /**
+     * An unspent charge, weighed against what it is unspent on.
+     *
+     * The porch always counts: an alerted Veteran is armour 2 and shoots back at 2, which is more than any lone
+     * killer has and enough to drop one. The rest is arithmetic. A vest is armour 1 and a blade of 2 or more goes
+     * straight through it. A cell's lever is power 3 and opens everything. A bullet is power 1, and every lone killer
+     * sleeps behind night immunity, so the gun in the last townie's drawer is a rescue only against a killer who can
+     * actually be shot.
+     */
+    if (player.charges > 0 && def.nightAction === 'alert') return false;
+    if (player.charges > 0 && def.nightAction === 'vest' && blade <= 1) return false;
+    if (player.charges > 0 && def.nightAction === 'jail-execute') return false;
+    if (player.charges > 0 && def.nightAction === 'kill' && killers.some((k) => !roleDef(k.role!).nightImmune)) {
+      return false;
+    }
+
+    /**
+     * And a power that gets in the killer's way.
+     *
+     * A heal and a guard are the exception twice over: neither role may point its night at itself, so the last doctor
+     * alive is a doctor who dies, and they count only while there is somebody else on that side to stand in front of.
+     */
+    if (def.nightAction !== null && INTERFERES.has(def.nightAction)) {
+      const selfless = def.nightAction === 'heal' || def.nightAction === 'guard';
+      if (!selfless || rest.length > 1) return false;
+    }
+
+    // A killer who cannot cut the last rope without hanging himself: grief takes
+    // the partner of anybody who dies, lovers included.
+    if (player.bondPartnerId !== null && killerIds.has(player.bondPartnerId)) return false;
+  }
+
+  return true;
+}
+
 /** True when the game just ended; the caller stops scheduling. */
 export function checkVictory(state: MafiaState, now: number, pending: Announcement[] = []): boolean {
   if (state.phase === 'ended') return true;
@@ -2455,11 +2581,20 @@ export function checkVictory(state: MafiaState, now: number, pending: Announceme
     return true;
   }
 
-  // A lone killer wins once nothing that could stop him still breathes.
+  /**
+   * A lone killer wins once nothing that could stop him still breathes — or once nothing that still breathes could
+   * stop him.
+   *
+   * Two conditions, and the second one is new. The first is the old rule and the plain one: everybody left is a
+   * bystander, so there is no night left to play. The second is the endgame the table used to sit through anyway — a
+   * killer and one seat that cannot hang him, cannot outlive him and cannot hit back. See `beyondSaving`, which is
+   * where every exception to that lives.
+   */
   if (familiesAlive.length === 0 && soloKillers.length > 0) {
     const kinds = new Set(soloKillers.map((player) => player.role));
-    const threats = alive.filter((player) => !soloKillers.includes(player) && !BYSTANDER_ROLES.has(player.role!));
-    if (kinds.size === 1 && threats.length === 0) {
+    const rest = alive.filter((player) => !soloKillers.includes(player));
+    const threats = rest.filter((player) => !BYSTANDER_ROLES.has(player.role!));
+    if (kinds.size === 1 && (threats.length === 0 || beyondSaving(state, soloKillers, rest))) {
       const win = SOLO_WIN[soloKillers[0].role!] ?? SOLO_WIN['serial-killer']!;
       for (const player of soloKillers) {
         state.winners.push({ playerId: player.playerId, reason: win.reason, kind: 'solo-killer' });

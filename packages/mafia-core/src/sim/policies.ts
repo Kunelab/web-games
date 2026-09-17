@@ -163,7 +163,17 @@ export interface Claim {
    * room can check without trusting anybody, because a bodyguard who steps in
    * front of a knife is a corpse in the morning report.
    */
-  ailment?: 'poison' | 'douse' | 'healed' | 'guarded' | 'survived' | 'silenced' | 'blocked' | 'controlled' | 'bussed';
+  ailment?:
+    | 'poison'
+    | 'douse'
+    | 'healed'
+    | 'guarded'
+    | 'survived'
+    | 'silenced'
+    | 'blocked'
+    | 'controlled'
+    | 'bussed'
+    | 'jailed';
   /**
    * The room it was said in. Absent means the square, which everybody heard.
    *
@@ -1397,13 +1407,17 @@ export function decideDay(
    * already forming.
    */
   /**
-   * "I got roleblocked / witched / transported."
+   * "I got roleblocked / witched / transported / jailed."
    *
    * Said before anything else by anybody it happened to, because each one is
-   * the explanation for a result that is missing or wrong, and each proves a
-   * role is alive: an Escort or Consort, a Witch, a Bus Driver. A Sheriff with
-   * no page for last night is a Sheriff with something to explain, and this is
-   * the explanation.
+   * the explanation for a result that is missing or wrong, and each puts a role
+   * at the table: an Escort or Consort, a Witch, a Bus Driver, a Jailor. A
+   * Sheriff with no page for last night is a Sheriff with something to explain,
+   * and this is the explanation.
+   *
+   * The cell is said soonest and most readily of the four, because it is the
+   * only one with a living witness — the jailor either confirms it or does not
+   * — and for that same reason it is the one no liar below may reach for.
    */
   const disturbed: Claim['ailment'] | null =
     self.disturbedNight != null && self.disturbedNight === info.day - 1
@@ -1411,7 +1425,9 @@ export function decideDay(
         ? 'blocked'
         : self.disturbedBy === 'control'
           ? 'controlled'
-          : 'bussed'
+          : self.disturbedBy === 'jail'
+            ? 'jailed'
+            : 'bussed'
       : null;
   const gaggedYesterday = self.silencedDay === info.day - 1;
   const ailing: Claim['ailment'] | null =
@@ -1432,13 +1448,15 @@ export function decideDay(
             ? 0.8
             : ailing === 'healed'
               ? 0.6
-              : ailing === 'douse'
-                ? 0.45
-                : ailing === 'blocked' || ailing === 'controlled'
-                  ? 0.5
-                  : ailing === 'bussed'
-                    ? 0.4
-                    : 0.2;
+              : ailing === 'jailed'
+                ? 0.9
+                : ailing === 'douse'
+                  ? 0.45
+                  : ailing === 'blocked' || ailing === 'controlled'
+                    ? 0.5
+                    : ailing === 'bussed'
+                      ? 0.4
+                      : 0.2;
     if (rng() < eagerness) publish(self.slot, 'ailing', undefined, undefined, ailing);
   }
 
