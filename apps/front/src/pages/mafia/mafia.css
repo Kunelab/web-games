@@ -37,8 +37,17 @@
   --radius: 10px;
 
   /* The scenery, day version. */
+  /*
+   * Kept because the fountain's water is mixed from them, and because a skin
+   * that wants a horizon back can have one without touching anything else.
+   * Nothing paints a sky with them any more: see .mz-town.
+   */
   --town-sky-top: #8fc2e8;
   --town-sky-bottom: #cfe4c0;
+  /* The far hillside, which is where the sky used to be. */
+  --town-far: #4a6437;
+  /* One sun, one shadow. See .mz-villager-shadow. */
+  --town-shadow: rgb(0 0 0 / 0.18);
   --town-grass: #8fb173;
   --town-grass-plot: #9dbd80;
   --town-plaza: #b3a58c;
@@ -90,7 +99,23 @@
   border: 1px solid var(--edge);
   border-radius: var(--radius);
   overflow: hidden;
-  background: linear-gradient(var(--town-sky-top), var(--town-sky-bottom) 72%);
+  /*
+   * Ground, not sky.
+   *
+   * This was a blue-to-green vertical gradient standing in for a horizon, and
+   * a horizon is a thing you can only get away with when the camera is level.
+   * It is not: the town is drawn from above and behind, the ground plane fills
+   * the frame, and the band of sky at the top was the one part of the picture
+   * claiming otherwise — a strip of daylight where there should have been more
+   * hillside.
+   *
+   * Two greens rather than one, darkening upwards, because distance does that
+   * and a single flat fill under a ground polygon that never quite reaches the
+   * corners reads as a mistake rather than as a field. It is a placeholder for
+   * painted terrain: when there is a texture it goes here and nothing else has
+   * to move.
+   */
+  background: linear-gradient(var(--town-far), var(--town-grass) 46%);
   pointer-events: none;
   user-select: none;
   transition: background 900ms ease;
@@ -193,7 +218,9 @@
   border-radius: 8px;
   background: transparent;
   color: var(--ink-dim, var(--ink));
-  font: 600 0.76rem/1.3 system-ui, sans-serif;
+  font:
+    600 0.76rem/1.3 system-ui,
+    sans-serif;
   cursor: pointer;
 }
 
@@ -211,7 +238,9 @@
 .mz-trail-head {
   margin: 0 0 0.15rem;
   /* A day marker inside the log, so it moves with the log's own size. */
-  font: 700 0.82rem/1.4 system-ui, sans-serif;
+  font:
+    700 0.82rem/1.4 system-ui,
+    sans-serif;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   opacity: 0.6;
@@ -734,9 +763,7 @@
   fill: var(--town-grass-plot);
   transition: fill 900ms ease;
 }
-.mz-plot-empty {
-  fill: rgb(0 0 0 / 0.16);
-}
+
 .mz-plaza {
   fill: var(--town-plaza);
   transition: fill 900ms ease;
@@ -768,9 +795,7 @@
 .mz-plot--dead .mz-plot-ground {
   fill: color-mix(in srgb, var(--town-grass-plot) 70%, black);
 }
-.mz-tomb-ground {
-  fill: rgb(0 0 0 / 0.22);
-}
+
 .mz-tomb-stone {
   fill: var(--town-stone);
 }
@@ -804,8 +829,25 @@
   stroke-linecap: round;
 }
 
-.mz-villager-shadow {
-  fill: rgb(0 0 0 / 0.18);
+/**
+ * Every contact shadow on the board, one colour.
+ *
+ * There were four: the villager at 0.18 black, the house at 0.20, the grave at
+ * 0.22, an empty plot at 0.16. Nobody chose those numbers against each other —
+ * each was picked while looking at its own sprite — and the result is a town
+ * lit by four different suns, which is exactly the kind of wrongness that is
+ * obvious on the screen and invisible in the file.
+ *
+ * The villager's is the one that was right, so it is the one they all use.
+ * Pure black at low alpha rather than a tinted grey, because it has to sit on
+ * grass, on a plot, on the plaza and on a boarded plot without being mixed for
+ * each.
+ */
+.mz-villager-shadow,
+.mz-house-shadow,
+.mz-tomb-ground,
+.mz-plot-empty {
+  fill: var(--town-shadow);
 }
 
 /*
@@ -819,9 +861,6 @@
  */
 .mz-villager-mark {
   opacity: 0.5;
-}
-.mz-house-shadow {
-  fill: rgb(0 0 0 / 0.2);
 }
 
 /*
@@ -877,6 +916,7 @@
 .mz-town[data-town-theme='cite'] {
   --town-sky-top: #6f7f92;
   --town-sky-bottom: #9aa4a8;
+  --town-far: #4f5458;
   --town-grass: #6c7175;
   --town-grass-plot: #777d81;
   --town-plaza: #5b5f63;
@@ -908,6 +948,9 @@
 .mz-town.mz-town--night {
   --town-sky-top: #0b1220;
   --town-sky-bottom: #1e2a44;
+  --town-far: #16211a;
+  /* A shallower shadow after dark: there is less light to block. */
+  --town-shadow: rgb(0 0 0 / 0.3);
   --town-grass: #223026;
   --town-grass-plot: #27392b;
   --town-plaza: #2f2d29;
@@ -2026,7 +2069,9 @@
 }
 
 /* The night's tally reads as a knife, not as a second gavel. */
-.mz-votes--night { background: var(--danger); }
+.mz-votes--night {
+  background: var(--danger);
+}
 
 /* ------------------------------ the zoom control --------------------------- */
 
@@ -2050,8 +2095,13 @@
   cursor: pointer;
 }
 
-.mz-zoom button:hover { border-color: var(--accent); }
-.mz-zoom button:disabled { opacity: 0.4; cursor: default; }
+.mz-zoom button:hover {
+  border-color: var(--accent);
+}
+.mz-zoom button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 
 @media (min-width: 60rem) {
   .mz-zoom {
@@ -2061,5 +2111,7 @@
     z-index: 5;
     padding: 0;
   }
-  .mz-zoom button { backdrop-filter: blur(8px); }
+  .mz-zoom button {
+    backdrop-filter: blur(8px);
+  }
 }
