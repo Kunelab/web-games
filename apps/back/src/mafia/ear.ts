@@ -56,15 +56,30 @@ export const HEARD_FORMAT = {
               'account-visited',
               'role-claim',
               'sighting',
-              'ailing'
+              'ailing',
+              'urge-vote',
+              'urge-skip',
+              'demand',
+              'counter-claim',
+              'promise',
+              'relay'
             ],
             description: 'What they asserted.'
           },
           about: {
             type: ['integer', 'null'],
-            description: 'The house the claim is about. Null for account-home, role-claim and ailing.'
+            description:
+              'The house the claim is about. Null for account-home, role-claim, ailing, urge-vote, urge-skip and promise.'
           },
-          role: { type: ['string', 'null'], description: 'For role-claim only: the role they said they are.' },
+          role: {
+            type: ['string', 'null'],
+            description:
+              'For role-claim, the role they said they are. For counter-claim, the role they say is not theirs.'
+          },
+          source: {
+            type: ['integer', 'null'],
+            description: 'For relay only: the house they are attributing the claim to.'
+          },
           ailment: {
             type: ['string', 'null'],
             enum: [
@@ -83,7 +98,7 @@ export const HEARD_FORMAT = {
             description: 'For ailing only: what they say was done to them in the night.'
           }
         },
-        required: ['speaker', 'kind', 'about', 'role', 'ailment'],
+        required: ['speaker', 'kind', 'about', 'role', 'source', 'ailment'],
         additionalProperties: false
       }
     }
@@ -131,14 +146,20 @@ You are given lines that human players typed in the village square, each prefixe
 Your only job: list the checkable assertions those lines made, as structured claims.
 
 The claim kinds:
-- accuse           "X is mafia" / "I'm voting X" / "X is lying" /      -> about = X's house
-                   "he can't be the doctor" (denying somebody's claim)
+- accuse           "X is mafia" / "I'm voting X" / "X is lying"        -> about = X's house
 - clear            "X is fine" / "I trust X" / "not X" / "X is framed"   -> about = X's house
 - question         "X, where were you?" / "X, explain"                 -> about = X's house
 - account-home     "I stayed home" / "I didn't move last night"        -> about = null
 - account-visited  "I went to X's house last night"                    -> about = X's house
 - sighting         "I saw someone go into X" / "X had a visitor"       -> about = X's house
 - role-claim       "I'm the Sheriff"                                   -> about = null, role = the role
+- urge-vote        "we need to vote" / "we can't skip again"          -> about = null
+- urge-skip        "let's skip today" / "there's nothing here"        -> about = null
+- demand           "why me?" / "who put my name up?" / "on what?"     -> about = the accuser being asked
+- counter-claim    "he can't be the doctor" / "that's MY badge"       -> about = X's house, role = the role denied
+- promise          "spare me and I'll prove it tonight"              -> about = null
+- relay            "the sheriff said 3 came back clean" (repeating    -> about = X's house, source = whose claim it is
+                   somebody ELSE's finding, not your own)
 - ailing           what a player says was done to THEM last night      -> about = null, ailment = one of:
     poison "I've been poisoned" · healed "the doctor saved me" · guarded "a bodyguard died for me"
     survived "someone tried to kill me" · silenced "I was blackmailed" · blocked "I was roleblocked"
@@ -147,6 +168,8 @@ The claim kinds:
 
 Rules:
 - Report only what was ACTUALLY said. Never infer, never guess, never add a claim nobody made.
+- Denying a badge is counter-claim, not accuse. "He is not the doctor" says which role is contested, and that is the checkable part; "he is mafia" says no such thing. If a line does both, file both.
+- A finding the speaker says somebody ELSE made is relay, not accuse or clear. "I am the sheriff and 3 is bad" is the speaker's own claim; "the sheriff told us 3 is bad" is a relay with source = the sheriff's house.
 - A line can produce several claims, or none. Banter, jokes, greetings and reactions produce none.
 - Houses are numbers. If a line names a person rather than a house, use that person's house number from the roster.
 - A line may name a ROLE instead of a house — "the sheriff", "as the crier", "veteran, answer me". The roster says who claimed what. Use that seat's house number.
@@ -167,6 +190,8 @@ export interface Heard {
   kind: string;
   about: number | null;
   role: string | null;
+  /** relay only: the house the finding is being attributed to. */
+  source?: number | null;
   ailment?: string | null;
 }
 
@@ -178,6 +203,11 @@ export interface HeardClaim {
   claimedRole?: RoleId;
   account?: 'home' | 'visited';
   ailment?: Claim['ailment'];
+  /** The fields the newer kinds carry. See `Claim` for what each one means. */
+  urge?: Claim['urge'];
+  deniedRole?: RoleId;
+  promise?: Claim['promise'];
+  relayedFrom?: number;
 }
 
 /**
@@ -463,6 +493,101 @@ export function readHeard(
           kind: 'ailing',
           targetSlot: speaker.slot,
           ailment: ailment as Claim['ailment']
+        });
+        break;
+      }
+
+      /**
+       * The room pushing on the clock rather than on a person.
+       *
+       * Names nobody, moves no suspicion, and is the single most consequential
+       * sentence a person can type on a quiet day: `steadyVote` ends a day
+       * whose evidence is thin on its own authority, so a person asking for a
+       * vote was being skipped past mid-sentence.
+       */
+      case 'urge-vote':
+      case 'urge-skip':
+        filed.push({
+          claimerId: speaker.playerId,
+          kind: 'urge',
+          targetSlot: speaker.slot,
+          urge: entry.kind === 'urge-vote' ? 'vote' : 'skip'
+        });
+        break;
+
+      /** "Why me?" — the accused asking an accuser to show its working. */
+      case 'demand':
+        if (!about) {
+          drop(entry, 'no such house');
+          continue;
+        }
+        if (about.playerId === speaker.playerId) {
+          drop(entry, 'about themselves');
+          continue;
+        }
+        filed.push({ claimerId: speaker.playerId, kind: 'demand', targetSlot: about.slot });
+        break;
+
+      /**
+       * "He cannot be the Doctor."
+       *
+       * Filed as an accusation until now, which lost the one thing that makes
+       * it answerable: *which* badge is contested. With the role attached the
+       * board can weigh it against everybody else standing up for that role.
+       */
+      case 'counter-claim': {
+        if (!about) {
+          drop(entry, 'no such house');
+          continue;
+        }
+        if (about.playerId === speaker.playerId) {
+          drop(entry, 'about themselves');
+          continue;
+        }
+        const denied = typeof entry.role === 'string' ? entry.role.toLowerCase() : null;
+        filed.push({
+          claimerId: speaker.playerId,
+          kind: 'counter-claim',
+          targetSlot: about.slot,
+          ...(denied && denied in ROLES ? { deniedRole: denied as RoleId } : {})
+        });
+        break;
+      }
+
+      /**
+       * "Spare me and I will prove it tonight."
+       *
+       * A bet the next dawn settles, and the one card a Town Crier has: it
+       * speaks anonymously in the dark and can give that up to name itself.
+       * Worth a day's stay of execution in `defenceStrength`, and charged for
+       * at dawn by `deductions` if nothing comes of it.
+       */
+      case 'promise':
+        filed.push({ claimerId: speaker.playerId, kind: 'promise', targetSlot: speaker.slot, promise: 'night' });
+        break;
+
+      /**
+       * Somebody else's finding, repeated.
+       *
+       * The cheapest lie available — nobody can fabricate a Sheriff's check and
+       * anybody can fabricate having heard it — so it is worth less than a
+       * firsthand claim and the seat it is attributed to can simply deny it.
+       */
+      case 'relay': {
+        const source = typeof entry.source === 'number' ? bySlot.get(entry.source) : undefined;
+        if (!about || !source) {
+          drop(entry, 'no such house');
+          continue;
+        }
+        if (source.playerId === speaker.playerId) {
+          drop(entry, 'about themselves');
+          continue;
+        }
+        filed.push({
+          claimerId: speaker.playerId,
+          kind: 'relay',
+          targetSlot: about.slot,
+          relayedFrom: source.slot
         });
         break;
       }

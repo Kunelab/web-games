@@ -203,6 +203,9 @@ export {
   type SteadyVote,
   type VoteRecord
 } from './sim/policies.js';
+export { deductions, deductionWeight, strongest, type Deduction } from './sim/deduce.js';
+export { visitOdds, type VisitOdds, type VisitReason } from './sim/visits.js';
+export { rank, caseFor, defenceFor, type Suspect, type Reason, type ReasonCode } from './sim/ranking.js';
 export {
   mafiaActionSchema,
   mafiaBallotSchema,

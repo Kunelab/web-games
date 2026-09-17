@@ -50,6 +50,7 @@ export interface BudgetRow {
   sections: { head: string; tokens: number; lines: number }[];
 }
 
+// prettier-ignore
 const NAMES = [
   'Boba Fett', 'Loki', 'Aragorn', 'Sanji', 'R2-D2', 'Wall-E', 'Kirby', 'Galadriel',
   'Kakashi', 'Michael Myers', 'Spyro', 'Pumbaa', 'Master Chief', 'Terminator', 'Yoda',
@@ -57,10 +58,11 @@ const NAMES = [
 ];
 
 /** Section headings `brief` emits, so a breakdown can be attributed to them. */
+// prettier-ignore
 const HEADS = [
   'Day ', 'You:', 'With you:', 'Roles dealt', 'What matters', 'Nobody stands out',
   'You know:', 'ON TRIAL', 'This morning', 'Recent lines', 'WHAT WAS ACTUALLY SAID',
-  'CAUGHT IN A LIE', 'Nobody has spoken', 'TASK'
+  'WHAT YOU MAY DO RIGHT NOW', 'HOW YOU WIN', 'CAUGHT IN A LIE', 'Nobody has spoken', 'TASK'
 ];
 
 /**
@@ -129,10 +131,33 @@ function breakdown(prompt: string): BudgetRow['sections'] {
  * it is the one that matters and the expensive one, because the transcript stops
  * being compressible: what a person typed is the content.
  */
-const SCENARIOS: { scenario: string; players: number; humans: number; chat: number; ceiling: number; said?: string }[] = [
-  { scenario: 'all bots, quiet day', players: 15, humans: 0, chat: 4, ceiling: 400 },
-  { scenario: 'all bots, busy day', players: 15, humans: 0, chat: 30, ceiling: 450 },
-  { scenario: '2 humans at the table', players: 15, humans: 2, chat: 30, ceiling: 700 },
+/**
+ * Raised by eighty tokens across the board, once, for the rules page.
+ *
+ * Every briefing now carries `legalMoves`: what this seat may actually do this
+ * minute, with the legal targets, the charges left, whether the ballot has
+ * opened and what a trial is. It measures 81 tokens and it is the cheapest
+ * thing in the prompt, because the alternative is not a smaller prompt — it is
+ * a model that heals as a Sheriff, votes on day one and targets a corpse, and
+ * every one of those is a whole request spent on a move the engine refuses.
+ * Eighty tokens to not waste four hundred.
+ *
+ * The ceilings are still ceilings. They moved because the job grew, and the
+ * number to watch is that they do not move again quietly.
+ */
+interface Scenario {
+  scenario: string;
+  players: number;
+  humans: number;
+  chat: number;
+  ceiling: number;
+  said?: string;
+}
+
+const SCENARIOS: Scenario[] = [
+  { scenario: 'all bots, quiet day', players: 15, humans: 0, chat: 4, ceiling: 480 },
+  { scenario: 'all bots, busy day', players: 15, humans: 0, chat: 30, ceiling: 530 },
+  { scenario: '2 humans at the table', players: 15, humans: 2, chat: 30, ceiling: 790 },
   { scenario: '5 humans, 24 seats', players: 24, humans: 5, chat: 40, ceiling: 950 },
   /**
    * The afternoon the ceilings exist for.

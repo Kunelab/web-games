@@ -32,6 +32,8 @@ import {
   isEvilRole,
   makePersonality,
   sheriffSuspects,
+  suspicionParts,
+  parityPressure,
   DEFAULT_PROFILE,
   HUMAN_PROFILE,
   type Brain,
@@ -40,12 +42,88 @@ import {
   type PublicInfo
 } from './policies.js';
 import { closingAccusations, toPublicInfo } from '../observe.js';
+import { deductions } from './deduce.js';
+import { rank } from './ranking.js';
 
 /**
  * One full game, synchronously, through the real engine — the same functions
  * the server calls, with virtual time instead of timers. Thousands of games a
  * minute, each fully determined by its seed.
  */
+
+/**
+ * What the board held against a seat at the moment it was put on the stand.
+ *
+ * Win rates say a lynching was wrong; they never say *why* the room believed
+ * it. This does, and it is deliberately taken before the defence is heard,
+ * because it is the state of the record that opened the trial — what the
+ * jurors were reasoning from when they decided this was the seat worth a day.
+ *
+ * `hardMax` is the load-bearing number. It is the most any single living juror
+ * could actually point to: a check, a fatal-house sighting, a claim the
+ * graveyard had already broken. A table hanging its own people on rumour and
+ * momentum shows up here as a stand full of trials where the best evidence
+ * anybody held was zero, and no amount of win-rate tuning will find that.
+ */
+export interface TrialAutopsy {
+  day: number;
+  accusedSlot: number;
+  accusedRole: RoleId;
+  accusedEvil: boolean;
+  /** The public case, averaged over the living jurors who were not on trial. */
+  evidence: number;
+  /** The best hard evidence held by any one of them. See above. */
+  hardMax: number;
+  /** How many of them held any at all. */
+  hardHolders: number;
+  /** Seats standing on the wagon when it tipped. */
+  wagon: number;
+  /** Who first accused this seat aloud, on what day, and whether they were evil. */
+  firstAccuser: number | null;
+  firstAccuserDay: number | null;
+  firstAccuserEvil: boolean;
+  /** Distinct seats that had accused them by now. */
+  accusers: number;
+  /** How close the game was to the parity clock, 0..1. See `parityPressure`. */
+  pressure: number;
+  /** Which findings from `deduce.ts` stood against them, by kind. */
+  caught: string[];
+  /** Whether the room went through with it. */
+  hanged: boolean;
+}
+
+/**
+ * One seat's standing at one dawn, with the truth attached.
+ *
+ * The point of a probability is that it can be *wrong in a measurable way*. A
+ * ranking that says 0.7 and is right seven times in ten is worth having; one
+ * that says 0.7 and is right three times in ten is worse than a coin, and the
+ * two are indistinguishable from inside the game. So the bench records what the
+ * ranking claimed and what the seat actually was, and the reliability table
+ * falls out of it.
+ */
+export interface Calibration {
+  day: number;
+  slot: number;
+  /** What `rank` said, before anybody knew. */
+  p: number;
+  /** What they actually were. */
+  evil: boolean;
+  /** How many reasons the case rested on, for the "cites more, is righter" check. */
+  reasons: number;
+  /**
+   * Which rules fired, so the likelihood ratios can be *fitted* rather than
+   * argued.
+   *
+   * The first set of weights was priced by reasoning about the rules, which
+   * sounded careful and measured worse than useless: Brier 0.252 against 0.235
+   * for flatly stating the base rate, and systematically backwards in the
+   * middle of the range. Each code's real weight is an empirical question —
+   * how much likelier is this observation on a killer than on anybody else —
+   * and this is what answers it.
+   */
+  codes: string[];
+}
 
 export interface SimOptions {
   players: number;
@@ -69,6 +147,23 @@ export interface SimOptions {
   humans?: number;
   /** What those seats play like. Defaults to `HUMAN_PROFILE`. */
   humanProfile?: Partial<Personality>;
+  /**
+   * Called once per trial, as it opens. See `TrialAutopsy`.
+   *
+   * A hook rather than a field on `SimResult` because it is a forensic tool
+   * and not a score: a run of six hundred games asking why the rope keeps
+   * finding town wants every trial, and a run measuring balance wants none of
+   * them. Absent, this costs nothing.
+   */
+  autopsy?: (trial: TrialAutopsy) => void;
+  /**
+   * Called once per dawn, for every living seat. See `Calibration`.
+   *
+   * A hook for the same reason `autopsy` is one: it is a measurement and not a
+   * score, it costs a ranking per living seat per day, and a run that is not
+   * asking the question should not pay for it.
+   */
+  calibrate?: (row: Calibration) => void;
 }
 
 export interface SimResult {
@@ -175,7 +270,25 @@ export function simulateGame(options: SimOptions): SimResult {
     hostUserId: null,
     // Clock lengths are irrelevant here — time is virtual — but short values
     // keep the announced deadlines sane if a trace is ever read.
-    config: { dayMs: 1000, nightMs: 1000, defenseMs: 100, judgementMs: 100, aftermathMs: 100, ...options.config },
+    config: {
+      dayMs: 1000,
+      nightMs: 1000,
+      defenseMs: 100,
+      judgementMs: 100,
+      aftermathMs: 100,
+      /**
+       * No ballot lock here, because there is nobody to wait for.
+       *
+       * The lock buys people seconds to type before the day can be ended. This
+       * loop has no people and no real seconds: it advances `now` only at
+       * `phaseEndsAt`, so every seat votes at the instant the day opened and any
+       * lock at all refuses every ballot in the game. Measured the hard way —
+       * 186 lynches over forty games became zero, and the town went from winning
+       * 45% of them to none.
+       */
+      voteLockMs: 0,
+      ...options.config
+    },
     now: 0
   });
 
@@ -241,6 +354,8 @@ export function simulateGame(options: SimOptions): SimResult {
   /** The last day whose closing accusations were filed. See `recordVotes`. */
   let lastRecordedDay = 0;
   let guard = 0;
+  /** The trial on the stand, read before its defence. See `TrialAutopsy`. */
+  let pending: Omit<TrialAutopsy, 'hanged'> | null = null;
 
   const stampAndPush = (claim: Claim): void => {
     const target = playerBySlot(state, claim.targetSlot);
@@ -411,6 +526,31 @@ export function simulateGame(options: SimOptions): SimResult {
           if (!player.alive) continue;
           feelPressure(player, brains.get(player.playerId)!, dawn, teammatesOf(player.playerId));
         }
+
+        /**
+         * What the ranking believed this morning, against what was true.
+         *
+         * Taken at dawn rather than at a trial, because a trial is a biased
+         * sample by construction: the room only tries the seats it already
+         * suspects, so measuring there would only ever tell us how good the
+         * ranking is at the top of its own list. Every living seat, every day,
+         * is the sample that can answer whether 0.7 means 0.7.
+         */
+        if (options.calibrate) {
+          const standing = rank(dawn);
+          for (const suspect of standing) {
+            const seat = playerBySlot(state, suspect.slot);
+            if (!seat?.role) continue;
+            options.calibrate({
+              day: state.day,
+              slot: suspect.slot,
+              p: suspect.p,
+              evil: isEvilRole(seat.role),
+              reasons: suspect.against.length,
+              codes: [...suspect.against, ...suspect.standing].map((reason) => reason.code)
+            });
+          }
+        }
         for (const player of shuffledAlive()) {
           const decision = decideDay(
             player,
@@ -458,6 +598,7 @@ export function simulateGame(options: SimOptions): SimResult {
 
     if (state.phase === 'day' && state.stage === 'defense') {
       const accused = state.trial ? state.players[state.trial.accusedId] : null;
+      if (options.autopsy && accused?.role) pending = advocate(accused);
       if ((accused?.role === 'mayor' || accused?.role === 'marshall') && !accused.revealed) {
         revealMayor(state, accused.playerId, now);
       }
@@ -511,6 +652,19 @@ export function simulateGame(options: SimOptions): SimResult {
         }
       }
       advance();
+      if (pending) {
+        const verdict = pending;
+        pending = null;
+        options.autopsy?.({
+          ...verdict,
+          hanged: state.deaths.some(
+            (death) =>
+              death.phase === 'day' &&
+              death.source === undefined &&
+              state.players[death.playerId]?.slot === verdict.accusedSlot
+          )
+        });
+      }
       continue;
     }
 
@@ -551,6 +705,40 @@ export function simulateGame(options: SimOptions): SimResult {
     }
 
     advance();
+  }
+
+  /**
+   * What the record held against the accused, read from the jury box.
+   *
+   * Per juror rather than from a neutral observer, because `suspicionParts`
+   * answers "how suspicious is that one, *to this one*" — the intel is private
+   * and the temperament is personal, so a public-observer reading would
+   * describe a seat nobody at the table was.
+   */
+  function advocate(accused: MafiaPlayer): Omit<TrialAutopsy, 'hanged'> {
+    const info = publicInfo();
+    const jurors = players.filter((player) => player.alive && player.slot !== accused.slot);
+    const readings = jurors.map((juror) => suspicionParts(accused.slot, juror, info, rng));
+    const accusations = info.claims.filter((claim) => claim.kind === 'accuse' && claim.targetSlot === accused.slot);
+    const first = accusations[0] ?? null;
+    const firstSeat = first ? playerBySlot(state, first.claimerSlot) : null;
+
+    return {
+      day: state.day,
+      accusedSlot: accused.slot,
+      accusedRole: accused.role!,
+      accusedEvil: isEvilRole(accused.role!),
+      evidence: readings.reduce((sum, parts) => sum + parts.evidence, 0) / Math.max(1, readings.length),
+      hardMax: readings.reduce((most, parts) => Math.max(most, parts.hard), 0),
+      hardHolders: readings.filter((parts) => parts.hard > 0).length,
+      wagon: [...info.votes.values()].filter((voted) => voted === accused.slot).length,
+      firstAccuser: first?.claimerSlot ?? null,
+      firstAccuserDay: first?.day ?? null,
+      firstAccuserEvil: firstSeat?.role ? isEvilRole(firstSeat.role) : false,
+      accusers: new Set(accusations.map((claim) => claim.claimerSlot)).size,
+      pressure: parityPressure(info),
+      caught: deductions(accused.slot, info).map((finding) => finding.kind)
+    };
   }
 
   return tally(state, options, claims, voteHistory);

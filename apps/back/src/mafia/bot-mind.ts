@@ -6,6 +6,7 @@ import {
   DEFAULT_PROFILE,
   feelPressure,
   closingAccusations,
+  isEvilRole,
   isLodgeMate,
   makeBrain,
   makePersonality,
@@ -71,6 +72,42 @@ export interface BotMind {
    * to it: a muted person does not say a second thing. See `defenceLine`.
    */
   mutedBluffDay?: number;
+  /**
+   * What other seats have told this one in private, waiting on the graveyard.
+   *
+   * Private because that is the whole point: a whisper is worth something to
+   * the person it was whispered to and worth nothing to anybody else, so it
+   * cannot live on the shared board. See `confide` and `settleConfidences`.
+   */
+  confided: Confided[];
+  /**
+   * What each seat's private word has actually been worth, by house.
+   *
+   * Earned, never given. A bot used to become more biddable simply because
+   * somebody had messaged it — which is not trust, it is a remote control, and
+   * it is exactly the hole a person walks through by whispering to all eleven
+   * bots at once. This moves only when a confidence is *settled by an outcome*:
+   * you told me 7 was mafia and 7 died mafia, so I will listen to you again.
+   */
+  privateTrust: Map<number, number>;
+}
+
+/**
+ * One thing somebody told this seat privately, and whether it came true.
+ *
+ * Only the two kinds the graveyard can settle. "I am the Sheriff" whispered in
+ * a cell is not settleable by anything, so it is not banked here; what is
+ * banked is a claim about a *house*, which a corpse eventually answers.
+ */
+export interface Confided {
+  /** The house that said it. */
+  from: number;
+  day: number;
+  kind: 'accuse' | 'clear';
+  /** The house it was about. */
+  about: number;
+  /** Settled once the graveyard has answered, so a claim is banked once. */
+  settled?: boolean;
 }
 
 /** One line of a seat's own journal, written into its will as the days go. */
@@ -135,6 +172,34 @@ export class BotMinds {
   }
 
   /**
+   * Somebody said something in a private room, and everybody who heard it
+   * writes it down against the person who said it.
+   *
+   * The shared board already scopes the *content* of a whisper correctly — see
+   * `board` — so this is not about who knows what. It is about who is owed
+   * what: a claim made in private is a favour asked and a reputation staked,
+   * and until now neither was tracked, so the only thing a whisper could do was
+   * make a bot more compliant the moment it arrived.
+   *
+   * Written per listener rather than per table, because that is the asymmetry
+   * that makes private play interesting: the same seat can be a trusted source
+   * to one bot and a proven liar to another, and neither of them can see the
+   * other's ledger.
+   */
+  confide(state: MafiaState, room: string, fromSlot: number, kind: 'accuse' | 'clear', about: number): void {
+    const table = this.memory(state.code);
+    for (const [playerId, mind] of table.minds) {
+      const listener = state.players[playerId];
+      if (!listener?.isBot || listener.slot === fromSlot) continue;
+      if (!RULES.canRead(room, playerId, state)) continue;
+      const already = mind.confided.some(
+        (entry) => entry.from === fromSlot && entry.about === about && entry.kind === kind && entry.day === state.day
+      );
+      if (!already) mind.confided.push({ from: fromSlot, day: state.day, kind, about });
+    }
+  }
+
+  /**
    * One bot's mind, created on first sight.
    *
    * Personality is drawn once and kept: a bot that is jumpy on Tuesday should be
@@ -157,7 +222,9 @@ export class BotMinds {
         stance: stanceOf(agenda, brain.desperation, brain.personality),
         saidThisRound: 0,
         mask: null,
-        notes: []
+        notes: [],
+        confided: [],
+        privateTrust: new Map()
       };
       table.minds.set(playerId, mind);
     }
@@ -198,6 +265,7 @@ export class BotMinds {
       const felt = feelPressure(player, mind.brain, board, allies);
       mind.agenda = felt.agenda;
       mind.stance = felt.stance;
+      settleConfidences(state, mind);
     }
   }
 
@@ -389,4 +457,98 @@ function seededRng(seed: string): () => number {
     state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
     return state / 2 ** 32;
   };
+}
+
+/**
+ * The dawn reckoning on what people told this seat in private.
+ *
+ * Trust earned by outcome, which is the whole design and the thing that was
+ * missing. The old arrangement gave a whisperer influence for having whispered:
+ * `heeded` was a hash of the request, granted three times in four, so a person
+ * could message eleven bots and move eight knives on the strength of nothing.
+ * That is not a table listening to somebody, it is a table with no memory.
+ *
+ * A confidence settles when the graveyard answers it. You told me in the dark
+ * that 7 was mafia; 7 is now a corpse with a name on it, and either you were
+ * right or you were not. Clearing a killer costs more than accusing a townie,
+ * for the same reason it does on the public board: it is the one move that is
+ * almost never an honest mistake.
+ *
+ * What it does *not* do is leak. Nothing here reaches the shared board, nothing
+ * here is visible to anybody but the seat that was told, and a seat that was
+ * never whispered to has an empty ledger and behaves exactly as it always did.
+ */
+export function settleConfidences(state: MafiaState, mind: BotMind): void {
+  /**
+   * What the graveyard has actually said, which is not the same as who is dead.
+   *
+   * A janitor-cleaned corpse settles nothing: the table never learned what it
+   * was, so a confidence about that house is still open and the person who gave
+   * it has neither earned nor lost anything. Read off `state.deaths`, which is
+   * the public record, rather than off the player, which knows the truth.
+   */
+  const cleaned = new Set(state.deaths.filter((death) => death.hidden).map((death) => death.playerId));
+  const roleOf = new Map<number, RoleId>();
+  for (const player of Object.values(state.players)) {
+    if (!player.alive && player.role && !cleaned.has(player.playerId)) roleOf.set(player.slot, player.role);
+  }
+
+  for (const entry of mind.confided) {
+    if (entry.settled) continue;
+    const revealed = roleOf.get(entry.about);
+    if (!revealed) continue;
+    entry.settled = true;
+
+    const wasEvil = isEvilRole(revealed);
+    /**
+     * Priced like `settledCredit` on the public board, and deliberately a
+     * little heavier both ways: a private word is a favour, and a favour that
+     * was a lie is worse than a shout that was wrong.
+     */
+    const worth = entry.kind === 'accuse' ? (wasEvil ? 1.2 : -1.2) : wasEvil ? -1.8 : 0.8;
+    mind.privateTrust.set(entry.from, (mind.privateTrust.get(entry.from) ?? 0) + worth);
+  }
+}
+
+/**
+ * How much this seat's private word is worth to that one, as a multiplier.
+ *
+ * One by default, which is the point: an unknown whisperer is neither trusted
+ * nor distrusted, and everything away from one has been earned. Saturating, so
+ * a seat with five good calls is not five times as persuasive as one with a
+ * single good call.
+ */
+export function privateWeight(mind: BotMind, slot: number): number {
+  const credit = mind.privateTrust.get(slot) ?? 0;
+  return 1 + 0.7 * Math.tanh(credit * 0.6);
+}
+
+/**
+ * Whether this seat does what it was privately asked to do.
+ *
+ * Three things decide it, and the old version had only the third.
+ *
+ *  - What that person's private word has been worth so far. A seat that has
+ *    lied to you in the dark once gets listened to less, and one that handed
+ *    you a killer gets listened to more.
+ *  - Temperament, because some people are biddable and some are not, and a
+ *    family where every request is granted is a remote control while one where
+ *    none are is what a real table complained about.
+ *  - A stable roll, so the same request does not flicker between turns.
+ *
+ * A seat that has been badly misled in private can refuse outright, which is
+ * the behaviour the ledger exists to make possible: the point of earning trust
+ * is that it can also be spent.
+ */
+export function willHeed(mind: BotMind, fromSlot: number, roll: number): boolean {
+  const credit = mind.privateTrust.get(fromSlot) ?? 0;
+  if (credit <= -2) return false; // burned: this voice does not move this seat
+  /**
+   * The base rate is the biddable half of a temperament rather than a constant.
+   * `herd` is what already decides how much this seat moves for other people
+   * anywhere else in the model, so it decides it here too.
+   */
+  const base = 0.35 + mind.brain.personality.herd * 0.45;
+  const earned = 0.2 * Math.tanh(credit * 0.6);
+  return roll < Math.max(0.05, Math.min(0.95, base + earned));
 }

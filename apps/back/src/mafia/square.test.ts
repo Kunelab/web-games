@@ -245,16 +245,69 @@ describe('reading the square', () => {
 
 describe('sentences from a real table', () => {
   /** Every claim of every kind, as `kind:slot`, so an assertion reads like the line did. */
-  const read = (text: string, speaker = 1): string[] =>
-    readSquare(text, speaker, SEATS)
+  const read = (text: string, speaker = 1, options: { accuser?: number } = {}): string[] =>
+    readSquare(text, speaker, SEATS, options)
       .map(
         (claim) =>
           claim.kind +
           (claim.claimedRole ? '(' + claim.claimedRole + ')' : '') +
+          (claim.deniedRole ? '(' + claim.deniedRole + ')' : '') +
           (claim.ailment ? '(' + claim.ailment + ')' : '') +
           (claim.targetSlot === speaker ? '' : ':' + String(claim.targetSlot))
       )
       .sort();
+
+  /**
+   * The five kinds that existed as types and nothing else.
+   *
+   * Each is a sentence the user handed over by name, and until now the board
+   * either lost it entirely or filed it as something it is not. The last one is
+   * the worst of the four: "he cannot be the doctor" was read as a *clearing*
+   * of the seat whose badge was being torn up, because the words that carry a
+   * denial are the same words a reprieve is written with.
+   */
+  it('hears the room pushing on the clock', () => {
+    assert.deepEqual(read('we need to vote'), ['urge']);
+    assert.deepEqual(read('we have to vote because it is starting to be difficult for town'), ['urge']);
+    assert.deepEqual(read("let's skip today"), ['urge']);
+    assert.deepEqual(read('there is nothing here today'), ['urge']);
+    assert.deepEqual(read('il faut voter'), ['urge']);
+    // A push and a name in one breath is both things, not one of them.
+    assert.deepEqual(read('we need to vote 7'), ['accuse:7', 'urge']);
+    // Somebody else's position is not this seat's push.
+    assert.deepEqual(read('he keeps saying we should skip'), []);
+  });
+
+  it('hears somebody ask what they are accused of', () => {
+    assert.deepEqual(read('why me ?', 1), []);
+    assert.deepEqual(read('why me ?', 1, { accuser: 7 }), ['demand:7']);
+    assert.deepEqual(read('7 on what basis', 1), ['demand:7']);
+    assert.deepEqual(read('who put my name up', 1, { accuser: 4 }), ['demand:4']);
+    assert.deepEqual(read('pourquoi moi', 1, { accuser: 11 }), ['demand:11']);
+  });
+
+  it('hears a badge denied, and does not mistake it for a reprieve', () => {
+    assert.deepEqual(read("7 can't be doctor"), ['counter-claim(doctor):7']);
+    assert.deepEqual(read('4 is not the sheriff'), ['counter-claim(sheriff):4']);
+    // The reading this replaces: 'is not' used to make it a clearing.
+    assert.ok(!read("7 can't be doctor").includes('clear:7'), 'denying a badge is not vouching for the seat');
+    // And a plain reprieve is still a reprieve.
+    assert.deepEqual(read('not 7'), ['clear:7']);
+  });
+
+  it('hears a bet the next dawn settles', () => {
+    assert.deepEqual(read("wait one night and I'll prove it"), ['promise']);
+    assert.deepEqual(read('I will name myself tonight'), ['promise']);
+    assert.deepEqual(read('je le prouverai'), ['promise']);
+    /**
+     * Somebody else's bet is not this seat's bet.
+     *
+     * The line still files a question against 7, and that is right: "prove it"
+     * put to a house is an approach to that house whoever is relaying it. What
+     * must not appear is a `promise` from the speaker, who has bet nothing.
+     */
+    assert.ok(!read('7 said he would prove it').includes('promise'), 'a reported promise is not this seat making one');
+  });
 
   it('reads a blunt accusation, however it is worded', () => {
     assert.deepEqual(read('7 is evil'), ['accuse:7']);
@@ -347,23 +400,5 @@ describe('sentences from a real table', () => {
     assert.equal(roleNamed('who is the vet ?'), 'veteran');
     assert.equal(roleNamed('the gf is still alive'), 'godfather');
     assert.equal(roleNamed('nothing here'), null);
-  });
-
-  /**
-   * Lines the board has no shape for.
-   *
-   * Filing nothing is the right answer today — there is no claim kind for a call
-   * to action, for explaining a past vote, or for asking why you are being
-   * voted. Kept as tests so that stays a decision rather than an accident: if a
-   * kind is ever added for them, these are the lines it has to catch.
-   */
-  it('files nothing for the things the board cannot hold', () => {
-    for (const line of [
-      'we need to vote',
-      'we have to vote because it is starting to be difficult for town',
-      'why me ?'
-    ]) {
-      assert.deepEqual(read(line), [], line);
-    }
   });
 });

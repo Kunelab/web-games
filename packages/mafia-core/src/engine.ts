@@ -1158,7 +1158,19 @@ function beginDay(state: MafiaState, now: number, announcements: Announcement[])
    * can do is talk — which is the point, because the vote that follows is then
    * taken against a board that has something on it.
    */
-  state.voteOpensAt = state.day === 1 ? null : now + (state.config.voteLockMs ?? 15_000);
+  /**
+   * And never longer than a quarter of the day it is locking.
+   *
+   * A fixed fifteen seconds is right for a two-minute afternoon and absurd for
+   * a one-second one: the simulator runs `dayMs` at 1000 in virtual time, so a
+   * flat lock closed the ballot for the whole of every day it was applied to.
+   * Nothing could be hanged, in any game, ever — 186 lynches across forty games
+   * became zero, and the town went from winning 45% to winning none. The unit
+   * tests all passed, because none of them plays a game to the end.
+   */
+  const day = state.day === 1 ? (state.config.firstDayMs ?? 35_000) : state.config.dayMs;
+  const lock = Math.min(state.config.voteLockMs ?? 15_000, Math.floor(day / 4));
+  state.voteOpensAt = state.day === 1 ? null : now + lock;
 
   announce(state, M.dayHeader(state.day), now);
   for (const line of announcements) {

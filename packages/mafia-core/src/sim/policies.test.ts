@@ -117,7 +117,34 @@ describe('the claims board', () => {
 
   it('a discredited witness cannot catch anybody', () => {
     const state = table(['citizen', 'lookout', 'mafioso', 'doctor']);
-    // Slot 2 accused slot 4, slot 4 died town: slot 2 is a proven liar, weight 0.
+    // Slot 2 vouched for slot 3's killer and the graveyard showed it up: either
+    // it was lying or it was used, and the room cannot tell which.
+    state.players.s3.alive = false;
+    const board = toPublicInfo(
+      state,
+      [
+        claim({ claimerSlot: 2, targetSlot: 3, kind: 'clear' }),
+        claim({ claimerSlot: 4, targetSlot: 4, kind: 'account', account: 'home' }),
+        claim({ claimerSlot: 2, targetSlot: 4, kind: 'sighting' })
+      ],
+      []
+    );
+    assert.equal(contradicted(4, board), false, 'a burnt witness is not a witness');
+  });
+
+  /**
+   * The other half of the same rule, and the reason it needed splitting.
+   *
+   * Being wrong once used to burn a witness exactly as badly as vouching for a
+   * murderer: `claimerWeight` dropped to zero either way, permanently, so a
+   * Lookout who read one nervous villager wrong could never catch anybody
+   * again. The bench found the town hanging its own people on afternoons where
+   * not one juror held a checkable thing, and this was part of why — the seats
+   * that had tried to help were the first to be silenced.
+   */
+  it('and one wrong call does not burn one', () => {
+    const state = table(['citizen', 'lookout', 'mafioso', 'doctor']);
+    // Slot 2 accused slot 4, who died town. An honest misread, not a lie.
     state.players.s4.alive = false;
     const board = toPublicInfo(
       state,
@@ -128,7 +155,7 @@ describe('the claims board', () => {
       ],
       []
     );
-    assert.equal(contradicted(3, board), false, 'a burnt witness is not a witness');
+    assert.equal(contradicted(3, board), true, 'a townie who guessed wrong is still a witness');
   });
 });
 

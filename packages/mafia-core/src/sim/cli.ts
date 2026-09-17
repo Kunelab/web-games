@@ -1,7 +1,8 @@
 /* eslint-disable no-console */
 import { SETUPS, setupById } from '../setups.js';
 import type { Personality } from './policies.js';
-import { simulateGame, type SimResult } from './simulate.js';
+import { simulateGame, type Calibration, type SimResult, type TrialAutopsy } from './simulate.js';
+import { roleDef } from '../roles.js';
 
 /**
  * Batch runner for the fast simulation.
@@ -39,6 +40,33 @@ const asJson = process.argv.includes('--json');
  * them — which is the part of bot quality that win rates have never measured.
  */
 const humans = Math.max(0, Number(arg('humans', '0')) || 0);
+
+/**
+ * `--autopsy`: every trial the run opened, and what the board held at the time.
+ *
+ * Win rates say a lynching was wrong. They never say what the room was
+ * reasoning from, so a table that hangs its own people looks the same on the
+ * scoreboard whether it is guessing badly or being lied to well, and those want
+ * opposite fixes. This reads the record at the moment each trial opened — see
+ * `TrialAutopsy` — and the number to look at is how often the best evidence
+ * anybody held was nothing at all.
+ */
+const autopsying = process.argv.includes('--autopsy');
+const trials: TrialAutopsy[] = [];
+const autopsy = autopsying ? (trial: TrialAutopsy) => trials.push(trial) : undefined;
+
+/**
+ * `--calibrate`: does the ranking's probability mean what it says?
+ *
+ * The one question a number like this has to answer. A ranking that says 0.7
+ * and is right seven times in ten is evidence; one that says 0.7 and is right
+ * three times in ten is worse than a coin flip and looks identical from inside
+ * a game. The reliability table below is the answer, and the Brier score is the
+ * single number to watch when the weights are touched.
+ */
+const calibrating = process.argv.includes('--calibrate');
+const rows: Calibration[] = [];
+const calibrate = calibrating ? (row: Calibration) => rows.push(row) : undefined;
 
 /** 'auto' (balanced roster), 'chaos', or a preset id from SETUPS. */
 const setupName = arg('setup', 'auto');
@@ -202,6 +230,8 @@ for (const players of playerCounts) {
           seed: baseSeed * 1_000_003 + players * 10_007 + index,
           profile,
           humans,
+          autopsy,
+          calibrate,
           config: setupConfig
         })
       );
@@ -211,6 +241,8 @@ for (const players of playerCounts) {
           seed: baseSeed * 2_000_003 + players * 10_007 + index,
           profile,
           humans,
+          autopsy,
+          calibrate,
           config: censusConfig
         })
       );
@@ -226,12 +258,149 @@ for (const players of playerCounts) {
           seed: baseSeed * 2_000_003 + players * 10_007 + index,
           profile,
           humans,
+          autopsy,
+          calibrate,
           config: censusConfig
         })
       );
     }
     tables.push({ ...aggregate(results), mode: 'census' });
   }
+}
+
+if (calibrating) {
+  const bands = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.01];
+  const pct = (part: number, whole: number) => `${((100 * part) / Math.max(1, whole)).toFixed(1)}%`;
+
+  console.log('');
+  console.log(`fiabilité du classement (${rows.length} relevés)`);
+  console.log('  annoncé      | n      | réellement mauvais | écart');
+  for (let index = 0; index < bands.length - 1; index++) {
+    const low = bands[index];
+    const high = bands[index + 1];
+    const band = rows.filter((row) => row.p >= low && row.p < high);
+    if (band.length === 0) continue;
+    const said = band.reduce((sum, row) => sum + row.p, 0) / band.length;
+    const were = band.filter((row) => row.evil).length / band.length;
+    const gap = were - said;
+    console.log(
+      `  ${low.toFixed(1)}–${high === 1.01 ? '1.0' : high.toFixed(1)}      | ${String(band.length).padStart(6)} |` +
+        ` ${pct(band.filter((row) => row.evil).length, band.length).padStart(18)} |` +
+        ` ${gap >= 0 ? '+' : ''}${(100 * gap).toFixed(1)}pt`
+    );
+  }
+
+  /**
+   * Brier: the mean squared error of the probability itself.
+   *
+   * Lower is better, and the number to beat is the base rate said flatly for
+   * everybody — a "ranking" that ignores all evidence and answers with the
+   * proportion of killers at the table. Anything above that line is a ranking
+   * doing harm.
+   */
+  const brier = rows.reduce((sum, row) => sum + (row.p - (row.evil ? 1 : 0)) ** 2, 0) / Math.max(1, rows.length);
+  const base = rows.filter((row) => row.evil).length / Math.max(1, rows.length);
+  const flat = rows.reduce((sum, row) => sum + (base - (row.evil ? 1 : 0)) ** 2, 0) / Math.max(1, rows.length);
+  console.log(
+    `  Brier ${brier.toFixed(4)} contre ${flat.toFixed(4)} pour le taux de base (${(100 * base).toFixed(1)}%)`
+  );
+
+  /**
+   * The empirical likelihood ratio of each rule, which is what the weights
+   * should have been all along.
+   *
+   * For each code: how often it fires on a killer against how often it fires on
+   * anybody else. The log of that ratio *is* the weight, by definition, and it
+   * settles by measurement what the first version of this file settled by
+   * argument and got wrong. Laplace-smoothed, so a rule that fired four times
+   * does not come back as infinity.
+   */
+  const evilRows = rows.filter((row) => row.evil).length;
+  const goodRows = rows.length - evilRows;
+  const codes = [...new Set(rows.flatMap((row) => row.codes))].sort();
+  console.log('');
+  console.log('  règle                | sur les tueurs | sur les autres | log-rapport');
+  for (const code of codes) {
+    const onEvil = rows.filter((row) => row.evil && row.codes.includes(code)).length;
+    const onGood = rows.filter((row) => !row.evil && row.codes.includes(code)).length;
+    const pEvil = (onEvil + 1) / (evilRows + 2);
+    const pGood = (onGood + 1) / (goodRows + 2);
+    const lr = Math.log(pEvil / pGood);
+    console.log(
+      `  ${code.padEnd(20)} | ${pct(onEvil, evilRows).padStart(14)} | ${pct(onGood, goodRows).padStart(14)} |` +
+        ` ${lr >= 0 ? '+' : ''}${lr.toFixed(3)}`
+    );
+  }
+
+  /** And whether a case that cites more reasons is actually a better case. */
+  console.log('');
+  for (const count of [0, 1, 2, 3]) {
+    const band = rows.filter((row) => (count === 3 ? row.reasons >= 3 : row.reasons === count));
+    if (band.length === 0) continue;
+    console.log(
+      `  ${count === 3 ? '3+' : String(count)} raison(s) | n=${String(band.length).padStart(6)} |` +
+        ` réellement mauvais ${pct(band.filter((row) => row.evil).length, band.length)}`
+    );
+  }
+  console.log('');
+}
+
+if (autopsying) {
+  const hanged = trials.filter((trial) => trial.hanged);
+  const townish = (trial: TrialAutopsy) => roleDef(trial.accusedRole).faction === 'town';
+  const pct = (part: number, whole: number) => `${((100 * part) / Math.max(1, whole)).toFixed(1)}%`;
+  const avg = (values: number[]) =>
+    (values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length)).toFixed(2);
+
+  const row = (label: string, set: TrialAutopsy[]) =>
+    console.log(
+      `${label.padEnd(14)} n=${String(set.length).padStart(5)} | dossier ${avg(set.map((trial) => trial.evidence)).padStart(5)}` +
+        ` | meilleure preuve ${avg(set.map((trial) => trial.hardMax)).padStart(5)}` +
+        ` | personne n'avait rien ${pct(set.filter((trial) => trial.hardMax <= 0).length, set.length).padStart(6)}` +
+        ` | accusateurs ${avg(set.map((trial) => trial.accusers))}` +
+        ` | jour ${avg(set.map((trial) => trial.day))}`
+    );
+
+  console.log('');
+  console.log(`procès ${trials.length}, pendus ${hanged.length}`);
+  row('ville pendue', hanged.filter(townish));
+  row(
+    'mal pendu',
+    hanged.filter((trial) => trial.accusedEvil)
+  );
+  row(
+    'acquitté',
+    trials.filter((trial) => !trial.hanged)
+  );
+  /**
+   * Which findings actually hanged people, by kind.
+   *
+   * The reason this is printed rather than inferred: the first run with the
+   * deduction layer in sent the town's win rate to 61%, and the flattering
+   * explanation was that the bots had learned to catch liars. The real one was
+   * that `pickMask` never read the roster, so every bluff claimed a role the
+   * table had not dealt and `role-not-in-play` collected it for free. A tally
+   * says which of those two it is in one line.
+   */
+  const tally = new Map<string, number>();
+  for (const trial of hanged) for (const kind of trial.caught) tally.set(kind, (tally.get(kind) ?? 0) + 1);
+  if (tally.size > 0) {
+    console.log('');
+    console.log('déductions retenues contre les pendus :');
+    for (const [kind, count] of [...tally].sort((left, right) => right[1] - left[1])) {
+      console.log(`  ${kind.padEnd(22)} ${String(count).padStart(5)}`);
+    }
+  }
+  console.log('');
+  for (let day = 2; day <= 9; day++) {
+    const inDay = hanged.filter((trial) => trial.day === day);
+    if (inDay.length === 0) continue;
+    console.log(
+      `jour ${day} | n=${String(inDay.length).padStart(5)} | ville ${pct(inDay.filter(townish).length, inDay.length).padStart(6)}` +
+        ` | meilleure preuve ${avg(inDay.map((trial) => trial.hardMax))} | pression ${avg(inDay.map((trial) => trial.pressure))}`
+    );
+  }
+  console.log('');
 }
 
 if (asJson) {
