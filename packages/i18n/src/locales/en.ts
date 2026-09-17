@@ -90,6 +90,8 @@ export const en: Catalogue = {
   /* ---------------------- how somebody died, and by whose hand --------------- */
   'mafia.cause.lynched': 'hanged by the town',
   'mafia.cause.grief': 'died of grief',
+  /** The Jester's last laugh: one of the hands that pulled the rope. */
+  'mafia.cause.remorse': 'died of remorse',
   'mafia.cause.guard': 'died protecting {name}',
   'mafia.cause.bodyguard': 'cut down by a bodyguard',
   'mafia.cause.killedBy': 'killed by {source}',
@@ -106,6 +108,7 @@ export const en: Catalogue = {
   'mafia.source.mafia': 'the Mafia',
   'mafia.source.triad': 'the Triad',
   'mafia.source.cult': 'the Cult',
+  'mafia.source.remorse': 'their own conscience',
 
   /* -------------------------------- endings ------------------------------- */
   'mafia.win.town': 'The town is purged. The Town wins!',

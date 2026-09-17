@@ -1,3 +1,6 @@
+// Before anything that reaches env.ts: see the file for why it must be first.
+import './test-env.js';
+
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 

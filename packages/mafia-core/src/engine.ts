@@ -1354,6 +1354,24 @@ function lynch(
     addPoints(state, accused.playerId, 'martyr');
     notify(accused, NOTE.jesterWon());
     announce(state, M.winJester(), now);
+    /**
+     * And somebody pays for it in the morning.
+     *
+     * The Jester won by being hanged and that was the end of it, which makes
+     * him the one role at the table with no teeth: voting guilty on a seat that
+     * might be the Jester cost exactly nothing, so the square hanged him
+     * cheerfully and played on. One of the hands that pulled the rope does not
+     * wake up, chosen in the night from the guilty ballots — so a Jester is a
+     * real reason to hesitate, and the seats who voted to spare him are the
+     * ones who are safe.
+     *
+     * The verdict is public and so is the list, which is the point: everybody
+     * can see who is at risk before the night falls.
+     */
+    const pulled = Object.entries(trial.ballots)
+      .filter(([voterId, verdict]) => verdict === 'guilty' && state.players[voterId]?.alive)
+      .map(([voterId]) => voterId);
+    if (pulled.length > 0) state.jesterHaunt = pulled;
   }
 
   for (const player of Object.values(state.players)) {
@@ -1432,7 +1450,7 @@ interface Attack {
  */
 const INVESTIGATIVE: NightActionType[] = ['investigate', 'examine', 'watch', 'track', 'shadow', 'autopsy'];
 
-function resolveNight(state: MafiaState, _rng: () => number): Announcement[] {
+function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   const acts = state.nightActions;
   const jailedId = state.jailedId;
   const announcements: Announcement[] = [];
@@ -1456,7 +1474,19 @@ function resolveNight(state: MafiaState, _rng: () => number): Announcement[] {
   if (jailedId) {
     blocked.add(jailedId);
     const prisoner = state.players[jailedId];
-    if (prisoner) disturbed(prisoner, state.day, 'jail');
+    if (prisoner) {
+      disturbed(prisoner, state.day, 'jail');
+      // And the jailor remembers its own night. See the `jailed` intel kind.
+      const keeper = players.find((player) => player.alive && player.role === 'jailor');
+      if (keeper && keeper.playerId !== prisoner.playerId) {
+        keeper.intel.push({
+          night: state.day,
+          kind: 'jailed',
+          targetSlot: prisoner.slot,
+          value: acts[prisoner.playerId] ? 'tried' : 'quiet'
+        });
+      }
+    }
   }
 
   // Yesterday's borrowed faces wash off before tonight's are painted on.
@@ -1488,9 +1518,18 @@ function resolveNight(state: MafiaState, _rng: () => number): Announcement[] {
         notify(victim, NOTE.controlled());
         disturbed(victim, state.day, 'control');
         notify(player, NOTE.controlDone(victim.name, destination.name));
+        // The experiment, written down. See the `controlled` intel kind.
+        player.intel.push({
+          night: state.day,
+          kind: 'controlled',
+          targetSlot: victim.slot,
+          value: 'sent',
+          slots: [destination.slot]
+        });
       }
     } else {
       notify(player, NOTE.controlIdle(victim.name));
+      player.intel.push({ night: state.day, kind: 'controlled', targetSlot: victim.slot, value: 'idle' });
     }
   }
 
@@ -2032,6 +2071,28 @@ function resolveNight(state: MafiaState, _rng: () => number): Announcement[] {
   for (const player of players) {
     if (player.poisonedNight !== null && player.poisonedNight <= state.day - 1) {
       player.poisonedNight = null;
+    }
+  }
+
+  /**
+   * The Jester's last laugh, collected after every other knife has fallen.
+   *
+   * One of the hands that pulled the rope does not wake up. Last on purpose:
+   * remorse is not an attack, so no doctor heals it, no bodyguard steps in
+   * front of it and no vest turns it — nothing in the night was ever aimed at
+   * this seat and there is nothing for a protector to have been pointed at.
+   * Drawn from the guilty ballots that are still alive at dawn, so a voter the
+   * family happened to kill the same night does not spend the Jester's revenge
+   * on an empty chair. See `jesterHaunt`.
+   */
+  const haunted = (state.jesterHaunt ?? []).filter((voterId) => living(voterId));
+  state.jesterHaunt = undefined;
+  if (haunted.length > 0) {
+    const chosen = haunted[Math.floor(rng() * haunted.length)];
+    const mourner = chosen ? state.players[chosen] : undefined;
+    if (mourner?.alive) {
+      diedTonight.add(mourner.playerId);
+      kill(state, mourner, 'night', CAUSE.remorse(), 'remorse');
     }
   }
 

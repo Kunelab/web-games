@@ -33,12 +33,13 @@ import {
   makePersonality,
   sheriffSuspects,
   DEFAULT_PROFILE,
+  HUMAN_PROFILE,
   type Brain,
   type Claim,
   type Personality,
   type PublicInfo
 } from './policies.js';
-import { toPublicInfo } from '../observe.js';
+import { closingAccusations, toPublicInfo } from '../observe.js';
 
 /**
  * One full game, synchronously, through the real engine — the same functions
@@ -51,6 +52,23 @@ export interface SimOptions {
   seed: number;
   profile?: Partial<Personality>;
   config?: Partial<MafiaConfig>;
+  /**
+   * How many of the seats play as people rather than as the policy.
+   *
+   * They are the same brain with `HUMAN_PROFILE`'s habits: they stonewall, they
+   * change their story, they move their vote on less. What they are really for
+   * is the half of the board that has never run here — `humanSlots` is empty in
+   * every all-bot game, so `claimerWeight`'s human branch multiplies nothing
+   * and any rule about being ignored has nothing to fire on. With a person at
+   * the table those paths run, and the bench can be asked what the bots do
+   * about somebody who will not answer them.
+   *
+   * Zero by default, and a table of zero draws exactly the numbers it always
+   * drew.
+   */
+  humans?: number;
+  /** What those seats play like. Defaults to `HUMAN_PROFILE`. */
+  humanProfile?: Partial<Personality>;
 }
 
 export interface SimResult {
@@ -67,6 +85,8 @@ export interface SimResult {
   lynches: number;
   evilLynches: number;
   jesterLynches: number;
+  /** Seats the Jester took with him: a guilty voter dead of remorse at dawn. */
+  remorseDeaths: number;
   townLynches: number;
   nightDeaths: number;
   vigMisfires: number;
@@ -77,6 +97,45 @@ export interface SimResult {
   claimsTrue: number;
   claimsFalse: number;
   finalAlive: RoleId[];
+  /**
+   * What the table did with the person at it. See `SimOptions.humans`.
+   *
+   * Not a balance measurement. Win rates say nothing about whether a game was
+   * any fun to sit through, and the thing a person actually complains about is
+   * being ignored: they named somebody and nobody looked, they asked somebody a
+   * question and the square moved on, they were hunted from the first afternoon
+   * for having spoken at all. Those are countable, so they are counted here,
+   * and a change meant to make the bots feel more attentive can be checked
+   * against them rather than argued about.
+   */
+  human: {
+    seats: number;
+    /** Person-seats still standing at the end. */
+    survived: number;
+    /** Questions a person put to a bot, and how many got an account that day. */
+    asked: number;
+    answered: number;
+    /** Questions a bot put to a person: the square taking an interest. */
+    questioned: number;
+    /** Accusations by a person, and how many the room then voted for that day. */
+    accusations: number;
+    followed: number;
+    /** Day accusations aimed at a person, against the day's total. */
+    votesAgainst: number;
+    votesTotal: number;
+    /**
+     * The same two rates for the bots, as a control.
+     *
+     * Without them the human figures mean nothing. "Only one accusation in ten
+     * by a person is ever acted on" is an indictment of how the square treats
+     * people; it is a fact about how the square treats accusations. Only the
+     * gap between the two says which.
+     */
+    botAsked: number;
+    botAnswered: number;
+    botAccusations: number;
+    botFollowed: number;
+  };
 }
 
 /** mulberry32: tiny, fast, good enough for dice. */
@@ -128,8 +187,29 @@ export function simulateGame(options: SimOptions): SimResult {
 
   const players = Object.values(state.players);
   const profile: Personality = { ...DEFAULT_PROFILE, ...options.profile };
+
+  /**
+   * The seats that play as people, drawn before the brains so the roll is part
+   * of the seed. Marked `isBot: false`, which is the only thing that puts a
+   * slot in `humanSlots` and therefore the only thing the board reads.
+   *
+   * Drawn last-first rather than at random, so a run with one person always
+   * seats them in the same chair and a trace is comparable to the run before.
+   * Nothing in the headless path consults `isBot` other than the board: the
+   * presence model that does is only reached from the live server's ticker.
+   */
+  const humanCount = Math.max(0, Math.min(options.humans ?? 0, players.length));
+  const humanProfile: Personality = { ...DEFAULT_PROFILE, ...HUMAN_PROFILE, ...options.humanProfile };
+  for (let index = 0; index < humanCount; index++) {
+    const seat = players[players.length - 1 - index];
+    if (seat) seat.isBot = false;
+  }
+
   const brains = new Map<string, Brain>(
-    players.map((player) => [player.playerId, makeBrain(player.slot, makePersonality(profile, rng))])
+    players.map((player) => [
+      player.playerId,
+      makeBrain(player.slot, makePersonality(player.isBot ? profile : humanProfile, rng))
+    ])
   );
   bindPersonalities([...brains.values()]);
 
@@ -158,6 +238,8 @@ export function simulateGame(options: SimOptions): SimResult {
   /** Seats whose last will has already been read out. */
   const willsRead = new Set<string>();
   let lastOpenedDay = 0;
+  /** The last day whose closing accusations were filed. See `recordVotes`. */
+  let lastRecordedDay = 0;
   let guard = 0;
 
   const stampAndPush = (claim: Claim): void => {
@@ -179,13 +261,18 @@ export function simulateGame(options: SimOptions): SimResult {
     claims.push(claim);
   };
 
-  /** The day's final accusations go on the record before night falls. */
+  /**
+   * The day's final accusations go on the record before night falls.
+   *
+   * Read off `state.voteLog` rather than the live ballot box, and guarded by
+   * the day rather than by the stage, because a day that opened a trial had
+   * both emptied the box and left `discussion` before this ever ran. See
+   * `closingAccusations`.
+   */
   const recordVotes = (): void => {
-    for (const [voterId, targetId] of Object.entries(state.votes)) {
-      const voter = state.players[voterId];
-      const target = state.players[targetId];
-      if (voter && target) voteHistory.push({ day: state.day, voterSlot: voter.slot, targetSlot: target.slot });
-    }
+    if (lastRecordedDay === state.day) return;
+    lastRecordedDay = state.day;
+    for (const record of closingAccusations(state, state.day)) voteHistory.push(record);
   };
 
   /**
@@ -364,7 +451,6 @@ export function simulateGame(options: SimOptions): SimResult {
       }
 
       if (state.phase === 'day' && state.stage === 'discussion') {
-        recordVotes();
         advance();
       }
       continue;
@@ -429,6 +515,9 @@ export function simulateGame(options: SimOptions): SimResult {
     }
 
     if (state.phase === 'night') {
+      // The day is over however it ended, with a trial or without one, so this
+      // is the one place its ballots are certainly all in.
+      recordVotes();
       const info = publicInfo();
       for (const player of shuffledAlive()) {
         const legal = legalNightAction(state, player.playerId);
@@ -464,10 +553,15 @@ export function simulateGame(options: SimOptions): SimResult {
     advance();
   }
 
-  return tally(state, options, claims);
+  return tally(state, options, claims, voteHistory);
 }
 
-function tally(state: MafiaState, options: SimOptions, claims: Claim[]): SimResult {
+function tally(
+  state: MafiaState,
+  options: SimOptions,
+  claims: Claim[],
+  voteHistory: { day: number; voterSlot: number; targetSlot: number }[]
+): SimResult {
   const players = Object.values(state.players);
 
   /**
@@ -513,6 +607,7 @@ function tally(state: MafiaState, options: SimOptions, claims: Claim[]): SimResu
     lynches: lynched.length,
     evilLynches: lynched.filter((death) => isEvilRole(death.role)).length,
     jesterLynches: lynched.filter((death) => death.role === 'jester').length,
+    remorseDeaths: state.deaths.filter((death) => death.source === 'remorse').length,
     townLynches: lynched.filter((death) => roleDef(death.role).faction === 'town').length,
     nightDeaths: state.deaths.filter((death) => death.phase === 'night').length,
     vigMisfires: state.deaths.filter((death) => death.source === 'vigilante' && roleDef(death.role).faction === 'town')
@@ -522,6 +617,86 @@ function tally(state: MafiaState, options: SimOptions, claims: Claim[]): SimResu
     wrongExecutions: executed.filter((death) => !isEvilRole(death.role)).length,
     claimsTrue: claims.filter((claim) => claim.truthful).length,
     claimsFalse: claims.filter((claim) => !claim.truthful).length,
-    finalAlive: players.filter((player) => player.alive).map((player) => player.role!)
+    finalAlive: players.filter((player) => player.alive).map((player) => player.role!),
+    human: humanReport(players, claims, voteHistory)
   };
+}
+
+/** What the square did with the people at it. See `SimResult.human`. */
+function humanReport(
+  players: MafiaPlayer[],
+  claims: Claim[],
+  voteHistory: { day: number; voterSlot: number; targetSlot: number }[]
+): SimResult['human'] {
+  const people = new Set(players.filter((player) => !player.isBot).map((player) => player.slot));
+  const report = {
+    seats: people.size,
+    survived: players.filter((player) => !player.isBot && player.alive).length,
+    asked: 0,
+    answered: 0,
+    questioned: 0,
+    accusations: 0,
+    followed: 0,
+    votesAgainst: 0,
+    votesTotal: voteHistory.length,
+    botAsked: 0,
+    botAnswered: 0,
+    botAccusations: 0,
+    botFollowed: 0
+  };
+
+  for (const entry of voteHistory) if (people.has(entry.targetSlot)) report.votesAgainst++;
+
+  /**
+   * Answered, meaning the seat that was asked gave an account that day or the
+   * next. Not "said something": the question asks where you were, and a reply
+   * about somebody else is the square changing the subject, which is the thing
+   * a person notices and resents.
+   */
+  const replied = (claim: Claim): boolean =>
+    claims.some(
+      (other) =>
+        other.kind === 'account' &&
+        other.claimerSlot === claim.targetSlot &&
+        other.day >= claim.day &&
+        other.day <= claim.day + 1
+    );
+
+  /** Somebody other than the accuser put a vote on that house by the bell. */
+  const moved = (claim: Claim): boolean =>
+    voteHistory.some(
+      (entry) =>
+        entry.day === claim.day && entry.targetSlot === claim.targetSlot && entry.voterSlot !== claim.claimerSlot
+    );
+
+  for (const claim of claims) {
+    const fromPerson = people.has(claim.claimerSlot);
+
+    if (claim.kind === 'question') {
+      if (people.has(claim.targetSlot)) {
+        if (!fromPerson) report.questioned++;
+        continue;
+      }
+      if (fromPerson) {
+        report.asked++;
+        if (replied(claim)) report.answered++;
+      } else {
+        report.botAsked++;
+        if (replied(claim)) report.botAnswered++;
+      }
+      continue;
+    }
+
+    if (claim.kind === 'accuse') {
+      if (fromPerson) {
+        report.accusations++;
+        if (moved(claim)) report.followed++;
+      } else {
+        report.botAccusations++;
+        if (moved(claim)) report.botFollowed++;
+      }
+    }
+  }
+
+  return report;
 }

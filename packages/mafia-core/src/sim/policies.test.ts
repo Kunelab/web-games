@@ -7,6 +7,8 @@ import { createMafiaGame, playerBySlot, type MafiaPlayer, type MafiaState } from
 import {
   bindPersonalities,
   buddyScore,
+  friendlySeats,
+  DEFAULT_PROFILE,
   claimerWeight,
   contradicted,
   decideNightTarget,
@@ -187,8 +189,16 @@ describe('desperation in play', () => {
     ];
     const info = { ...toPublicInfo(state, [], []), voteHistory };
 
-    assert.ok(buddyScore(1, info) > 0.5, 'a bonded pair shows up');
-    assert.ok(buddyScore(2, info) > 0.5, 'and it shows up from either side');
+    assert.ok(buddyScore(1, info) > 0, 'a bonded pair shows up');
+    assert.ok(buddyScore(2, info) > 0, 'and it shows up from either side');
+    /**
+     * And stays a nudge. Measured on the bench, this read points at evils
+     * slightly *less* often than chance, because a table whose seats all score
+     * the same public board herds, and "these two never crossed" describes most
+     * of it. It is kept for the human squares that scatter their votes, and
+     * capped so it can never build a wagon by itself. See `BUDDY_WEIGHT`.
+     */
+    assert.ok(buddyScore(1, info) < 0.5, 'but it is never a case on its own');
   });
 
   it('does not call a pair on one afternoon of agreement', () => {
@@ -672,5 +682,104 @@ describe('a badge nobody disputes', () => {
     ];
     const info = toPublicInfo(state, claims, []);
     assert.equal(claimerWeight(2, info), claimerWeight(1, info), 'two sheriffs is at least one liar');
+  });
+});
+
+describe('what the killers leave standing', () => {
+  /**
+   * The oldest instinct in the game, and the one this file did not have: a
+   * family does not knife the seat that stood up at a brother's trial and voted
+   * to spare him. See `friendlySeats`.
+   */
+  it('spares the seat that voted innocent on one of ours', () => {
+    const state = table(['mafioso', 'mafioso', 'citizen', 'citizen', 'citizen', 'doctor'], 4);
+    // Slot 2 was tried and spared; 3 voted innocent, 4 voted guilty.
+    state.trialLog = [{ day: 3, accusedId: 's2', lynched: false, guiltyIds: ['s4'], innocentIds: ['s3'] }];
+    const info = toPublicInfo(state, [], []);
+    const self = playerBySlot(state, 1)!;
+
+    const friends = friendlySeats(self, info, new Set([2]));
+    assert.ok(friends.has(3), 'the seat that voted to spare a brother is a friend');
+    assert.ok(!friends.has(4), 'and the one that voted to hang him is not');
+  });
+
+  it('and counts an accusation against us as the opposite of a favour', () => {
+    const state = table(['mafioso', 'mafioso', 'citizen', 'citizen', 'citizen', 'doctor'], 4);
+    state.trialLog = [{ day: 3, accusedId: 's2', lynched: false, guiltyIds: [], innocentIds: ['s3'] }];
+    const claims: Claim[] = [claim({ claimerSlot: 3, targetSlot: 1, kind: 'accuse', day: 4 })];
+    const info = toPublicInfo(state, claims, []);
+    const self = playerBySlot(state, 1)!;
+
+    const friends = friendlySeats(self, info, new Set([2]));
+    assert.ok(!friends.has(3), 'one innocent ballot does not buy a seat the right to name us');
+  });
+
+  /**
+   * A butcher has no family, so the question is asked of a side of one: the
+   * seats that spoke for *it*.
+   */
+  it('lets a lone killer keep the seats that defended it', () => {
+    const state = table(['serial-killer', 'citizen', 'citizen', 'citizen', 'doctor'], 4);
+    state.trialLog = [{ day: 3, accusedId: 's1', lynched: false, guiltyIds: ['s3'], innocentIds: ['s2'] }];
+    const info = toPublicInfo(state, [], []);
+    const self = playerBySlot(state, 1)!;
+
+    const friends = friendlySeats(self, info, new Set());
+    assert.ok(friends.has(2), 'the seat that voted to spare the butcher is worth keeping');
+    assert.ok(!friends.has(3), 'the one that voted to hang it is not');
+  });
+});
+
+describe('the witch learns by doing', () => {
+  /**
+   * Every control is an experiment with a published result: she is told whether
+   * the hand held an order, she chose where it went, and the morning says who
+   * died. A hand that produced a corpse is a hand holding a knife, and she goes
+   * back to it. Before this she picked uniformly at random, all game.
+   */
+  const witchTable = (): MafiaState => {
+    const state = table(['witch', 'citizen', 'citizen', 'citizen', 'citizen', 'doctor'], 4);
+    return state;
+  };
+
+  it('returns to the hand that produced a corpse', () => {
+    const state = witchTable();
+    const witch = playerBySlot(state, 1)!;
+    // Night 2: took 4's hand, sent it at 6. Night 3: took 3's hand, sent it at 5.
+    witch.intel = [
+      { night: 2, kind: 'controlled', targetSlot: 4, value: 'sent', slots: [6] },
+      { night: 3, kind: 'controlled', targetSlot: 3, value: 'sent', slots: [5] }
+    ];
+    // Only 6 died, and on the night 4's hand was pointed at it.
+    const victim = state.players.s6;
+    victim.alive = false;
+    state.deaths = [{ playerId: 's6', day: 2, phase: 'night', cause: { key: 'x' }, source: 'mafia' }] as never;
+
+    const info = toPublicInfo(state, [], []);
+    const brain = makeBrain(1, { ...DEFAULT_PROFILE });
+    bindPersonalities([brain]);
+
+    // Deterministic dice: always take the first ranked choice.
+    const picks = new Set<number | null>();
+    for (let i = 0; i < 40; i++) {
+      picks.add(decideNightTarget(witch, brain, info, [2, 3, 4, 5], 'control', new Set(), [], () => 0.01));
+    }
+    assert.deepEqual([...picks], [4], 'she goes back to the hand the corpse came out of');
+  });
+
+  it('and tries a hand she has never held before trying an empty one', () => {
+    const state = witchTable();
+    const witch = playerBySlot(state, 1)!;
+    // 3 was empty, 4 was never tried, and nobody has died.
+    witch.intel = [{ night: 2, kind: 'controlled', targetSlot: 3, value: 'idle' }];
+
+    const info = toPublicInfo(state, [], []);
+    const brain = makeBrain(1, { ...DEFAULT_PROFILE });
+    bindPersonalities([brain]);
+
+    for (let i = 0; i < 40; i++) {
+      const pick = decideNightTarget(witch, brain, info, [3, 4], 'control', new Set(), [], () => 0.01);
+      assert.equal(pick, 4, 'an untried hand teaches her something; an empty one does not');
+    }
   });
 });

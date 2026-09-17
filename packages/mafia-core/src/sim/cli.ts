@@ -31,6 +31,14 @@ const games = Number(arg('games', '1000'));
 const profileName = arg('profile', 'default');
 const baseSeed = Number(arg('seed', '1'));
 const asJson = process.argv.includes('--json');
+/**
+ * Seats that play like people rather than like the policy. See `SimOptions.humans`.
+ *
+ * With any of these the run prints a second table about how the square treated
+ * them — whether it answered them, whether it followed them, and whether it hunted
+ * them — which is the part of bot quality that win rates have never measured.
+ */
+const humans = Math.max(0, Number(arg('humans', '0')) || 0);
 
 /** 'auto' (balanced roster), 'chaos', or a preset id from SETUPS. */
 const setupName = arg('setup', 'auto');
@@ -78,6 +86,20 @@ interface Aggregate {
   saves: number;
   executions: number;
   wrongExecutions: number;
+  /** See `SimResult.human`: how the square treated the people at it. */
+  humanSeats: number;
+  humanSurvived: number;
+  humanAsked: number;
+  humanAnswered: number;
+  humanQuestioned: number;
+  humanAccusations: number;
+  humanFollowed: number;
+  humanVotesAgainst: number;
+  humanVotesTotal: number;
+  botAsked: number;
+  botAnswered: number;
+  botAccusations: number;
+  botFollowed: number;
 }
 
 function aggregate(results: SimResult[]): Aggregate {
@@ -104,7 +126,20 @@ function aggregate(results: SimResult[]): Aggregate {
     vigMisfires: 0,
     saves: 0,
     executions: 0,
-    wrongExecutions: 0
+    wrongExecutions: 0,
+    humanSeats: 0,
+    humanSurvived: 0,
+    humanAsked: 0,
+    humanAnswered: 0,
+    humanQuestioned: 0,
+    humanAccusations: 0,
+    humanFollowed: 0,
+    humanVotesAgainst: 0,
+    humanVotesTotal: 0,
+    botAsked: 0,
+    botAnswered: 0,
+    botAccusations: 0,
+    botFollowed: 0
   };
   for (const result of results) {
     agg[result.winner] += 1;
@@ -123,6 +158,19 @@ function aggregate(results: SimResult[]): Aggregate {
     agg.saves += result.saves;
     agg.executions += result.executions;
     agg.wrongExecutions += result.wrongExecutions;
+    agg.humanSeats += result.human.seats;
+    agg.humanSurvived += result.human.survived;
+    agg.humanAsked += result.human.asked;
+    agg.humanAnswered += result.human.answered;
+    agg.humanQuestioned += result.human.questioned;
+    agg.humanAccusations += result.human.accusations;
+    agg.humanFollowed += result.human.followed;
+    agg.humanVotesAgainst += result.human.votesAgainst;
+    agg.humanVotesTotal += result.human.votesTotal;
+    agg.botAsked += result.human.botAsked;
+    agg.botAnswered += result.human.botAnswered;
+    agg.botAccusations += result.human.botAccusations;
+    agg.botFollowed += result.human.botFollowed;
   }
   return agg;
 }
@@ -149,13 +197,20 @@ for (const players of playerCounts) {
     const censusResults: SimResult[] = [];
     for (let index = 0; index < half; index++) {
       setupResults.push(
-        simulateGame({ players, seed: baseSeed * 1_000_003 + players * 10_007 + index, profile, config: setupConfig })
+        simulateGame({
+          players,
+          seed: baseSeed * 1_000_003 + players * 10_007 + index,
+          profile,
+          humans,
+          config: setupConfig
+        })
       );
       censusResults.push(
         simulateGame({
           players,
           seed: baseSeed * 2_000_003 + players * 10_007 + index,
           profile,
+          humans,
           config: censusConfig
         })
       );
@@ -166,7 +221,13 @@ for (const players of playerCounts) {
     const results: SimResult[] = [];
     for (let index = 0; index < games; index++) {
       results.push(
-        simulateGame({ players, seed: baseSeed * 2_000_003 + players * 10_007 + index, profile, config: censusConfig })
+        simulateGame({
+          players,
+          seed: baseSeed * 2_000_003 + players * 10_007 + index,
+          profile,
+          humans,
+          config: censusConfig
+        })
       );
     }
     tables.push({ ...aggregate(results), mode: 'census' });
@@ -176,7 +237,9 @@ for (const players of playerCounts) {
 if (asJson) {
   console.log(JSON.stringify({ profile: profileName, games, tables }, null, 2));
 } else {
-  console.log(`profil ${profileName}, setup ${setupName} + census (50/50), ${games} parties par taille, ${Date.now() - startedAt}ms\n`);
+  console.log(
+    `profil ${profileName}, setup ${setupName} + census (50/50), ${games} parties par taille, ${Date.now() - startedAt}ms\n`
+  );
   console.log(
     'joueurs | mode    | ville   mafia   triade  secte   solo    nul    | jours | pendaisons justes | bouffon | bourreau | surviv. | exéc. ratées'
   );
@@ -198,5 +261,47 @@ if (asJson) {
       pct(agg.wrongExecutions, agg.executions).padStart(12)
     ];
     console.log(cells.join(' | '));
+  }
+
+  /**
+   * And what the table did with the person sitting at it.
+   *
+   * Printed only when there was one. Read it as three questions, in order of
+   * how much a player would care: when I asked somebody where they were, did
+   * the square answer me; when I named somebody, did anybody move; and was I
+   * hunted harder than my share of the table for having said anything at all.
+   * "part des votes" is against an even share, so 1.0 is being treated like
+   * everybody else and 2.0 is being treated as the problem.
+   */
+  if (humans > 0) {
+    console.log(
+      `\njoueurs | mode    | survie | questions répondues  | accusations suivies  | on m'interroge | part des votes`
+    );
+    console.log(
+      `        |         |        | joueur   bot   écart | joueur   bot   écart |     /partie    | reçus contre part`
+    );
+    for (const agg of tables) {
+      const share = agg.humanSeats / Math.max(1, agg.games * agg.players);
+      const hunted = agg.humanVotesAgainst / Math.max(1, agg.humanVotesTotal) / Math.max(1e-9, share);
+      const answered = (100 * agg.humanAnswered) / Math.max(1, agg.humanAsked);
+      const botAnswered = (100 * agg.botAnswered) / Math.max(1, agg.botAsked);
+      const followed = (100 * agg.humanFollowed) / Math.max(1, agg.humanAccusations);
+      const botFollowed = (100 * agg.botFollowed) / Math.max(1, agg.botAccusations);
+      const gap = (mine: number, theirs: number) => `${mine >= theirs ? '+' : ''}${(mine - theirs).toFixed(0)}pt`;
+      const cells = [
+        String(agg.players).padStart(7),
+        agg.mode.slice(0, 7).padEnd(7),
+        pct(agg.humanSurvived, agg.humanSeats).padStart(6),
+        `${answered.toFixed(0)}%`.padStart(6) +
+          `${botAnswered.toFixed(0)}%`.padStart(7) +
+          gap(answered, botAnswered).padStart(7),
+        `${followed.toFixed(0)}%`.padStart(6) +
+          `${botFollowed.toFixed(0)}%`.padStart(7) +
+          gap(followed, botFollowed).padStart(7),
+        (agg.humanQuestioned / agg.games).toFixed(1).padStart(14),
+        `${hunted.toFixed(2)}x`.padStart(17)
+      ];
+      console.log(cells.join(' | '));
+    }
   }
 }

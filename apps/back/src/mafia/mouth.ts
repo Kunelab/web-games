@@ -73,10 +73,22 @@ export interface Intent {
   answering?: { who: string; text: string }[];
 }
 
+/**
+ * One line, or nothing — and the schema has to say so out loud.
+ *
+ * `line` is nullable because silence is a move: a Sheriff sitting on a check
+ * while the room hunts somebody else is playing well, and `readLine` has a
+ * branch for it. Typed as a bare string it was a branch that could never run
+ * under strict structured output, which forces the model to produce *a string*
+ * whatever it meant — so the one seat that decided to keep quiet said "null"
+ * out loud instead. Measured on gpt-oss-20b.
+ */
 export const MOUTH_FORMAT = {
   type: 'object',
-  properties: { line: { type: 'string', description: 'Your one line of chat.' } },
-  required: ['line']
+  properties: { line: { type: ['string', 'null'], description: 'Your one line of chat, or null to stay quiet.' } },
+  required: ['line'],
+  /** Closed at every level; see `HEARD_FORMAT` in ear.ts. */
+  additionalProperties: false
 } as const;
 
 /**
@@ -174,20 +186,58 @@ export function mouthPrompt(
  * narration gets ignored in favour of the phrasebook — which always has an
  * answer, so there is never a turn that fails to produce a sentence.
  */
+/**
+ * A model declining to speak, in the forms it actually declines in.
+ *
+ * `MOUTH_FORMAT` types `line` as `string | null`, and a field typed that way
+ * invites the *word* null as readily as the value — along with an empty string
+ * and a dash. Measured on gpt-oss-20b: asked whether to claim Sheriff on day
+ * two with two Sheriffs already dead for it, it answered with the string
+ * "null", which went through untouched and would have been posted in the square
+ * as the word "null".
+ *
+ * Deliberately only the sentinels no player would type. "Nothing", "None" and
+ * "Silence" belong here inside brackets, as the stage direction a small model
+ * writes, and nowhere else: bare, each of them is a perfectly good answer to
+ * "what did you do last night?", and reading one as silence would take a real
+ * line out of a seat's mouth to guard against a mistake the `null` value is
+ * already the proper channel for.
+ */
+const MEANS_SILENCE = /^(?:null|nil|n\/?a|\(\s*(?:silence|silent|nothing|none)\s*\)|-{1,3})$/i;
+
+/**
+ * The line to say, or `null` to say nothing at all.
+ *
+ * The distinction this returns is between a seat that *chose* not to speak and
+ * a call that failed, and they must not be the same thing. Silence is a move:
+ * a Sheriff sitting on a check while the room hunts somebody else is playing
+ * well, and `MOUTH_FORMAT` says so in the one place the model reads. Failure is
+ * not a move, and falls back to the phrasebook so the table never goes quiet by
+ * accident.
+ *
+ * Before this, both came back as the fallback — so a model that decided to keep
+ * its mouth shut had a sentence put in it anyway, every time.
+ */
 export function readLine(
   raw: Record<string, unknown>,
   intent: Intent,
   self: { name: string; slot: number },
   /** The names on the doors, so a one-letter one is not read as a slip. */
   seats: ReadonlySet<string> = new Set()
-): string {
+): string | null {
+  // A missing field is a malformed answer; a present but empty one is a choice.
+  if (!('line' in raw)) return intent.fallback;
+  if (raw.line === null) return null;
   const line = typeof raw.line === 'string' ? raw.line.replace(/\s+/g, ' ').trim() : '';
-  if (!line) return intent.fallback;
+  if (!line) return typeof raw.line === 'string' ? null : intent.fallback;
+  if (MEANS_SILENCE.test(line)) return null;
 
   // Stage directions and self-narration, which small models produce when asked
   // to be in character. A line that is mostly one of these is not a line.
   const cleaned = line.replace(/^["'«»\s]+|["'«»\s]+$/g, '');
   if (!cleaned || cleaned.length > 180) return intent.fallback;
+  // "null" in quotes is still the model saying nothing.
+  if (MEANS_SILENCE.test(cleaned)) return null;
   if (/^\s*[([*]/.test(cleaned)) return intent.fallback;
   if (intent.vote && denies(cleaned)) return intent.fallback;
   if (addressesSelf(cleaned, self)) return intent.fallback;

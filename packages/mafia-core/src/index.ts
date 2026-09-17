@@ -136,7 +136,7 @@ export {
   type MafiaCareerStats
 } from './careers.js';
 
-export { toPublicInfo } from './observe.js';
+export { toPublicInfo, closingAccusations } from './observe.js';
 /**
  * The social model. Exported because the live bot driver and the headless bench
  * must reach for the same one: a bot that panics differently from the simulated
@@ -165,6 +165,8 @@ export {
   decideSecondTarget,
   type DayDecision,
   contradicted,
+  buddyRead,
+  type BuddyRead,
   TEMPERAMENT_MIN,
   TEMPERAMENT_MAX,
   temperamentOf,
@@ -176,6 +178,9 @@ export {
   rolesWithTrade,
   couldStillAct,
   DEFAULT_PROFILE,
+  HUMAN_PROFILE,
+  NO_QUIRKS,
+  quirksOf,
   feelPressure,
   losingClock,
   makeBrain,
@@ -191,6 +196,7 @@ export {
   type Claim,
   type ClaimKind,
   type Personality,
+  type Quirks,
   type SheriffVerdict,
   type Temperament,
   type PublicInfo,

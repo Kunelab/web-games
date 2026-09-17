@@ -46,11 +46,14 @@ export const JURY_FORMAT = {
             description: 'Which way this trial should push them, from what was actually said.'
           }
         },
-        required: ['slot', 'lean']
+        required: ['slot', 'lean'],
+        additionalProperties: false
       }
     }
   },
-  required: ['verdicts']
+  required: ['verdicts'],
+  /** Closed at every level; see `HEARD_FORMAT` in ear.ts. */
+  additionalProperties: false
 } as const;
 
 /**
