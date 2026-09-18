@@ -71,6 +71,14 @@ export interface Intent {
    * phrasebook line is a floor rather than a template.
    */
   answering?: { who: string; text: string }[];
+  /**
+   * Said in a family room a Spy may be listening to.
+   *
+   * The instruction tells the model to name nothing; this is the check that it
+   * did not. A line that still carries a player's name, a bare house number or
+   * a role is replaced by the phrasebook line, which carries none. See `leaks`.
+   */
+  hushed?: boolean;
 }
 
 /**
@@ -146,7 +154,8 @@ export function mouthPrompt(
   recent: { slot: number; name: string; text: string }[]
 ): string {
   const lines = [
-    `You are ${self.name}, house ${self.slot}. You are ${intent.mood}.`,
+    // Not "house ${slot}": the rules below forbid that phrasing and this line was teaching it.
+    `You are ${self.name}. Your number at this table is ${self.slot}. You are ${intent.mood}.`,
     `You have decided to: ${intent.act}.`
   ];
   if (intent.because) lines.push(`Because: ${intent.because}.`);

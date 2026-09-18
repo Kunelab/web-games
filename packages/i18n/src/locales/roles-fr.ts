@@ -67,8 +67,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.mafioso.name': 'Mafioso',
   'mafia.role.mafioso.desc': 'Le bras armé de la famille : exécute l’ordre du Parrain.',
   'mafia.role.caporegime.name': 'Caporegime',
-  'mafia.role.caporegime.desc':
-    'Lieutenant de la famille. Quand le Parrain tombe, il apprend à sourire comme lui.',
+  'mafia.role.caporegime.desc': 'Lieutenant de la famille. Quand le Parrain tombe, il apprend à sourire comme lui.',
   'mafia.role.soldato.name': 'Soldato',
   'mafia.role.soldato.desc': 'Un soldat de plus dans la famille. Les ordres sont les ordres.',
   'mafia.role.consigliere.name': 'Consigliere',
@@ -132,14 +131,12 @@ export const rolesFr: Catalogue = {
   'mafia.role.amnesiac.name': 'Amnésique',
   'mafia.role.amnesiac.desc': 'Ne se souvient plus qui il est. Une nuit, au cimetière, ça lui reviendra.',
   'mafia.role.scumbag.name': 'Crapule',
-  'mafia.role.scumbag.desc':
-    'Une sale réputation et aucun pouvoir. Gagne si la ville perd — et qu’il respire encore.',
+  'mafia.role.scumbag.desc': 'Une sale réputation et aucun pouvoir. Gagne si la ville perd — et qu’il respire encore.',
   'mafia.role.judge.name': 'Juge',
   'mafia.role.judge.desc':
     'Peut convoquer un tribunal d’exception : jugement immédiat, sans défense, et sa voix compte triple. Gagne si la ville perd.',
   'mafia.role.auditor.name': 'Contrôleur fiscal',
-  'mafia.role.auditor.desc':
-    'Réduit un joueur à néant administratif : son rôle est dissous. Gagne si la ville perd.',
+  'mafia.role.auditor.desc': 'Réduit un joueur à néant administratif : son rôle est dissous. Gagne si la ville perd.',
   'mafia.role.witch.name': 'Sorcière',
   'mafia.role.witch.desc':
     'Chaque nuit, envoûte un joueur et détourne son geste vers une autre maison. Gagne si la Ville ne gagne pas — et qu’elle respire encore.',
@@ -153,7 +150,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.witch-doctor.desc': 'Le médecin de la secte : soigne les siens comme les autres.',
   'mafia.role.serial-killer.name': 'Tueur en série',
   'mafia.role.serial-killer.desc':
-    'Tue chaque nuit — sa lame perce les gilets et même la garde du Parrain. Gagne seul, quand plus personne ne peut l’arrêter.',
+    'Tue chaque nuit, sans relâche. Une lame ordinaire : un gilet, une garde ou une veille l’arrêtent. Gagne seul, quand plus personne ne peut l’arrêter.',
   'mafia.role.mass-murderer.name': 'Tueur de masse',
   'mafia.role.mass-murderer.desc': 'Massacre une maison et tous ceux qui s’y trouvent cette nuit-là. Gagne seul.',
   'mafia.role.arsonist.name': 'Incendiaire',
@@ -163,8 +160,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.poisoner.desc':
     'Un poison lent : la victime s’éteint la nuit suivante, sauf si un médecin la purge à temps. Gagne seul.',
   'mafia.role.electromaniac.name': 'Électromane',
-  'mafia.role.electromaniac.desc':
-    'Électrise les maisons en silence — puis, chez lui, abaisse la manette. Gagne seul.',
+  'mafia.role.electromaniac.desc': 'Électrise les maisons en silence — puis, chez lui, abaisse la manette. Gagne seul.',
 
   /* --------------------------- le verbe sur le bouton ----------------------- */
   'mafia.action.kill': 'Tuer',

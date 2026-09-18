@@ -118,8 +118,17 @@
   margin-right: 6px;
 }
 
+/*
+ * A colon, because that is what separates a speaker from what they said.
+ *
+ * It was an em dash, which in a chat log reads as part of the sentence rather
+ * than as punctuation belonging to the byline: "Loki — I was home all night"
+ * looks like Loki said "— I was home all night". A colon is the convention
+ * every chat log has used since the first one, and it disappears the way
+ * punctuation is supposed to.
+ */
 .chat-author::after {
-  content: ' —';
+  content: ':';
   color: var(--chat-fg-dim, #9a97a0);
   font-weight: 400;
 }

@@ -50,11 +50,11 @@ const WIN_LINE: Partial<Record<RoleId, string>> = {
     'buys you safety, and it also makes you a free vote nobody will ever protect. Never be the most suspicious seat, ' +
     'and never be the most useful one either.',
   amnesiac:
-    'You are nobody yet. You win by REMEMBERING a dead player\'s role and then winning as that role, so the graveyard ' +
+    "You are nobody yet. You win by REMEMBERING a dead player's role and then winning as that role, so the graveyard " +
     'is your role list: stay alive, watch what dies, and take the badge that is worth the most to whoever is winning.',
   lover:
     'You and your partner win together, whoever else wins, as long as you are BOTH alive at the end. If one of you ' +
-    'dies the other dies of grief, so your partner\'s safety is your own and protecting them is not sentiment.',
+    "dies the other dies of grief, so your partner's safety is your own and protecting them is not sentiment.",
   cultist: 'You win when the cult outnumbers the rest. Converting is how you grow; every convert is another vote.',
   mayor:
     'Revealing makes your vote count THREE, and paints a target on you for every killer at the table. Reveal when ' +
@@ -84,7 +84,8 @@ const WIN_LINE: Partial<Record<RoleId, string>> = {
   witch: 'You win whenever the town loses, whoever beats them. You need not kill anybody: you need the town to fail.',
   scumbag: 'You win whenever the town loses. Survive, and help the wrong side quietly.',
   judge: 'You win whenever the town loses. Your court is one use of enormous force — spend it where it does damage.',
-  auditor: 'You win whenever the town loses. Blend in; you are not trying to win the day, you are trying to lose it for them.'
+  auditor:
+    'You win whenever the town loses. Blend in; you are not trying to win the day, you are trying to lose it for them.'
 };
 
 /** The win condition this seat needs spelled out, if its role has one. */
@@ -287,7 +288,9 @@ function heatmap(view: MafiaView, board: PublicInfo, limit: number): string[] {
       if (roleClaim) notes.push(`claims to be ${roleClaim.claimedRole}`);
       const account = board.claims.find((claim) => claim.kind === 'account' && claim.claimerSlot === player.slot);
       if (account)
-        notes.push(account.account === 'home' ? 'says they never left home' : `says they went to ${account.targetSlot}`);
+        notes.push(
+          account.account === 'home' ? 'says they never left home' : `says they went to ${account.targetSlot}`
+        );
       if (player.revealedMayor) notes.push('revealed Mayor');
 
       /**
@@ -360,9 +363,7 @@ function rolesInPlay(view: MafiaView, locale: Locale): string {
     const label = say(locale)(SLOT(token));
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
-  return [...counts]
-    .map(([label, count]) => (count > 1 ? `${label} x${count}` : label))
-    .join(', ');
+  return [...counts].map(([label, count]) => (count > 1 ? `${label} x${count}` : label)).join(', ');
 }
 
 /**
@@ -475,7 +476,6 @@ const HUMAN_FLOOR = 4;
  */
 const LINE_CHARS = 500;
 
-
 /**
  * The moves that exist for this seat at this moment.
  *
@@ -509,7 +509,8 @@ function legalMoves(view: MafiaView): string {
       if (me.action.secondTargets?.length) {
         lines.push(`- It needs a second house as well. Legal second targets: ${me.action.secondTargets.join(', ')}.`);
       }
-      if (me.action.charges !== null) lines.push(`- You have ${me.action.charges} use(s) of it left, for the whole game.`);
+      if (me.action.charges !== null)
+        lines.push(`- You have ${me.action.charges} use(s) of it left, for the whole game.`);
     } else {
       lines.push('- You have no power to use tonight. You can only talk where you are allowed to talk.');
     }
@@ -546,9 +547,13 @@ function legalMoves(view: MafiaView): string {
   }
   if (view.voteOpensAt !== null && Date.now() < view.voteOpensAt) {
     const wait = Math.ceil((view.voteOpensAt - Date.now()) / 1000);
-    lines.push(`- The ballot is not open yet — about ${wait}s of talking left. You cannot accuse or skip until it opens.`);
+    lines.push(
+      `- The ballot is not open yet — about ${wait}s of talking left. You cannot accuse or skip until it opens.`
+    );
   } else {
-    lines.push('- You may accuse one house, or vote to skip the day. Changing your mind is free until the count lands.');
+    lines.push(
+      '- You may accuse one house, or vote to skip the day. Changing your mind is free until the count lands.'
+    );
     const leader = view.players.filter((player) => player.alive).sort((a, b) => b.votesAgainst - a.votesAgainst)[0];
     lines.push(
       leader && leader.votesAgainst > 0
@@ -647,6 +652,23 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
    *
    * Newest first, because the oldest line is the one the room has moved past.
    */
+  /**
+   * When *this* phase started, so a line can be told from a memory.
+   *
+   * The transcript is a window on the last N lines and nothing in it said how
+   * old any of them were, so a model answering its turn answered all of them
+   * equally. From a real game: a player greeted the table on day five and a bot
+   * said "Hi Max" back on day five, and again on day six, and again while
+   * standing on the gallows on day seven — by which point Max had been dead for
+   * four days. The bot was not confused about who was alive. It was reading a
+   * four-day-old greeting as something that had just been said to it.
+   *
+   * `phaseStartedAt` is computed once on the view, beside the deadline it is
+   * derived from, rather than reconstructed here from a config this module has
+   * no business reading.
+   */
+  const startedAt = view.phaseStartedAt ?? 0;
+
   const rendered: string[] = [];
   let left = TRANSCRIPT_CHARS;
   for (let index = merged.length - 1; index >= 0; index--) {
@@ -659,7 +681,16 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
     // exactly as typed. See `guard.ts`.
     const clean = screen(message.text).text;
     const said = clean.length > LINE_CHARS ? `${clean.slice(0, LINE_CHARS)}…` : clean;
-    const line = `${who}${person}${room(message.channel)}: ${said}`;
+    /**
+     * Anything older than this phase is background, and says so.
+     *
+     * Not dropped — an accusation from yesterday is exactly the thing a defence
+     * has to answer, and the claims board keeps only the *fact* of it, never
+     * the words. Marked instead, so the model can read it and know better than
+     * to reply to it.
+     */
+    const old = message.at < startedAt ? ' [EARLIER — context only, already dealt with, do not reply to it]' : '';
+    const line = `${who}${person}${room(message.channel)}${old}: ${said}`;
     if (line.length > left && rendered.length > 0) break;
     left -= line.length;
     rendered.unshift(line);
@@ -787,12 +818,12 @@ export function dossier(
 }
 
 /**
-  * The verb this bot's power goes by, for the night prompt.
-  *
-  * In the table's *spoken* language, not the server's: the bot will name this
-  * power out loud in a shared channel, and a bot claiming « Sonder » at an
-  * English table is a bot the table cannot answer.
-  */
+ * The verb this bot's power goes by, for the night prompt.
+ *
+ * In the table's *spoken* language, not the server's: the bot will name this
+ * power out loud in a shared channel, and a bot claiming « Sonder » at an
+ * English table is a bot the table cannot answer.
+ */
 export function actionVerb(view: MafiaView, locale: Locale): string | null {
   const action = view.me?.action;
   return action ? say(locale)(ACTION(action.type)) : null;

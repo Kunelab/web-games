@@ -31,8 +31,7 @@ export const fr: Catalogue = {
 
   /* ------------------------------- the clock ------------------------------- */
   'mafia.day.header': '— Jour {day} —',
-  'mafia.game.start':
-    'La partie commence. Bienvenue en ville — apprenez à vous connaître, la nuit tombe vite.',
+  'mafia.game.start': 'La partie commence. Bienvenue en ville — apprenez à vous connaître, la nuit tombe vite.',
   'mafia.night.fall': 'La nuit {day} tombe sur la ville. Fermez vos portes.',
   'mafia.night.quiet': 'Personne n’est mort cette nuit. La ville respire — pour l’instant.',
 
@@ -47,12 +46,10 @@ export const fr: Catalogue = {
   'mafia.trial.muted': '{name} : « Je suis muet. »',
   'mafia.trial.noDefence': '{name} est traîné à la barre. Le Prévôt refuse la défense : votez !',
   'mafia.trial.judging': 'La ville juge {name} : coupable ou innocent ?',
-  'mafia.trial.court':
-    'Une voix tonne : « TRIBUNAL D’EXCEPTION ! » {name} est jugé séance tenante, sans défense.',
+  'mafia.trial.court': 'Une voix tonne : « TRIBUNAL D’EXCEPTION ! » {name} est jugé séance tenante, sans défense.',
   'mafia.trial.verdict': 'Verdict : {guilty} coupable, {innocent} innocent.',
   'mafia.trial.ballots': 'Ont voté coupable : {guilty}. Ont voté innocent : {innocent}.',
-  'mafia.trial.secret':
-    'Le tribunal d’exception a voté à bulletin secret : aucun nom ne sortira de cette salle.',
+  'mafia.trial.secret': 'Le tribunal d’exception a voté à bulletin secret : aucun nom ne sortira de cette salle.',
   'mafia.trial.spared': '{name} est épargné.',
   'mafia.trial.nobody': 'personne',
   'mafia.vote.skipped': 'La ville préfère ne pendre personne aujourd’hui. La nuit tombe.',
@@ -119,9 +116,14 @@ export const fr: Catalogue = {
   'mafia.win.massMurderer': 'Le silence est total. Le Tueur de masse l’emporte.',
   'mafia.win.poisoner': 'Tout le monde avait bu quelque chose, un jour. L’Empoisonneur l’emporte.',
   'mafia.win.electromaniac': 'La ville grésille encore. L’Électromane l’emporte.',
+  'mafia.win.lastQuietDay':
+    'Personne n’est mort depuis des jours. Trouvez quelqu’un aujourd’hui, ou la ville perd la main.',
+  'mafia.win.witch': 'Chaque main à cette table était tenue par quelqu’un d’autre. La Sorcière l’emporte.',
   'mafia.win.draw': 'La ville, épuisée, déclare un match nul.',
-  'mafia.win.hollow': 'Les tueurs ont emporté la ville avec eux. Il ne reste personne à sauver, et personne pour la sauver.',
-  'mafia.end.unmasked': 'Les masques tombent : {roster}'
+  'mafia.win.hollow':
+    'Les tueurs ont emporté la ville avec eux. Il ne reste personne à sauver, et personne pour la sauver.',
+  'mafia.end.unmasked': 'Les masques tombent :',
+  'mafia.end.unmaskedRow': '{slot}. {name} — {role}'
 };
 
 export default fr;

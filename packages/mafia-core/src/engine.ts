@@ -17,7 +17,7 @@ import {
   type PresenceTick
 } from 'presence-core';
 
-import { BODY, CAUSE, M, MafiaError, NO, NOTE, type DeathSource } from './messages.js';
+import { BODY, CAUSE, M, MafiaError, NO, NOTE, ROLE, type DeathSource } from './messages.js';
 
 import {
   BYSTANDER_ROLES,
@@ -1150,6 +1150,7 @@ function beginDay(state: MafiaState, now: number, announcements: Announcement[])
   // Day one has no corpse to argue about and no rope to pull, so it runs on its
   // own much shorter clock. Older persisted tables predate the field.
   state.phaseEndsAt = now + (state.day === 1 ? (state.config.firstDayMs ?? 35_000) : state.config.dayMs);
+  state.phaseStartedAt = now;
   /**
    * The ballot opens a little after the day does.
    *
@@ -1177,6 +1178,8 @@ function beginDay(state: MafiaState, now: number, announcements: Announcement[])
     if (line.reveals) announceReveal(state, line.line, now);
     else announce(state, line.line, now);
   }
+  // After the dawn report, because it is a comment on what the report did not say.
+  warnIfStalling(state, now);
 }
 
 function beginNight(state: MafiaState, now: number): void {
@@ -1188,6 +1191,7 @@ function beginNight(state: MafiaState, now: number): void {
   state.votes = {};
   state.nightActions = {};
   state.phaseEndsAt = now + state.config.nightMs;
+  state.phaseStartedAt = now;
 
   announce(state, M.nightFall(state.day), now);
 
@@ -1240,8 +1244,8 @@ export function advanceMafia(state: MafiaState, now: number, rng: () => number):
      * each other in silence.
      */
     if (checkVictory(state, now, announcements)) return;
-    if (state.day >= state.config.maxDays) {
-      endGame(state, now, M.winDraw(), 'draw');
+    if (state.day >= state.config.maxDays || hasStalled(state)) {
+      ruleTheClock(state, now);
       return;
     }
     beginDay(state, now, announcements);
@@ -1911,7 +1915,22 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       if (player.role === 'serial-killer') {
         // Power 2: the blade goes through night immunity and vests — the
         // Godfather's predator (a 1v1 of untouchables was 84% of all draws).
-        attacks.push({ attackerId: player.playerId, targetId: target.playerId, power: 2, source: 'serialKiller' });
+        /*
+         * One, not two.
+         *
+         * At two the knife went through night immunity and through a vest, which
+         * made the Serial Killer the only role in the game that no defence
+         * answered — a Godfather was not safe at home, a Survivor's vest bought
+         * nothing, and the one counter left was a Veteran's porch. A killer that
+         * beats every shield is not a hard role to play against, it is a role
+         * there is no play against.
+         *
+         * At one it is an ordinary knife with an extraordinary schedule: it kills
+         * every single night, and everything that stops a knife stops it. The
+         * armour it cannot beat is the armour somebody had to spend something to
+         * have — a charge, a role, a night of not doing anything else.
+         */
+        attacks.push({ attackerId: player.playerId, targetId: target.playerId, power: 1, source: 'serialKiller' });
         visit(player.playerId, target.playerId);
       }
     }
@@ -2425,6 +2444,14 @@ const SOLO_WIN: Partial<Record<RoleId, { reason: Msg; headline: Msg }>> = {
 };
 
 /**
+ * The seats whose whole condition is "the town did not win", and who therefore have no quarrel with each other.
+ *
+ * Read by the payout below and by `witchDuel`, which needs the same list for the opposite reason: two of these
+ * alone at the table are not in a duel, they have both already won.
+ */
+const PARASITE_ROLES: ReadonlySet<RoleId | null> = new Set<RoleId>(['witch', 'scumbag', 'judge', 'auditor']);
+
+/**
  * How the evening ended.
  *
  * The parasites win exactly when the town does not, and that condition used to
@@ -2437,7 +2464,7 @@ const SOLO_WIN: Partial<Record<RoleId, { reason: Msg; headline: Msg }>> = {
  * once the town's entries had been pushed: a caller that crowned after ending
  * would silently pay out the parasites. Stated by the caller, it cannot.
  */
-type Ending = 'town' | 'family' | 'solo-killer' | 'draw';
+type Ending = 'town' | 'family' | 'solo-killer' | 'witch' | 'draw';
 
 function endGame(state: MafiaState, now: number, headline: Msg, ending: Ending): void {
   state.phase = 'ended';
@@ -2456,7 +2483,7 @@ function endGame(state: MafiaState, now: number, headline: Msg, ending: Ending):
     // Misfortune's parasites: alive while the town failed is a win.
     if (
       player.alive &&
-      (player.role === 'witch' || player.role === 'scumbag' || player.role === 'judge' || player.role === 'auditor') &&
+      PARASITE_ROLES.has(player.role) &&
       !townWon
     ) {
       state.winners.push({ playerId: player.playerId, reason: M.winReason('parasite'), kind: 'parasite' });
@@ -2481,11 +2508,11 @@ function endGame(state: MafiaState, now: number, headline: Msg, ending: Ending):
   }
 
   announce(state, headline, now);
-  const roster = Object.values(state.players)
-    .sort((a, b) => a.slot - b.slot)
-    .map((player) => `${player.slot}. ${player.name} — ${roleDef(player.role!).name}`)
-    .join(' · ');
-  announceReveal(state, M.unmasked(roster), now);
+  announceReveal(state, M.unmasked(), now);
+  for (const player of Object.values(state.players).sort((left, right) => left.slot - right.slot)) {
+    if (!player.role) continue;
+    announceReveal(state, M.unmaskedRow(player.slot, player.name, ROLE.name(player.role)), now);
+  }
 }
 
 /**
@@ -2498,7 +2525,7 @@ function endGame(state: MafiaState, now: number, headline: Msg, ending: Ending):
  * thing said in the only language this function speaks.
  */
 const BLADE: Partial<Record<RoleId, number>> = {
-  'serial-killer': 2,
+  'serial-killer': 1,
   'mass-murderer': 1,
   arsonist: 3,
   poisoner: 3,
@@ -2602,6 +2629,252 @@ function beyondSaving(state: MafiaState, killers: readonly MafiaPlayer[], rest: 
   return true;
 }
 
+/**
+ * Can this side ever take one of those seats off the board at all?
+ *
+ * Two ways, and a side with neither is not losing slowly, it is *stuck*. The rope: enough weight between them to carry
+ * a majority of the living. A knife: somebody whose power kills and still has a use of it, weighed against the
+ * armour on the other side.
+ *
+ * This is what tells a losing position from a frozen one, and the difference was costing whole games. A Serial Killer
+ * and one Escort is the shape it kept taking on the bench — she blocks him every night so he never kills her, he is
+ * immune to nothing she has because she has nothing, and one vote out of two is not a majority. Fifteen of twenty-six
+ * timed-out games were exactly that pair. Neither side is winning and neither ever will, and the engine used to sit
+ * through twenty days of it before calling a draw.
+ */
+function canRemove(state: MafiaState, side: readonly MafiaPlayer[], targets: readonly MafiaPlayer[]): boolean {
+  // A Mayor who has not stood up yet still counts for three: revealing is a free action he can take this very
+  // afternoon, and a rule that ignored it would freeze a game on the one seat still holding a lynch.
+  const standing = side.some((player) => player.role === 'mayor' && !player.revealed) ? 2 : 0;
+  const table = alivePlayers(state).reduce((sum, player) => sum + voteWeight(player), 0) + standing;
+  const mine = side.reduce((sum, player) => sum + voteWeight(player), 0) + standing;
+  if (mine >= Math.floor(table / 2) + 1) return true;
+
+  const armour = Math.max(0, ...targets.map((player) => (roleDef(player.role!).nightImmune ? 1 : 0)));
+  return side.some((player) => {
+    const def = roleDef(player.role!);
+    // A charged power is spent; a family's knife and a lone killer's never run out.
+    const spent =
+      (def.nightAction === 'kill' || def.nightAction === 'jail-execute' || def.nightAction === 'alert') &&
+      player.charges === 0 &&
+      familyOf(player.role!) === null &&
+      !isSoloKiller(player.role!);
+    if (spent) return false;
+    const blade =
+      BLADE[player.role!] ??
+      (def.nightAction === 'jail-execute' ? 3 : def.nightAction === 'alert' ? 2 : def.nightAction === 'kill' ? 1 : 0);
+    return blade > armour;
+  });
+}
+
+/**
+ * Who takes a position nobody can break, in order.
+ *
+ * A standoff is not a draw, because the sides are not playing the same game. Three conditions, and they age
+ * differently once the board stops moving:
+ *
+ *  - The **town** must remove every threat. A town that cannot remove anybody has lost, whatever is left of it.
+ *  - A **family** must reach parity and then convert it with a rope. Parity that can never reach a rope is not a win
+ *    condition, it is a stalemate the family is on the wrong side of.
+ *  - A **lone killer** must be standing at the end with nothing able to stop him, and in a frozen position that is
+ *    precisely what he is. He has already met his condition; nobody else can still meet theirs.
+ *
+ * So the order below is that argument, and among equals it is the weight of the blade: a killer who can cut through
+ * more is the one who would have won if anything had been able to move at all. Ties after that fall to the role name,
+ * which decides nothing important and decides it the same way every time — a coin flip here would mean two identical
+ * boards ending differently, which is the one property an endgame rule must not have.
+ */
+const STANDOFF_ORDER: readonly RoleId[] = ['arsonist', 'poisoner', 'electromaniac', 'serial-killer', 'mass-murderer'];
+
+function standoffRank(player: MafiaPlayer): number {
+  const at = STANDOFF_ORDER.indexOf(player.role!);
+  return at >= 0 ? at : STANDOFF_ORDER.length;
+}
+
+/** The lone killer a frozen board belongs to. See `STANDOFF_ORDER`. */
+function takesTheStandoff(killers: readonly MafiaPlayer[]): MafiaPlayer {
+  return [...killers].sort(
+    (left, right) => standoffRank(left) - standoffRank(right) || (left.role! < right.role! ? -1 : 1)
+  )[0]!;
+}
+
+/**
+ * The lone killers' win, paid to whoever the standing order says takes it.
+ *
+ * Four branches used to end the game this way and every one of them paid *every* lone killer left standing, with
+ * `takesTheStandoff` choosing nothing but the headline. So a Serial Killer and an Arsonist frozen against each other
+ * both won — which is not an order of precedence, it is a tie with a caption. The order decides who is paid: the
+ * seat it names, and any other seat of the same role, since two of a kind were never rivals in the first place and
+ * `kinds.size === 1` has always let them share.
+ */
+function crownStandoff(state: MafiaState, now: number, soloKillers: readonly MafiaPlayer[]): void {
+  const taker = takesTheStandoff(soloKillers);
+  const win = SOLO_WIN[taker.role!] ?? SOLO_WIN['serial-killer']!;
+  for (const player of soloKillers) {
+    if (player.role !== taker.role) continue;
+    state.winners.push({ playerId: player.playerId, reason: win.reason, kind: 'solo-killer' });
+    addPoints(state, player.playerId, 'solo-win');
+  }
+  endGame(state, now, win.headline, 'solo-killer');
+}
+
+/**
+ * Has the board stopped moving?
+ *
+ * Nobody has died for `quietDaysBeforeEnd` days running, and it is late enough that quiet means stuck rather than
+ * lucky. Taken from how Town of Salem calls a timeout, and it is the better test: a game is over when nothing is
+ * happening, and how many days that took is beside the point.
+ *
+ * Measured before adopting it. Of the boards that used to grind all the way to day twenty, ten of eleven had an
+ * Escort on them holding the last killer at home every single night — no corpse, so no evidence, so the suspicion the
+ * town votes on never changes, so no rope, so no corpse. The loop is visible the day it starts.
+ */
+function hasStalled(state: MafiaState): boolean {
+  const config = state.config;
+  if (state.day < config.quietFrom) return false;
+  return state.day - lastDeathDay(state) >= config.quietDaysBeforeEnd;
+}
+
+/**
+ * The last day anybody died, or null when nobody ever has.
+ *
+ * Read off `state.deaths` rather than kept as its own counter, because a second copy of a fact is a second chance to
+ * be wrong about it — and it was: a field defaulting to zero made "nothing has happened yet" indistinguishable from
+ * "nothing has happened for seven days", so a board that had never had a death read as maximally stalled the moment
+ * it reached the late game.
+ *
+ * Nobody ever dying is deliberately *not* stalled. On a real table it cannot happen past the first night; where it
+ * does happen is a state somebody built by hand, and a rule that ends those on sight is a rule that ends tests.
+ */
+function lastDeathDay(state: MafiaState): number {
+  return state.deaths.reduce((latest, death) => Math.max(latest, death.day), state.deaths.length > 0 ? 0 : state.day);
+}
+
+/**
+ * And the warning, said on the day before it happens.
+ *
+ * A game that simply stops is a game that feels broken, whatever the rule says. One announcement gives the room the
+ * one thing it can still act on: there is a day left to find somebody, and after that the standing order decides.
+ */
+function warnIfStalling(state: MafiaState, now: number): void {
+  const config = state.config;
+  if (state.day < config.quietFrom) return;
+  /**
+   * Same distance as `hasStalled` tests, not one less — because this runs on the other side of `state.day += 1`.
+   *
+   * `hasStalled` is asked at the end of the night, before `beginDay` moves the counter; this is asked from inside
+   * `beginDay`, after it. So the two read the same board a day apart, and "one less than the limit" here is the
+   * morning *after a body*, which is how a table got the corpse and "Nobody has died in days" in the same breath, and
+   * then no warning at all on the day that was actually its last. Equal to the limit here is the morning the game
+   * ends on if nothing changes, which is the only morning worth saying so.
+   */
+  if (state.day - lastDeathDay(state) === config.quietDaysBeforeEnd) announce(state, M.lastQuietDay(), now);
+}
+
+/**
+ * Who takes a board that ran out of days.
+ *
+ * `maxDays` is not a rule of the game, it is a stop on a loop — and the loop it stops is usually not a deadlock but a
+ * town that has run out of ways to find anybody. Measured over six hundred benched games: eleven boards reached the
+ * limit and ten of them had an Escort on them, blocking the last killer every single night. Nobody dies, so no
+ * evidence arrives, so the suspicion the town votes on never changes, so nobody is hanged, so nobody dies. The town
+ * usually *has* the majority it needs; what it does not have is a reason to point it anywhere.
+ *
+ * Calling that a draw flatters the town. It had the votes and twenty days and did not use them, which is losing. So
+ * the clock is ruled rather than drawn, by the same precedence that settles a frozen position: a lone killer is
+ * standing at the end and has met his condition, a family that never converted its parity has not, and a town that
+ * removed nothing has not either.
+ */
+function ruleTheClock(state: MafiaState, now: number): void {
+  const alive = alivePlayers(state);
+  const soloKillers = alive.filter((player) => player.role !== null && isSoloKiller(player.role));
+  if (soloKillers.length > 0) {
+    crownStandoff(state, now, soloKillers);
+    return;
+  }
+
+  const families: FamilyId[] = ['mafia', 'triad', 'cult'];
+  const standing = families.filter((familyId) => alive.some((player) => playerFamily(player) === familyId));
+  if (standing.length === 1) {
+    const familyId = standing[0]!;
+    const win = FAMILY_WIN[familyId];
+    for (const player of Object.values(state.players)) {
+      if (player.role && familyOf(player.role) === familyId) {
+        state.winners.push({ playerId: player.playerId, reason: win.reason, kind: familyId });
+        addPoints(state, player.playerId, 'win');
+      }
+    }
+    endGame(state, now, win.headline, 'family');
+    return;
+  }
+
+  /**
+   * And with nothing hostile left standing, the clock ran out on a town that had already won and not noticed — or on
+   * two families that never met. Neither is anybody's victory, so this is the one draw the clock can still produce.
+   */
+  state.drawReason = 'clock';
+  endGame(state, now, M.winDraw(), 'draw');
+}
+
+/**
+ * The last two seats, one of them a Witch.
+ *
+ * She has no knife and never needed one. What she has is a hand on somebody else's, every single night, and at two
+ * seats there is only one other hand at the table — so a killer left alone with her spends the rest of the game
+ * stabbing whoever she points him at, which is himself or nobody. A Vigilante shoots himself and dies of it. A Serial
+ * Killer stabs himself and survives, and never touches her again either. Either way she is standing at the end and
+ * the town is not, which is the whole of her condition.
+ *
+ * So she takes the duel, and the three seats that beat her all beat her for the same reason: **they act in the
+ * daylight, where she cannot reach them.**
+ *
+ *  - A **Jailor** with an execution left picks his cell during the day. She cannot control that choice, and from
+ *    inside it she cannot control anything at all.
+ *  - A **Mayor** reveals in the daylight and votes three. Three against her one carries a majority of four, so he
+ *    hangs her whenever he likes, and it makes no difference whether he has revealed yet.
+ *  - A **Marshall**, always, because his power is not a charge and nothing in the game spends it: he reveals and
+ *    the town hangs with no defence offered, and he can do that on any day he is alive. Note that this one is a
+ *    ruling and not arithmetic: his ballot weighs one, two seats need two to reach a majority, so at the table he
+ *    cannot actually get the rope around her. He is here because a daylight power she cannot touch decides the
+ *    duel, which is the rule the other four follow as well.
+ *
+ * And nobody else in `PARASITE_ROLES` is a duel at all, which is worth saying because the **Judge** looks like he
+ * belongs on the daylight list: inside his own court his ballot counts three and carries a majority of two on its
+ * own, so he is genuinely not a seat she steers. It makes no difference. He wins if the town loses, exactly as she
+ * does, and so do the Auditor and the Scumbag — two of them alone at the table have both already won, and calling
+ * that "the Witch wins" would put one of two winners in the headline.
+ *
+ * And one that beats her for the opposite reason: a **Veteran** on alert kills everybody who comes to his door, and
+ * controlling somebody means going to it. Her power is a visit, and that is the one door a visit does not survive.
+ */
+function witchDuel(state: MafiaState, now: number, report: () => void): boolean {
+  const alive = alivePlayers(state);
+  if (alive.length !== 2) return false;
+  const witch = alive.find((player) => player.role === 'witch');
+  const other = alive.find((player) => player !== witch);
+  if (!witch || !other) return false;
+
+  const role = other.role;
+  const beatsHer =
+    // Neither of these is spent by using it: the mayor's sash and the marshall's reveal last as long as he does.
+    role === 'mayor' ||
+    role === 'marshall' ||
+    // These two are, and a spent one is just another seat she steers.
+    ((role === 'jailor' || role === 'veteran') && other.charges > 0) ||
+    // Not a duel: he already has what she wants, and the ordinary payout pays them both.
+    PARASITE_ROLES.has(role);
+  if (beatsHer) return false;
+
+  /**
+   * The headline only. `endGame` already pays every parasite left standing when the town did not carry it, so
+   * pushing her here as well credited her twice and scored the win twice with it — which the probe printed as
+   * "witch:parasite witch:parasite" and is exactly the kind of thing a scoreboard quietly gets wrong for a month.
+   */
+  report();
+  endGame(state, now, M.winWitch(), 'witch');
+  return true;
+}
+
 /** True when the game just ended; the caller stops scheduling. */
 export function checkVictory(state: MafiaState, now: number, pending: Announcement[] = []): boolean {
   if (state.phase === 'ended') return true;
@@ -2639,6 +2912,13 @@ export function checkVictory(state: MafiaState, now: number, pending: Announceme
     endGame(state, now, win.headline, 'family');
   };
 
+  /*
+   * Before every other branch, because at two seats she has already beaten whatever the others would have said:
+   * the family has no parity worth converting, the lone killer has somebody steering his knife, and the town is
+   * plainly not standing. See `witchDuel`.
+   */
+  if (witchDuel(state, now, report)) return true;
+
   const familiesAlive = families.filter((familyId) => (byFamily.get(familyId)?.length ?? 0) > 0);
 
   // The town wins when every family and every lone killer is in the ground.
@@ -2657,6 +2937,7 @@ export function checkVictory(state: MafiaState, now: number, pending: Announceme
      */
     const townStanding = alive.some((player) => player.role && roleDef(player.role).faction === 'town');
     if (!townStanding) {
+      state.drawReason = 'hollow';
       report();
       endGame(state, now, M.winHollow(), 'draw');
       return true;
@@ -2681,18 +2962,122 @@ export function checkVictory(state: MafiaState, now: number, pending: Announceme
    * killer and one seat that cannot hang him, cannot outlive him and cannot hit back. See `beyondSaving`, which is
    * where every exception to that lives.
    */
+  /**
+   * A lone killer against one family, with nobody else left: the endgame no rule covered.
+   *
+   * Every branch here asks about the town or about an empty board, so a Serial Killer and one Mafioso were invisible
+   * to all of them — no family had parity, the solo branch below requires the families to be *gone*, and the table
+   * simply played on. Reported from a real game: a night-immune Serial Killer and a single Mafioso spent a whole day
+   * talking at each other and the night resolved it, which it was always going to, because a Mafioso's knife does not
+   * open that door and one vote out of two hangs nobody.
+   *
+   * `beyondSaving` already knows how to answer "can that side still stop this one", so it is asked twice, once each
+   * way, and the answer is only acted on when exactly one side is helpless. Neither helpless is an open game and says
+   * so: a mass murderer whose blade a Godfather turns aside is going nowhere at night, but two mafiosi out of three
+   * seats still hold a rope, and a rope is a game.
+   *
+   * And when neither side can finish it *and* neither can reach the rope, the position is dead and the game says so.
+   * That case became ordinary the day the Serial Killer's blade went to one — a Serial Killer and a Godfather are now
+   * immune to each other — so it is settled here rather than left to run.
+   */
+  const civilians = alive.filter((player) => !soloKillers.includes(player) && playerFamily(player) === null);
+  if (familiesAlive.length === 1 && soloKillers.length > 0 && civilians.length === 0) {
+    const familyId = familiesAlive[0]!;
+    const familySeats = byFamily.get(familyId) ?? [];
+    const soloWins = beyondSaving(state, soloKillers, familySeats);
+    const familyWins = beyondSaving(state, familySeats, soloKillers);
+
+    if (soloWins && !familyWins) {
+      report();
+      crownStandoff(state, now, soloKillers);
+      return true;
+    }
+    if (familyWins && !soloWins) {
+      crownFamily(familyId);
+      return true;
+    }
+
+    /**
+     * The frozen position, which goes to the lone killer rather than to nobody.
+     *
+     * With the blade at one, a Serial Killer and a lone Godfather are proof against each other: his immunity turns the
+     * knife and the knife turns his. Neither can be hanged either, because one vote out of two is not a majority of
+     * two. Nothing either of them does from here changes anything, ever.
+     *
+     * It is tempting to call that a draw and it is the wrong answer, because the two sides are not in the same
+     * position. A family wins by *converting* parity into a hanging, and a parity that can never reach a rope is not
+     * a win condition, it is a stalemate the family cannot break. A lone killer wins by being the last one standing
+     * with nothing able to stop him — which is exactly, precisely the position he is in. So he has already met his
+     * condition and the family never can, and the game says so instead of playing another fifty quiet evenings.
+     *
+     * Both halves of the test have to hold. Neither side able to finish it at night is the first, and is what
+     * `beyondSaving` has just said twice. Neither side able to reach the rope is the second, and has to be asked
+     * separately: three seats where one side holds two is a majority and a real game, and the clause above
+     * deliberately leaves that running.
+     */
+    const threshold = Math.floor(alive.reduce((sum, player) => sum + voteWeight(player), 0) / 2) + 1;
+    const weigh = (side: readonly MafiaPlayer[]): number => side.reduce((sum, player) => sum + voteWeight(player), 0);
+    if (weigh(soloKillers) < threshold && weigh(familySeats) < threshold) {
+      report();
+      crownStandoff(state, now, soloKillers);
+      return true;
+    }
+    return false;
+  }
+
   if (familiesAlive.length === 0 && soloKillers.length > 0) {
     const kinds = new Set(soloKillers.map((player) => player.role));
     const rest = alive.filter((player) => !soloKillers.includes(player));
     const threats = rest.filter((player) => !BYSTANDER_ROLES.has(player.role!));
-    if (kinds.size === 1 && (threats.length === 0 || beyondSaving(state, soloKillers, rest))) {
-      const win = SOLO_WIN[soloKillers[0].role!] ?? SOLO_WIN['serial-killer']!;
-      for (const player of soloKillers) {
-        state.winners.push({ playerId: player.playerId, reason: win.reason, kind: 'solo-killer' });
-        addPoints(state, player.playerId, 'solo-win');
-      }
+    /**
+     * Or the town has stopped him and can never finish him, which is his win and not a draw.
+     *
+     * `beyondSaving` says no to an Escort, and it is right to: she takes his night away whenever she likes, so he is
+     * not about to kill her. What it cannot say is that she will never kill *him* either — she has no knife and one
+     * vote out of two is not a majority — and that is the whole position. Nothing either side does changes anything,
+     * for ever.
+     *
+     * The two of them are not symmetrical, which is why this goes to him rather than to nobody. The town's condition
+     * is to *remove* every threat and it demonstrably cannot; his is to be standing at the end, and he is standing.
+     */
+    /*
+     * One-sided on purpose. Whether *he* can finish *her* is `beyondSaving`'s question and it has already said no —
+     * she takes his night away whenever she likes. The question left is whether she can ever finish him, and if she
+     * cannot then nothing either of them does changes anything, for ever.
+     *
+     * A heart bonded to the killer is the exception, and stays one. There the knife exists and works; it is simply
+     * that using it kills him too, so he will not — and that is a seat holding the game open on purpose rather than a
+     * position nobody can move. `beyondSaving` already treats it as the clutch factor it is, and this must not
+     * quietly overrule it.
+     */
+    const bonded = rest.some(
+      (player) =>
+        player.bondPartnerId !== null && soloKillers.some((killer) => killer.playerId === player.bondPartnerId)
+    );
+    const stuck = !bonded && !canRemove(state, rest, soloKillers);
+
+    /**
+     * Two lone killers of different kinds, and neither able to remove the other.
+     *
+     * `kinds.size === 1` is there so rivals keep fighting rather than sharing a win, and that is right for as long as
+     * they *can* fight. When they cannot — a Serial Killer whose blade is power one against an Arsonist who is immune
+     * to it — the guard turns a duel into a life sentence: no victory branch can fire, so the board sits there until
+     * the clock takes it. Measured on the bench, and it is exactly what the last surviving pair was doing.
+     *
+     * So the rivalry is resolved the same way every other frozen position is: by the order, not by the dice.
+     */
+    const rivalsFrozen =
+      kinds.size > 1 &&
+      soloKillers.every((killer) =>
+        soloKillers.every((other) => other === killer || !canRemove(state, [killer], [other]))
+      );
+
+    if (
+      (kinds.size === 1 || rivalsFrozen) &&
+      (threats.length === 0 || beyondSaving(state, soloKillers, rest) || stuck)
+    ) {
       report();
-      endGame(state, now, win.headline, 'solo-killer');
+      crownStandoff(state, now, soloKillers);
       return true;
     }
     return false;

@@ -51,8 +51,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.veteran.name': 'Veteran',
   'mafia.role.veteran.desc': 'On alert, guns down anyone who visits that night.',
   'mafia.role.jailor.name': 'Jailor',
-  'mafia.role.jailor.desc':
-    'By day, picks a prisoner; by night, questions them in the cell and may execute them.',
+  'mafia.role.jailor.desc': 'By day, picks a prisoner; by night, questions them in the cell and may execute them.',
   'mafia.role.mayor.name': 'Mayor',
   'mafia.role.mayor.desc': 'Can reveal in broad daylight: their vote then counts triple.',
   'mafia.role.marshall.name': 'Marshall',
@@ -73,8 +72,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.mafioso.name': 'Mafioso',
   'mafia.role.mafioso.desc': 'The family’s gun arm: carries out the Godfather’s order.',
   'mafia.role.caporegime.name': 'Caporegime',
-  'mafia.role.caporegime.desc':
-    'Lieutenant of the family. When the Godfather falls, he learns to smile like him.',
+  'mafia.role.caporegime.desc': 'Lieutenant of the family. When the Godfather falls, he learns to smile like him.',
   'mafia.role.soldato.name': 'Soldato',
   'mafia.role.soldato.desc': 'One more soldier in the family. Orders are orders.',
   'mafia.role.consigliere.name': 'Consigliere',
@@ -86,8 +84,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.blackmailer.name': 'Blackmailer',
   'mafia.role.blackmailer.desc': 'Each night, gags a player: tomorrow they vote, but say nothing.',
   'mafia.role.janitor.name': 'Janitor',
-  'mafia.role.janitor.desc':
-    'Wipes the body’s identity away — the town buries a stranger, the family learns the role.',
+  'mafia.role.janitor.desc': 'Wipes the body’s identity away — the town buries a stranger, the family learns the role.',
   'mafia.role.agent.name': 'Agent',
   'mafia.role.agent.desc': 'Each night, tails a player: who visited them, and whose house they went to.',
   'mafia.role.beguiler.name': 'Beguiler',
@@ -103,8 +100,7 @@ export const rolesEn: Catalogue = {
 
   /* -------------------------------- the Triad ------------------------------- */
   'mafia.role.dragon-head.name': 'Dragon Head',
-  'mafia.role.dragon-head.desc':
-    'Orders the murder of the night for the Triad. Above suspicion, untouchable.',
+  'mafia.role.dragon-head.desc': 'Orders the murder of the night for the Triad. Above suspicion, untouchable.',
   'mafia.role.enforcer.name': 'Enforcer',
   'mafia.role.enforcer.desc': 'The Triad’s gun arm.',
   'mafia.role.vanguard.name': 'Vanguard',
@@ -118,8 +114,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.silencer.name': 'Silencer',
   'mafia.role.silencer.desc': 'Each night, gags a player: tomorrow they vote without a word.',
   'mafia.role.incense-master.name': 'Incense Master',
-  'mafia.role.incense-master.desc':
-    'The incense erases the body’s identity; the Triad, though, learns everything.',
+  'mafia.role.incense-master.desc': 'The incense erases the body’s identity; the Triad, though, learns everything.',
   'mafia.role.informant.name': 'Informant',
   'mafia.role.informant.desc': 'Each night, tails a player: visits received, visits paid.',
   'mafia.role.deceiver.name': 'Deceiver',
@@ -162,7 +157,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.witch-doctor.desc': 'The cult’s physician: heals its own and everybody else.',
   'mafia.role.serial-killer.name': 'Serial Killer',
   'mafia.role.serial-killer.desc':
-    'Kills every night — the blade goes through vests and even the Godfather’s guard. Wins alone, when nobody is left to stop them.',
+    'Kills every night, without pause. An ordinary blade: a vest, a guard or a night of alert all stop it. Wins alone, when nobody is left to stop them.',
   'mafia.role.mass-murderer.name': 'Mass Murderer',
   'mafia.role.mass-murderer.desc': 'Butchers a house and everyone inside it that night. Wins alone.',
   'mafia.role.arsonist.name': 'Arsonist',

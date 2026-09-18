@@ -537,9 +537,9 @@ export const screenEn: Catalogue = {
    * which ones is public. So this only ever goes on an accusation when every
    * role still on that shortlist is somebody's enemy. See `tradeVerdict`.
    */
-  'mafia.bot.why.trade.1': 'I examined them on night {night} and found {line}',
-  'mafia.bot.why.trade.2': 'my night {night} examination of them found {line}',
-  'mafia.bot.why.trade.3': 'I looked into them on night {night} and found {line}',
+  'mafia.bot.why.trade.1': 'I examined them on night {night}: {line}',
+  'mafia.bot.why.trade.2': 'my night {night} examination of them came back: {line}',
+  'mafia.bot.why.trade.3': 'I looked into them on night {night}: {line}',
 
   /* ------------------------- and why one is worth keeping ------------------- */
   'mafia.bot.whyClear.mine.1': 'I checked them on night {night} and the result came back clean',
@@ -551,8 +551,8 @@ export const screenEn: Catalogue = {
   'mafia.bot.whyClear.accounted.1': 'they told us where they were and nobody has contradicted it',
   'mafia.bot.whyClear.accounted.2': 'their account of the night is on the record and nobody has broken it',
   'mafia.bot.whyClear.accounted.3': 'nobody has caught them lying about a single night',
-  'mafia.bot.whyClear.trade.1': 'I examined them on night {night} and found {line}, which is a town result here',
-  'mafia.bot.whyClear.trade.2': 'my night {night} examination found {line}, and that is town on this role list',
+  'mafia.bot.whyClear.trade.1': 'I examined them on night {night}: {line}, which is a town result here',
+  'mafia.bot.whyClear.trade.2': 'my night {night} examination came back: {line}, and that is town on this role list',
   'mafia.bot.whyClear.trade.3': 'my examine put them in the town half of the list',
 
   /* --------------------- the same move, with the reason on it --------------- */
@@ -774,6 +774,16 @@ export const screenEn: Catalogue = {
   'mafia.bot.family.why.quiet.1': 'nobody has asked them anything',
   'mafia.bot.family.why.quiet.2': 'no claim, no question, no wagon',
   'mafia.bot.family.why.quiet.3': 'they are invisible',
+  'mafia.bot.family.hush': 'No names, no numbers, no roles in here. A spy can hear this room.',
+  'mafia.bot.family.hush.agree.1': 'Yes. Tonight. Nothing more in here.',
+  'mafia.bot.family.hush.agree.2': 'Agreed. Do not say it again, someone may be listening.',
+  'mafia.bot.family.hush.agree.3': 'Fine, that one. No more names in this room.',
+  'mafia.bot.family.hush.refuse.1': 'No, not that one. Not in here. Give me a reason tomorrow.',
+  'mafia.bot.family.hush.refuse.2': 'I would rather not. And keep it vague in here, a spy can hear us.',
+  'mafia.bot.family.hush.refuse.3': 'Not tonight. No names in this room.',
+  'mafia.bot.family.hush.reply.1': 'Heard. Not in here, someone may be listening.',
+  'mafia.bot.family.hush.reply.2': 'Understood. No names or numbers in this room.',
+  'mafia.bot.family.hush.reply.3': 'I hear you. Keep it vague in here.',
   'mafia.bot.family.agree.1': '{who} then.',
   'mafia.bot.family.agree.2': 'Fine, {who}.',
   'mafia.bot.family.agree.3': '{who} it is.',

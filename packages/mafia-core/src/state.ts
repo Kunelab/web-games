@@ -97,8 +97,34 @@ export interface MafiaConfig {
   voteLockMs: number;
   /** Trials a single day may hold before night falls by exhaustion. */
   trialsPerDay: number;
-  /** Days before a draw is called. */
+  /**
+   * Days before the clock is called, as a backstop rather than as the rule.
+   *
+   * Twenty was doing the whole job and doing it badly. A board where nothing is
+   * happening is stuck at day eight as surely as at day twenty; all the extra
+   * days bought was twelve more rounds of the same silence, and the thing that
+   * actually ends those games is `quietDaysBeforeEnd` below.
+   */
   maxDays: number;
+  /**
+   * How many consecutive days with nobody dying ends it, and from when.
+   *
+   * Taken from how Town of Salem calls a timeout, because it is a better test
+   * than a day count: a game is over when it has *stopped moving*, and the
+   * number of days that took is beside the point.
+   *
+   * Measured on the bench before adopting it. Of eleven games that reached day
+   * twenty, ten had an Escort on them, blocking the last killer every night —
+   * nobody dies, so no evidence arrives, so the suspicion the town votes on
+   * never changes, so nobody hangs, so nobody dies. That loop is detectable the
+   * moment it starts and was instead being sat through for a dozen more days.
+   *
+   * Late only, because a genuinely quiet couple of days early on is a doctor
+   * doing its job rather than a stalled game.
+   */
+  quietDaysBeforeEnd: number;
+  /** The day this rule may first fire. Before it, quiet is just a good night. */
+  quietFrom: number;
   /**
    * What a corpse gives away.
    *
@@ -175,6 +201,8 @@ export const DEFAULT_CONFIG: MafiaConfig = {
   aftermathMs: 45_000,
   trialsPerDay: 3,
   maxDays: 20,
+  quietDaysBeforeEnd: 2,
+  quietFrom: 7,
   revealOnDeath: 'role',
   locale: 'en',
   setup: { mode: 'auto' },
@@ -534,6 +562,16 @@ export interface MafiaState {
   stage: DayStage | null;
   /** Server deadline of the running phase; clients render the countdown. */
   phaseEndsAt: number | null;
+  /**
+   * When the running day or night began. Optional because tables saved before the field exist; absent, the view
+   * falls back to arithmetic on the deadline, which is what it always did and is wrong in exactly the ways below.
+   *
+   * A day is one phase from the bots' point of view even when a trial is running inside it, and the deadline
+   * cannot say when it started: a trial resets it to "now plus forty seconds", so deadline-minus-length is the
+   * trial's start and not the morning's, and every accusation made earlier that afternoon was stamped as
+   * yesterday's news at the one moment the accused had to answer it. Stored instead, once, where the phase opens.
+   */
+  phaseStartedAt?: number | null;
   players: Record<string, MafiaPlayer>;
   /**
    * When this day's ballot opens. Null outside a day, and on tables that
@@ -556,6 +594,22 @@ export interface MafiaState {
    * player can already see on the roster; this is only the history of it.
    */
   voteLog: VoteNote[];
+  /**
+   * Why the game ended, when the answer is not "somebody won".
+   *
+   * Only the endings that are nobody's victory set this, and it exists because
+   * they were indistinguishable from the outside: a draw is a draw in the
+   * result row whether the last two seats could not touch each other, or the
+   * board ran out of days with a real game still on it, or every side died at
+   * once. Those want three different fixes and looked like one problem.
+   *
+   *   `hollow`   every enemy dead and no townsperson left to carry it. The one
+   *               ending that is genuinely nobody's.
+   *   `clock`    `maxDays` reached with the board still moving.
+   *   `frozen`   nothing alive could remove anything else alive.
+   */
+  drawReason?: 'hollow' | 'clock' | 'frozen';
+
   trial: TrialState | null;
   trialsToday: number;
   /** Night submissions, by actor id. */
@@ -649,6 +703,7 @@ export function createMafiaGame(input: CreateMafiaInput): MafiaState {
     day: 0,
     stage: null,
     phaseEndsAt: null,
+    phaseStartedAt: null,
     players: {},
     votes: {},
     voteLog: [],

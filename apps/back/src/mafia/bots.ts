@@ -41,6 +41,7 @@ import {
   type Claim,
   type DeathSource,
   type ClaimKind,
+  type MafiaPlayer,
   type MafiaState,
   type IntelEntry,
   type MafiaView,
@@ -283,6 +284,22 @@ function poolable(rung: Rung): boolean {
 
 function isApiRung(rung: Rung): rung is ApiRung {
   return rung.startsWith('api');
+}
+
+/**
+ * Which numbered slot an API rung is, or 0 for anything that is not one.
+ *
+ * `api1` is the unnumbered `MAFIA_API_*` block and every other slot carries its
+ * number, so the name is the slot. Used by the working-set filter, which is
+ * expressed in terms of "the first N" and therefore needs to know what N-th
+ * means. The local model and the paid API answer 0 and are never in a working
+ * set: both are there precisely because they are not interchangeable with a
+ * free endpoint.
+ */
+function apiIndex(rung: Rung): number {
+  // `api3b` is the second model on slot three, and slot three is what the working set counts.
+  const match = /^api(\d+)[a-z]?$/.exec(rung);
+  return match ? Number(match[1]) : 0;
 }
 
 /**
@@ -638,6 +655,64 @@ function moodOf(personality: { aggression: number; herd: number; claimRate: numb
 }
 
 /** A turn where the bot does and says nothing. */
+/**
+ * Whether anybody could have an ear to the family's wall tonight.
+ *
+ * The Spy hears the mafia and the triad talk and never sees a face, which makes
+ * the family room the one place in the game where a careless sentence is worth
+ * more to the town than any investigation. The bots talked in it exactly as
+ * they would in an empty room: houses by number, roles by name, targets a day
+ * in advance.
+ *
+ * Read off the published roster and the graveyard, both of which every player
+ * can already see. The family does not know whether a Spy was dealt — it knows
+ * one *could* have been, which is the only thing a careful conspirator needs,
+ * and it knows when the graveyard has produced the body.
+ */
+function spyMayListen(view: MafiaView, board: PublicInfo): boolean {
+  if (!board.rolesInPlay?.has('spy')) return false;
+  return !view.players.some((player) => !player.alive && player.roleName?.k === 'mafia.role.spy.name');
+}
+
+/**
+ * Which of the two disciplines this table keeps. See `familyLine`.
+ *
+ * Half of tables go silent and half say it once out loud, decided by the join
+ * code so a family is consistent with itself for the whole game rather than
+ * flipping its policy every night. Both are real behaviours at a real table and
+ * neither is obviously better: silence gives the Spy nothing at all, and the
+ * warning costs one harmless sentence and keeps the family able to talk about
+ * everything except the things that matter.
+ */
+function familyDiscipline(code: string): 'quiet' | 'warn' {
+  return hashCode(code + ':spy') % 2 === 0 ? 'quiet' : 'warn';
+}
+
+/** The one sentence a careful family says in front of a possible Spy. */
+const HUSH = 'mafia.bot.family.hush';
+
+/**
+ * Does this line give a Spy anything?
+ *
+ * A player's name, a bare one- or two-digit number, or a role in either language. Deliberately crude — a substring
+ * test on names, a token test on numbers — because the cost of a false positive is the phrasebook line, which says
+ * the same thing with less colour, and the cost of a false negative is the family's target read out to the town.
+ */
+function leaks(text: string, state: MafiaState): boolean {
+  const lower = text.toLowerCase();
+  if (Object.values(state.players).some((player) => player.name && lower.includes(player.name.toLowerCase()))) {
+    return true;
+  }
+  if (text.split(/[^0-9]+/).some((token) => token.length > 0 && token.length <= 2)) return true;
+  for (const role of Object.keys(ROLES) as RoleId[]) {
+    for (const tongue of ['en', 'fr'] as const) {
+      const shown = say(tongue)(ROLE.name(role)).toLowerCase();
+      if (shown && lower.includes(shown)) return true;
+    }
+  }
+  return false;
+}
+
 const EMPTY: Decision = { say: null, targetSlot: null, verdict: null, claim: null };
 
 /**
@@ -931,6 +1006,15 @@ export class MafiaBotDriver {
   private readonly chains: Partial<Record<Errand, Rung[]>> = {};
   /** How many questions each rung is answering right now. See `parallel`. */
   private readonly busyOn = new Map<Rung, number>();
+  /**
+   * When each rung was last asked anything, for the round-robin in `nextRung`.
+   *
+   * A counter rather than a clock: two calls in the same millisecond are
+   * ordinary here, and `Date.now()` cannot tell them apart, so they would both
+   * look equally stale and the rotation would stall on whichever sorted first.
+   */
+  private readonly usedAt = new Map<Rung, number>();
+  private turn = 0;
   /** How each rung has actually behaved this run. See `score`. */
   private readonly health = new Map<Rung, { ms: number; ok: number; bad: number; streak: number }>();
   /**
@@ -1189,6 +1273,38 @@ export class MafiaBotDriver {
         if (!exclude.has(chain[ahead]) && this.up(chain[ahead]) && inTime(chain[ahead])) pool.push(chain[ahead]);
       }
       if (pool.length <= 1) return rung;
+
+      /**
+       * Take it in turns, when the operator has asked for that.
+       *
+       * Opt-in, and deliberately so: the ranking below is the right default for
+       * somebody with three endpoints who wants the quickest answer, and the
+       * wrong one for somebody with ten free tiers who wants all ten spent. See
+       * `MAFIA_API_SPREAD` for the measurement that made the difference obvious
+       * — ten live endpoints on the deployment box, four of them ever asked.
+       *
+       * The first N slots are the working set and everything past them is
+       * reserve, reached only when the working set is saturated. Within the set:
+       * least busy first, because an endpoint already working is the one real
+       * reason not to ask it; then **least recently used**, which is the part
+       * that actually spreads the load, since with one call in flight per
+       * endpoint every idle one ties on busyness and rotation is the only
+       * tie-break that reaches all of them; then speed, for the cold start,
+       * where nothing has a turn yet and the quick one may as well go first.
+       */
+      const spread = env.MAFIA_API_SPREAD;
+      if (spread > 0) {
+        const working = pool.filter((entry) => {
+          const slot = apiIndex(entry);
+          return slot > 0 && slot <= spread;
+        });
+        const field = working.length > 0 ? working : pool;
+        const leastBusy = Math.min(...field.map((entry) => this.busyOn.get(entry) ?? 0));
+        const free = field.filter((entry) => (this.busyOn.get(entry) ?? 0) === leastBusy);
+        const longestAgo = Math.min(...free.map((entry) => this.usedAt.get(entry) ?? 0));
+        const due = free.filter((entry) => (this.usedAt.get(entry) ?? 0) === longestAgo);
+        return due.sort((left, right) => this.score(left) - this.score(right))[0] ?? rung;
+      }
 
       /**
        * Who is close enough to the best to be worth asking.
@@ -3185,7 +3301,9 @@ export class MafiaBotDriver {
      * or the phrasebook when nothing did.
      */
     const seats = new Set(Object.values(state.players).map((player) => player.name.toLowerCase()));
-    const said = answer ? readLine(answer, intent, { name: self.name, slot: self.slot }, seats) : intent.fallback;
+    const spoken = answer ? readLine(answer, intent, { name: self.name, slot: self.slot }, seats) : intent.fallback;
+    // In a hushed family room the phrasebook line is the ceiling as well as the floor. See `Intent.hushed`.
+    const said = intent.hushed && spoken !== null && leaks(spoken, state) ? intent.fallback : spoken;
     this.spokeWith(state, botId, answer ? this.lastAnswered : 'scripted');
 
     /**
@@ -3370,6 +3488,7 @@ export class MafiaBotDriver {
     code: string | null
   ): Promise<{ ok: true; rung: Rung; value: T } | { ok: false; rung: Rung }> {
     this.busyOn.set(rung, (this.busyOn.get(rung) ?? 0) + 1);
+    this.usedAt.set(rung, ++this.turn);
     const started = Date.now();
     return attempt(rung)
       .then((value) => {
@@ -3943,15 +4062,20 @@ export class MafiaBotDriver {
         const shop = this.familyLine(state, botId, view, board, slot, ask, heeded);
         if (!shop) return EMPTY;
         const heard = this.answering(state, botId, channel);
+        // Under a possible Spy the mouth is not handed a house number to avoid saying; it is handed nothing at all.
+        const hushed = spyMayListen(view, board);
         return {
           ...EMPTY,
           say: shop,
           intent: {
-            act: ask
-              ? `${heeded ? 'agree to' : 'turn down'} what your own family just asked for, privately: they want house ${ask.slot} dead tonight and you want ${slot === null ? 'to hear more first' : `house ${slot}`}`
-              : heard.length > 0
-                ? `answer your own family, privately, about tonight — you want ${slot === null ? 'to hear what they think' : `house ${slot} dead`}`
-                : `tell your own family, privately, what you want done tonight — say this and only this: "${shop}"`,
+            ...(hushed ? { hushed: true } : {}),
+            act: hushed
+              ? `answer your own family privately, but a SPY MAY BE LISTENING to this room: use NO name, NO house number and NO role, whatever you were asked — ${ask ? (heeded ? 'agree to what they asked' : 'turn down what they asked') : 'acknowledge them and say nothing specific'}`
+              : ask
+                ? `${heeded ? 'agree to' : 'turn down'} what your own family just asked for, privately: they want house ${ask.slot} dead tonight and you want ${slot === null ? 'to hear more first' : `house ${slot}`}`
+                : heard.length > 0
+                  ? `answer your own family, privately, about tonight — you want ${slot === null ? 'to hear what they think' : `house ${slot} dead`}`
+                  : `tell your own family, privately, what you want done tonight — say this and only this: "${shop}"`,
             mood: moodOf(mind.brain.personality),
             fallback: shop,
             ...(heard.length > 0 ? { answering: heard } : {})
@@ -4583,6 +4707,17 @@ export class MafiaBotDriver {
    * The mouth is given this instead of a sentence, so it writes its own — and it
    * names the house *and* the name, because a model handed only a number
    * sometimes decides the number is a quantity.
+   *
+   * **Nothing here refers to the room it is said in.** Every branch used to open
+   * "tell the square you were …", and a small model copies the shape it is
+   * handed — which is documented two comments down for house numbers and was
+   * happening here too, one layer up. A real game produced "my square got
+   * roleblocked", which is not a sentence anybody can act on, and the seat that
+   * said it had in fact been roleblocked and never managed to say so.
+   *
+   * So these are purposes, not speech acts: what this seat wants the others to
+   * know, phrased so that a model which copies it word for word still emits
+   * something a player could have typed.
    */
   private actOf(state: MafiaState, claim: Claim): string {
     /**
@@ -4602,7 +4737,7 @@ export class MafiaBotDriver {
       case 'clear':
         return `say ${who(claim.targetSlot)} is not the one, and take the heat off them`;
       case 'role-claim':
-        return `tell the square you are the ${claim.claimedRole ?? 'role you claimed'}`;
+        return `claim the ${claim.claimedRole ?? 'role you claimed'} out loud, as your own role`;
       case 'account':
         return claim.account === 'home'
           ? 'say you never left your house last night'
@@ -4610,7 +4745,7 @@ export class MafiaBotDriver {
       case 'question':
         return `ask ${who(claim.targetSlot)} where they were last night`;
       case 'sighting':
-        return `say you saw somebody go into ${who(claim.targetSlot)} last night`;
+        return `say you saw somebody go into ${who(claim.targetSlot)}'s house last night`;
       case 'taunt':
         return `needle ${who(claim.targetSlot)} about how quiet they have been`;
       case 'hint':
@@ -4625,25 +4760,25 @@ export class MafiaBotDriver {
       case 'ailing':
         switch (claim.ailment) {
           case 'douse':
-            return 'tell the square the arsonist doused your house last night, and that it is walking around with a match';
+            return 'warn everyone the arsonist doused your house last night and is still walking around with a match';
           case 'healed':
-            return 'tell the square a doctor healed you last night, so somebody came to kill you and a doctor is alive';
+            return 'report that a doctor healed you last night, which means somebody came to kill you and a doctor is alive';
           case 'guarded':
-            return 'tell the square a bodyguard died in your doorway last night, taking the knife that was meant for you';
+            return 'report that a bodyguard died in your doorway last night, taking the knife meant for you';
           case 'survived':
-            return 'tell the square somebody came for you last night and you are still here';
+            return 'report that somebody came for you last night and you are still here';
           case 'silenced':
             return 'explain that you were blackmailed and could not say a word yesterday, which is why you were quiet';
           case 'blocked':
-            return 'tell the square you were roleblocked last night, so you have no result from it';
+            return 'explain that you were roleblocked last night, so you have no result to give';
           case 'controlled':
-            return 'tell the square a witch controlled you last night and sent you somewhere you did not choose';
+            return 'report that a witch controlled you last night and sent you somewhere you did not choose';
           case 'bussed':
-            return 'tell the square you were transported last night, so anything aimed at you landed elsewhere';
+            return 'explain that you were transported last night, so anything aimed at you landed somewhere else';
           case 'jailed':
-            return 'tell the square the jailor had you in the cell last night, so you did nothing and he can confirm it';
+            return 'explain that the jailor had you in the cell last night, so you did nothing and he can confirm it';
           default:
-            return 'tell the square you were poisoned last night and ask the doctor to heal you tonight, or you die at dawn';
+            return 'say you were poisoned last night and ask the doctor to heal you tonight, or you die at dawn';
         }
     }
   }
@@ -5391,6 +5526,59 @@ export class MafiaBotDriver {
     const t = say(spokenLocale(state));
     const me = view.me;
     if (!me) return null;
+
+    /**
+     * Somebody may be listening, so the family stops naming things.
+     *
+     * The knife is unaffected — the target is chosen by the brain and submitted
+     * to the engine, and none of that goes through the chat — so this costs the
+     * family nothing except the habit of announcing its plans in a room a
+     * town role can hear. Which is the habit that was losing them games: a
+     * transcript from a real table has the family naming its target, its
+     * reasons and a teammate's house number, over and over, on a board where
+     * the Spy role was in play.
+     *
+     * The warning is said once per table by whoever gets there first, and then
+     * this room is quiet for the rest of the game.
+     */
+    if (spyMayListen(view, board)) {
+      const room = me.channels.find((channel) => channel.id !== 'day' && channel.id !== 'dead')?.id;
+
+      /**
+       * A teammate talking to this seat is answered whatever the discipline —
+       * with nothing in the answer worth overhearing.
+       *
+       * The silence was written for the unsolicited target line, and it
+       * swallowed the human's question with it: this returned null, the caller
+       * returned an empty decision before ever looking at what had been said,
+       * and a person sitting in the family room got nothing back for the whole
+       * game. On a chaos or census table every role is listed, so the Spy is
+       * always possible there and that was every such game. Answering people is
+       * the first thing these bots are for; the discipline is about *what* goes
+       * in the answer, and these lines have no name, number or role in them.
+       */
+      if (ask) {
+        const key = heeded ? 'mafia.bot.family.hush.agree' : 'mafia.bot.family.hush.refuse';
+        return t(vary(key, 3, botId + ':hush:' + state.day));
+      }
+      const since = view.phaseStartedAt ?? 0;
+      const fresh =
+        room !== undefined &&
+        state.chat.messages.some(
+          (message) =>
+            message.channel === room &&
+            message.at >= since &&
+            !!message.authorId &&
+            message.authorId !== botId &&
+            state.players[message.authorId]?.isBot === false
+        );
+      if (fresh) return t(vary('mafia.bot.family.hush.reply', 3, botId + ':hush:' + state.day));
+
+      // Nobody asked anything, so this would be the target line: the one thing the discipline exists to stop.
+      if (familyDiscipline(state.code) === 'quiet') return null;
+      const already = state.chat.messages.some((message) => message.channel === room && message.msg?.k === HUSH);
+      return already ? null : t(msg(HUSH));
+    }
     const nameOf = (slot: number): string =>
       Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
 
@@ -5786,21 +5974,45 @@ export class MafiaBotDriver {
     );
 
     const bare = !signed && nights.length === 0 && notes.length === 0 && going.length === 0;
-    const flavour = t(
-      msg(
-        bare
-          ? `mafia.bot.will.${STANDS_ALONE[hashCode(botId) % STANDS_ALONE.length]}`
-          : `mafia.bot.will.${1 + (hashCode(botId) % 9)}`
-      )
-    );
 
-    const text = fitWill({
-      role: signed ? t(vary('mafia.bot.will.role', 3, botId + ':will', { role: ROLE.name(signed) })) : null,
-      nights,
-      going: going[0] ?? null,
-      notes,
-      flavour
-    });
+    /**
+     * Two seats never file the same will word for word.
+     *
+     * A will that says nothing else is a role line and a closing line, drawn
+     * from three phrasings and nine phrasings — twenty-seven possible wills, and
+     * a table with four liars on it holds six pairs. The birthday arithmetic
+     * says a game produces an exact duplicate about one time in five, and a real
+     * game did: two seats died claiming the same role in the same sentence,
+     * with the same line under it. Nobody reading that thinks "coincidence",
+     * they think "these two are the same thing", and they are right for entirely
+     * the wrong reason.
+     *
+     * It is not something the seats can be asked to avoid — a will is private
+     * until its author is dead, so no bot can legitimately know what another one
+     * wrote. It is the *writer's* problem, so it is solved here: the closing
+     * line is drawn, and if that exact text is already sitting in somebody
+     * else's drawer, the next phrasing is drawn instead. Invisible to the table,
+     * and the only thing it costs is that two seats occasionally get each
+     * other's second choice of closing line.
+     */
+    const filed = new Set(
+      Object.values(state.players)
+        .filter((player) => player.playerId !== botId && player.lastWill)
+        .map((player) => player.lastWill)
+    );
+    const shelf = bare ? STANDS_ALONE : [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const roleLine = signed ? t(vary('mafia.bot.will.role', 3, botId + ':will', { role: ROLE.name(signed) })) : null;
+    const draft = (offset: number): string =>
+      fitWill({
+        role: roleLine,
+        nights,
+        going: going[0] ?? null,
+        notes,
+        flavour: t(msg(`mafia.bot.will.${shelf[(hashCode(botId) + offset) % shelf.length]}`))
+      });
+
+    let text = draft(0);
+    for (let offset = 1; offset < shelf.length && filed.has(text); offset++) text = draft(offset);
     // Nothing new to say: a will that has not changed is not rewritten, which is
     // what makes calling this once a turn free.
     if (self.lastWill === text) return;
@@ -6402,8 +6614,9 @@ export class MafiaBotDriver {
   private maskOf(state: MafiaState, botId: string, mind: BotMind): RoleId | null {
     const self = state.players[botId];
     if (!self) return null;
+    const board = this.minds.board(state, botId);
     let spoken: RoleId | null = null;
-    for (const claim of this.minds.board(state, botId).claims) {
+    for (const claim of board.claims) {
       if (claim.kind === 'role-claim' && claim.claimerSlot === self.slot && claim.claimedRole)
         spoken = claim.claimedRole;
     }
@@ -6411,8 +6624,50 @@ export class MafiaBotDriver {
       mind.mask = spoken;
       return spoken;
     }
+
+    /**
+     * A face picked on day one can be taken off you on day three.
+     *
+     * The mask was pinned with `??=` and then never looked at again, which is
+     * right for the thing it was guarding against — a liar whose story changes
+     * between the cell, the stand and the will is a liar everybody catches —
+     * and wrong for everything else. `bluffRole` checks the claims board, the
+     * graveyard and the proven badges *at the moment it is called*, and that
+     * moment is usually the first afternoon, when nobody has claimed anything.
+     *
+     * Then a real Bus Driver says so out loud on day three, and this seat is
+     * still carrying "bus-driver" from before he spoke. Its will, filed on the
+     * night it dies, signs a role a living townsperson has been claiming for
+     * two days. Which is what happened: a corpse arguing with a live claim it
+     * never heard.
+     *
+     * Nothing has been said out loud yet — that is the branch above — so the
+     * face costs nothing to put down. It is redrawn whenever somebody else has
+     * taken it, been buried in it, or been credited with it by the record.
+     */
+    if (mind.mask && this.faceTaken(board, self, mind.mask)) mind.mask = null;
     mind.mask ??= this.bluffRole(state, botId);
     return mind.mask;
+  }
+
+  /**
+   * Has somebody else's claim, corpse or record already spoken for this face?
+   *
+   * The same three shelves `bluffRole` draws against, asked about one role
+   * instead of filtering all of them: what living seats are claiming, what the
+   * graveyard has named, and what the dawn reports have settled onto a seat.
+   */
+  private faceTaken(board: PublicInfo, self: MafiaPlayer, face: RoleId): boolean {
+    for (const claim of board.claims) {
+      if (claim.kind === 'role-claim' && claim.claimedRole === face && claim.claimerSlot !== self.slot) return true;
+    }
+    for (const [slot, role] of board.deadRoles) {
+      if (role === face && slot !== self.slot) return true;
+    }
+    for (const [slot, role] of board.provenRoles) {
+      if (role === face && slot !== self.slot) return true;
+    }
+    return false;
   }
 
   /**

@@ -735,6 +735,20 @@ export const ROLES: Record<RoleId, RoleDef> = {
     name: 'Sorcière',
     faction: 'neutral',
     nightAction: 'control',
+    /**
+     * She reads guilty, and she has to.
+     *
+     * A sheriff's check was coming back `clear` on her, which made her the one
+     * seat in the game that could be investigated, cleared, believed, and go on
+     * steering somebody's knife every night with the town's own badge vouching
+     * for her. Nothing else in the game is both that dangerous and that
+     * invisible: the families read as their family, the solo killers read as
+     * themselves, the Scumbag reads suspicious with no power at all.
+     *
+     * `suspicious` is the right flag rather than a family: the sheriff learns
+     * that something is wrong at that door, not what. Which is what she is.
+     */
+    suspicious: true,
     description:
       'Chaque nuit, envoûte un joueur et détourne son geste vers une autre maison. Gagne si la Ville ne gagne pas — et qu’elle respire encore.',
     investigated: L.herbs
@@ -776,7 +790,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     unique: true,
     soloKiller: true,
     description:
-      'Tue chaque nuit — sa lame perce les gilets et même la garde du Parrain. Gagne seul, quand plus personne ne peut l’arrêter.',
+      'Tue chaque nuit, sans relâche. Une lame ordinaire : un gilet, une garde ou une veille l’arrêtent. Gagne seul, quand plus personne ne peut l’arrêter.',
     investigated: L.powder
   }),
   'mass-murderer': def({

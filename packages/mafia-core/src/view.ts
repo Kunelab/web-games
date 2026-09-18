@@ -187,6 +187,20 @@ export interface MafiaView {
    * back untouched when play resumes — see `presence`.
    */
   phaseEndsAt: number | null;
+  /**
+   * And when it began, which is how anything tells a line from a memory.
+   *
+   * The deadline alone says how long is left and nothing about how long this
+   * has been going on, so every reader of the transcript treated a greeting
+   * from four days ago exactly like one said a moment ago. From a real game, a
+   * bot answered "Hi Max" on three separate days, the last of them while
+   * standing on the gallows, to a player who had been dead since day three.
+   *
+   * As public as the deadline it sits beside: every phone already draws a
+   * countdown from one end of this interval, and knowing where the other end is
+   * tells nobody anything they could not time with a watch.
+   */
+  phaseStartedAt: number | null;
   /** When accusations open, so a phone can grey the buttons until then. */
   voteOpensAt: number | null;
   /**
@@ -260,6 +274,34 @@ const CHANNEL_KINDS: Record<string, MafiaChannelKind> = {
   mason: 'mason',
   dead: 'dead'
 };
+
+/**
+ * When the phase now running started, worked back from its own deadline.
+ *
+ * Stored nowhere, because it does not need to be: the deadline is on the state
+ * and the length of each kind of phase is on the config, so the beginning is
+ * arithmetic. Null while the game is paused, exactly as `phaseEndsAt` is —
+ * during a pause there is no interval to be inside.
+ */
+function phaseStartedAt(state: MafiaState): number | null {
+  if (state.phaseEndsAt === null) return null;
+  // Recorded where the phase opened, when this table is new enough to have done so. See `MafiaState.phaseStartedAt`.
+  if (typeof state.phaseStartedAt === 'number') return state.phaseStartedAt;
+  const config = state.config;
+  const length =
+    state.phase === 'night'
+      ? config.nightMs
+      : state.phase === 'ended'
+        ? config.aftermathMs
+        : state.stage === 'defense'
+          ? config.defenseMs
+          : state.stage === 'judgement'
+            ? config.judgementMs
+            : state.day <= 1
+              ? (config.firstDayMs ?? config.dayMs)
+              : config.dayMs;
+  return state.phaseEndsAt - length;
+}
 
 export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.now()): MafiaView {
   const ended = state.phase === 'ended';
@@ -490,6 +532,7 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
     day: state.day,
     stage: state.stage,
     phaseEndsAt: state.phaseEndsAt,
+    phaseStartedAt: phaseStartedAt(state),
     voteOpensAt: state.voteOpensAt ?? null,
     presence: mafiaPresenceView(state, now, viewer.kind === 'player' ? viewer.playerId : null),
     maxPlayers: state.config.maxPlayers,

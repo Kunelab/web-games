@@ -98,6 +98,8 @@ interface Aggregate {
   triad: number;
   cult: number;
   solo: number;
+  /** A parasite left holding the board. See `witchDuel`. */
+  witch: number;
   draw: number;
   jesterWins: number;
   jesterGames: number;
@@ -139,6 +141,7 @@ function aggregate(results: SimResult[]): Aggregate {
     triad: 0,
     cult: 0,
     solo: 0,
+    witch: 0,
     draw: 0,
     jesterWins: 0,
     jesterGames: 0,

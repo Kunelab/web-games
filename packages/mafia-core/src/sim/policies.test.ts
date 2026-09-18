@@ -11,13 +11,17 @@ import {
   DEFAULT_PROFILE,
   claimerWeight,
   contradicted,
+  decideBallot,
+  decideDay,
   decideNightTarget,
   feelPressure,
   losingClock,
   makeBrain,
   EVEN_TEMPERAMENT,
   steadyVote,
+  styleOf,
   suspicionParts,
+  tide,
   type Claim,
   type PublicInfo
 } from './policies.js';
@@ -808,5 +812,80 @@ describe('the witch learns by doing', () => {
       const pick = decideNightTarget(witch, brain, info, [3, 4], 'control', new Set(), [], () => 0.01);
       assert.equal(pick, 4, 'an untried hand teaches her something; an empty one does not');
     }
+  });
+});
+
+/**
+ * The two roles that choose how to play, and keep the choice.
+ *
+ * Neither the Jester nor the Survivor has a side, so nothing about the game
+ * says how they will vote — and a single scripted habit would, after a few
+ * games. So each rolls a style once and plays it out. These pin the parts that
+ * are deterministic: the roll sticks, the `scum` Jester's ballots are the
+ * mafioso's, and a Survivor on a losing town rides the biggest wagon.
+ */
+describe('a style, chosen once', () => {
+  const always = (value: number) => () => value;
+
+  it('sticks to the brain for the whole game', () => {
+    const state = table(['jester', 'citizen', 'citizen']);
+    const jester = playerBySlot(state, 1)!;
+    const brain = makeBrain(1, DEFAULT_PROFILE);
+    const first = styleOf(jester, brain, always(0.9));
+    assert.equal(first, 'scum', 'a high roll is the scum jester');
+    assert.equal(styleOf(jester, brain, always(0.1)), first, 'and the next roll changes nothing');
+    assert.equal(styleOf(playerBySlot(state, 2)!, makeBrain(2, DEFAULT_PROFILE), always(0.9)), null, 'a citizen has no style');
+  });
+
+  it('gives the scum jester the bus driver\'s ballot', () => {
+    const state = table(['jester', 'citizen', 'mafioso', 'citizen', 'citizen'], 3);
+    const jester = playerBySlot(state, 1)!;
+    const brain = makeBrain(1, DEFAULT_PROFILE);
+    brain.style = 'scum';
+    const board = toPublicInfo(state, [], []);
+
+    // The room has the mafioso's badge on him; the jester votes to spare him.
+    const caught: PublicInfo = { ...board, provenRoles: new Map([[3, 'mafioso' as RoleId]]) };
+    assert.equal(decideBallot(jester, brain, caught, 3, new Set(), always(0.5)), 'innocent');
+
+    // Nothing on the citizen at all; the jester votes to hang him.
+    assert.equal(decideBallot(jester, brain, board, 2, new Set(), always(0.5)), 'guilty');
+  });
+
+  it('reads the tide off the graveyard and the clock', () => {
+    const losing = table(['survivor', 'citizen', 'citizen', 'mafioso', 'citizen'], 4);
+    assert.equal(tide(toPublicInfo(losing, [], [])), 'evil', 'five alive with two evils expected is parity');
+
+    const winning = table(['survivor', 'citizen', 'citizen', 'mafioso', 'citizen', 'citizen', 'citizen', 'citizen'], 6);
+    const board: PublicInfo = {
+      ...toPublicInfo(winning, [], []),
+      totalDead: 4,
+      deadRoles: new Map<number, RoleId>([
+        [9, 'mafioso'],
+        [10, 'consort'],
+        [11, 'serial-killer']
+      ]),
+      lastNightDeathSlots: new Set<number>()
+    };
+    assert.equal(tide(board), 'town', 'three of four expected evils buried and a quiet clock');
+  });
+
+  it('puts a survivor on the biggest wagon once the town is losing', () => {
+    const state = table(['survivor', 'citizen', 'citizen', 'mafioso', 'citizen'], 4);
+    const survivor = playerBySlot(state, 1)!;
+    const brain = makeBrain(1, DEFAULT_PROFILE);
+    brain.style = 'careful';
+    const board: PublicInfo = {
+      ...toPublicInfo(state, [], []),
+      votes: new Map<number, number>([
+        [2, 3],
+        [5, 3],
+        [4, 2]
+      ])
+    };
+    assert.equal(tide(board), 'evil');
+    const decision = decideDay(survivor, brain, board, new Set(), new Set(), always(0.5));
+    assert.equal(decision.voteSlot, 3, 'two votes on 3 beat one on 2, whoever 3 is');
+    assert.equal(decideBallot(survivor, brain, board, 2, new Set(), always(0.5)), 'guilty', 'and any hanging ends it sooner');
   });
 });
