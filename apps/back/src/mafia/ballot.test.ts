@@ -121,6 +121,45 @@ describe('a ballot held back for the sentence', () => {
   });
 
   /**
+   * A question that has already been answered is not a question.
+   *
+   * The first seat to shrug asks the room for anything at all before the day is
+   * thrown away, and it used to ask and vote in the same breath, with the rest
+   * joining within seconds. On a live table that closed every afternoon at
+   * about 40% of its clock — before the ear had read a single will, which is
+   * why ten days in a row produced no accusation at all and no trial.
+   *
+   * So a skip waits while the question is open. Only a skip: an accusation is
+   * somebody answering it.
+   */
+  it('holds every skip while the room is waiting on an answer', () => {
+    const { state, cast, driver } = table();
+    const speaker = playerBySlot(state, 2)!;
+    const other = playerBySlot(state, 4)!;
+    state.votes[playerBySlot(state, 3)!.playerId] = SKIP_VOTE;
+
+    const waiting = driver as unknown as Applier & { clueCall: Map<string, number> };
+    waiting.clueCall.set(state.code, Date.now());
+
+    const shrug: Decision = { say: null, targetSlot: null, verdict: null, claim: null, skipVote: true };
+    waiting.apply(state, speaker.playerId, 'day', 'day', shrug, 'act');
+    // And the seat with no opinion, which would otherwise join the open skip.
+    const nothing: Decision = { say: null, targetSlot: null, verdict: null, claim: null };
+    waiting.apply(state, other.playerId, 'day', 'day', nothing, 'act');
+    assert.deepEqual(cast, [], 'the room asked for something and is waiting for it');
+
+    // An accusation is an answer, and never waits.
+    waiting.apply(state, other.playerId, 'day', 'day', accusing(5), 'act');
+    assert.deepEqual(cast, [5], 'a seat that found something says so immediately');
+
+    // And once the window has run, the day may end as it always could.
+    waiting.clueCall.set(state.code, Date.now() - 20_000);
+    waiting.apply(state, speaker.playerId, 'day', 'day', shrug, 'act');
+    assert.deepEqual(cast, [5, 'skip'], 'nobody answered, so the afternoon is spent');
+    driver.stop();
+  });
+
+  /**
    * The branch the fault fell into is still there and still wanted: a seat with
    * genuinely nothing to say follows the room rather than abstaining.
    */

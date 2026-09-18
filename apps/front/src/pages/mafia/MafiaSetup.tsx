@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router';
 
 import { api } from '../../api/client';
 import { useAsync } from '../../hooks/useAsync';
-import { Button, Field, Input, Select } from '../../ui';
+import { Autocomplete, Button, Field, Input, Select } from '../../ui';
 import { PublicSwitch } from '../../ui/PublicSwitch';
 import { useT } from '../../i18n/locale-context';
 import './mafia.css';
@@ -296,10 +296,18 @@ export default function MafiaSetup() {
                     ))}
                     {draftSlots.length === 0 && <span className="mz-hint">{tk('mafia.setup.emptyDraft')}</span>}
                   </div>
-                  <Select
-                    value=""
+                  {/*
+                   * Typed rather than scrolled.
+                   *
+                   * Seventy roles and categories in one column meant a trip
+                   * through the whole catalogue for every seat on the table, for
+                   * a word the host already knew: they are building a list of
+                   * roles, so they know the name of the one they want next.
+                   */}
+                  <Autocomplete
                     placeholder={tk('mafia.setup.addSeat', { count: draftSlots.length })}
-                    onValueChange={(token) => {
+                    disabled={draftSlots.length >= 24}
+                    onPick={(token) => {
                       if (draftSlots.length < 24) setDraftSlots((slots) => [...slots, token]);
                     }}
                     options={SLOT_TOKENS.map((token) => ({ value: token, label: tokenLabel(token) }))}

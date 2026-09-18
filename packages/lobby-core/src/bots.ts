@@ -41,6 +41,21 @@ export const BOT_NAMES = [
   "Hellboy",
   "Zorro",
 
+  "Robin",
+  "Joker",
+  "Bane",
+  "Gambit",
+  "Ultron",
+  "Galactus",
+  "Blade",
+  "Rocket",
+  "Drax",
+  "Gamora",
+  "Nebula",
+  "Carnage",
+  "Mystique",
+  "Punisher",
+  "Nick Fury",
   // Star Wars
   "Yoda",
   "Han Solo",
@@ -54,6 +69,15 @@ export const BOT_NAMES = [
   "Palpatine",
   "BB-8",
 
+  "Rey",
+  "Finn",
+  "Kylo Ren",
+  "Ahsoka",
+  "Grogu",
+  "Mace Windu",
+  "Jango Fett",
+  "Lando",
+  "Jabba",
   // Terre du Milieu
   "Gandalf",
   "Legolas",
@@ -66,6 +90,11 @@ export const BOT_NAMES = [
   "Arwen",
   "Smaug",
 
+  "Thorin",
+  "Elrond",
+  "Boromir",
+  "Balrog",
+  "Radagast",
   // Manettes
   "Mario",
   "Luigi",
@@ -105,6 +134,35 @@ export const BOT_NAMES = [
   "Jill Valentine",
   "Gordon Freeman",
 
+  "Wario",
+  "Waluigi",
+  "Peach",
+  "Daisy",
+  "Diddy Kong",
+  "Bayonetta",
+  "Tifa",
+  "Aerith",
+  "Squall",
+  "Leon Kennedy",
+  "Ada Wong",
+  "Nemesis",
+  "Alyx",
+  "Arthur Morgan",
+  "Big Boss",
+  "Raiden",
+  "Dante",
+  "Joel",
+  "Ellie",
+  "Jinx",
+  "Teemo",
+  "Steve",
+  "Herobrine",
+  "Creeper",
+  "Enderman",
+  "Eevee",
+  "Lucario",
+  "Arceus",
+  "Rayquaza",
   // Japanimation
   "Son Goku",
   "Vegeta",
@@ -126,6 +184,30 @@ export const BOT_NAMES = [
   "Alucard",
   "Guts",
 
+  "Gojo",
+  "Sukuna",
+  "Tanjiro",
+  "Nezuko",
+  "Zenitsu",
+  "Eren",
+  "Armin",
+  "Edward Elric",
+  "Alphonse",
+  "Roy Mustang",
+  "Ichigo",
+  "Rukia",
+  "Aizen",
+  "Killua",
+  "Hisoka",
+  "Meliodas",
+  "Escanor",
+  "Yuno",
+  "Denji",
+  "Makima",
+  "Shinji",
+  "Asuka",
+  "Spike Spiegel",
+  "Jotaro",
   // Grand écran
   "Dracula",
   "Frankenstein",
@@ -185,6 +267,42 @@ export const BOT_NAMES = [
   "Lucky Luke",
   "Marsupilami",
 
+  "Ripley",
+  "Xenomorph",
+  "Predator",
+  "Forrest Gump",
+  "Vito Corleone",
+  "Scarface",
+  "Jack Torrance",
+  "Norman Bates",
+  "Leatherface",
+  "Jigsaw",
+  "Ghostface",
+  "Jason Voorhees",
+  "Pinhead",
+  "Nosferatu",
+  "Van Helsing",
+  "Morticia",
+  "Gomez",
+  "Mad Max",
+  "Furiosa",
+  "Agent Smith",
+  "Gru",
+  "Sulley",
+  "Mike Wazowski",
+  "Remy",
+  "Merida",
+  "Maui",
+  "Ursula",
+  "Cruella",
+  "Jafar",
+  "Stitch",
+  "Bambi",
+  "Dumbo",
+  "Pinocchio",
+  "Rafiki",
+  "Nala",
+  "Bagheera",
   // Petit écran
   "Homer Simpson",
   "Bart Simpson",
@@ -212,7 +330,90 @@ export const BOT_NAMES = [
   "Voldemort",
   "Hagrid",
   "Dobby",
+  "Saul Goodman",
+  "Gus Fring",
+  "Dexter",
+  "Daryl",
+  "Negan",
+  "Eleven",
+  "Demogorgon",
+  "Hopper",
+  "Ragnar",
+  "Yennefer",
+  "Cersei",
+  "Sansa",
+  "Hodor",
+  "Joffrey",
+  "Khal Drogo",
+  "Jorah",
+  "Varys",
+  "Littlefinger",
+  "Spirou",
+  "Fantasio",
+  "Gaston",
 ] as const;
+
+/**
+ * One name, stripped to the letters a reader actually compares.
+ *
+ * Case, accents, spaces and punctuation all go: "R2-D2" and "r2d2" are the same
+ * seat to anybody skimming a roster, and so are "Léa" and "Lea".
+ */
+function plain(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/** Levenshtein, stopped as soon as it is past caring. */
+function distance(left: string, right: string, limit: number): number {
+  if (Math.abs(left.length - right.length) > limit) return limit + 1;
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row++) {
+    const current = [row];
+    let best = row;
+    for (let column = 1; column <= right.length; column++) {
+      const cost = left[row - 1] === right[column - 1] ? 0 : 1;
+      const step = Math.min(previous[column] + 1, current[column - 1] + 1, previous[column - 1] + cost);
+      current.push(step);
+      if (step < best) best = step;
+    }
+    if (best > limit) return limit + 1;
+    previous = current;
+  }
+  return previous[right.length];
+}
+
+/**
+ * Two names a player would have to stop and compare.
+ *
+ * A bot called Mario at a table with a Wario, or a Thor sitting next to a
+ * Thorin, is not a joke, it is a vote cast at the wrong seat: the chat prints a
+ * name beside every line and the roster prints it again, and one letter is not
+ * enough to tell two people apart while the clock is running. Reported from a
+ * table where somebody typed a name and the room argued about which of two
+ * seats they meant.
+ *
+ * Three ways of being too close, in the order people actually confuse them:
+ * the same letters; one name sitting inside the other, which is how nicknames
+ * and house numbers go wrong; and a couple of letters' difference, scaled to
+ * the length, because two letters out of four is a different name and two out
+ * of nine is a typo.
+ */
+export function tooAlike(left: string, right: string): boolean {
+  const a = plain(left);
+  const b = plain(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  if (short.length >= 3 && long.includes(short)) return true;
+
+  const allowed = short.length >= 5 ? 2 : short.length === 4 ? 1 : 0;
+  return allowed > 0 && distance(a, b, allowed) <= allowed;
+}
 
 /**
  * A free name, drawn at random rather than taken in order.
@@ -228,10 +429,28 @@ export function pickBotName(
   taken: Iterable<string>,
   randomInt: (maxExclusive: number) => number,
 ): string {
-  const used = new Set(taken);
-  const free = BOT_NAMES.filter((name) => !used.has(name));
-  // Guarded rather than left to the caller: node's own randomInt throws on 0,
-  // and a table that somehow seated 182 bots should still get a name.
-  if (free.length === 0) return `Bot ${used.size + 1}`;
-  return free[randomInt(free.length)] ?? free[0] ?? `Bot ${used.size + 1}`;
+  const used = [...taken];
+  /**
+   * Not merely unused: not *confusable* with anybody already sitting down.
+   *
+   * The name a person chose is the one that stays, so the bots move out of its
+   * way — including out of the way of a player who has typed something one
+   * letter off a character in the cast, which is exactly when the two get mixed
+   * up. See `tooAlike`.
+   */
+  const free = BOT_NAMES.filter((name) => !used.some((sitting) => tooAlike(name, sitting)));
+
+  /**
+   * And if the room has somehow used up a cast this size, or a table of near
+   * misses has eaten it, a plain numbered name rather than a collision.
+   *
+   * Guarded rather than left to the caller for the boring reason as well:
+   * node's own randomInt throws on a zero range.
+   */
+  if (free.length === 0) {
+    let index = used.length + 1;
+    while (used.some((sitting) => plain(sitting) === plain(`Bot ${index}`))) index++;
+    return `Bot ${index}`;
+  }
+  return free[randomInt(free.length)] ?? free[0] ?? `Bot ${used.length + 1}`;
 }

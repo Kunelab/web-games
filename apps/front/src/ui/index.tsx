@@ -5,7 +5,11 @@ import {
   createContext,
   forwardRef,
   useContext,
+  useEffect,
   useId,
+  useMemo,
+  useRef,
+  useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
@@ -133,6 +137,157 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
 ) {
   return <textarea ref={ref} className={`textarea ${className ?? ''}`} {...props} />;
 });
+
+/**
+ * A list you type into, for when the list is too long to scroll.
+ *
+ * `Select` is the right control for a handful of choices and the wrong one past
+ * about a dozen: the role catalogue is seventy entries long, so building a
+ * fifteen seat table meant fifteen trips through the same scrolling column,
+ * hunting for a word you already knew how to spell.
+ *
+ * Deliberately not a dependency. What a combobox has to get right is the
+ * keyboard (arrows move, Enter takes, Escape closes), the announcement (an
+ * input that says it owns a listbox, and which option is current), and closing
+ * when the pointer goes elsewhere. That is this file, and it is smaller than
+ * the wiring another library would need.
+ *
+ * It does not hold the choice: picking calls `onPick` and clears, because every
+ * use of it so far is "add one more of these", where remembering the last
+ * answer would be in the way.
+ */
+export interface AutocompleteOption {
+  value: string;
+  label: string;
+}
+
+export interface AutocompleteProps {
+  options: AutocompleteOption[];
+  onPick: (value: string) => void;
+  placeholder?: string;
+  id?: string;
+  disabled?: boolean;
+  /** How many matches to show at once. The rest are reachable by typing more. */
+  most?: number;
+}
+
+/** Case and accents are not a difference anybody means when they type. */
+function loosely(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase();
+}
+
+export function Autocomplete({ options, onPick, placeholder, id, disabled, most = 8 }: AutocompleteProps) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [cursor, setCursor] = useState(0);
+  const box = useRef<HTMLDivElement>(null);
+  const listId = useId();
+
+  /**
+   * What the typing matches, best first.
+   *
+   * A word that *starts* the label comes before one buried in the middle: typing
+   * "ma" wants the Mafioso before the Pharmacist, and every list in this app is
+   * short enough that sorting the matches costs nothing.
+   */
+  const matches = useMemo(() => {
+    const needle = loosely(query.trim());
+    if (!needle) return options.slice(0, most);
+    const scored = options
+      .map((option) => ({ option, at: loosely(option.label).indexOf(needle) }))
+      .filter((entry) => entry.at >= 0)
+      .sort((left, right) => left.at - right.at || left.option.label.localeCompare(right.option.label));
+    return scored.slice(0, most).map((entry) => entry.option);
+  }, [options, query, most]);
+
+  // A click anywhere else is an answer too: it means not this one.
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: PointerEvent) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', away);
+    return () => document.removeEventListener('pointerdown', away);
+  }, [open]);
+
+  const take = (value: string): void => {
+    onPick(value);
+    setQuery('');
+    setOpen(false);
+  };
+
+  const onKey = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      setOpen(true);
+      setCursor((at) => {
+        const next = event.key === 'ArrowDown' ? at + 1 : at - 1;
+        return Math.max(0, Math.min(matches.length - 1, next));
+      });
+      return;
+    }
+    if (event.key === 'Enter') {
+      const chosen = matches[cursor];
+      if (chosen) {
+        event.preventDefault();
+        take(chosen.value);
+      }
+      return;
+    }
+    if (event.key === 'Escape') setOpen(false);
+  };
+
+  return (
+    <div className="combo" ref={box}>
+      <input
+        id={id}
+        className="input combo-input"
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={open && matches[cursor] ? `${listId}-${cursor}` : undefined}
+        autoComplete="off"
+        disabled={disabled}
+        placeholder={placeholder}
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          // A new query is a new list, so the highlight goes back to the top of it.
+          setCursor(0);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={onKey}
+      />
+      {open && matches.length > 0 && (
+        <ul className="combo-list" id={listId} role="listbox">
+          {matches.map((option, index) => (
+            <li
+              key={option.value}
+              id={`${listId}-${index}`}
+              role="option"
+              aria-selected={index === cursor}
+              className={index === cursor ? 'combo-item combo-item--on' : 'combo-item'}
+              onPointerEnter={() => setCursor(index)}
+              // `pointerdown` rather than `click`: the input's blur must not close
+              // the list out from under the finger that is choosing.
+              onPointerDown={(event) => {
+                event.preventDefault();
+                take(option.value);
+              }}
+            >
+              {option.label}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 /* ------------------------------------------------------------------- portals */
 

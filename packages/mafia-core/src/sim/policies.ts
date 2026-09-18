@@ -615,9 +615,23 @@ export function makePersonality(profile: Personality, rng: () => number): Person
  * which keeps every hand-written test reading exactly as it did.
  */
 export function copiesOf(info: PublicInfo, role: RoleId): number {
+  /**
+   * A unique role is unique whatever the roster says.
+   *
+   * `unique` is the dealer's own guarantee: every setup, `chaos` included,
+   * refuses to deal a second Jailor or a second Godfather. The roster, on the
+   * other hand, describes what a *slot* might turn out to be — and a chaos
+   * table's slots are all "any", so counting them gives the Jailor twenty-four
+   * possible copies and no two claimants can ever contradict each other.
+   *
+   * Which is what happened: on a live chaos table two seats claimed badges
+   * nobody could be wearing twice and the board scored it at nothing, because
+   * the count replaced the flag instead of standing beside it. The flag is a
+   * ceiling, the count is a ceiling, and the truth is the lower of the two.
+   */
+  const capped = roleDef(role).unique ? 1 : Number.POSITIVE_INFINITY;
   const counted = info.dealCopies?.get(role);
-  if (counted !== undefined) return counted;
-  return roleDef(role).unique ? 1 : Number.POSITIVE_INFINITY;
+  return counted === undefined ? capped : Math.min(capped, counted);
 }
 
 export function isEvilRole(role: RoleId): boolean {

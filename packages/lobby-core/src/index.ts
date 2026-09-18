@@ -30,7 +30,7 @@ export {
   type QuickPhase
 } from './state.js';
 
-export { BOT_NAMES, pickBotName } from './bots.js';
+export { BOT_NAMES, pickBotName, tooAlike } from './bots.js';
 
 export { QUICK_PLAYLIST_KEY, quickSize, quickSpecs } from './options.js';
 
