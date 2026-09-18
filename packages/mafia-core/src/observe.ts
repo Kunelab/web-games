@@ -10,7 +10,7 @@ import {
 import { roleDef, ROLES, type RoleId } from './roles.js';
 import type { DeathSource } from './messages.js';
 import { tableRoleList, type MafiaState, type VoteNote } from './state.js';
-import { slotPool } from './setups.js';
+import { slotPool, type SlotToken } from './setups.js';
 
 /**
  * The killers with nobody to answer to. Past a couple of their corpses the whole
@@ -72,6 +72,7 @@ interface BoardCache {
   day: number;
 
   rolesInPlay: Set<RoleId>;
+  dealCopies: Map<RoleId, number>;
 
   grave: {
     deaths: PublicInfo['deaths'];
@@ -172,6 +173,22 @@ function ballotsMoved(cache: BoardCache, votes: Record<string, string>): boolean
  * collection that did not. Nothing downstream writes to a board, and nothing
  * may start to.
  */
+/**
+ * How many seats could be wearing each badge, from the published roster.
+ *
+ * A category slot counts as one copy of every role in its pool: "random town"
+ * could be the Sheriff, so a table with two of them could hold two Sheriffs and
+ * a second claim proves nothing. Counting it any other way would have the board
+ * calling honest seats liars, which is the one mistake it must not make.
+ */
+function copiesDealt(tokens: readonly SlotToken[]): Map<RoleId, number> {
+  const copies = new Map<RoleId, number>();
+  for (const token of tokens) {
+    for (const role of slotPool(token)) copies.set(role, (copies.get(role) ?? 0) + 1);
+  }
+  return copies;
+}
+
 export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: VoteRecord[]): PublicInfo {
   const players = Object.values(state.players);
   const slotOf = (playerId: string): number | undefined => state.players[playerId]?.slot;
@@ -195,6 +212,22 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
        * and it was one of the two most expensive things a read did.
        */
       rolesInPlay: new Set<RoleId>(tableRoleList(state, players.length).flatMap((token) => slotPool(token))),
+      /**
+       * And how many of each badge the table can possibly be wearing.
+       *
+       * `rolesInPlay` answers "could there be a Sheriff", which catches a bluff
+       * naming a role nobody was dealt and nothing else. The question the room
+       * actually asks is "could there be a *second* Sheriff", and the roster on
+       * every screen answers it: a pinned slot is one copy, and a category slot
+       * is one copy of everything it might turn out to be, which is the honest
+       * upper bound a player reading the list has.
+       *
+       * Without it the only badges the board could ever catch being worn twice
+       * were the ones flagged `unique` — thirteen roles, none of them the three
+       * that actually get bluffed. A Sheriff could be claimed by two living
+       * seats with a third in the ground and the arithmetic said nothing.
+       */
+      dealCopies: copiesDealt(tableRoleList(state, players.length)),
       grave: null,
       spokenRef: null,
       spokenLen: -1,
@@ -324,6 +357,7 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
     rampage: grave.rampage,
     votes: cache.votes,
     rolesInPlay: cache.rolesInPlay,
+    dealCopies: cache.dealCopies,
     revealedMayorSlot: grave.revealedMayorSlot,
     trialSlot,
     claims: cache.claims

@@ -17,6 +17,7 @@ import {
   feelPressure,
   losingClock,
   makeBrain,
+  parityPressure,
   EVEN_TEMPERAMENT,
   steadyVote,
   styleOf,
@@ -868,6 +869,87 @@ describe('a style, chosen once', () => {
       lastNightDeathSlots: new Set<number>()
     };
     assert.equal(tide(board), 'town', 'three of four expected evils buried and a quiet clock');
+  });
+
+  /**
+   * The square and the booth, made to agree at the bell.
+   *
+   * Reported from a real table: three seats alive, one of them the killer, and
+   * the town put him on the stand nine times across three days and acquitted
+   * him every time. `pickVote` returns its top suspect unconditionally at full
+   * pressure and `decideBallot` did not, so the two halves of the same seat
+   * voted opposite ways on the same board, all afternoon.
+   */
+  it('votes guilty at the parity bell unless it is holding a better name', () => {
+    const state = table(['citizen', 'doctor', 'serial-killer'], 8);
+    const juror = playerBySlot(state, 1)!;
+    const brain = makeBrain(1, DEFAULT_PROFILE);
+    // Three alive with an evil still out there: the parity clock is at the bell.
+    const board: PublicInfo = { ...toPublicInfo(state, [], []), totalDead: 12, day: 8 };
+    assert.equal(parityPressure(board), 1, 'three alive, one evil expected');
+
+    assert.equal(
+      decideBallot(juror, brain, board, 3, new Set(), always(0.5)),
+      'guilty',
+      'nothing on either of them, and the one on the stand is as good a name as the other'
+    );
+
+    /**
+     * And the acquittal that is still allowed: a juror holding something real
+     * about somebody else says so with its ballot, and nominates them next.
+     */
+    const elsewhere: PublicInfo = {
+      ...board,
+      claims: [
+        claim({ claimerSlot: 2, targetSlot: 2, kind: 'account', account: 'home', day: 8 }),
+        claim({ claimerSlot: 1, targetSlot: 2, kind: 'sighting', day: 8 })
+      ]
+    };
+    assert.equal(
+      decideBallot(juror, brain, elsewhere, 3, new Set(), always(0.5)),
+      'innocent',
+      'a caught liar in the other chair is a better name than the one standing there'
+    );
+  });
+
+  /**
+   * And the loop itself: the same seat, tried again on the same evidence.
+   */
+  it('does not put a seat acquitted today back on the stand with nothing new', () => {
+    const state = table(['citizen', 'doctor', 'serial-killer'], 8);
+    const voter = playerBySlot(state, 1)!;
+    const brain = makeBrain(1, DEFAULT_PROFILE);
+    const board: PublicInfo = { ...toPublicInfo(state, [], []), totalDead: 12, day: 8 };
+
+    const picked = decideDay(voter, brain, board, new Set(), new Set(), always(0.5)).voteSlot;
+    assert.notEqual(picked, null, 'at the bell the town must name somebody');
+    const first = picked!;
+
+    const tried: PublicInfo = {
+      ...board,
+      trials: [{ day: 8, accusedSlot: first, lynched: false, guiltySlots: [], innocentSlots: [1, 2, 3] }]
+    };
+    assert.notEqual(
+      decideDay(voter, brain, tried, new Set(), new Set(), always(0.5)).voteSlot,
+      first,
+      'the room asked that question today and got its answer'
+    );
+
+    /**
+     * Hard evidence reopens it, because that is a different question.
+     */
+    const confessed: PublicInfo = {
+      ...tried,
+      claims: [
+        claim({ claimerSlot: first, targetSlot: first, kind: 'account', account: 'home', day: 8 }),
+        claim({ claimerSlot: 3, targetSlot: first, kind: 'sighting', day: 8 })
+      ]
+    };
+    assert.equal(
+      decideDay(voter, brain, confessed, new Set(), new Set(), always(0.5)).voteSlot,
+      first,
+      'caught out since the acquittal is new, and it is allowed back on the stand'
+    );
   });
 
   it('puts a survivor on the biggest wagon once the town is losing', () => {

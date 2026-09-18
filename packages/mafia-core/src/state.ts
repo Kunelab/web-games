@@ -473,6 +473,14 @@ export interface TrialState {
   court?: boolean;
 }
 
+/** One attack and what became of it. See `MafiaState.nightLog`. */
+export interface NightOutcome {
+  attackerSlot: number | null;
+  targetSlot: number;
+  source: DeathSource;
+  outcome: 'killed' | 'healed' | 'guarded' | 'immune' | 'vested' | 'jailed' | 'sheltered' | 'too-late';
+}
+
 export interface NightAction {
   type: NightActionType;
   targetId: string | null;
@@ -614,6 +622,16 @@ export interface MafiaState {
   trialsToday: number;
   /** Night submissions, by actor id. */
   nightActions: Record<string, NightAction>;
+  /**
+   * What last night's attacks actually did, one line each.
+   *
+   * Diagnostics, not game state: nothing reads it back and it is rewritten
+   * every night. It exists because "the vigilante fired and nothing happened"
+   * had four possible explanations, all of them invisible — armour, a doctor, a
+   * cell, or a body somebody else had already made — and telling them apart
+   * meant guessing from a chat log.
+   */
+  nightLog?: NightOutcome[];
   /** Who the jailor locked up for tonight (chosen during the day). */
   jailedId: string | null;
   /**
@@ -644,6 +662,15 @@ export interface MafiaState {
     day: number;
     phase: 'day' | 'night';
     cause: Msg;
+    /**
+     * Every knife that reached this body on the same night, first one first.
+     *
+     * Absent on the ordinary death with one killer, where `source` says it all.
+     * Present when several converged, which is the most informative night the
+     * game produces and the one the morning used to describe as though only one
+     * person had been out.
+     */
+    sources?: DeathSource[];
     /**
      * Who struck, when a killer did. Absent for a lynching or a broken heart.
      *

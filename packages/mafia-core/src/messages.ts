@@ -196,6 +196,24 @@ export const NOTE = {
 
   targetMissing: (): Msg => msg('mafia.note.targetMissing'),
   attackFailed: (): Msg => msg('mafia.note.attackFailed'),
+  /**
+   * Why it failed, which the attacker was never told.
+   *
+   * One sentence covered a knife that hit armour, a knife a doctor undid and a
+   * knife that arrived at a body somebody else had already made — three
+   * different facts about the night, each worth knowing and each worth a
+   * different decision tomorrow. "It did not work" is the one reading that
+   * teaches nothing.
+   */
+  attackImmune: (): Msg => msg('mafia.note.attackImmune'),
+  attackVested: (): Msg => msg('mafia.note.attackVested'),
+  attackHealed: (): Msg => msg('mafia.note.attackHealed'),
+  attackTooLate: (): Msg => msg('mafia.note.attackTooLate'),
+  /** And the other end of the same silence: a night's work that did land. */
+  blockDone: (name: string): Msg => msg('mafia.note.blockDone', { name }),
+  blockFailed: (name: string): Msg => msg('mafia.note.blockFailed', { name }),
+  /** A charge role with nothing left to spend, told before it wastes the night deciding. */
+  powerSpent: (): Msg => msg('mafia.note.powerSpent'),
   survived: (): Msg => msg('mafia.note.survived'),
   guarded: (): Msg => msg('mafia.note.guarded'),
   bodyguardRepelled: (): Msg => msg('mafia.note.bodyguardRepelled'),
@@ -389,6 +407,20 @@ export type DeathSource =
 
 const SOURCE = (source: DeathSource): Msg => msg(`mafia.source.${source}`);
 
+/**
+ * A list of things, in a sentence, in whichever language is reading it.
+ *
+ * Built out of a pair and a comma rather than out of `join`, because the word
+ * between the last two items is not the same in every language and is not a
+ * comma in any of them. Two keys, and any length of list.
+ */
+const JOIN = (parts: readonly Msg[]): Msg =>
+  parts.length <= 1
+    ? (parts[0] ?? msg('mafia.cause.unknown'))
+    : parts.length === 2
+      ? msg('mafia.list.pair', { a: parts[0], b: parts[1] })
+      : msg('mafia.list.more', { a: parts[0], b: JOIN(parts.slice(1)) });
+
 export const CAUSE = {
   lynched: (): Msg => msg('mafia.cause.lynched'),
   grief: (): Msg => msg('mafia.cause.grief'),
@@ -396,6 +428,19 @@ export const CAUSE = {
   guard: (name: string): Msg => msg('mafia.cause.guard', { name }),
   bodyguard: (): Msg => msg('mafia.cause.bodyguard'),
   killedBy: (source: DeathSource): Msg => msg('mafia.cause.killedBy', { source: SOURCE(source) }),
+  /**
+   * Everybody whose knife reached the same body on the same night.
+   *
+   * The report named one of them, always the first to resolve, and the others
+   * vanished: a seat the Mafia and the Serial Killer both visited read exactly
+   * like a seat only the Mafia visited, and a Vigilante who fired into a house
+   * the family had already emptied lost a bullet, learned nothing, and watched
+   * the town credit somebody else. Three killers converging on one house is the
+   * most informative thing a night can produce, and it was the one thing the
+   * morning did not say.
+   */
+  killedByAll: (sources: readonly DeathSource[]): Msg =>
+    msg('mafia.cause.killedBy', { source: JOIN(sources.map((source) => SOURCE(source))) }),
   /** Left the table: not a death, and the record must not pretend otherwise. */
   left: (): Msg => msg('mafia.cause.left'),
   unknown: (): Msg => msg('mafia.cause.unknown')

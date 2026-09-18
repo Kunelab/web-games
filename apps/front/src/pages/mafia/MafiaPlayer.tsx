@@ -74,6 +74,8 @@ interface RowAction {
   /** Pressing again clears the choice, so the label flips. */
   chosen: boolean;
   run: () => void;
+  /** The engine would refuse this right now, and the button says why instead. */
+  waiting?: boolean;
 }
 
 /**
@@ -151,7 +153,7 @@ const slotCamp = (token: SlotToken): string => slotFaction(token) ?? 'hidden';
 export default function MafiaPlayer() {
   const { code: rawCode } = useParams();
   const code = (rawCode ?? '').toUpperCase();
-  const { socket, connected, view, messages, rewards, error, serverNow, applyView } = useMafiaSocket();
+  const { socket, connected, view, messages, rewards, busy, error, serverNow, applyView } = useMafiaSocket();
   const { t, locale } = useLocale();
 
   /** Sugar: almost every string on this screen is a key with no parameters. */
@@ -344,6 +346,35 @@ export default function MafiaPlayer() {
   const inDefense = view?.phase === 'day' && view.stage === 'defense';
   const canVote = inDiscussion && (view?.day ?? 0) > 1;
 
+  /**
+   * The seconds before the room may vote, counted down on the button.
+   *
+   * The ballot opens a little after the day does, and again after a verdict, so
+   * that the first thing an afternoon produces is an argument rather than a
+   * wagon. The rule was entirely invisible: the accuse button was there, it did
+   * nothing, and the only feedback was a refusal in red. Now the button says
+   * how long, which turns a broken control into a rule of the game.
+   */
+  const [now, setNow] = useState(() => Date.now());
+  const opensAt = canVote ? (view?.voteOpensAt ?? null) : null;
+  useEffect(() => {
+    if (opensAt === null || Date.now() >= opensAt) return;
+    /**
+     * And it stops the moment the lock does.
+     *
+     * The effect only re-runs when the deadline itself changes, so a ticker
+     * started for a fifteen second lock kept re-rendering the page four times a
+     * second for the remaining hundred of a two minute afternoon. It clears
+     * itself on the tick that passes the deadline instead.
+     */
+    const timer = setInterval(() => {
+      setNow(Date.now());
+      if (Date.now() >= opensAt) clearInterval(timer);
+    }, 250);
+    return () => clearInterval(timer);
+  }, [opensAt]);
+  const ballotOpensIn = opensAt === null ? 0 : Math.max(0, Math.ceil((opensAt - now) / 1000));
+
   const fail = (ack: { ok: boolean; error?: Msg }) => {
     if (!ack.ok) setActionError(ack.error ? t(ack.error) : tk('mafia.refuse.impossible'));
     else setActionError(null);
@@ -453,6 +484,14 @@ export default function MafiaPlayer() {
        * thing you find while looking for a routine one.
        */
       if (player.slot === me.slot) {
+        if (ballotOpensIn > 0) {
+          return {
+            label: `🔒 ${tk('mafia.ui.ballotOpensIn', { seconds: ballotOpensIn })}`,
+            chosen: false,
+            waiting: true,
+            run: () => undefined
+          };
+        }
         return {
           label: me.votedSkip
             ? `✓ ${tk('mafia.ui.skipTally', { count: view.skipVotes, needed: view.voteThreshold })}`
@@ -462,6 +501,18 @@ export default function MafiaPlayer() {
         };
       }
       const chosen = me.voteTargetSlot === player.slot;
+      /**
+       * Withdrawing is always allowed; committing waits for the floor. The
+       * engine says exactly this, and the button now agrees with it.
+       */
+      if (ballotOpensIn > 0 && !chosen) {
+        return {
+          label: `🔒 ${tk('mafia.ui.ballotOpensIn', { seconds: ballotOpensIn })}`,
+          chosen: false,
+          waiting: true,
+          run: () => undefined
+        };
+      }
       return {
         label: chosen ? tk('mafia.ui.withdraw') : tk('mafia.ui.accuse'),
         chosen,
@@ -1056,6 +1107,11 @@ export default function MafiaPlayer() {
             {folded.players ? '▣' : '▁'}
           </button>
           {prompt && <p className="mz-prompt">{prompt}</p>}
+          {busy.reading && (
+            <p className="mz-listening" aria-live="polite">
+              👂 {tk('mafia.ui.bot.reading')}
+            </p>
+          )}
           {actionError && <p className="mz-error">{actionError}</p>}
           {error && <p className="mz-error">{t(error)}</p>}
 
@@ -1124,7 +1180,18 @@ export default function MafiaPlayer() {
                           the outside. Two icons and a hover settle it: 🧠 is a
                           model and names it, 🤖 is the phrasebook.
                         */}
-                        {player.isBot && <BotFlag brain={player.botBrain} />}
+                        {player.isBot && (
+                          <BotFlag
+                            brain={player.botBrain}
+                            working={
+                              busy.speaking.includes(player.slot)
+                                ? 'speaking'
+                                : busy.thinking.includes(player.slot)
+                                  ? 'thinking'
+                                  : null
+                            }
+                          />
+                        )}
                         {/*
                           The sash, named rather than hinted at.
 
@@ -1253,7 +1320,14 @@ export default function MafiaPlayer() {
                       {action && (
                         <button
                           type="button"
-                          className={action.chosen ? 'mz-act mz-act--chosen' : 'mz-act'}
+                          className={
+                            action.waiting
+                              ? 'mz-act mz-act--waiting'
+                              : action.chosen
+                                ? 'mz-act mz-act--chosen'
+                                : 'mz-act'
+                          }
+                          disabled={action.waiting}
                           onClick={action.run}
                         >
                           {action.label}
@@ -1513,18 +1587,33 @@ function VoteTrail({ view, t }: { view: MafiaView; t: (message: Msg) => string }
  * and worth showing as such: a quiet bot on day one has not yet been through the
  * chain, so nothing is known about which end of it answered.
  */
-function BotFlag({ brain }: { brain: string | null }) {
+function BotFlag({ brain, working }: { brain: string | null; working: 'thinking' | 'speaking' | null }) {
   const { t } = useLocale();
   const scripted = brain === 'scripted';
-  const label =
-    brain === null
+  const label = working
+    ? t(msg(working === 'speaking' ? 'mafia.ui.bot.speaking' : 'mafia.ui.bot.thinking'))
+    : brain === null
       ? t(msg('mafia.ui.bot.quiet'))
       : scripted
         ? t(msg('mafia.ui.bot.scripted'))
         : t(msg('mafia.ui.bot.model', { model: brain }));
 
+  /**
+   * The same flag, lit while something is actually running for this seat.
+   *
+   * It used to report only which end of the chain last *spoke*, which is a fact
+   * about the past and answered none of the question people actually ask while
+   * they wait: is anything happening. A local model takes a second or two per
+   * line and a slow rung ten, and for all of it the square sat still — exactly
+   * what a fallen-over chain looks like. Now the seat being written for says so
+   * while it is being written for.
+   */
   return (
-    <span className="mz-flag" title={label} aria-label={label}>
+    <span
+      className={working ? `mz-flag mz-flag--${working}` : 'mz-flag'}
+      title={label}
+      aria-label={label}
+    >
       {' '}
       {brain === null || scripted ? '🤖' : '🧠'}
     </span>

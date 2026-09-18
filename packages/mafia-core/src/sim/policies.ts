@@ -1,6 +1,7 @@
 import type { DeathSource } from '../messages.js';
 import type { NightActionType, RoleId } from '../roles.js';
 import { familyOf, isSoloKiller, QUIET_TRADE, roleDef, ROLES } from '../roles.js';
+import { beliefs, surestSuspect } from './beliefs.js';
 import { deductions, deductionWeight } from './deduce.js';
 export { QUIET_TRADE };
 import {
@@ -266,6 +267,22 @@ export interface Claim {
   kind: ClaimKind;
   truthful: boolean;
   /**
+   * How sure whatever filed this was that it is what the seat actually said.
+   *
+   * A bot's own line is certain: it wrote the sentence and the claim from one
+   * decision, so there is nothing to misread. Everything a *person* types is
+   * read by a machine — the instant parser off a handful of cue words, the ear
+   * off a model — and neither is ever sure. "He is the bad guy" was filed as a
+   * clearing of the man being accused; "OK On Nami now" as a vote of confidence
+   * in Nami. Both from one real afternoon.
+   *
+   * So a reading carries what it should count for, and the weighing reads it: a
+   * misfiled claim now costs the board a fraction of what a certain one does
+   * rather than the same. Absent means certain, which leaves every claim the
+   * bots file about themselves exactly where it was.
+   */
+  confidence?: number;
+  /**
    * The night this is *about*, when it is about a night at all.
    *
    * `day` means two different things depending on where the claim came from,
@@ -431,6 +448,20 @@ export interface PublicInfo {
    */
   rolesInPlay?: ReadonlySet<RoleId>;
   /**
+   * How many copies of each role the deal can contain, from the same roster.
+   *
+   * The number `unique` was standing in for, and standing in for badly: the
+   * flag is engine semantics (there is one Jailor) and says nothing about the
+   * Sheriff, the Doctor or the Lookout, which are the badges a liar actually
+   * reaches for. A category slot counts as one copy of everything it might be,
+   * so this is an upper bound and a claim is only called contested when even
+   * the most generous reading of the roster cannot fit it.
+   *
+   * Optional for the same reason as `rolesInPlay`: a hand-built test board has
+   * none, and absent falls back to the old flag.
+   */
+  dealCopies?: ReadonlyMap<RoleId, number>;
+  /**
    * The seats a person is sitting in, which the roster shows anyway.
    *
    * Not a secret — every screen prints a marker beside a bot's name — and it is
@@ -577,6 +608,18 @@ export function makePersonality(profile: Personality, rng: () => number): Person
   };
 }
 
+/**
+ * How many seats could be wearing one badge, as the room can work out.
+ *
+ * Falls back to the `unique` flag when the board was built without a roster,
+ * which keeps every hand-written test reading exactly as it did.
+ */
+export function copiesOf(info: PublicInfo, role: RoleId): number {
+  const counted = info.dealCopies?.get(role);
+  if (counted !== undefined) return counted;
+  return roleDef(role).unique ? 1 : Number.POSITIVE_INFINITY;
+}
+
 export function isEvilRole(role: RoleId): boolean {
   return familyOf(role) !== null || isSoloKiller(role);
 }
@@ -687,7 +730,26 @@ export function trustOf(slot: number, info: PublicInfo, through: Temperament = E
     if (!guilty && !innocent) continue;
 
     if (isEvilRole(revealed)) {
-      if (guilty) trust += 1;
+      /**
+       * A guilty vote is worth what it cost to cast.
+       *
+       * Every correct rope paid the same flat point, and the commonest rope in
+       * the game is the one the whole room was already pulling — including the
+       * family, whose own policy is to vote with the room on a brother it
+       * cannot save. So the cheapest possible ballot, joining a verdict that
+       * was never in doubt, bought the same credit as standing alone against
+       * ten people and being right.
+       *
+       * A killer can farm the flat version, and did: a seat that voted with the
+       * room on two hanged evils came out of it as the most trusted person at
+       * the table and could not be convicted of anything afterwards. So the
+       * credit scales with how divided the room was — near nothing when nobody
+       * disagreed, most of a point when the verdict was close and the vote
+       * genuinely said something.
+       */
+      const cast = trial.guiltySlots.length + trial.innocentSlots.length;
+      const divided = cast > 0 ? trial.innocentSlots.length / cast : 0;
+      if (guilty) trust += 0.2 + 0.9 * divided;
       if (innocent) trust -= 2.5; // tried to save the mafia, in public
     } else if (roleDef(revealed).faction === 'town') {
       if (guilty) trust -= 1.2;
@@ -897,7 +959,7 @@ export function possibilitySet(self: MafiaPlayer, info: PublicInfo): Set<number>
       continue;
     }
     // Behavioral trust: someone who has repeatedly hanged evils isn't one.
-    if (trustOf(slot, info) >= 2.5) remaining.delete(slot);
+    if (trustOf(slot, info) >= 1.5) remaining.delete(slot);
     // A role the record proved, and it is a town one.
     const proven = info.provenRoles.get(slot);
     if (proven && roleDef(proven).faction === 'town') remaining.delete(slot);
@@ -1569,8 +1631,8 @@ export function suspicionParts(
       .filter((claim) => claim.kind === kind && claim.targetSlot === targetSlot && claim.claimerSlot !== self.slot)
       .map((claim) =>
         kind === 'accuse' && dodgedTheQuestion(claim.claimerSlot, targetSlot, info)
-          ? claimerWeight(claim.claimerSlot, info) * 0.5
-          : claimerWeight(claim.claimerSlot, info)
+          ? claimerWeight(claim.claimerSlot, info) * 0.5 * (claim.confidence ?? 1)
+          : claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1)
       );
 
     const repeated = info.claims
@@ -1603,7 +1665,7 @@ export function suspicionParts(
   for (const claim of info.claims) {
     if (claim.targetSlot !== targetSlot) continue;
     if (claim.claimerSlot === self.slot) continue; // own claims counted via intel below
-    const weight = claimerWeight(claim.claimerSlot, info);
+    const weight = claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1);
     if (claim.kind === 'hint') score += 0.8 * weight;
     /**
      * Being out at night is not a crime — half the town is out at night. Left
@@ -1667,9 +1729,19 @@ export function suspicionParts(
   }
 
   // The trust meter: saving mafiosi at trials is remembered; hanging them too.
-  // Read through this seat's own suspicion, so the same ballot moves a wary
-  // reader further than a trusting one — see `Temperament`.
-  score -= trustOf(targetSlot, info, temperamentOf(self.slot)) * 0.6;
+  /**
+   * Read through this seat's own suspicion, so the same ballot moves a wary
+   * reader further than a trusting one — see `Temperament`.
+   *
+   * Capped on the way up and not on the way down, which is the asymmetry the
+   * record actually supports. A good voting history is weak evidence of
+   * innocence: it is a thing anybody can do, the family included, and letting
+   * it accumulate without limit produced seats the arithmetic could not convict
+   * whatever they said or did afterwards — including one who announced he was
+   * the Serial Killer. Voting to save a hanged killer, on the other hand, is a
+   * thing almost nobody does by accident, so it keeps its full weight.
+   */
+  score -= Math.min(trustOf(targetSlot, info, temperamentOf(self.slot)), 1.2) * 0.6;
 
   // Tunnel vision smells like an obsession.
   score += monomaniacScore(targetSlot, info);
@@ -1678,6 +1750,27 @@ export function suspicionParts(
   // least one liar; claiming a role the graveyard already revealed is worse.
   const roleClaim = info.claims.find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === targetSlot);
   if (roleClaim?.claimedRole) {
+    /**
+     * Somebody saying, out loud, that they are one of the killers.
+     *
+     * The board had no term for it whatsoever. A role claim was only ever
+     * checked for being *contested* — two live claimants, or a badge already in
+     * the ground — so "I am the Serial Killer" passed through the arithmetic
+     * worth exactly nothing, and the sentence that ought to end an afternoon
+     * ended nothing at all. Reported from a real table, where a man said it
+     * five times across two days, was tried six times, and was acquitted six
+     * times by a town that had him down as its most trustworthy seat.
+     *
+     * Priced above any single investigator's report, because it is a confession
+     * and the room can act on it without waiting for a check. A liar claiming
+     * a killer's badge to protect somebody, or to be interesting, pays for it:
+     * that is a price worth paying, and the price the room would charge.
+     */
+    if (isEvilRole(roleClaim.claimedRole)) {
+      score += 4;
+      hard += 4;
+    }
+
     const rivals = info.claims.filter(
       (claim) =>
         claim.kind === 'role-claim' &&
@@ -1685,9 +1778,37 @@ export function suspicionParts(
         claim.claimerSlot !== targetSlot &&
         info.aliveSlots.includes(claim.claimerSlot)
     );
-    if (roleDef(roleClaim.claimedRole).unique && rivals.length > 0) {
-      score += 1.5;
-      hard += 1.5;
+
+    /**
+     * More people wearing a badge than the table was dealt.
+     *
+     * This was two rules, both gated on `unique`, and the gate was the bug: of
+     * the sixty-three roles in the game thirteen carry the flag, and not one of
+     * them is the Sheriff, the Doctor or the Lookout. So the three badges every
+     * liar in every game reaches for were unfalsifiable — a bluff could claim
+     * Sheriff with the real one alive and arguing, or with the real one lying
+     * in the graveyard under a will listing every night they worked, and the
+     * board scored it at zero.
+     *
+     * Counted against the roster instead, living claimants and buried ones
+     * together. Two seats wearing the table's one Sheriff is a liar in the
+     * room; a badge whose every copy is already in the ground is a liar with no
+     * room left to argue, which is why it is worth more.
+     */
+    const buriedSame = [...info.deadRoles.entries()].filter(
+      ([slot, role]) => role === roleClaim.claimedRole && slot !== targetSlot
+    ).length;
+    const copies = copiesOf(info, roleClaim.claimedRole);
+    const claimants = 1 + rivals.length + buriedSame;
+
+    if (copies > 0 && buriedSame >= copies) {
+      score += 3;
+      hard += 3;
+    } else if (copies > 0 && claimants > copies) {
+      // Capped: a badge four people are wearing is one liar's problem, not four times one.
+      const over = Math.min(2, claimants - copies);
+      score += 1.5 * over;
+      hard += 1.5 * over;
     }
 
     /**
@@ -1719,17 +1840,6 @@ export function suspicionParts(
       score += weight;
       hard += weight;
     }
-    if (
-      [...info.deadRoles.entries()].some(
-        ([slot, role]) => role === roleClaim.claimedRole && roleDef(role).unique && slot !== targetSlot
-      )
-    ) {
-      // Claiming a role that is already in the ground: the graveyard said it,
-      // not the room.
-      score += 3;
-      hard += 3;
-    }
-
     /**
      * A contested claim that the graveyard has now settled, in your favour.
      *
@@ -2711,7 +2821,7 @@ export function decideDay(
         if (alreadyClaimed(info, self.slot, slot, 'clear')) return false;
         const proven = info.provenRoles.get(slot);
         const vouched = (proven && roleDef(proven).faction === 'town') || uncontestedBadge(slot, info) !== null;
-        return vouched || trustOf(slot, info) >= 2;
+        return vouched || trustOf(slot, info) >= 1.2;
       });
       if (worthIt !== undefined && rng() < 0.7) publish(worthIt, 'clear');
     }
@@ -3131,8 +3241,20 @@ export function decideDay(
     // Early game the cell is an interrogation room: safe-check the quiet,
     // unclaimed seats nobody knows anything about. Once parity looms, it's an
     // execution chamber for the top suspect.
+    /**
+     * A name the night has settled goes in the cell whatever the clock says.
+     *
+     * The rules below ask the room how suspicious somebody is, and early in a
+     * game the room knows nothing, so the cell spent its nights interviewing
+     * strangers while a seat the Jailor could have worked out for itself walked
+     * around free. The cell is also the safest place in the game to be wrong:
+     * an innocent prisoner loses one night's power and lives.
+     */
+    const sure = surestSuspect(self, info, 0.7, teammates);
     const pressure = parityPressure(info);
-    if (pressure >= 0.6) {
+    if (sure && others.includes(sure.slot)) {
+      decision.jailSlot = sure.slot;
+    } else if (pressure >= 0.6) {
       const suspects = others
         .map((slot) => ({ slot, score: suspicion(slot, self, info, rng) }))
         .sort((a, b) => b.score - a.score);
@@ -3142,7 +3264,7 @@ export function decideDay(
       const quiet = others.filter(
         (slot) =>
           !info.claims.some((claim) => claim.claimerSlot === slot) &&
-          Math.abs(trustOf(slot, info)) < 1.5 &&
+          Math.abs(trustOf(slot, info)) < 1.0 &&
           !self.intel.some((entry) => entry.targetSlot === slot && entry.kind === 'sheriff' && entry.value === 'clear')
       );
       const pick = quiet[Math.floor(rng() * quiet.length)];
@@ -3526,7 +3648,46 @@ function pickVote(
     })
     .sort((a, b) => b.score - a.score);
 
-  const top = scored[0];
+  /**
+   * A seat the room tried and let go today, on the same evidence.
+   *
+   * A trial is the room's answer to a question it asked, and asking it again an
+   * instant later with nothing new is not persuasion, it is a loop: the same
+   * ranking produces the same top name, the threshold falls again, and the
+   * afternoon is spent putting one person on the stand until the trial cap runs
+   * out. It is also the single most hostile thing this table does to a human,
+   * because the human is usually the one holding the wrong end of it.
+   *
+   * Hard evidence lifts the bar: something the room can point to — a check, a
+   * contradiction, a confession — is a new case rather than the old one said
+   * louder, and it is allowed to try again. A seat with nothing new looks
+   * elsewhere, and a seat with nowhere else to look says nothing at all, which
+   * lets the day end on a skip instead of on a ninth acquittal.
+   */
+  const sparedToday = new Set(
+    info.trials.filter((trial) => trial.day === info.day && !trial.lynched).map((trial) => trial.accusedSlot)
+  );
+  const open = sparedToday.size === 0 ? scored : scored.filter((seat) => !sparedToday.has(seat.slot) || seat.hard > 0);
+
+  /**
+   * A name this seat is sure of, which outranks the ranking.
+   *
+   * The ordinary scoring is a comparison between seats and has no notion of
+   * being *certain*: a seat the reader has personally checked and a seat it
+   * merely dislikes are numbers on the same scale, and the dislike sometimes
+   * wins on jitter. Anything past this bar is knowledge rather than suspicion,
+   * so it is voted directly.
+   *
+   * Never for a killer's own side: this arithmetic does not know who anybody's
+   * friends are, and a mafioso reasoning its way to its own Godfather would
+   * hand the game over out of sheer competence. The family already knows.
+   */
+  if (!isMafiaSeat && !isEvilRole(role)) {
+    const sure = surestSuspect(self, info, 0.8, teammates);
+    if (sure && open.some((seat) => seat.slot === sure.slot)) return sure.slot;
+  }
+
+  const top = open[0];
   if (!top) return null;
 
   // Desperation lowers the bar; at full LyLo the town must lynch someone.
@@ -3633,6 +3794,18 @@ export function defenceStrength(accusedSlot: number, info: PublicInfo): number {
   let credit = 0;
 
   const roleClaim = today.find((claim) => claim.kind === 'role-claim');
+  /**
+   * A confession is not a defence, whatever else was said with it.
+   *
+   * The scoring here asks one question of a role claim — could the room break
+   * it — and a killer's own badge passes that test perfectly: nobody else is
+   * claiming Serial Killer and there is none in the graveyard, so an
+   * unbreakable unique claim earned the *largest* credit this function gives.
+   * A man admitting to the murders was scored as having defended himself well,
+   * and it was the difference between a conviction and an acquittal at the
+   * parity bell. See `suspicionParts`, which charges for it on the other side.
+   */
+  if (roleClaim?.claimedRole && isEvilRole(roleClaim.claimedRole)) return 0;
   if (roleClaim?.claimedRole) {
     const rivalClaim = info.claims.some(
       (claim) =>
@@ -3641,9 +3814,11 @@ export function defenceStrength(accusedSlot: number, info: PublicInfo): number {
         claim.claimerSlot !== accusedSlot &&
         info.aliveSlots.includes(claim.claimerSlot)
     );
-    const buried = [...info.deadRoles.entries()].some(
-      ([slot, role]) => role === roleClaim.claimedRole && slot !== accusedSlot
-    );
+    const copies = copiesOf(info, roleClaim.claimedRole);
+    const buried =
+      copies > 0 &&
+      [...info.deadRoles.entries()].filter(([slot, role]) => role === roleClaim.claimedRole && slot !== accusedSlot)
+        .length >= copies;
     /**
      * Credit for a claim nobody could break — scaled by how breakable it was.
      *
@@ -3654,7 +3829,7 @@ export function defenceStrength(accusedSlot: number, info: PublicInfo): number {
      * the most rewarded, which is how a bench run ends with the solo killers
      * acquitted at every trial.
      */
-    if (!rivalClaim && !buried) credit += roleDef(roleClaim.claimedRole).unique ? 0.4 : 0.08;
+    if (!rivalClaim && !buried) credit += copies === 1 ? 0.4 : 0.08;
   }
 
   /**
@@ -3825,6 +4000,48 @@ export function decideBallot(
    * game, doubt is a luxury and mostly gets swallowed. A seat holding real
    * evidence never doubts, which is the point: it knows something.
    */
+  /**
+   * What this juror actually believes about the seat in front of it.
+   *
+   * Its own checks and last night's arithmetic, which the claims board cannot
+   * hold: a Doctor who stopped a knife knows an attack happened and knows who
+   * could not have made it, and at three seats alive that is not a suspicion,
+   * it is the answer. Read before the ordinary weighing because it outranks it
+   * — a juror who has worked out who the killer is does not then acquit them on
+   * the strength of a good defence — and only in the two directions it is sure
+   * about, so a seat it knows nothing special about falls through to the
+   * arithmetic below exactly as before.
+   */
+  const believed = beliefs(self, info).get(accusedSlot);
+  if (believed && believed.odds >= 0.85) return 'guilty';
+  if (believed && believed.odds <= 0.12 && parityPressure(info) < 1) return 'innocent';
+
+  /**
+   * At the parity bell, the booth votes the way the square does.
+   *
+   * These two functions disagreed, and at the end of a game the disagreement
+   * decided it. `pickVote` has always had "at full LyLo the town must lynch
+   * someone" and returns its top suspect whatever the number behind it is; this
+   * one kept its arithmetic, so the same seat nominated a man in the square and
+   * acquitted him in the booth, three times an afternoon, for three afternoons.
+   * The town cannot hang anybody that way, and it cannot skip either: it simply
+   * spends the day.
+   *
+   * So at the bell a juror votes guilty on whoever is standing there unless it
+   * is holding a better name — and a juror holding a better name is a juror who
+   * will nominate that name the moment this trial is over, which is the town
+   * playing rather than the town stalling. The margin is small on purpose: two
+   * seats a hair apart are not a reason to let the rope go slack when letting
+   * it go slack is how the game is lost.
+   */
+  if (parityPressure(info) >= 1) {
+    const better = info.aliveSlots
+      .filter((slot) => slot !== self.slot && slot !== accusedSlot)
+      .map((slot) => suspicionParts(slot, self, info, rng).evidence)
+      .sort((left, right) => right - left)[0];
+    return better === undefined || parts.evidence >= better - 0.3 ? 'guilty' : 'innocent';
+  }
+
   if (parts.hard < 1) {
     const doubt = (0.45 - 0.25 * parityPressure(info)) * (1 - brain.personality.herd * 0.5);
     if (rng() < doubt) return 'innocent';
@@ -4040,7 +4257,7 @@ export function decideNightTarget(
     // Behaviorally confirmed town are tomorrow's guilty votes: thin them out.
     const trusted = pool
       .map((slot) => ({ slot, trust: trustOf(slot, info) }))
-      .filter((entry) => entry.trust >= 2.5)
+      .filter((entry) => entry.trust >= 1.5)
       .sort((a, b) => b.trust - a.trust)
       .map((entry) => entry.slot);
     ranked.push(...trusted);
@@ -4080,6 +4297,20 @@ export function decideNightTarget(
   /* -------------------------- guns, keys and vests ------------------------ */
 
   if (role === 'vigilante') {
+    /**
+     * A name he is sure of, before anything the room thinks.
+     *
+     * The bar below is a suspicion threshold, and a suspicion threshold cannot
+     * tell the difference between a seat nobody has mentioned and a seat the
+     * night has narrowed down to. A real endgame had the Vigilante holding a
+     * bullet, the killer sitting across the table, and a number that said the
+     * killer was the most trustworthy person alive: the gun never came out,
+     * because the only question it knew how to ask was whether the room was
+     * suspicious enough, and the room was wrong.
+     */
+    const sure = surestSuspect(self, info, 0.85, teammates);
+    if (sure && legalTargets.includes(sure.slot)) return sure.slot;
+
     // The vigilante's real job: finish what the town failed to. A player
     // spared at trial despite live suspicion — likely saved by evil ballots —
     // is his priority, so the bullet doesn't just duplicate tomorrow's lynch.
@@ -4089,8 +4320,22 @@ export function decideNightTarget(
       .filter((slot) => suspicion(slot, self, info, rng) >= 1.8 - brain.personality.courage * 0.5);
     if (spared.length > 0) return pickRanked([...new Set(spared)], rng);
 
+    /**
+     * And not the seat the square was already going to hang.
+     *
+     * A bullet spent on somebody with a wagon parked on them buys a day the
+     * town was getting for nothing, and it costs the one thing the Vigilante
+     * cannot make more of. A real game has him shooting a Survivor on night
+     * four and watching the room hang that same seat the next afternoon.
+     *
+     * A preference, not a veto: if that seat is also the one he is surest of,
+     * the penalty is small enough that certainty still wins.
+     */
+    const wagonYesterday = (slot: number): number =>
+      info.voteHistory.filter((vote) => vote.day === info.day && vote.targetSlot === slot).length;
+
     const scored = legalTargets
-      .map((slot) => ({ slot, score: suspicion(slot, self, info, rng) }))
+      .map((slot) => ({ slot, score: suspicion(slot, self, info, rng) - (wagonYesterday(slot) >= 2 ? 0.6 : 0) }))
       .sort((a, b) => b.score - a.score);
     const top = scored[0];
 
@@ -4165,6 +4410,22 @@ export function decideNightTarget(
       if (dying.length > 0 && rng() < 0.55) return pickRanked([...new Set(dying)], rng, 0.2);
     }
 
+    /**
+     * And nobody spends a night protecting somebody they believe is the killer.
+     *
+     * Not a hypothetical. A real game ended with the Doctor healing the Serial
+     * Killer on three of its last four nights, because the killer was the
+     * loudest voice in the square and the ranking below reads loudness as "the
+     * seat the knife is coming for". The town's most valuable night was being
+     * spent keeping the knife alive.
+     *
+     * A preference rather than a rule, like everything else here: if every
+     * house left looks like a killer, somebody is still worth covering.
+     */
+    const believed = beliefs(self, info);
+    const notTheKnife = legalTargets.filter((slot) => (believed.get(slot)?.odds ?? 0) < 0.6);
+    if (notTheKnife.length > 0) legalTargets = notTheKnife;
+
     // Stand where the knife is headed: the mayor, the claimers, and the
     // behaviorally confirmed town (the mafia hunts trusted seats too) — with
     // the 25% clutch slip. A doctor who saved the loud sheriff last night
@@ -4177,7 +4438,7 @@ export function decideNightTarget(
     }
     const trusted = legalTargets
       .map((slot) => ({ slot, trust: trustOf(slot, info) }))
-      .filter((entry) => entry.trust >= 2)
+      .filter((entry) => entry.trust >= 1.2)
       .sort((a, b) => b.trust - a.trust)
       .map((entry) => entry.slot);
     ranked.push(...trusted);

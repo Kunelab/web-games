@@ -1,7 +1,7 @@
 import type { ChatMessage } from 'chat-core';
 import type { ClockPongPayload } from 'game-core';
 import { msg, type Msg } from 'i18n';
-import type { MafiaClientToServer, MafiaReward, MafiaServerToClient, MafiaView } from 'mafia-core';
+import type { MafiaBusy, MafiaClientToServer, MafiaReward, MafiaServerToClient, MafiaView } from 'mafia-core';
 import { useCallback, useEffect, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 
@@ -32,6 +32,8 @@ export interface MafiaConnection {
   /** view.chat plus every message pushed since the last broadcast. */
   messages: ChatMessage[];
   rewards: MafiaReward[] | null;
+  /** Which seats have a model working for them, and whether the ear is reading. */
+  busy: MafiaBusy;
   /** A key, like everything else the server says; the screen renders it. */
   error: Msg | null;
   serverNow: () => number;
@@ -44,6 +46,15 @@ export function useMafiaSocket(): MafiaConnection {
   const [view, setView] = useState<MafiaView | null>(null);
   const [extra, setExtra] = useState<ChatMessage[]>([]);
   const [rewards, setRewards] = useState<MafiaReward[] | null>(null);
+  /**
+   * Deliberately outside the view.
+   *
+   * It changes several times a second and means nothing a moment later, so it
+   * arrives on its own small event and never drags a projected board behind it.
+   * A disconnect leaves the last state behind, which is why the reconnect below
+   * clears it: nothing is working for a table this socket has just rejoined.
+   */
+  const [busy, setBusy] = useState<MafiaBusy>({ speaking: [], thinking: [], reading: false });
   const [error, setError] = useState<Msg | null>(null);
   const { serverNow, synchronise } = useServerClock();
 
@@ -64,11 +75,15 @@ export function useMafiaSocket(): MafiaConnection {
       setError(null);
       synchronise(current);
     });
-    current.on('disconnect', () => setConnected(false));
+    current.on('disconnect', () => {
+      setConnected(false);
+      setBusy({ speaking: [], thinking: [], reading: false });
+    });
     current.on('connect_error', () => setError(msg('net.unreachable')));
     current.on('mafia:state', applyView);
     current.on('mafia:message', (message) => setExtra((currentExtra) => [...currentExtra, message]));
     current.on('mafia:rewards', (next) => setRewards(next));
+    current.on('mafia:busy', (next) => setBusy(next));
     current.on('mafia:error', (payload) => setError(payload.message));
 
     return () => {
@@ -82,7 +97,7 @@ export function useMafiaSocket(): MafiaConnection {
 
   const messages = view ? mergeMessages(view.chat, extra) : extra;
 
-  return { socket, connected, view, messages, rewards, error, serverNow, applyView };
+  return { socket, connected, view, messages, rewards, busy, error, serverNow, applyView };
 }
 
 function mergeMessages(base: ChatMessage[], extra: ChatMessage[]): ChatMessage[] {

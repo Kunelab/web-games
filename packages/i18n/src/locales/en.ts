@@ -95,6 +95,8 @@ export const en: Catalogue = {
   'mafia.cause.guard': 'died protecting {name}',
   'mafia.cause.bodyguard': 'cut down by a bodyguard',
   'mafia.cause.killedBy': 'killed by {source}',
+  'mafia.list.pair': '{a} and {b}',
+  'mafia.list.more': '{a}, {b}',
   'mafia.cause.left': 'left the table',
   'mafia.cause.unknown': 'no explanation',
   'mafia.source.poison': 'the poison',

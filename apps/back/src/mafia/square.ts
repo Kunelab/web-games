@@ -85,7 +85,20 @@ export function utterance(
     if (now - line.at > SAME_BREATH_MS) break;
     mine.unshift(line.text.trim());
   }
-  const joined = mine.join(' ').replace(/\s+/g, ' ').trim();
+  /**
+   * Joined as separate sentences, because that is what they are.
+   *
+   * A space made one string out of three thoughts, and every rule that reads
+   * backwards from a word then read straight through the seam: "Vote for Nami
+   * not me" followed by "He is the bad guy" put a "not" eighteen characters in
+   * front of "bad", and the accusation came out of the reader as a *clearing*
+   * of the person being accused. Reported from a real table, where it happened
+   * twice in one afternoon to the same seat.
+   *
+   * A full stop is a boundary every lookback below already knows how to stop
+   * at, and it changes nothing else: no cue in this file is spelled with one.
+   */
+  const joined = mine.join('. ').replace(/\s+/g, ' ').trim();
   return joined.length > MAX_UTTERANCE ? joined.slice(joined.length - MAX_UTTERANCE) : joined;
 }
 
@@ -125,8 +138,23 @@ const REFUSED =
   /\b(?:not|no|dont|don'?t|never|nope|leave|spare|skip|save|protect|keep|pas|jamais|laisse|laissez|epargne|garde)\b[\s,:;'-]{0,3}$/i;
 
 /** The vocabulary of a defence offered on somebody else's behalf. */
+/**
+ * The vocabulary of a defence offered on somebody else's behalf.
+ *
+ * Three words have been taken out of it, and all three for the same reason:
+ * they are far commoner as filler than as verdicts. "OK On Nami now" is a person
+ * changing their vote *onto* Nami, and it was read as a clearing of Nami
+ * because of the "ok"; "sur" is French for "on" as often as it is French for
+ * "sure", and it loses its accent in `fold` either way. A reader that files the
+ * opposite of what was said is worse than one that files nothing, because the
+ * board is what every bot reasons from and a wrong entry never expires.
+ *
+ * "fine" stays, on the strength of "4 is fine" being the commonest clearing
+ * anybody types: it is the one word here that is a verdict more often than it
+ * is filler.
+ */
 const GOOD =
-  /\b(?:town|townie|clean|fine|trust|trusted|trustworthy|innocent|legit|confirmed|vouch|safe|good|ok|okay|confirme|confiance|fiable|blanc|innocente|innocent|clean|sur)\b/i;
+  /\b(?:town|townie|clean|fine|trust|trusted|trustworthy|innocent|legit|confirmed|vouch|safe|good|confirme|confiance|fiable|blanc|innocente|innocent|clean)\b/i;
 
 /** Pushing a rope, in either language. */
 const AGAINST =
@@ -452,7 +480,20 @@ export function readSquare(
      * the house gets one of them backwards every time. It is read from in front
      * of the *verdict* instead, wherever in the line that landed.
      */
-    const denied = (at: number): boolean => at >= 0 && NEGATED.test(near.slice(Math.max(0, at - 18), at));
+    const denied = (at: number): boolean => {
+      if (at < 0) return false;
+      /**
+       * And the denial has to be in the same breath as the word it denies.
+       *
+       * People type in fragments and `utterance` folds them together, so the
+       * eighteen characters in front of a verdict routinely belonged to the
+       * *previous* sentence. The window stops at the seam, which is what a
+       * person reading the same three lines does without thinking about it.
+       */
+      const window = near.slice(Math.max(0, at - 18), at);
+      const seam = Math.max(window.lastIndexOf('.'), window.lastIndexOf('!'), window.lastIndexOf('?'));
+      return NEGATED.test(seam >= 0 ? window.slice(seam + 1) : window);
+    };
     const refused = REFUSED.test(before);
     const evilAt = near.search(EVIL);
     const goodAt = near.search(GOOD);

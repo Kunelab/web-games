@@ -151,8 +151,33 @@ export interface MafiaClientToServer {
   'mafia:kick': (payload: z.infer<typeof mafiaKickSchema>, ack: Ack<MafiaAckResult>) => void;
 }
 
+/**
+ * Which machinery is running for this table, right now.
+ *
+ * Not game state and deliberately not part of the view: it changes several
+ * times a second, it is worth nothing a moment later, and pushing a whole
+ * projected board for it would cost more than the thing it is reporting. A seat
+ * is in `thinking` while a model is choosing its move and in `speaking` while
+ * one is writing its line; `reading` is the table's, because the ear reads the
+ * square on everybody's behalf and belongs to no seat.
+ *
+ * It exists because the room looked dead. A local model takes a second or two
+ * per line and a slow rung takes ten, and for all of that the square sat there
+ * with nothing in it — indistinguishable from a chain that had fallen over,
+ * which is exactly what people assumed was happening.
+ */
+export interface MafiaBusy {
+  /** Seats with a model writing their line. */
+  speaking: number[];
+  /** Seats with a model choosing their move. */
+  thinking: number[];
+  /** The ear, reading the square for the whole table. */
+  reading: boolean;
+}
+
 export interface MafiaServerToClient {
   'mafia:state': (view: MafiaView) => void;
+  'mafia:busy': (busy: MafiaBusy) => void;
   'mafia:message': (message: ChatMessage) => void;
   'mafia:rewards': (rewards: MafiaReward[]) => void;
   'mafia:error': (payload: { message: Msg }) => void;

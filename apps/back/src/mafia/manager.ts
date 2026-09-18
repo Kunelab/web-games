@@ -34,6 +34,7 @@ import {
   type MafiaState
 } from 'mafia-core';
 import { presenceIdle, type KickRefusal } from 'presence-core';
+import type { MafiaBusy } from 'mafia-core';
 import type { ChatMessage } from 'chat-core';
 import type { Locale } from 'i18n';
 import { eq, lt } from 'drizzle-orm';
@@ -98,6 +99,7 @@ const NO_SUCH_TABLE = () => NO.noTable();
 const NO_SUCH_TABLE_TEXT = 'Partie introuvable';
 
 export type MafiaTransitionListener = (state: MafiaState) => void;
+export type MafiaBusyListener = (code: string, busy: MafiaBusy) => void;
 export type MafiaMessageListener = (state: MafiaState, message: ChatMessage) => void;
 export type MafiaRewardListener = (state: MafiaState, rewards: MafiaGameReward[]) => void;
 
@@ -113,6 +115,7 @@ export class MafiaManager {
   /** How many deaths each table's log already knows about. */
   private readonly mourned = new Map<string, number>();
   private listener: MafiaTransitionListener | null = null;
+  private busyListener: MafiaBusyListener | null = null;
   private messageListener: MafiaMessageListener | null = null;
   private rewardListener: MafiaRewardListener | null = null;
   private sweepTimer: NodeJS.Timeout | undefined;
@@ -127,7 +130,8 @@ export class MafiaManager {
       action: (code, botId, slot, second) => this.nightAction(code, botId, slot, second),
       dayAction: (code, botId, action) => this.dayAction(code, botId, action),
       will: (code, botId, text) => this.will(code, botId, text),
-      get: (code) => this.sessions.get(code)
+      get: (code) => this.sessions.get(code),
+      busy: (code, busy) => this.busyListener?.(code, busy)
     });
   }
 
@@ -137,6 +141,17 @@ export class MafiaManager {
 
   onMessage(listener: MafiaMessageListener): void {
     this.messageListener = listener;
+  }
+
+  /**
+   * Who is thinking, writing or reading, for the screens.
+   *
+   * Its own listener rather than a field on the board: it changes several times
+   * a second and is worth nothing a moment later, so it must never drag a
+   * projection, a persist or a round of bot planning behind it. See `MafiaBusy`.
+   */
+  onBusy(listener: MafiaBusyListener): void {
+    this.busyListener = listener;
   }
 
   onRewards(listener: MafiaRewardListener): void {
@@ -542,6 +557,20 @@ export class MafiaManager {
       endsInMs: state.phaseEndsAt === null ? null : state.phaseEndsAt - Date.now()
     });
 
+    /**
+     * What every knife did last night, whether or not it produced a body.
+     *
+     * The deaths below say who died and to whom; this says who else was out,
+     * what they hit, and why nothing came of it — armour, a doctor, a cell, or
+     * a body somebody else had already made. Four explanations that used to
+     * look identical from the outside, which is how a Vigilante firing into a
+     * house the family had already emptied looked exactly like a Vigilante who
+     * never fired at all.
+     */
+    if (state.phase === 'day' && state.nightLog && state.nightLog.length > 0) {
+      log.event('night', { day: state.day - 1, attacks: state.nightLog });
+    }
+
     const seen = this.mourned.get(state.code) ?? 0;
     if (state.deaths.length > seen) {
       for (const death of state.deaths.slice(seen)) {
@@ -554,6 +583,8 @@ export class MafiaManager {
           day: death.day,
           phase: death.phase,
           source: death.source ?? null,
+          // Everybody whose knife reached this body, when more than one did.
+          sources: death.sources ?? null,
           hidden: death.hidden ?? false
         });
       }

@@ -339,7 +339,7 @@ export class BotMinds {
      * duplicate: the same sentence, but one of them was evidence the whole
      * town could weigh and the other was not.
      */
-    const alreadySaid = table.claims.some(
+    const alreadySaid = table.claims.find(
       (claim) =>
         claim.claimerSlot === claimer.slot &&
         claim.targetSlot === targetSlot &&
@@ -347,7 +347,26 @@ export class BotMinds {
         claim.day === state.day &&
         claim.room === extra?.room
     );
-    if (alreadySaid) return;
+    if (alreadySaid) {
+      /**
+       * Two readers reaching the same reading is worth more than one.
+       *
+       * A person's line is read twice: instantly, off cue words, and a few
+       * seconds later by a model. The second reading used to be swallowed whole
+       * as a duplicate, which was right when a claim was a claim and wrong now
+       * that one carries how sure its reader was — the quick reader's 0.65 hung
+       * around even after the careful one had agreed with it.
+       *
+       * Agreement raises it; it never lowers. A reader that missed something is
+       * silent rather than contradicting, so a lower number arriving second is
+       * an absence of evidence and not evidence of absence.
+       */
+      const offered = extra?.confidence;
+      if (offered !== undefined && offered > (alreadySaid.confidence ?? 1)) {
+        alreadySaid.confidence = Math.min(1, offered + 0.1);
+      }
+      return;
+    }
 
     /**
      * An account replaces the account it corrects, rather than joining it.

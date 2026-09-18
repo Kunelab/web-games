@@ -40,7 +40,8 @@ const hooks = {
   action: () => ({ ok: true as const }),
   dayAction: () => ({ ok: true as const }),
   will: () => ({ ok: true as const }),
-  get: () => undefined
+  get: () => undefined,
+  busy: () => undefined
 };
 
 /** One endpoint that always stalls, one that always answers. */

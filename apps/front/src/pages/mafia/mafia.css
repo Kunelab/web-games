@@ -901,6 +901,56 @@
   paint-order: stroke;
 }
 
+/**
+ * A control the rules have closed for a moment, rather than a broken one.
+ *
+ * Dimmed and quiet, with the countdown doing the explaining. Deliberately not
+ * hidden: a button that vanishes and comes back moves everything under it, and
+ * the row it lives in is the one place a thumb is already resting.
+ */
+/**
+ * A seat with a model working for it, and the table being read.
+ *
+ * A slow pulse rather than a spinner: this is ambient, it fires several times a
+ * minute, and anything sharper turns a roster into an airport departure board.
+ * Both respect `prefers-reduced-motion`, where the flag simply stays bright.
+ */
+@keyframes mz-working {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.mz-flag--thinking,
+.mz-flag--speaking {
+  animation: mz-working 1.4s ease-in-out infinite;
+}
+
+.mz-listening {
+  margin: 0.25rem 0 0;
+  font-size: 0.85em;
+  opacity: 0.75;
+  animation: mz-working 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mz-flag--thinking,
+  .mz-flag--speaking,
+  .mz-listening {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+.mz-act--waiting {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .mz-fountain-basin {
   fill: var(--town-stone);
 }
