@@ -51,6 +51,7 @@ import {
   WILL_MAX_CHARS,
   type MafiaPlayer,
   type MafiaState,
+  type NightOutcome,
   type NightAction,
   type PointEntry
 } from './state.js';
@@ -1138,6 +1139,20 @@ function promoteCarriers(state: MafiaState): void {
   }
 }
 
+/**
+ * How long the ballot stays shut at the start of a talking window.
+ *
+ * Never longer than a quarter of the window it is locking, which is the rule
+ * `beginDay` worked out the hard way and then kept to itself: the simulator
+ * runs a day in a virtual second, and a flat fifteen seconds there closes the
+ * ballot for the whole of it. The aftermath of an acquittal is a talking window
+ * too, and a shorter one, so it needs the same arithmetic rather than a second
+ * copy of the constant.
+ */
+function ballotLock(state: MafiaState, windowMs: number): number {
+  return Math.min(state.config.voteLockMs ?? 15_000, Math.floor(windowMs / 4));
+}
+
 function beginDay(state: MafiaState, now: number, announcements: Announcement[]): void {
   echoNotes(state, now);
   state.day += 1;
@@ -1170,8 +1185,7 @@ function beginDay(state: MafiaState, now: number, announcements: Announcement[])
    * tests all passed, because none of them plays a game to the end.
    */
   const day = state.day === 1 ? (state.config.firstDayMs ?? 35_000) : state.config.dayMs;
-  const lock = Math.min(state.config.voteLockMs ?? 15_000, Math.floor(day / 4));
-  state.voteOpensAt = state.day === 1 ? null : now + lock;
+  state.voteOpensAt = state.day === 1 ? null : now + ballotLock(state, day);
 
   announce(state, M.dayHeader(state.day), now);
   for (const line of announcements) {
@@ -1194,6 +1208,20 @@ function beginNight(state: MafiaState, now: number): void {
   state.phaseStartedAt = now;
 
   announce(state, M.nightFall(state.day), now);
+
+  /**
+   * And a power with nothing left in it says so, at the start of the night.
+   *
+   * `legalNightAction` returns null at zero charges, so the screen simply
+   * offers nothing and the seat is left to work out whether it has run out or
+   * whether the game has stopped listening. A Vigilante out of bullets spent
+   * three nights of a real game waiting to be asked.
+   */
+  for (const player of Object.values(state.players)) {
+    if (!player.alive || !player.role) continue;
+    const def = roleDef(player.role);
+    if (def.nightAction && def.charges !== undefined && player.charges <= 0) notify(player, NOTE.powerSpent());
+  }
 
   const jailed = state.jailedId ? state.players[state.jailedId] : null;
   const jailor = Object.values(state.players).find((player) => player.role === 'jailor' && player.alive);
@@ -1334,6 +1362,21 @@ function concludeTrial(state: MafiaState, now: number): void {
     beginNight(state, now);
   } else {
     state.phaseEndsAt = now + state.config.aftermathMs;
+    /**
+     * And the ballot shuts again, exactly as it does at dawn.
+     *
+     * It was set once, in `beginDay`, and an acquittal handed the square
+     * straight back to a board that was already open: the bots re-cast their
+     * ballots inside a second, the threshold fell again before anybody had said
+     * a word, and the same seat went back on the stand. Reported from a real
+     * table as one player tried and released nine times across three days,
+     * with two lines of chat in between.
+     *
+     * The window is the aftermath rather than the day, so the lock is shorter
+     * in proportion: enough to say something about the verdict that just
+     * happened, not enough to eat the rest of the afternoon.
+     */
+    state.voteOpensAt = now + ballotLock(state, state.config.aftermathMs);
   }
 }
 
@@ -1666,6 +1709,18 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       disturbed(target, state.day, 'block');
       // The blocker knows whom they kept busy — a quiet night says a lot.
       player.intel.push({ night: state.day, kind: 'blocked', targetSlot: target.slot, value: 'blocked' });
+      notify(player, NOTE.blockDone(target.name));
+    } else {
+      /**
+       * An evening spent on a doorstep nobody answered.
+       *
+       * The target was sitting on the porch with a rifle across his knees, and
+       * nobody keeps a Veteran busy. The blocker got an intel line when it
+       * worked and nothing at all when it did not, so a whole night of the
+       * game's most misunderstood power was indistinguishable from not having
+       * used it — which is exactly how it reads to the person playing it.
+       */
+      notify(player, NOTE.blockFailed(target.name));
     }
   }
 
@@ -2012,15 +2067,43 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     traveller.intel.push({ night: state.day, kind: 'went', targetSlot: house.slot, value: 'went' });
   }
 
-  // Resolution, one attack at a time.
+  /**
+   * Resolution, one attack at a time — and every one of them resolved.
+   *
+   * An attack on a seat that was already dead used to be dropped at the door,
+   * which is why a night where three killers picked the same house read as a
+   * night with one killer in it. The attacker was told nothing, spent its
+   * charge, and the morning credited whoever happened to be first in the list.
+   *
+   * Now a late knife walks the same gauntlet as an early one — the cell, the
+   * hiding place, the armour — and if it would have landed it is written into
+   * the body's cause of death beside the others. What it does *not* get is the
+   * protections somebody else already spent: a doctor's night and a bodyguard's
+   * life were used on the first attack, and they do not stretch to the second.
+   */
   const diedTonight = new Set<string>();
+  /** Knives that reached a body somebody else had already made. See the fix-up below. */
+  const alsoStruck = new Map<string, DeathSource[]>();
+  /** What every attack actually did, for the flight recorder. */
+  const outcomes: NightOutcome[] = [];
   for (const attack of attacks) {
     // A hidden coward hands his fate to his host.
     const hiddenAt = hideHosts.get(attack.targetId);
     const finalTargetId = hiddenAt && state.players[hiddenAt]?.alive ? hiddenAt : attack.targetId;
     const target = state.players[finalTargetId];
     const attacker = state.players[attack.attackerId];
-    if (!target || !target.alive || diedTonight.has(target.playerId)) continue;
+    if (!target) continue;
+    const already = diedTonight.has(target.playerId);
+    // A seat that died in daylight, or one already accounted for. Not tonight's business.
+    if (!target.alive && !already) continue;
+    const note = (outcome: NightOutcome['outcome']): void => {
+      outcomes.push({
+        attackerSlot: attacker?.slot ?? null,
+        targetSlot: target.slot,
+        source: attack.source,
+        outcome
+      });
+    };
 
     const fromJailor = attack.source === 'jailor';
     const isPoison = attack.source === 'poison';
@@ -2028,6 +2111,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     // The cell protects its prisoner from the outside world, never from its keeper.
     if (target.playerId === jailedId && !fromJailor && !isPoison) {
       if (attacker) notify(attacker, NOTE.targetMissing());
+      note('jailed');
       continue;
     }
     /**
@@ -2040,6 +2124,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
      */
     if (sheltered.has(target.playerId) && !fromJailor && !isPoison) {
       if (attacker) notify(attacker, NOTE.targetMissing());
+      note('sheltered');
       continue;
     }
 
@@ -2050,9 +2135,41 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     if (isPoison) defense = 0; // the poison is already inside; armour is irrelevant
 
     if (attack.power <= defense) {
-      notify(target, NOTE.survived());
-      rescued(target, state.day, 'self');
-      if (attacker) notify(attacker, NOTE.attackFailed());
+      /**
+       * And the attacker is told what it hit.
+       *
+       * Armour of its own or a vest bought in the shop are different facts: the
+       * first says the house is a Godfather or a Veteran and is worth never
+       * visiting again, the second says somebody spent a charge and tomorrow
+       * night is a fresh question. One sentence for both taught neither.
+       */
+      // One reading for both the note and the record: a seat that is alerted
+      // *and* vested was told "immune" and written down as "vested", which is
+      // two answers to one question in the one place kept for answering it.
+      const armour = !alerted.has(target.playerId) && vested.has(target.playerId) ? 'vested' : 'immune';
+      if (!already) {
+        notify(target, NOTE.survived());
+        rescued(target, state.day, 'self');
+      }
+      if (attacker) notify(attacker, armour === 'vested' ? NOTE.attackVested() : NOTE.attackImmune());
+      note(armour);
+      continue;
+    }
+
+    /**
+     * It would have landed, and somebody was quicker.
+     *
+     * The knife goes on the record beside the one that got there first, so the
+     * morning can say all of them, and the attacker is told why its night
+     * produced nothing. The charge is already spent either way; being told is
+     * the difference between a wasted night and a known one.
+     */
+    if (already) {
+      if (attacker) notify(attacker, NOTE.attackTooLate());
+      const struck = alsoStruck.get(target.playerId) ?? [];
+      struck.push(attack.source);
+      alsoStruck.set(target.playerId, struck);
+      note('too-late');
       continue;
     }
 
@@ -2066,6 +2183,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         addPoints(state, guard.playerId, 'save');
         notify(target, NOTE.guarded());
         rescued(target, state.day, 'bodyguard');
+        note('guarded');
         if (attacker && attacker.playerId !== guard.playerId) {
           const counterDefense = attacker.role && roleDef(attacker.role).nightImmune ? 1 : 0;
           if (2 > counterDefense && !diedTonight.has(attacker.playerId)) {
@@ -2088,6 +2206,9 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       } else {
         notify(target, NOTE.healed());
       }
+      // The hand that was stopped, told that it was stopped and by what.
+      if (attacker) notify(attacker, NOTE.attackHealed());
+      note('healed');
       // Either way a doctor spent its night here, and the seat knows it.
       rescued(target, state.day, 'doctor');
       for (const healer of healerList) {
@@ -2101,6 +2222,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     }
 
     diedTonight.add(target.playerId);
+    note('killed');
     kill(state, target, 'night', CAUSE.killedBy(attack.source), attack.source);
     if (isPoison) target.poisonedNight = null;
     if (attacker && attacker.playerId !== target.playerId) {
@@ -2149,6 +2271,27 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   for (const line of cascadeBonds(state)) {
     announcements.push({ line, reveals: true });
   }
+
+  /**
+   * Every knife that reached one body, written into its cause of death.
+   *
+   * Done here rather than inside the loop because the later knives are only
+   * known once the loop has finished. The first source stays first, which is
+   * the one that actually did the killing; the rest follow it in the order they
+   * arrived, and the morning reads "killed by the Mafia and the Serial Killer".
+   */
+  for (const [victimId, extra] of alsoStruck) {
+    const record = state.deaths.find((death) => death.playerId === victimId && death.day === state.day);
+    if (!record?.source) continue;
+    const all = [record.source, ...extra];
+    record.sources = all;
+    record.cause = CAUSE.killedByAll(all);
+    const victim = state.players[victimId];
+    if (victim?.death) victim.death.cause = record.cause;
+  }
+
+  // Everything the night actually did, for the recorder. Overwritten nightly.
+  state.nightLog = outcomes;
 
   // The cleaners pass before dawn: a nameless body, one more family secret.
   for (const [cleanerId, targetId] of cleanTargets) {

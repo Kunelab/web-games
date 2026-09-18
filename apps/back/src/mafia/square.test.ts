@@ -177,6 +177,41 @@ describe('reading the square', () => {
     assert.deepEqual(about('N2: checked 7, came back bad', 3, 'accuse'), [7]);
   });
 
+  /**
+   * The three misreads a real afternoon produced, all on the same seat.
+   *
+   * A person under a wagon types in bursts, and every one of these came out of
+   * the reader as the *opposite* of what was said: two clearings of the man
+   * they were accusing, and a confession read as a question about somebody
+   * else. The board is what every bot reasons from, so a wrong entry is worse
+   * than no entry at all.
+   */
+  it('does not let a denial leak across the seam between two lines', () => {
+    // Said as two fragments, a second apart, which `utterance` folds into one.
+    const folded = readSquare('Vote for 10 not me. He is the bad guy', 3, SEATS);
+    assert.deepEqual(
+      folded.filter((claim) => claim.kind === 'clear').map((claim) => claim.targetSlot),
+      [],
+      'the "not" belongs to the sentence it was typed in'
+    );
+    assert.deepEqual(
+      folded.filter((claim) => claim.kind === 'accuse').map((claim) => claim.targetSlot),
+      [10],
+      'and the accusation lands the right way round'
+    );
+
+    // The rule it must not break: a denial inside one breath still denies.
+    assert.deepEqual(about('10 is not sus at all', 3, 'clear'), [10]);
+  });
+
+  it('does not read "ok" as a character reference', () => {
+    assert.deepEqual(
+      readSquare('OK On 10 now', 3, SEATS).filter((claim) => claim.kind === 'clear'),
+      [],
+      'a person moving their vote onto somebody is not vouching for them'
+    );
+  });
+
   it('does not read an opinion about somebody else as a role claim', () => {
     // The expensive false positive: a first-person marker a few characters in
     // front of a role name, in a sentence that is about another house.

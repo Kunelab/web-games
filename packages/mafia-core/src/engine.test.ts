@@ -1114,6 +1114,73 @@ describe('mafia engine', () => {
     assert.ok(said.includes('Son secret est mort avec lui'));
   });
 
+  /**
+   * The ballot shuts again after an acquittal.
+   *
+   * It was opened once at dawn and never again, so the instant a trial ended in
+   * "spared" the room could re-cast and re-open one before anybody had said a
+   * word about the verdict. A real table spent three afternoons doing exactly
+   * that to the same seat.
+   */
+  it('shuts the ballot again after a seat is spared', () => {
+    const state = table(['citizen', 'citizen', 'citizen', 'godfather', 'citizen']);
+    state.voteOpensAt = null;
+    state.config.aftermathMs = 40_000;
+
+    // Three of five is the threshold: 4 goes to the stand.
+    for (const slot of [1, 2, 3]) castVote(state, bySlot(state, slot).playerId, 4, 0);
+    assert.equal(state.stage, 'defense');
+    advanceMafia(state, 10, lcg(9)); // to the booth
+
+    for (const slot of [1, 2, 3]) castBallot(state, bySlot(state, slot).playerId, 'innocent');
+    advanceMafia(state, 20, lcg(9)); // verdict: spared
+
+    assert.equal(state.stage, 'discussion', 'the afternoon carries on');
+    assert.equal(state.voteOpensAt, 20 + 10_000, 'a quarter of the aftermath, as at dawn');
+
+    const early = castVote(state, bySlot(state, 1).playerId, 5, 30);
+    assert.equal(early.ok, false, 'and the room talks before it votes again');
+
+    assert.equal(castVote(state, bySlot(state, 1).playerId, 5, 10_100).ok, true, 'then the floor opens');
+  });
+
+  /**
+   * Three killers, one house, one morning.
+   *
+   * The resolution loop dropped every attack after the first on the same body,
+   * so a night where the family and a lone blade picked the same door read as a
+   * night with one killer out — and the Vigilante who fired into a house the
+   * family had already emptied lost a bullet, was told nothing, and watched the
+   * square credit somebody else. Reported as a missing feature and it was worse
+   * than that: it was a night the town could not read.
+   */
+  it('names every knife that reached the same body', () => {
+    const state = table(['citizen', 'vigilante', 'serial-killer', 'mafioso', 'citizen']);
+    advanceMafia(state, 0, lcg(3)); // into the night
+    assert.equal(state.phase, 'night');
+
+    // All three go to house 1.
+    setNightAction(state, bySlot(state, 2).playerId, 1);
+    setNightAction(state, bySlot(state, 3).playerId, 1);
+    setNightAction(state, bySlot(state, 4).playerId, 1);
+    advanceMafia(state, 1, lcg(3));
+
+    const dead = bySlot(state, 1);
+    assert.equal(dead.alive, false);
+
+    const record = state.deaths.find((death) => death.playerId === dead.playerId)!;
+    assert.equal(record.sources?.length, 3, 'all three are on the record');
+    const line = said(state);
+    assert.ok(line.includes('Mafia'), `the family is named: ${line}`);
+    assert.ok(line.includes('Tueur'), `and so is the blade: ${line}`);
+
+    /** And the two who arrived second are told why their night produced nothing. */
+    const late = [bySlot(state, 2), bySlot(state, 3), bySlot(state, 4)].filter((player) =>
+      player.notifications.some((note) => note.k === 'mafia.note.attackTooLate')
+    );
+    assert.equal(late.length, 2, 'two of the three found a body rather than a victim');
+  });
+
   it('the end of the game lifts every policy', () => {
     // One lone godfather, so hanging him purges the town and ends it there.
     const state = table(['citizen', 'citizen', 'citizen', 'godfather']);

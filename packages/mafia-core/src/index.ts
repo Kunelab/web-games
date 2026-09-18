@@ -206,6 +206,7 @@ export {
 export { deductions, deductionWeight, strongest, type Deduction } from './sim/deduce.js';
 export { visitOdds, type VisitOdds, type VisitReason } from './sim/visits.js';
 export { rank, caseFor, defenceFor, type Suspect, type Reason, type ReasonCode } from './sim/ranking.js';
+export { beliefs, evilOdds, surestSuspect, type Belief, type BeliefWhy } from './sim/beliefs.js';
 export {
   mafiaActionSchema,
   mafiaBallotSchema,
@@ -222,5 +223,6 @@ export {
   type MafiaClientToServer,
   type MafiaJoinAck,
   type MafiaReward,
-  type MafiaServerToClient
+  type MafiaServerToClient,
+  type MafiaBusy
 } from './protocol.js';

@@ -67,6 +67,8 @@ export interface Reason {
 }
 
 export type ReasonCode =
+  /** Said out loud that they are one of the killers. */
+  | 'confessed'
   | VisitReason['code']
   | 'accused-by'
   | 'vouched-for'
@@ -107,6 +109,16 @@ export type ReasonCode =
  */
 const SAID = {
   accusedBy: 0.3,
+  /**
+   * The strongest single thing on the board, and the cheapest to check.
+   *
+   * Heavier than an unchallenged badge, because a badge is a claim about what
+   * somebody does at night and this is a claim about which side they are on,
+   * made by the one person who knows for certain. A liar who says it to be
+   * interesting pays the price of having said it, which is the price the room
+   * would charge.
+   */
+  confessed: 3.0,
   vouchedFor: -0.63,
   hangedKillers: -0.09,
   savedKillers: 0.39,
@@ -210,8 +222,30 @@ export function rank(info: PublicInfo): Suspect[] {
       }
 
       const trust = trustOf(slot, info);
-      if (trust >= 2) reasons.push({ code: 'hanged-killers', weight: SAID.hangedKillers });
+      // Scaled with the meter itself: a correct rope is now priced by how
+      // divided the room was, so the old threshold described almost nobody.
+      if (trust >= 1.2) reasons.push({ code: 'hanged-killers', weight: SAID.hangedKillers });
       else if (trust <= -2) reasons.push({ code: 'saved-killers', weight: SAID.savedKillers });
+
+      /**
+       * A seat that said out loud it is one of the killers.
+       *
+       * Public, checkable by anybody who was in the square, and the heaviest
+       * single thing that can be said about a seat — which is why it is here
+       * and not only in `suspicionParts`: this model is where the bots get the
+       * *sentence* from, and a town that hangs a man for confessing should be
+       * able to say that is what it is doing.
+       */
+      const confession = info.claims.find(
+        (claim) =>
+          claim.kind === 'role-claim' &&
+          claim.claimerSlot === slot &&
+          claim.claimedRole !== undefined &&
+          isEvilRole(claim.claimedRole)
+      );
+      if (confession?.claimedRole) {
+        reasons.push({ code: 'confessed', weight: SAID.confessed, role: confession.claimedRole });
+      }
 
       const badge = uncontestedBadge(slot, info);
       if (badge !== null) reasons.push({ code: 'badge-unchallenged', weight: SAID.badge, role: badge });
@@ -268,8 +302,20 @@ export function rank(info: PublicInfo): Suspect[] {
 }
 
 /** The reasons this file adds, as opposed to the ones `visitOdds` already summed. */
+/**
+ * The reasons that come from what the room *said*, rather than from the night.
+ *
+ * `visitOdds` already carries the movement half of the model, so only these are
+ * summed on top of it — which makes this list load-bearing rather than
+ * decorative: a reason missing from it is attached to the seat, printed in the
+ * trace, rendered in a bot's sentence, and worth exactly nothing to the score.
+ * `confessed` was priced at 3.0 and left out of here, so a man announcing he
+ * was the Serial Killer moved the ranking by 0.000 and every certainty path
+ * built on `rank` — the gun, the cell, the booth — ignored him.
+ */
 function isSaid(reason: Reason): boolean {
   return (
+    reason.code === 'confessed' ||
     reason.code === 'accused-by' ||
     reason.code === 'vouched-for' ||
     reason.code === 'hanged-killers' ||

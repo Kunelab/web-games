@@ -297,6 +297,20 @@ export function registerRealtime(
 
   mafia.onTransition(mafiaBroadcast);
 
+  /**
+   * The lights, which are not the board.
+   *
+   * Sent to everybody in the room as it is: there is nothing private in a list
+   * of seats a model is working for, and giving it the per-recipient treatment
+   * would cost a projection per socket for a thing that changes twice a second.
+   */
+  mafia.onBusy((code, busy) => {
+    for (const socket of socketsIn(mafiaRoom(code))) {
+      if (socket.data.mafiaCode !== code) continue;
+      socket.emit('mafia:busy', busy);
+    }
+  });
+
   mafia.onMessage((state, message) => {
     const rules = chatRules();
     for (const socket of socketsIn(mafiaRoom(state.code))) {
