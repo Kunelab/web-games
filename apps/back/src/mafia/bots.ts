@@ -45,6 +45,7 @@ import {
   type MafiaPlayer,
   type MafiaBusy,
   type MafiaState,
+  isMason,
   type IntelEntry,
   type MafiaView,
   type PublicInfo,
@@ -1127,6 +1128,19 @@ export class MafiaBotDriver {
   private readonly parsedWills = new Map<string, Set<string>>();
   /** Lines already given a second chance after a closed room, per table. See `sayLater`. */
   private readonly requeued = new Map<string, Set<string>>();
+  /** Afternoons where somebody has already made the last call before a skip. */
+  private readonly asked = new Set<string>();
+  /**
+   * Timers that must survive the next phase, per table.
+   *
+   * `later` puts a timer in the per-phase list, which `onChange` empties on
+   * every transition — correct for everything scheduled *for* a phase, and
+   * fatal for the one thing scheduled to happen *after* one. A line refused
+   * because a trial opened waits for the booth, and the booth opening was
+   * exactly the event that threw the timer away, so the retry never ran and the
+   * mechanism was dead in the only case it exists for.
+   */
+  private readonly outliving = new Map<string, Set<NodeJS.Timeout>>();
   /** Seats with a model working for them right now, per table. See `MafiaBusy`. */
   private readonly busySeats = new Map<string, Map<string, 'thinking' | 'speaking'>>();
   /** Tables whose square is being read by the ear right now. */
@@ -1597,6 +1611,9 @@ export class MafiaBotDriver {
     this.busySeats.delete(code);
     this.busyEar.delete(code);
     this.requeued.delete(code);
+    for (const key of [...this.asked]) if (key.startsWith(code + ':')) this.asked.delete(key);
+    for (const timer of this.outliving.get(code) ?? []) clearTimeout(timer);
+    this.outliving.delete(code);
     const ear = this.earTimer.get(code);
     if (ear) clearTimeout(ear);
     this.earTimer.delete(code);
@@ -1792,11 +1809,26 @@ export class MafiaBotDriver {
        * together, so a mafioso and a triad soldier could be chosen as each
        * other's conversation partners.
        */
-      for (const room of ['mafia', 'triad', 'cult'] as const) {
-        const kin = bots.filter((bot) => playerFamily(bot) === room);
+      /**
+       * And the lodge, which was the one private room nobody was ever sent to.
+       *
+       * The Masons have a channel, the rules let them write in it at night, and
+       * not one turn was ever scheduled there: the three rooms below were the
+       * killing families, and the brothers sat in the dark for the whole game.
+       * What they have to say is worth more than what a family does — they are
+       * the only seats at the table who *know* each other to be town, so
+       * anything one of them knows, the rest can act on without weighing it.
+       */
+      for (const room of ['mafia', 'triad', 'cult', 'mason'] as const) {
+        const kin = bots.filter((bot) =>
+          room === 'mason' ? isMason(bot) : playerFamily(bot) === room
+        );
         if (kin.length === 0) continue;
 
-        const leader = kin.find((bot) => ROLES[bot.role!].familyRank === 'leader') ?? kin[0];
+        const leader =
+          room === 'mason'
+            ? (kin.find((bot) => bot.role === 'mason-leader') ?? kin[0])
+            : (kin.find((bot) => ROLES[bot.role!].familyRank === 'leader') ?? kin[0]);
         const second = kin.find((bot) => bot.playerId !== leader.playerId);
         const speakers = second ? [leader, second] : [leader];
 
@@ -3165,6 +3197,31 @@ export class MafiaBotDriver {
     }
   }
 
+  /**
+   * The same as `later`, for work that is waiting for the phase to turn.
+   *
+   * Kept in its own list so a transition does not cancel it, and cleared with
+   * the table rather than with the phase. Everything scheduled here has to
+   * re-check the board when it fires, because by then the game has moved.
+   */
+  private laterAcross(code: string, delayMs: number, run: () => void): void {
+    let waiting = this.outliving.get(code);
+    if (!waiting) {
+      waiting = new Set();
+      this.outliving.set(code, waiting);
+    }
+    const timer = setTimeout(() => {
+      waiting.delete(timer);
+      try {
+        run();
+      } catch (error) {
+        this.log.warn({ err: error, code }, 'mafia bot task failed');
+      }
+    }, delayMs);
+    timer.unref();
+    waiting.add(timer);
+  }
+
   private later(code: string, delayMs: number, run: () => void): void {
     const timer = setTimeout(() => {
       try {
@@ -3400,7 +3457,6 @@ export class MafiaBotDriver {
         .then((spoken) => {
           const fresh = this.hooks.get(code);
           if (fresh) this.apply(fresh, botId, task, channel, spoken, 'speak', true);
-          if (holdsBallot) castOnce();
         })
         .catch((error: unknown) => {
           this.log.error({ err: error, code, botId }, 'mafia bot line could not be applied');
@@ -3416,6 +3472,17 @@ export class MafiaBotDriver {
          * things at once quietly stopped existing.
          */
         .finally(() => {
+          /**
+           * The ballot goes in whether the sentence arrived or not.
+           *
+           * It used to be cast in the `then`, which is the one path that cannot
+           * fail — so a mouth that threw left the seat with no vote at all, and
+           * the `VOICE_FIRST_MS` net does not catch it either: that timer lives
+           * in the per-phase list and a stage change inside those three and a
+           * half seconds clears it. A seat that decided how to vote must end the
+           * afternoon having voted.
+           */
+          if (holdsBallot) castOnce();
           this.inFlight--;
         });
       return;
@@ -4212,7 +4279,7 @@ export class MafiaBotDriver {
       ? Math.min(30_000, Math.max(1500, state.phaseEndsAt! - Date.now() + 600))
       : 1500 + Math.random() * 1500;
 
-    this.later(code, wait, () => {
+    this.laterAcross(code, wait, () => {
       const fresh = this.hooks.get(code);
       const seat = fresh?.players[botId];
       if (!fresh || !seat?.alive || fresh.phase !== 'day' || fresh.day !== state.day) return;
@@ -4517,6 +4584,36 @@ export class MafiaBotDriver {
               heard.length > 0
                 ? 'answer the other voice in the cell, where only the two of you can hear'
                 : `speak privately in the cell, where only the two of you can hear — say this and only this: "${line}"`,
+            mood: moodOf(mind.brain.personality),
+            fallback: line,
+            ...(heard.length > 0 ? { answering: heard } : {})
+          }
+        };
+      }
+
+      /**
+       * The lodge, where the only thing worth saying is what you know.
+       *
+       * A family room is a planning room: there is a knife and somebody has to
+       * point it. The lodge has no knife and no plan — what it has is two or
+       * three seats who are certain of each other, which makes it the one place
+       * in the game where a suspicion can be passed on without being weighed
+       * first. So a brother reports: who it is watching and why, or who the
+       * Master is bringing in tonight.
+       */
+      if (channel === 'mason') {
+        const line = this.lodgeLine(state, botId, view, board, slot);
+        if (!line) return EMPTY;
+        const heard = this.answering(state, botId, channel);
+        return {
+          ...EMPTY,
+          say: line,
+          about: slot,
+          intent: {
+            act:
+              heard.length > 0
+                ? 'answer your brother in the lodge, where only the masons can hear — you all know each other to be town'
+                : `tell your brothers in the lodge what you know, where only the masons can hear — say this and only this: "${line}"`,
             mood: moodOf(mind.brain.personality),
             fallback: line,
             ...(heard.length > 0 ? { answering: heard } : {})
@@ -5055,9 +5152,46 @@ export class MafiaBotDriver {
     // By name, for the same reason `actOf` names houses that way.
     const votedLabel = voting === null ? null : (votedName ?? String(voting));
 
+    /**
+     * Somebody asks the room for something before the day is thrown away.
+     *
+     * A skip is the town spending an afternoon and a night on nothing, and it
+     * used to happen in near silence: the tally slid across to "hang nobody"
+     * and the first anyone knew of it was the dawn report. A person at a real
+     * table does not do that quietly — they ask. Any badge that has been out at
+     * night has something, and the ones with nothing lose nothing by saying so.
+     *
+     * Once per afternoon, by the first seat that gets there, and it does not
+     * change the vote: this seat still skips. It is a question with a ballot
+     * behind it rather than a delay, and if somebody answers it, the ear files
+     * what they said and the room re-reads the board before the day ends.
+     */
+    const lastCall = ballot.skip && !this.asked.has(state.code + ':' + String(state.day));
+    if (lastCall) this.asked.add(state.code + ':' + String(state.day));
+
     // Into the journal, so the will says tomorrow what the seat said today.
     if (voting !== null && !mind.notes.some((note) => note.day === state.day && note.slot === voting)) {
       mind.notes.push({ day: state.day, slot: voting, kind: contradicted(voting, board) ? 'liar' : 'evil' });
+    }
+
+    if (lastCall) {
+      const plea = say(spokenLocale(state))(vary('mafia.bot.skip.lastCall', 4, botId + ':skip:' + state.day));
+      return {
+        say: plea,
+        intent: {
+          act: 'ask the room, one last time, whether anybody has anything at all before the day is thrown away',
+          mood: moodOf(mind.brain.personality),
+          fallback: plea,
+          ...(task === 'react' ? { answering: this.answering(state, botId, 'day') } : {})
+        },
+        urgent: true,
+        targetSlot: ballot.slot,
+        skipVote: ballot.skip,
+        verdict: null,
+        claim: null,
+        jailSlot: day.jailSlot,
+        revealMayor: day.revealMayor
+      };
     }
 
     return {
@@ -6108,6 +6242,63 @@ export class MafiaBotDriver {
    * in the night and the reason a seat with no knife sometimes has nothing to
    * propose.
    */
+  /**
+   * One brother's contribution to the lodge, which is intel rather than orders.
+   *
+   * Three things in order of worth: the Master naming tonight's initiate, which
+   * the others need to know so they do not accuse a seat that is about to be one
+   * of them; the strongest read this seat has with the reason attached, which is
+   * the whole point of a room whose members trust each other; and, failing both,
+   * silence, because a lodge repeating "nothing to report" every night is worse
+   * than a quiet one.
+   */
+  private lodgeLine(
+    state: MafiaState,
+    botId: string,
+    view: MafiaView,
+    board: PublicInfo,
+    recruit: number | null
+  ): string | null {
+    const self = state.players[botId];
+    const me = view.me;
+    if (!self || !me) return null;
+    const t = say(spokenLocale(state));
+    const nameOf = (slot: number): string =>
+      Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
+    const salt = botId + ':lodge:' + state.day;
+
+    if (self.role === 'mason-leader' && recruit !== null && recruit !== me.slot) {
+      return t(vary('mafia.bot.lodge.recruit', 3, salt, { who: nameOf(recruit) }));
+    }
+
+    /**
+     * The seat this brother would hang tomorrow, and what it has against them.
+     *
+     * Read through `why`, so a brother can only pass on something the board
+     * actually holds — the lodge is a room where nothing is doubted, which
+     * makes an invented reason cost more here than anywhere else in the game.
+     */
+    const rng = Math.random;
+    const worst = board.aliveSlots
+      .filter((slot) => slot !== me.slot)
+      .filter((slot) => {
+        const seat = Object.values(state.players).find((player) => player.slot === slot);
+        return !!seat && !isMason(seat);
+      })
+      .map((slot) => ({ slot, score: suspicion(slot, self, board, rng) }))
+      .sort((left, right) => right.score - left.score)[0];
+
+    if (worst && worst.score >= 1) {
+      const why = this.why(state, view, board, worst.slot, botId);
+      return t(
+        why
+          ? vary('mafia.bot.lodge.watch', 3, salt, { who: nameOf(worst.slot), why })
+          : vary('mafia.bot.lodge.plain', 3, salt, { who: nameOf(worst.slot) })
+      );
+    }
+    return null;
+  }
+
   private familyKnife(state: MafiaState, botId: string): number | null {
     const self = state.players[botId];
     const family = self ? playerFamily(self) : null;

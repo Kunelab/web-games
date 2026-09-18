@@ -1771,12 +1771,25 @@ export function suspicionParts(
       hard += 4;
     }
 
-    const rivals = info.claims.filter(
-      (claim) =>
-        claim.kind === 'role-claim' &&
-        claim.claimedRole === roleClaim.claimedRole &&
-        claim.claimerSlot !== targetSlot &&
-        info.aliveSlots.includes(claim.claimerSlot)
+    /**
+     * Distinct claimants, not distinct claims.
+     *
+     * `record` deduplicates a claim per claimer, per target, per kind, per day
+     * and per room — so one seat honestly repeating "I am the Sheriff" on
+     * Tuesday and again on Thursday is two rows on the board. Counted as rows,
+     * that is two rivals rather than one, and the arithmetic below charges the
+     * *other* Sheriff twice over for a contest only one person was having.
+     */
+    const rivals = new Set(
+      info.claims
+        .filter(
+          (claim) =>
+            claim.kind === 'role-claim' &&
+            claim.claimedRole === roleClaim.claimedRole &&
+            claim.claimerSlot !== targetSlot &&
+            info.aliveSlots.includes(claim.claimerSlot)
+        )
+        .map((claim) => claim.claimerSlot)
     );
 
     /**
@@ -1799,7 +1812,7 @@ export function suspicionParts(
       ([slot, role]) => role === roleClaim.claimedRole && slot !== targetSlot
     ).length;
     const copies = copiesOf(info, roleClaim.claimedRole);
-    const claimants = 1 + rivals.length + buriedSame;
+    const claimants = 1 + rivals.size + buriedSame;
 
     if (copies > 0 && buriedSame >= copies) {
       score += 3;
@@ -3684,7 +3697,19 @@ function pickVote(
    */
   if (!isMafiaSeat && !isEvilRole(role)) {
     const sure = surestSuspect(self, info, 0.8, teammates);
-    if (sure && open.some((seat) => seat.slot === sure.slot)) return sure.slot;
+    /**
+     * And the acquittal that does not survive the parity bell.
+     *
+     * A seat tried and released today is normally off the list for the rest of
+     * the afternoon: asking the same question twice with nothing new is the
+     * loop this filter exists to stop. Being *sure* is not nothing new, but it
+     * is also not new *today* — the reading was the same before the trial — so
+     * it only overrides the filter where the alternative is losing the game.
+     * At the bell the booth votes with the square (see `decideBallot`), so the
+     * second trial is a different question with a different answer.
+     */
+    const reachable = pressure >= 1 ? scored : open;
+    if (sure && reachable.some((seat) => seat.slot === sure.slot)) return sure.slot;
   }
 
   const top = open[0];

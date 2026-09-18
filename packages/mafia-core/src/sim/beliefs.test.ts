@@ -189,6 +189,50 @@ describe('what one seat can work out for itself', () => {
     assert.notEqual(surestSuspect(doctor, said, 0.85), null, 'so the gun and the cell can act on it');
   });
 
+  /**
+   * A corpse that nobody killed.
+   *
+   * A body in the morning with two chairs left is the strongest reading this
+   * module produces, so it has to be sure the body was *attacked*. A Lover dies
+   * of grief when their partner is hanged, a hand that pulled the Jester's rope
+   * dies of remorse, and a seat that walks away from the table is recorded the
+   * same way — all at night, none of them by anybody still sitting there. Read
+   * as an attack, each one convicts an innocent at 0.93 and hands that number
+   * to the gun, the cell and the booth.
+   *
+   * One board, three sources: only the third is somebody being out killing.
+   */
+  it('does not read grief or remorse as somebody being out killing', () => {
+    const state = table(['doctor', 'sheriff', 'citizen', 'citizen'], 9);
+    playerBySlot(state, 4)!.alive = false;
+    const doctor = playerBySlot(state, 1)!;
+    const board: PublicInfo = {
+      ...toPublicInfo(state, [], []),
+      totalDead: 11,
+      day: 9,
+      // The record has signed for the Sheriff, so the only chair left is the third.
+      provenRoles: new Map([[2, 'sheriff' as const]])
+    };
+    const lastNight = (source: PublicInfo['deaths'][number]['source']): PublicInfo => ({
+      ...board,
+      deaths: [{ slot: 4, day: 8, phase: 'night', source }],
+      lastNightDeathSlots: new Set([4])
+    });
+
+    assert.ok(
+      beliefs(doctor, lastNight(null)).get(3)!.odds < 0.85,
+      'a broken heart is not a knife, and nobody is narrowed down by it'
+    );
+    assert.ok(
+      beliefs(doctor, lastNight('remorse')).get(3)!.odds < 0.85,
+      'and neither is the Jester last laugh'
+    );
+    assert.ok(
+      beliefs(doctor, lastNight('mafia')).get(3)!.odds >= 0.9,
+      'a body with a killer behind it still narrows to the one chair left'
+    );
+  });
+
   /** A quiet night narrows nothing, and the reading says so rather than guessing. */
   it('claims nothing at all on a night when nobody was touched', () => {
     const state = table(['doctor', 'vigilante', 'serial-killer']);

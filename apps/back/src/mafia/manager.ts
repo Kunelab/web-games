@@ -116,6 +116,15 @@ export class MafiaManager {
   private readonly mourned = new Map<string, number>();
   private listener: MafiaTransitionListener | null = null;
   private busyListener: MafiaBusyListener | null = null;
+  /**
+   * The last morning whose night has been written down, per table.
+   *
+   * `recordChange` fires on every stage of the day, and the night's report
+   * hangs on the state until the next night overwrites it — so one night's
+   * attacks were recorded again at each trial and each verdict, out of order
+   * and several times over.
+   */
+  private readonly logged = new Map<string, number>();
   private messageListener: MafiaMessageListener | null = null;
   private rewardListener: MafiaRewardListener | null = null;
   private sweepTimer: NodeJS.Timeout | undefined;
@@ -567,7 +576,8 @@ export class MafiaManager {
      * house the family had already emptied looked exactly like a Vigilante who
      * never fired at all.
      */
-    if (state.phase === 'day' && state.nightLog && state.nightLog.length > 0) {
+    if (state.phase === 'day' && state.nightLog && state.nightLog.length > 0 && this.logged.get(state.code) !== state.day) {
+      this.logged.set(state.code, state.day);
       log.event('night', { day: state.day - 1, attacks: state.nightLog });
     }
 

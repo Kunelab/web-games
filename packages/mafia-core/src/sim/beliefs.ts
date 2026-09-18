@@ -29,6 +29,7 @@
  * Costs one `rank` per board and one pass per seat, both memoised against the
  * board object, which is rebuilt whenever anything it reads changes.
  */
+import type { DeathSource } from '../messages.js';
 import { roleDef, type RoleId } from '../roles.js';
 import type { MafiaPlayer } from '../state.js';
 import { isEvilRole, sheriffSuspects, type PublicInfo } from './policies.js';
@@ -82,6 +83,31 @@ function publicOdds(info: PublicInfo): Map<number, number> {
 const PRIVATE = new WeakMap<PublicInfo, Map<number, Map<number, Belief>>>();
 
 /**
+ * The ways a seat dies at night that mean somebody was out killing.
+ *
+ * `lastNightDeathSlots` holds every corpse with a night on it, and not all of
+ * them were attacked: a Lover dies of grief when their partner does, a hand that
+ * pulled the Jester's rope dies of remorse, and a seat that leaves the table is
+ * recorded the same way. Reading any of those as an attack is how a town with
+ * three seats left convinces itself, at 0.93, that the wrong one is a killer —
+ * and every decision downstream reads that number.
+ *
+ * Only the killing sides count. A Vigilante's bullet and a Jailor's execution
+ * are attacks too, but they say a *town* seat was out, which is not evidence
+ * about anybody's allegiance and must not narrow anything.
+ */
+const EVIL_HANDS: ReadonlySet<DeathSource> = new Set<DeathSource>([
+  'mafia',
+  'triad',
+  'cult',
+  'serialKiller',
+  'massMurderer',
+  'arsonist',
+  'electromaniac',
+  'poison'
+]);
+
+/**
  * Last night, and who is left who could have done it.
  *
  * The victims are what this seat knows was attacked: the bodies everybody saw,
@@ -102,7 +128,22 @@ function narrowing(
   // During day D, last night was night D-1: `resolveNight` stamps its intel
   // before `beginDay` moves the counter.
   const night = info.day - 1;
-  const victims = new Set<number>(info.lastNightDeathSlots);
+  const victims = new Set<number>(
+    info.deaths
+      .filter((death) => death.phase === 'night' && death.day === night && death.source !== null)
+      .filter((death) => EVIL_HANDS.has(death.source!))
+      .map((death) => death.slot)
+  );
+  /**
+   * And what this seat knows that the square does not.
+   *
+   * A Doctor that stopped a knife and a seat that woke up having been stopped
+   * for both know an attack happened, and neither knows whose hand it was: a
+   * Vigilante having a bad night looks exactly like a family having a good one.
+   * Kept anyway, because it is the same thing a person in that chair concludes,
+   * and because the reading below never rests on it alone — it is the *other*
+   * seats being crossed off that makes it worth anything.
+   */
   for (const entry of self.intel) {
     if (entry.night === night && entry.kind === 'saved') victims.add(entry.targetSlot);
   }
