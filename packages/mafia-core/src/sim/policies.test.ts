@@ -11,6 +11,7 @@ import {
   DEFAULT_PROFILE,
   claimerWeight,
   contradicted,
+  copiesOf,
   decideBallot,
   decideDay,
   decideNightTarget,
@@ -950,6 +951,38 @@ describe('a style, chosen once', () => {
       first,
       'caught out since the acquittal is new, and it is allowed back on the stand'
     );
+  });
+
+  /**
+   * Two Jailors at a chaos table, which is still two Jailors.
+   *
+   * A chaos or census roster is published as "any" in every slot, because any
+   * slot really could be anything — so counting the roster gives every role as
+   * many possible copies as there are seats, and no two claimants can ever
+   * contradict each other. The dealer says otherwise: it refuses to deal a
+   * second Jailor whatever the mode. Caught on a live chaos table where two
+   * seats wore badges nobody can wear twice and the board said nothing.
+   */
+  it('still catches a doubled unique badge when the roster says anything goes', () => {
+    const state = table(['citizen', 'jailor', 'doctor', 'mafioso', 'citizen'], 4);
+    state.config.setup = { mode: 'chaos' };
+    const reader = playerBySlot(state, 1)!;
+    const board = toPublicInfo(
+      state,
+      [
+        claim({ claimerSlot: 2, targetSlot: 2, kind: 'role-claim', claimedRole: 'jailor', day: 3 }),
+        claim({ claimerSlot: 3, targetSlot: 3, kind: 'role-claim', claimedRole: 'jailor', day: 3 })
+      ],
+      []
+    );
+    assert.equal(copiesOf(board, 'jailor'), 1, 'the dealer never deals two, whatever the roster says');
+    assert.ok(
+      suspicionParts(2, reader, board, always(0.5)).hard >= 1.5,
+      'so one of the two is lying, and it is hard evidence'
+    );
+
+    // And a role the deal really can hold twice is not a contest at all.
+    assert.ok(copiesOf(board, 'citizen') > 1);
   });
 
   it('puts a survivor on the biggest wagon once the town is losing', () => {

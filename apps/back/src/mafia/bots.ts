@@ -982,6 +982,24 @@ const EAR_MAX_WAIT_MS = 9000;
  */
 const VOICE_FIRST_MS = 3500;
 
+/**
+ * How long the room waits after somebody asks for something.
+ *
+ * A skip is the town spending a day and a night on nothing, and until now the
+ * question and the decision arrived together: the first bot to shrug asked "has
+ * anybody got anything?" and voted to hang nobody in the same breath, and the
+ * rest joined it within seconds. Nobody can answer a question that has already
+ * been answered.
+ *
+ * Measured against the afternoon it has to fit inside: on a real table the
+ * first ballots land about a quarter of the way into the day and the room's
+ * reading of itself is scheduled two thirds of the way in, so fifteen seconds
+ * of held ballots is the difference between a day that dies before anybody has
+ * read the wills and one that does not. Long enough for a person to type a
+ * sentence, and far short of the clock.
+ */
+const CLUE_WINDOW_MS = 15_000;
+
 const STIR_GAP_MS = 3000;
 
 /**
@@ -1130,6 +1148,8 @@ export class MafiaBotDriver {
   private readonly requeued = new Map<string, Set<string>>();
   /** Afternoons where somebody has already made the last call before a skip. */
   private readonly asked = new Set<string>();
+  /** When that call went out, per table, so the room holds its ballots for a moment. */
+  private readonly clueCall = new Map<string, number>();
   /**
    * Timers that must survive the next phase, per table.
    *
@@ -1612,6 +1632,7 @@ export class MafiaBotDriver {
     this.busyEar.delete(code);
     this.requeued.delete(code);
     for (const key of [...this.asked]) if (key.startsWith(code + ':')) this.asked.delete(key);
+    this.clueCall.delete(code);
     for (const timer of this.outliving.get(code) ?? []) clearTimeout(timer);
     this.outliving.delete(code);
     const ear = this.earTimer.get(code);
@@ -1672,6 +1693,8 @@ export class MafiaBotDriver {
      * once per dusk. Everything scheduled below is decided in that mood.
      */
     if (state.phase === 'day' && state.stage === 'discussion') {
+      // A new afternoon asks its own question, if it has one to ask.
+      if (state.trialsToday === 0) this.clueCall.delete(state.code);
       this.minds.openDay(state);
       this.dawnWills(state);
       this.readTestaments(state);
@@ -4149,6 +4172,13 @@ export class MafiaBotDriver {
         // The words first; `decide` casts this seat's real ballot behind them.
       } else if (decision.targetSlot !== null) {
         this.hooks.vote(code, botId, decision.targetSlot);
+      } else if (decision.skipVote && this.holdingForClues(state)) {
+        /**
+         * Asked and not yet answered: the ballot waits rather than closing the
+         * day. Nothing is lost by waiting — a skip that never lands leaves the
+         * afternoon to run its clock, which is the same night, one argument
+         * later.
+         */
       } else if (decision.skipVote) {
         /**
          * A seat that has looked and found nothing votes to hang nobody.
@@ -4186,7 +4216,9 @@ export class MafiaBotDriver {
         const brain = this.minds.mind(state, botId)?.brain;
         const mine = state.players[botId]?.role;
         const townish = mine ? ROLES[mine].faction === 'town' : false;
-        if (!(townish && brain && parityPressure(this.minds.board(state, botId)) >= 0.6)) {
+        const clock = townish && brain && parityPressure(this.minds.board(state, botId)) >= 0.6;
+        // And nobody piles onto a skip while the room is waiting for an answer.
+        if (!clock && !this.holdingForClues(state)) {
           this.hooks.vote(code, botId, 'skip');
         }
       }
@@ -4288,6 +4320,18 @@ export class MafiaBotDriver {
       // Reserved: this line already paid for its slot on the floor.
       this.apply(fresh, botId, task, channel, decision, 'speak', true);
     });
+  }
+
+  /**
+   * Whether the room is still waiting on an answer it asked for.
+   *
+   * Only skips are held. An accusation is a seat that has found something,
+   * which is the very thing the question was asking for, and holding it back
+   * would be answering the question by ignoring it.
+   */
+  private holdingForClues(state: MafiaState): boolean {
+    const at = this.clueCall.get(state.code);
+    return at !== undefined && Date.now() - at < CLUE_WINDOW_MS;
   }
 
   private file(state: MafiaState, botId: string, decision: Decision): void {
@@ -5167,7 +5211,24 @@ export class MafiaBotDriver {
      * what they said and the room re-reads the board before the day ends.
      */
     const lastCall = ballot.skip && !this.asked.has(state.code + ':' + String(state.day));
-    if (lastCall) this.asked.add(state.code + ':' + String(state.day));
+    if (lastCall) {
+      this.asked.add(state.code + ':' + String(state.day));
+      /**
+       * And the room holds its ballots while the question is open.
+       *
+       * Three things start here. The window itself, which every skip in this
+       * table checks before it is cast (see `holdingForClues`). A reading of the
+       * square right now rather than at two thirds of the day, because the day
+       * was ending before that mark and the ear was never running at all on a
+       * table that skipped. And this seat's own second look, after the window,
+       * so the question does not cost it the vote it had decided on.
+       */
+      this.clueCall.set(state.code, Date.now());
+      this.later(state.code, 400, () => void this.listen(state.code));
+      this.later(state.code, CLUE_WINDOW_MS + 500 + Math.random() * 2000, () =>
+        this.decide(state.code, botId, 'revote')
+      );
+    }
 
     // Into the journal, so the will says tomorrow what the seat said today.
     if (voting !== null && !mind.notes.some((note) => note.day === state.day && note.slot === voting)) {
