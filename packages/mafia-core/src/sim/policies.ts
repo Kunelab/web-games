@@ -257,6 +257,30 @@ export type ClaimKind =
    * attributed to, so it can be weighed below the thing it claims to relay and
    * contradicted by the seat it is put in the mouth of.
    */
+  /**
+   * "I shot 7 on night 3."
+   *
+   * The one sentence an honest killer for the town had no way to say, and the
+   * gap cost it the game repeatedly. A Vigilante that shoots a mafioso, a
+   * Jailor that pulls the lever, a Veteran that shoots a visitor off its porch:
+   * all three produce a corpse the dawn report names a weapon for, and none of
+   * them could tell the room it was theirs. The nearest thing on this board was
+   * `account` with `visited`, which says "I was at the house that died that
+   * night" — the single most damning admission available, priced at +0.8 by
+   * `visits`, and identical to what a mafioso caught on a doorstep says.
+   *
+   * So the honest shot and the caught knife scored the same, and the liar had
+   * the better of it: `fakeIntel` can build a convincing lie out of the dawn
+   * report, and the seat that actually did it could not use the same report to
+   * tell the truth.
+   *
+   * A bet, not a boast. The report either credits that night's death to that
+   * weapon and the corpse comes up evil, in which case the record has signed
+   * for the claim and `provenRoles` says so, or it does not, and the seat has
+   * told the room a checkable lie about a killing. That is the trade that makes
+   * it worth having: it is the rare claim the graveyard settles by itself.
+   */
+  | 'kill-claim'
   | 'relay';
 
 /** A public statement about a house. `truthful` is ground truth, sim-stamped. */
@@ -1066,29 +1090,52 @@ function badgesOf(info: PublicInfo): Map<number, RoleId> {
   const cached = BADGES.get(info);
   if (cached) return cached;
 
-  // The latest badge each seat claimed for itself.
-  const claimed = new Map<number, RoleId>();
+  // The latest badge each seat claimed for itself, and when it claimed it.
+  const claimed = new Map<number, { role: RoleId; day: number }>();
   for (const claim of info.claims) {
     if (claim.kind === 'role-claim' && claim.claimedRole && BADGE_ROLES.has(claim.claimedRole)) {
-      claimed.set(claim.claimerSlot, claim.claimedRole);
+      claimed.set(claim.claimerSlot, { role: claim.claimedRole, day: claim.day });
     }
   }
   // How many living seats wear each one.
   const wearers = new Map<RoleId, number>();
-  for (const [slot, role] of claimed) {
-    if (info.aliveSlots.includes(slot)) wearers.set(role, (wearers.get(role) ?? 0) + 1);
+  for (const [slot, badge] of claimed) {
+    if (info.aliveSlots.includes(slot)) wearers.set(badge.role, (wearers.get(badge.role) ?? 0) + 1);
   }
   const badges = new Map<number, RoleId>();
-  for (const [slot, role] of claimed) {
-    const others = (wearers.get(role) ?? 0) - (info.aliveSlots.includes(slot) ? 1 : 0);
+  for (const [slot, badge] of claimed) {
+    /**
+     * A claim made this afternoon has not gone unchallenged. It has gone unread.
+     *
+     * This is the strongest rule in the model at +2.77, and the note on `SAID`
+     * explains what it measured: the seat sitting on an uncontested Sheriff
+     * badge tends to be the bluff, because the real Sheriff is alive, quiet and
+     * not about to stand up and contest it. Every word of that reasoning is
+     * about *time passing* — a badge nobody disputed while its real holder had
+     * the chance to. Applied the instant a claim is made it measures nothing at
+     * all, because nobody in the room has yet had a turn in which to object.
+     *
+     * Reported from a real table. A Sheriff claimed on day 3, named a mafioso
+     * and read out both its nights; the badge fired the same minute, the whole
+     * board was handed the heaviest term it has against the one seat that had
+     * just told the truth, and the town hanged it 21 to 1. The Lover died of a
+     * broken heart the same night. Nothing else on that board pointed at Brad:
+     * the claim itself was the evidence, and the claim was true.
+     *
+     * So the badge counts from the day after it is worn, which is the first
+     * moment its silence means anything. A liar still pays in full from day
+     * two onwards, which is where the fit found it anyway.
+     */
+    if (badge.day >= info.day) continue;
+    const others = (wearers.get(badge.role) ?? 0) - (info.aliveSlots.includes(slot) ? 1 : 0);
     if (others > 0) continue;
     if (
-      roleDef(role).unique &&
-      [...info.deadRoles.entries()].some(([dead, buried]) => dead !== slot && buried === role)
+      roleDef(badge.role).unique &&
+      [...info.deadRoles.entries()].some(([dead, buried]) => dead !== slot && buried === badge.role)
     ) {
       continue;
     }
-    badges.set(slot, role);
+    badges.set(slot, badge.role);
   }
   BADGES.set(info, badges);
   return badges;
@@ -1762,7 +1809,27 @@ export function suspicionParts(
 
   // Role-claim cross-checks: two living claimants of one unique role means at
   // least one liar; claiming a role the graveyard already revealed is worse.
-  const roleClaim = info.claims.find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === targetSlot);
+  /**
+   * The heaviest badge this seat claimed, not the first one it mentioned.
+   *
+   * Role claims accumulate, and this took the earliest row while `ranking`
+   * searches for any *evil* one. So a seat that claimed Citizen on day two and
+   * confessed on day four was scored at nothing by the day vote and at 3.0 by
+   * the ranking: the two halves of the same board disagreeing about the single
+   * heaviest fact on it, with the vote reading the harmless half.
+   *
+   * A confession outranks whatever was claimed before it, which is also how a
+   * room hears it, so it is looked for first and the earliest claim is the
+   * fallback for a seat that never made one.
+   */
+  const roleClaim =
+    info.claims.find(
+      (claim) =>
+        claim.kind === 'role-claim' &&
+        claim.claimerSlot === targetSlot &&
+        claim.claimedRole !== undefined &&
+        isEvilRole(claim.claimedRole)
+    ) ?? info.claims.find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === targetSlot);
   if (roleClaim?.claimedRole) {
     /**
      * Somebody saying, out loud, that they are one of the killers.
@@ -3726,7 +3793,26 @@ function pickVote(
     if (sure && reachable.some((seat) => seat.slot === sure.slot)) return sure.slot;
   }
 
-  const top = open[0];
+  /**
+   * At the bell, a name the room already asked about beats no name at all.
+   *
+   * `open` is `scored` with today's acquittals filtered out, and that filter is
+   * the loop-stopper: asking the same question twice with nothing new is how an
+   * afternoon disappears. It stays, and it stays first — a seat nobody has
+   * tried is always the better question.
+   *
+   * What it cannot do is return nothing at the bell. At full LyLo with every
+   * living candidate already tried and released today and nothing hard on any
+   * of them, `open` is empty and this returned null, which the line below calls
+   * impossible: "at full LyLo the town must lynch someone" was true of that
+   * branch and not of this function. A town with no name at parity does not
+   * skip, it spends the day, and spending the day at parity is losing.
+   *
+   * So the acquitted list is reopened only when there is literally nothing else
+   * left to say, and only at the bell. `decideBallot` votes with the square
+   * there for the same reason, so the second trial is a different question.
+   */
+  const top = open[0] ?? (pressure >= 1 ? scored[0] : undefined);
   if (!top) return null;
 
   // Desperation lowers the bar; at full LyLo the town must lynch someone.
@@ -4186,6 +4272,56 @@ function alertTonight(
   return rng() < chance;
 }
 
+/**
+ * Does the Survivor put the vest on tonight?
+ *
+ * He used to, every night, from night one, because this file said vests were
+ * free comfort and the role sheet says four. Measured on a real table: Freddy
+ * Krueger wore one on nights one through four and stood naked from night five,
+ * which is the half of the game where somebody is actually coming. Another
+ * Survivor died to the Serial Killer on night five with an empty rack.
+ *
+ * A vest is worth exactly the chance a knife arrives tonight, so that is what
+ * this is: how many blades the dawn reports say are out there, over how many
+ * doors they have to choose from. Early, at fifteen seats, that is a small
+ * number and he mostly sleeps in his shirt; late, at five, it is most nights.
+ *
+ * Unlike the Veteran's alert there is no cost to being wrong beyond the charge
+ * itself, so nerve barely enters it: a vest never shoots one of your own. What
+ * does enter it is the same endgame rule the alert keeps, and for the same
+ * reason. A vest still on the rack when the game ends bought nothing.
+ */
+function vestTonight(self: MafiaPlayer, info: PublicInfo, brain: Brain, rng: () => number): boolean {
+  const seats = Math.max(2, info.aliveSlots.length);
+  /**
+   * Blades still working, read off the graveyard rather than guessed.
+   *
+   * The dawn report names a weapon for every night death, so the rate at which
+   * bodies have been appearing is the room's own estimate of how many people
+   * are out at night. Floored at one: a quiet game is a game with a killer in
+   * it who is choosing not to swing, not a game with no killer.
+   */
+  const knives = Math.max(1, info.nightDeathsTotal / Math.max(1, info.day - 1));
+  const odds = Math.min(0.6, knives / seats);
+
+  /** Having said out loud what he is, which is an invitation in both directions. */
+  const outed = info.claims.some(
+    (claim) => claim.kind === 'role-claim' && claim.claimerSlot === self.slot && claim.claimedRole === 'survivor'
+  );
+  /** A seat the room spent its afternoon on is a seat the families noticed. */
+  const hunted =
+    info.voteHistory.some((vote) => vote.day === info.day && vote.targetSlot === self.slot) ||
+    info.claims.some(
+      (claim) => claim.kind === 'accuse' && claim.targetSlot === self.slot && claim.day >= info.day - 1
+    );
+  /** Vests he will never get to spend; see the same rule in `alertTonight`. */
+  const running = seats <= Math.max(4, self.charges + 2);
+
+  const caution = 0.3 - brain.personality.courage * 0.2;
+  const chance = odds * 1.5 + caution + (outed ? 0.25 : 0) + (hunted ? 0.2 : 0) + (running ? 0.45 : 0);
+  return rng() < Math.min(0.9, chance);
+}
+
 export function decideNightTarget(
   self: MafiaPlayer,
   brain: Brain,
@@ -4228,6 +4364,7 @@ export function decideNightTarget(
     // Self-targeted powers. Vests are free comfort; alerts are rationed nerve —
     // and a veteran who feels hunted spends one.
     if (actionType === 'alert') return alertTonight(self, info, brain, stance, rng) ? self.slot : null;
+    if (actionType === 'vest') return vestTonight(self, info, brain, rng) ? self.slot : null;
     return self.slot;
   }
 
@@ -4330,7 +4467,31 @@ export function decideNightTarget(
       (slot) => slot !== self.slot && !self.intel.some((entry) => entry.kind === 'doused' && entry.targetSlot === slot)
     );
     const loudList = credibleClaimersRanked(info, new Set([self.slot])).filter((slot) => fresh.includes(slot));
-    return pickRanked([...new Set([...loudList, ...fresh])], rng, 0.35);
+    /**
+     * A ranked pick needs a ranked list, and the tail of this one was not.
+     *
+     * `credibleClaimersRanked` orders seats by how much they have said, so on
+     * night one it is empty: nobody has accused anybody yet. The old line
+     * concatenated it with every other legal house and handed the whole thing
+     * to `pickRanked`, which takes the front of a list 65% of the time — and
+     * the front of `fresh` is not a suspect, it is whoever joined the table
+     * first. Measured over four thousand first nights: house 1 took the match
+     * 65.1% of the time on a board that said nothing about it.
+     *
+     * That is a tell no bluff survives. A player who has watched two games
+     * knows where the petrol goes on night one, and the seat that joined first
+     * is playing a different game from everybody else.
+     *
+     * So the ranking keeps its head and the tail is drawn rather than ordered:
+     * one house picked uniformly out of the quiet ones stands in for all of
+     * them. Sliding past the loud voices still happens as often as it did, it
+     * just no longer lands in the same chair every night — and with no loud
+     * voices at all the list is that one fair draw, which is the same thing the
+     * family's own knife does when the board is blank. See `pickRanked`.
+     */
+    const unranked = fresh.filter((slot) => !loudList.includes(slot));
+    const drawn = unranked.length > 0 ? [unranked[Math.floor(rng() * unranked.length)]!] : [];
+    return pickRanked([...loudList, ...drawn], rng, 0.35);
   }
 
   /* -------------------------- guns, keys and vests ------------------------ */

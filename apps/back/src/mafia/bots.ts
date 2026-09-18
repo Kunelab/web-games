@@ -62,7 +62,7 @@ import { vetTurn } from './turn.js';
 
 import { apiSlots, env } from '../env.js';
 import { trace } from '../trace.js';
-import { readRoom, type RoomAsks } from './asks.js';
+import { readRoom, selfClaim, type RoomAsks } from './asks.js';
 import { say } from './say.js';
 import { actionVerb, brief, dossier } from './bot-brief.js';
 import { BotMinds, willHeed, type BotMind } from './bot-mind.js';
@@ -510,6 +510,15 @@ const CLAIM_VALUE: Record<ClaimKind, number> = {
    * a phrasing for it, and leaving them out of this table would rank them below
    * a taunt the moment one appears.
    */
+  /**
+   * Above everything, because it is the one claim the graveyard settles itself.
+   *
+   * A promise is a bet on tomorrow and a role claim is a word; a corroborated
+   * killing is a fact the room can check on the screens it is already looking
+   * at. It is also only ever said on the one morning it can be checked, so
+   * ranking it first costs no other line a turn on any other day.
+   */
+  'kill-claim': 9,
   promise: 8,
   'counter-claim': 6,
   demand: 5,
@@ -614,6 +623,43 @@ function claimableRoles(state: MafiaState): Set<string> {
   // A setup nobody pinned down ('chaos', 'census') expands to everything, which
   // is the truth about that table: anything really could be in it.
   return pool.size > 0 ? pool : new Set(Object.keys(ROLES));
+}
+
+/**
+ * The houses somebody could honestly say they stood outside last night.
+ *
+ * The roster half of this problem was solved and the doorstep half was not.
+ * `claimableRoles` exists because a model handed a secret role will reach for a
+ * badge the deal cannot contain, and the note there says the rest: a claim no
+ * player could have produced is a tell rather than a bluff. An account naming a
+ * house is the same claim about a different noun, and nothing checked it.
+ *
+ * Reported from a real table. An Arsonist was asked for an alibi on day 6 and
+ * said it had been at Ahsoka's on night 5; Ahsoka had been in the ground since
+ * night 3. Two seats read the board, saw a visit to a house whose owner was
+ * already dead, and hanged it on the spot — correctly, and for a sentence the
+ * driver let it say. The bluff never had a chance to be a bluff, because it was
+ * not one: it was an impossible thing filed as evidence against the speaker.
+ *
+ * Alive now, or dead only since last night. The second half matters and is the
+ * whole reason this is not just `alive`: "I was at their house and they died"
+ * is the most ordinary true sentence in the game, said by every Doctor who
+ * arrived too late, and refusing it would take a real alibi off the table to
+ * stop a fake one.
+ */
+function visitableSlots(state: MafiaState): Set<number> {
+  const lastNight = Math.max(1, state.day - 1);
+  const open = new Set<number>();
+  for (const player of Object.values(state.players)) {
+    if (player.alive) {
+      open.add(player.slot);
+      continue;
+    }
+    const grave = state.deaths.find((death) => death.playerId === player.playerId);
+    // No entry at all is a corpse the record cannot place, so it is not vouched for.
+    if (grave && grave.phase === 'night' && grave.day >= lastNight) open.add(player.slot);
+  }
+  return open;
 }
 
 /**
@@ -734,6 +780,64 @@ function leaks(text: string, state: MafiaState): boolean {
   return false;
 }
 
+/**
+ * A first-person account of a killer's night, in either language.
+ *
+ * Narrow on purpose, and the shape of the narrowness is the same one `guard.ts`
+ * argues for: every pattern needs the speaker *and* the deed, because a square
+ * says "kill", "burn" and "shoot" all afternoon about other people. "Hang 7" is
+ * an ordinary vote, "they burned the hut" is an ordinary accusation, and only
+ * "I burned your hut" is a confession.
+ *
+ * Past tense and future both. "I will douse you tonight" is the same tell said
+ * one night earlier, and the model reaches for it just as readily.
+ */
+const OWN_DEED: RegExp[] = [
+  // English: I burned / I doused / I set fire to / I torched
+  /\b(?:i|i've|ive)\s+(?:have\s+)?(?:just\s+)?(?:burn(?:ed|t)?|dous(?:ed)?|ignit(?:ed)?|torch(?:ed)?|set\s+fire)\b/i,
+  /\bi\s+(?:will|'ll|am\s+going\s+to|gonna)\s+(?:burn|douse|ignite|torch)\b/i,
+  // English: I killed / stabbed / shot / poisoned him, her, them or a house
+  /\b(?:i|i've|ive)\s+(?:have\s+)?(?:just\s+)?(?:kill(?:ed)?|murder(?:ed)?|stab(?:bed)?|shot|poison(?:ed)?|strangl(?:ed)?|slit)\b[^.!?]{0,20}\b(?:you|him|her|them|your|his|their|[0-9]{1,2})\b/i,
+  /\bi\s+(?:will|'ll|am\s+going\s+to|gonna)\s+(?:kill|stab|shoot|poison|strangle)\s+(?:you|him|her|them|[0-9]{1,2})\b/i,
+  // English: the visit a killer makes, owned outright
+  /\b(?:i|i've|ive)\s+(?:have\s+)?(?:just\s+)?(?:visit(?:ed)?|went\s+to|was\s+at)\b[^.!?]{0,24}\b(?:to\s+)?(?:kill|burn|douse|finish)\b/i,
+  // French: j'ai brulé, je t'ai tué, je vais te bruler
+  /\bj'?ai\s+(?:brul|brûl|incendi|arros|tu[ée]|assassin|poignard|empoisonn|[ée]trangl|abattu)/i,
+  /\bje\s+(?:t'|l'|les\s+|vous\s+)?ai\s+(?:tu[ée]|brul|brûl|poignard|empoisonn)/i,
+  /\bje\s+(?:vais|voudrais)\s+(?:te\s+|le\s+|la\s+|les\s+|vous\s+)?(?:tuer|bruler|brûler|incendier|poignarder|empoisonner)\b/i
+];
+
+/**
+ * Did the model put a confession in a line that never contained one?
+ *
+ * The mouth is handed a secret role and asked for the sentence in character,
+ * and a small model in character is a model that reaches for its costume. The
+ * rulebook already forbids it — "Invent nothing" — and `guard.ts` says plainly
+ * why that is not enough: a rule in a prompt is a request, answered by a small
+ * model, and a request is not a boundary. This is the boundary.
+ *
+ * Reported from a real table. An Arsonist was asked to taunt two seats and
+ * said "10, 12, you're wasting breath. I burned your hut on the night of the
+ * full moon, when your snores woke the dead." Nothing it had decided contained
+ * any of that; the phrasebook line was "10, say something." It was hanged the
+ * same afternoon, which is the correct outcome of a confession and the wrong
+ * outcome of a taunt.
+ *
+ * Measured against the line the bot had already decided on rather than against
+ * a list of what a role may say, because that is the actual rule being broken.
+ * A seat that *chose* to claim a badge still claims it: the fallback carries
+ * the claim, both tests fire, and the line goes through untouched. Only a deed
+ * or a badge the decision never held is an invention, and an invention that
+ * convicts its own speaker is the most expensive kind.
+ */
+function confesses(text: string, fallback: string): boolean {
+  // Said in the line the bot decided on: it is a choice, not a slip.
+  const decided = selfClaim(fallback);
+  const said = selfClaim(text);
+  if (said && said !== decided) return true;
+  return OWN_DEED.some((pattern) => pattern.test(text)) && !OWN_DEED.some((pattern) => pattern.test(fallback));
+}
+
 const EMPTY: Decision = { say: null, targetSlot: null, verdict: null, claim: null };
 
 /**
@@ -746,6 +850,18 @@ const EMPTY: Decision = { say: null, targetSlot: null, verdict: null, claim: nul
  * a person makes when they decide what is worth saying out loud.
  */
 const CASE_CHARS = 150;
+
+/**
+ * The hard ceiling on anything that reaches the square, scripted or written.
+ *
+ * It lived as a bare 140 at the one place that applies it, while `CASE_CHARS`
+ * above is 150 — so a case built right up to its own budget was cut by a clamp
+ * it had never been told about, mid-word, with an ellipsis: "Tu as déjà voté…"
+ * on a real table. A phrasebook line has no business being truncated at all.
+ * The clamp is for a model that rambles; `caseLine` measures itself against
+ * this and drops a whole reason rather than half a sentence.
+ */
+const SAY_CHARS = 140;
 
 /**
  * Several reasons, joined the way somebody speaking would join them.
@@ -3467,9 +3583,23 @@ export class MafiaBotDriver {
       const castOnce = (): void => {
         if (cast) return;
         cast = true;
-        if (!this.hooks.get(code)) return;
-        if (decision.skipVote) this.hooks.vote(code, botId, 'skip');
-        else if (decision.targetSlot !== null) this.hooks.vote(code, botId, decision.targetSlot);
+        const fresh = this.hooks.get(code);
+        if (!fresh) return;
+        if (decision.targetSlot !== null) {
+          this.hooks.vote(code, botId, decision.targetSlot);
+          return;
+        }
+        /**
+         * A skip still waits for the answer the room was asked for.
+         *
+         * This re-implements the cast that `apply` does, and it dropped the one
+         * guard `apply` puts on a skip: a shrug that lands inside the clue
+         * window closes the afternoon on a question somebody just asked. The
+         * accusation half needs no such guard and does not get one — a seat
+         * that has found something is answering the question rather than
+         * ignoring it. See `holdingForClues`, and the same branch in `apply`.
+         */
+        if (decision.skipVote && !this.holdingForClues(fresh)) this.hooks.vote(code, botId, 'skip');
       };
 
       this.apply(state, botId, task, channel, decision, 'act', false, !holdsBallot);
@@ -3657,7 +3787,10 @@ export class MafiaBotDriver {
     const seats = new Set(Object.values(state.players).map((player) => player.name.toLowerCase()));
     const spoken = answer ? readLine(answer, intent, { name: self.name, slot: self.slot }, seats) : intent.fallback;
     // In a hushed family room the phrasebook line is the ceiling as well as the floor. See `Intent.hushed`.
-    const said = intent.hushed && spoken !== null && leaks(spoken, state) ? intent.fallback : spoken;
+    const hushedLeak = intent.hushed === true && spoken !== null && leaks(spoken, state);
+    // And in any room at all, a line that confesses something never decided. See `confesses`.
+    const invented = spoken !== null && confesses(spoken, intent.fallback);
+    const said = hushedLeak || invented ? intent.fallback : spoken;
     this.spokeWith(state, botId, answer ? this.lastAnswered : 'scripted');
 
     /**
@@ -3989,7 +4122,7 @@ export class MafiaBotDriver {
        * a request and this is not. Truncated at a word boundary so a model that
        * rambles gets cut off looking terse rather than looking broken.
        */
-      const text = clip(decision.say.replace(/\s+/g, ' ').trim(), 140);
+      const text = clip(decision.say.replace(/\s+/g, ' ').trim(), SAY_CHARS);
       const room = this.sayChannelFor(state, botId, task, channel);
       // Asked again here because a room that was open when this turn was
       // drafted may have shut while a model was writing the line.
@@ -4442,16 +4575,23 @@ export class MafiaBotDriver {
        * number, which is the one thing the role exists to hide.
        */
       const t = say(spokenLocale(state));
-      const suspects = board.aliveSlots
-        .filter((slot) => slot !== self.slot)
-        .map((slot) => ({ slot, score: suspicion(slot, self, board, rng) }))
-        .sort((left, right) => right.score - left.score);
-      const top = suspects[0];
-      const who = top ? Object.values(state.players).find((player) => player.slot === top.slot)?.name : undefined;
-      const line =
-        top && who && top.score >= 1
-          ? t(vary('mafia.bot.crier.suspect', 3, botId + ':crier:' + state.day, { who }))
-          : t(vary('mafia.bot.crier.quiet', 3, botId + ':crier:' + state.day));
+      /**
+       * News first, a joke when there is none, and never a name.
+       *
+       * What this used to do was rank every living seat by ordinary public
+       * suspicion and read out the top one, anonymously, as though it had come
+       * by it at night. The role has no night action: that name was the same
+       * board every other seat reads, said in a voice that promised a source.
+       * An anonymous accusation is also the one kind nobody can answer, so it
+       * landed unchallenged on whoever the room already disliked.
+       *
+       * See `crierNews`, whose every line is a fact a player can scroll up and
+       * check, and which is what a town crier is actually for.
+       */
+      const news = this.crierNews(state, board);
+      const line = news
+        ? t(news)
+        : t(vary('mafia.bot.crier.joke', 9, botId + ':crier:' + state.day));
 
       return {
         ...EMPTY,
@@ -4467,7 +4607,25 @@ export class MafiaBotDriver {
     if (task === 'night') {
       const action = me.action;
       if (!action || me.jailed) return EMPTY;
-      if (action.targets.length === 0) return { ...EMPTY, targetSlot: me.slot };
+      /**
+       * A power used at home is still a decision.
+       *
+       * `alert` and `vest` are the only two whose legal target list is empty,
+       * and this line answered both with "use it, on yourself" before the
+       * policy was ever asked. So the whole of `alertTonight` — every word of
+       * its reasoning about not firing on night one, and about a charge saved
+       * being a charge wasted — was dead code in the live game, and ran only on
+       * the headless bench, which is why the bench never showed it.
+       *
+       * Measured on a real table: a Veteran alerted on nights one, two and
+       * three and was out of charges by night four; a Survivor wore its four
+       * vests on the first four nights and stood naked from night five, which
+       * is the half of the game somebody is actually coming.
+       */
+      if (action.targets.length === 0) {
+        const home = decideNightTarget(self, mind.brain, board, [], action.type, allies, me.intel, rng);
+        return { ...EMPTY, targetSlot: home };
+      }
       const decided = decideNightTarget(self, mind.brain, board, action.targets, action.type, allies, me.intel, rng);
 
       /**
@@ -4973,6 +5131,58 @@ export class MafiaBotDriver {
      * said why, saying why *is* the line.
      */
     const publishes = [...day.publishes];
+
+    /**
+     * The shot, owned, on the one morning the record will back it.
+     *
+     * A Vigilante, Jailor or Veteran that killed last night wakes to a dawn
+     * report naming its weapon, and until now had no sentence for it. What it
+     * could say was "I went to 7's house" — an admission priced at +0.8 against
+     * it by `visits`, identical to a mafioso caught on the same step — so the
+     * town's own killers were structurally the most suspicious seats at the
+     * table for having done their jobs. The honest play was to shut up, which
+     * is the opposite of what the role is for.
+     *
+     * Claimed only when the report agrees. This seat knows where it went, the
+     * graveyard says who died there and what killed them, and `provenRoles` will
+     * confirm the badge outright if the corpse also came up evil. A claim the
+     * room can check is worth making; a claim about a night that produced no
+     * matching body is a lie the graveyard has already caught, so it is not
+     * made. That asymmetry is the whole point of the kind.
+     *
+     * First in the queue, ahead of the ordinary accusation: it is the heaviest
+     * true thing this seat can say, and the day it can say it is the day the
+     * report is fresh.
+     */
+    const weapon: Partial<Record<string, DeathSource>> = {
+      vigilante: 'vigilante',
+      jailor: 'jailor',
+      veteran: 'veteran'
+    };
+    const mine = me.role ? weapon[me.role.id] : undefined;
+    const struck = mind.brain.wentTo;
+    if (mine !== undefined && struck !== null && struck !== undefined && struck !== me.slot) {
+      const lastNight = Math.max(1, state.day - 1);
+      const body = board.deaths.find(
+        (death) =>
+          death.slot === struck && death.phase === 'night' && death.day === lastNight && death.source === mine
+      );
+      const already = board.claims.some(
+        (claim) => claim.kind === 'kill-claim' && claim.claimerSlot === me.slot && claim.targetSlot === struck
+      );
+      if (body && !already) {
+        publishes.unshift({
+          kind: 'kill-claim',
+          claimerSlot: me.slot,
+          targetSlot: struck,
+          claimedRole: me.role?.id,
+          night: lastNight,
+          day: state.day,
+          // True by construction here: the report is what let this be said.
+          truthful: true
+        });
+      }
+    }
     if (voting !== null && !publishes.some((claim) => claim.kind === 'accuse')) {
       const mark = Object.values(state.players).find((player) => player.slot === voting);
       publishes.push({
@@ -5108,27 +5318,54 @@ export class MafiaBotDriver {
      * thin accusations thin rather than padding them, and padding them is the
      * one failure mode that would make every seat sound like a prosecutor.
      */
-    const reason = !consistent
+    /**
+     * A finished sentence, kept separate from a reason that still needs a frame.
+     *
+     * `caseLine` and `standUpFor` both return a *whole line* — `case.open` is
+     * "{who}. {reasons}." and `for.open` is "Leave {who} out of it. {reasons}."
+     * — and both were being handed to `sentence` as the `{why}` of a frame that
+     * names the seat all over again. What the square actually received was
+     *
+     *   It is Nami: Nami. Someone saw you visiting 5 on night 3..
+     *   Not Nami, Leave Nami out of it. nobody has ever seen them out..
+     *
+     * the name twice, a capital in the middle, and two full stops. It also blew
+     * the line past `SAY_CHARS`, so `clip` then cut it mid-word and added an
+     * ellipsis, which is the "Tu as déjà voté…" seen on a real table. One bug
+     * wearing three costumes.
+     *
+     * So the two kinds are two variables. A whole line is said as written; a
+     * bare reason goes through the frame that needs one. `why` and `whyClear`
+     * are only asked for when there is no whole line, which is also the rule
+     * the comment above describes.
+     */
+    const whole = !consistent
       ? null
       : consistent.kind === 'accuse'
-        ? (this.caseLine(state, board, consistent.targetSlot, botId) ??
-          this.why(state, view, board, consistent.targetSlot, botId))
+        ? this.caseLine(state, board, consistent.targetSlot, botId)
         : consistent.kind === 'clear'
           ? /**
-             * And the same thing for a defence, which is the half that never
-             * existed. `whyClear` cites this seat's own reasons to trust
-             * somebody — a clean check it ran, a badge it believes.
-             * `standUpFor` cites the *room's*: nobody has ever put them
-             * outside, a voice the room trusts has already cleared them, the
-             * record has caught them in nothing. Both are facts; the second set
-             * is the one a bystander can offer for a seat it knows nothing
-             * about, which is exactly the seat that gets hanged in silence.
+             * `whyClear` cites this seat's own reasons to trust somebody — a
+             * clean check it ran, a badge it believes. `standUpFor` cites the
+             * *room's*: nobody has ever put them outside, a voice the room
+             * trusts has already cleared them, the record has caught them in
+             * nothing. Both are facts; the second set is the one a bystander can
+             * offer for a seat it knows nothing about, which is exactly the seat
+             * that gets hanged in silence.
              */
-            (this.standUpFor(state, board, consistent.targetSlot, botId) ??
-            this.whyClear(view, board, consistent.targetSlot, botId, state))
+            this.standUpFor(state, board, consistent.targetSlot, botId)
           : null;
 
-    const drafted = consistent ? this.sentence(state, botId, consistent, reason) : null;
+    const reason =
+      whole !== null || !consistent
+        ? null
+        : consistent.kind === 'accuse'
+          ? this.why(state, view, board, consistent.targetSlot, botId)
+          : consistent.kind === 'clear'
+            ? this.whyClear(view, board, consistent.targetSlot, botId, state)
+            : null;
+
+    const drafted = consistent ? this.sentence(state, botId, consistent, reason, whole) : null;
 
     /**
      * A vote does not need a chorus behind it.
@@ -5306,9 +5543,35 @@ export class MafiaBotDriver {
     const self = state.players[botId];
     if (!self) return [];
 
+    /**
+     * Only what was said today, which nothing here was checking.
+     *
+     * This scanned the whole game's chat and then *preferred* the lines that
+     * named this seat, so the older a mention was the longer it survived: a
+     * seat nobody had spoken to since day one was still being handed day one's
+     * sentence on day six. The intent built from it says "answer THEM", and
+     * `MOUTH_RULES` says to answer the words given and not an easier version of
+     * them, so the model did exactly as it was told and replied, in earnest, to
+     * a question five days dead. To the room that is a bot talking to itself
+     * about something nobody remembers.
+     *
+     * The window is the day or night this turn belongs to. `phaseStartedAt` is
+     * stamped at `beginDay` and `beginNight` and deliberately not at a stage
+     * change, so a trial and the argument that led to it are one window, which
+     * is what "answering somebody" means. Falls back to the phase clock for
+     * tables persisted before the field existed, the same way `hearPrivately`
+     * does.
+     *
+     * This is the same rule `readRoom` already states: yesterday's argument was
+     * settled by yesterday's corpse.
+     */
+    const span = state.phase === 'night' ? state.config.nightMs : state.config.dayMs;
+    const since = state.phaseStartedAt ?? (state.phaseEndsAt ?? 0) - span;
+
     const lines = state.chat.messages.filter(
       (message) =>
         message.channel === room &&
+        message.at >= since &&
         !!message.authorId &&
         message.authorId !== botId &&
         state.players[message.authorId]?.isBot === false &&
@@ -5329,6 +5592,82 @@ export class MafiaBotDriver {
   }
 
   /**
+   * The one thing a crier can honestly shout into the dark: the record.
+   *
+   * The role has no night action, so it has no finding — but a town crier
+   * announces public news, and this table generates public news nobody is
+   * keeping track of. Three seats claiming the same badge, a seat that has not
+   * opened its mouth since day one, a run of quiet nights, the running tally of
+   * what the rope has actually caught: all of it is on the screens already and
+   * all of it is routinely lost in a chat sixty lines long.
+   *
+   * Every line here is checkable by anybody who scrolls up, which is the whole
+   * difference between this and the suspect it used to name. It asserts nothing
+   * the board does not hold, it claims no source, and a player who disagrees
+   * can go and count. That is a real service and an honest one, and it is the
+   * role doing its own job rather than borrowing an investigator's.
+   *
+   * Returns null when there is genuinely no news, and the caller tells a joke.
+   */
+  private crierNews(state: MafiaState, board: PublicInfo): Msg | null {
+    const salt = state.code + ':crier:' + state.day;
+    const nameOf = (slot: number): string =>
+      Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
+
+    /**
+     * A badge two living seats are both wearing, which is a liar in the room.
+     *
+     * Living only, and for the reason the spoken reasons had to learn: a rival
+     * the graveyard already settled is not a contest, it is a closed question.
+     */
+    const byRole = new Map<RoleId, Set<number>>();
+    for (const claim of board.claims) {
+      if (claim.kind !== 'role-claim' || !claim.claimedRole) continue;
+      if (!board.aliveSlots.includes(claim.claimerSlot)) continue;
+      const seats = byRole.get(claim.claimedRole) ?? new Set<number>();
+      seats.add(claim.claimerSlot);
+      byRole.set(claim.claimedRole, seats);
+    }
+    for (const [role, seats] of byRole) {
+      if (seats.size >= 2) {
+        return vary('mafia.bot.crier.news.contested', 2, salt, { role: ROLE.name(role), count: seats.size });
+      }
+    }
+
+    /**
+     * What the rope has actually been catching, which is the number that
+     * decides whether a town should keep pulling it and the number nobody adds
+     * up. Straight off the revealed graveyard.
+     */
+    const hanged = state.deaths.filter((death) => death.phase === 'day');
+    if (hanged.length >= 2) {
+      const town = hanged.filter((death) => {
+        const seat = state.players[death.playerId];
+        return !!seat?.role && ROLES[seat.role].faction === 'town';
+      }).length;
+      return vary('mafia.bot.crier.news.toll', 2, salt, { count: hanged.length, town });
+    }
+
+    // A run of nights with nobody in the morning cart, which changes what the
+    // room should believe about how many blades are still out there.
+    if (board.day >= 3 && board.lastNightDeathSlots.size === 0 && board.nightDeathsTotal < board.day - 1) {
+      return vary('mafia.bot.crier.news.quiet', 2, salt, {});
+    }
+
+    // And a seat that has not said one word, which `why.silent` already checks
+    // the same way and which the room stops noticing after day three.
+    if (board.day >= 3) {
+      const mute = board.aliveSlots.filter(
+        (slot) => !board.claims.some((claim) => claim.claimerSlot === slot)
+      );
+      const one = mute[Math.floor(hashCode(salt) % Math.max(1, mute.length))];
+      if (one !== undefined) return vary('mafia.bot.crier.news.silent', 2, salt, { who: nameOf(one) });
+    }
+
+    return null;
+  }
+
+  /**
    * A claim, said out loud in the table's own language.
    *
    * Keys rather than sentences, and the key is chosen by the *kind* of claim, so
@@ -5344,7 +5683,14 @@ export class MafiaBotDriver {
    * the two is fixed per speaker per target, because somebody who calls you by
    * your number does it every time.
    */
-  private sentence(state: MafiaState, botId: string, claim: Claim, reason: Msg | null = null): string | null {
+  private sentence(
+    state: MafiaState,
+    botId: string,
+    claim: Claim,
+    reason: Msg | null = null,
+    /** A line that already frames and names itself; see the note at the call site. */
+    whole: Msg | null = null
+  ): string | null {
     const t = say(spokenLocale(state));
 
     /** How this seat addresses that one: by name, or by number. Consistently. */
@@ -5358,22 +5704,50 @@ export class MafiaBotDriver {
       return t(msg('mafia.bot.' + kind + '.' + variant, params));
     };
 
+    // A finished line is said as written: framing it again is what produced
+    // "It is Nami: Nami. …". See `whole`.
+    if (whole) return t(whole);
+
     switch (claim.kind) {
       case 'accuse': {
         // The bet before the argument: a finding that names a role or a camp
         // outright is worth the speaker's neck, and sometimes it is staked.
         const staked = this.stake(state, botId, claim.targetSlot, who(claim.targetSlot));
         if (staked) return t(staked);
-        // With a reason it is an argument; without one it is still a vote, and
-        // a vote said out loud beats a vote nobody explains.
+        /**
+         * With a reason it is an argument. Without one it is a read, and it
+         * now says so.
+         *
+         * `accuse` holds nine ways of naming a house and only one of them
+         * ("Nothing hard, just a read") admits there is nothing behind it, so
+         * eight times in nine a vote cast on a hunch was posted in the same
+         * flat voice as a vote cast on a corpse's will. A player cannot tell
+         * those apart, and being unable to tell them apart is exactly the
+         * complaint: the room looks like it knows something it is not saying.
+         *
+         * So the two cases are two different sentences. Everything the board
+         * can name goes through `why` and comes out as an argument somebody
+         * can answer; what the board cannot name is admitted as a read, which
+         * is the honest thing to call it and is itself information.
+         */
         return reason
           ? line('accuseWhy', 9, { who: who(claim.targetSlot), why: reason })
-          : line('accuse', 9, { who: who(claim.targetSlot) });
+          : line('accuseRead', 6, { who: who(claim.targetSlot) });
       }
       case 'clear':
         return reason
           ? line('clearWhy', 6, { who: who(claim.targetSlot), why: reason })
           : line('clear', 9, { who: who(claim.targetSlot) });
+      case 'kill-claim':
+        /**
+         * Naming the night as well as the house, because the night is the half
+         * the room checks. "I shot 7" is a boast; "I shot 7 on night 3" is a
+         * line the dawn report either backs or buries them for.
+         */
+        return line('killClaim', 6, {
+          who: who(claim.targetSlot),
+          night: claim.night ?? Math.max(1, claim.day - 1)
+        });
       case 'role-claim':
         return claim.claimedRole ? line('roleClaim', 6, { role: ROLE.name(claim.claimedRole) }) : null;
       case 'account':
@@ -5466,6 +5840,9 @@ export class MafiaBotDriver {
         return `accuse ${who(claim.targetSlot)} and vote for them`;
       case 'clear':
         return `say ${who(claim.targetSlot)} is not the one, and take the heat off them`;
+      case 'kill-claim':
+        // The night is not decoration: it is the half the dawn report settles.
+        return `tell the town you killed ${who(claim.targetSlot)} on night ${claim.night ?? Math.max(1, claim.day - 1)}, as the ${claim.claimedRole ?? 'role you hold'}, and that the morning report backs you`;
       case 'role-claim':
         return `claim the ${claim.claimedRole ?? 'role you claimed'} out loud, as your own role`;
       case 'account':
@@ -5656,7 +6033,14 @@ export class MafiaBotDriver {
    * and sounds like it. `proven-town` measured at zero and is not a reason at
    * all — see the note on `SAID`.
    */
-  private fragment(reason: Reason, nameOf: (slot: number) => string, seed: string): Msg | null {
+  private fragment(
+    reason: Reason,
+    nameOf: (slot: number) => string,
+    seed: string,
+    /** The board, so the one fragment that asserts a silence can check for one. */
+    board: PublicInfo,
+    targetSlot: number
+  ): Msg | null {
     const other = reason.slot === undefined ? null : nameOf(reason.slot);
     switch (reason.code) {
       case 'doorstep':
@@ -5694,11 +6078,64 @@ export class MafiaBotDriver {
           : vary('mafia.bot.case.confessed', 2, seed, { role: ROLE.name(reason.role) });
       case 'saved-killers':
         return vary('mafia.bot.case.savedKillers', 2, seed, {});
-      case 'accused-by':
-        return other === null ? null : vary('mafia.bot.case.pushedBy', 2, seed, { other });
+      case 'accused-by': {
+        if (other === null || reason.slot === undefined) return null;
+        /**
+         * The second-person twin of `why.accused`, and it needed the same look.
+         *
+         * "{other} accused you and you have not answered" is two facts and only
+         * the first was ever checked, so it was said to seats that had answered
+         * in the same phase. The accusation is real either way; only the jab
+         * comes off. See `spokeSince` in `why`.
+         */
+        const pushed = board.claims.find(
+          (claim) =>
+            claim.kind === 'accuse' && claim.claimerSlot === reason.slot && claim.targetSlot === targetSlot
+        );
+        const answered =
+          pushed !== undefined &&
+          board.claims.some((claim) => claim.claimerSlot === targetSlot && claim.day >= pushed.day);
+        return answered
+          ? vary('mafia.bot.case.pushedByPlain', 2, seed, { other })
+          : vary('mafia.bot.case.pushedBy', 2, seed, { other });
+      }
       case 'record-broken':
         // The graveyard's catch already has twenty-seven ways of being said.
         return reason.deduction ? this.caughtOut(reason.deduction, nameOf, seed, 0) : null;
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * The same rows, said about somebody rather than to them.
+   *
+   * `fragment` addresses the accused directly — "you said yourself you visited
+   * 4" — because it is assembled inside `case.open`, which has just named them
+   * and is now talking to them. `why` is the other register: it fills the
+   * `{why}` of "Voting 4: …", a sentence aimed at the room about a third
+   * party, and a second-person fragment dropped into it comes out as "Voting
+   * 4: you voted innocent on people who turned out to be killers", which reads
+   * as though the speaker has lost track of who it is arguing with.
+   *
+   * Only the codes `why` has no rung of its own for. The confession keys are
+   * shared with `fragment` because that pair was already written in the third
+   * person in both catalogues; the other two needed saying a different way,
+   * which is the whole reason this exists.
+   */
+  private aloud(reason: Reason, botId: string, targetSlot: number): Msg | null {
+    const seed = botId + ':w:' + targetSlot;
+    switch (reason.code) {
+      case 'confessed':
+        return reason.role === undefined
+          ? vary('mafia.bot.case.confessedPlain', 2, seed, {})
+          : vary('mafia.bot.case.confessed', 2, seed, { role: ROLE.name(reason.role) });
+      case 'badge-unchallenged':
+        return reason.role === undefined
+          ? null
+          : vary('mafia.bot.why.ownBadge', 3, seed, { role: ROLE.name(reason.role) });
+      case 'saved-killers':
+        return vary('mafia.bot.why.savedKillers', 3, seed, {});
       default:
         return null;
     }
@@ -5752,20 +6189,33 @@ export class MafiaBotDriver {
      * rather than speaking to it.
      */
     const parts = caseFor(targetSlot, board, 3)
-      .map((reason) => this.fragment(reason, nameOf, seed))
+      .map((reason) => this.fragment(reason, nameOf, seed, board, targetSlot))
       .filter((part): part is Msg => part !== null)
       .slice(0, 2);
     if (parts.length < 2) return null; // one reason is `why`'s job, not this one
 
     const locale = spokenLocale(state);
     const t = say(locale);
-    return vary('mafia.bot.case.open', 3, seed, {
-      who: nameOf(targetSlot),
-      reasons: joinReasons(
-        parts.map((part) => t(part)),
-        locale
-      )
-    });
+    /**
+     * Two reasons if two fit, one if they do not, and never a cut sentence.
+     *
+     * The frame and the name are part of the finished line and were counted
+     * against nothing, so the only place the overflow showed up was `clip`,
+     * which cuts mid-word and adds an ellipsis. Measured here instead: a whole
+     * reason dropped reads as a seat making one point; half a reason reads as
+     * broken software. Below two reasons this returns null on purpose and
+     * `why` takes the turn, which is the rule stated at the call site.
+     */
+    const frame = (chosen: Msg[]): Msg =>
+      vary('mafia.bot.case.open', 3, seed, {
+        who: nameOf(targetSlot),
+        reasons: joinReasons(
+          chosen.map((part) => t(part)),
+          locale
+        )
+      });
+    const both = frame(parts);
+    return t(both).length <= SAY_CHARS ? both : null;
   }
 
   /**
@@ -5863,6 +6313,31 @@ export class MafiaBotDriver {
       if (reason) return reason;
     }
 
+    /**
+     * 0b. The two heaviest rules in the model, neither of which had a sentence.
+     *
+     * `confessed` is priced at 3.0 and `badge-unchallenged` at 2.77, the top of
+     * the whole table, and this ladder had no rung for either — so the two
+     * strongest things the board can hold were the two a seat could not say. A
+     * bot would read a confession, move its vote, and post "Voting 7.": the
+     * room watched a wagon form on nothing and had to take it on faith, which
+     * is the one thing a square must never ask of the people sitting in it.
+     *
+     * Read off `caseFor` rather than re-derived here, so the sentence cites
+     * exactly the row the ranking scored — same reason, same badge, same
+     * weight. A reason nobody can name is a reason nobody can answer, and a
+     * seat that cannot answer the case against it has been hanged by a machine
+     * rather than beaten by one.
+     */
+    const unsaid = caseFor(targetSlot, board, 8).find(
+      (reason) =>
+        reason.code === 'confessed' || reason.code === 'badge-unchallenged' || reason.code === 'saved-killers'
+    );
+    if (unsaid) {
+      const spoken = this.aloud(unsaid, botId, targetSlot);
+      if (spoken) return spoken;
+    }
+
     // 1. Caught out: they said they were home and somebody put them outside.
     if (contradicted(targetSlot, board)) {
       const witness = board.claims.find((claim) => claim.kind === 'sighting' && claim.targetSlot === targetSlot);
@@ -5896,6 +6371,28 @@ export class MafiaBotDriver {
         line: msg(`mafia.trade.${smelt.value}`)
       });
     }
+
+    /**
+     * Has this seat said anything since the thing it is accused of ignoring?
+     *
+     * Four reasons in this file assert that somebody never answered, and not
+     * one of them looked. The rung just below checks the board properly for
+     * "they have never claimed anything", which shows the check was always
+     * cheap — it simply was not applied to the others.
+     *
+     * Measured on a real table. Guts said "Nowhere last night" and in the same
+     * phase was voted by one seat for never having said where it was, and by
+     * two more because somebody "accused him and he never answered". Three
+     * seats stating, out loud and in the same minute, a fact the transcript
+     * above them contradicted.
+     *
+     * Any claim counts, because answering is not a kind of claim: a seat that
+     * meets an accusation with an alibi, a counter-accusation, a role or a
+     * plain denial has answered it. Only a seat that said nothing at all has
+     * not.
+     */
+    const spokeSince = (slot: number, since: number): boolean =>
+      board.claims.some((claim) => claim.claimerSlot === slot && claim.day >= since);
 
     // 3. Somebody credible has already named them. A badge the room has not
     //    disputed, or a person, comes before a doorstep report; any other voice
@@ -5942,8 +6439,23 @@ export class MafiaBotDriver {
      * it, fixed per speaker and target so a seat that borrows an opinion
      * borrows it the same way every time.
      */
-    const borrowed = (slot: number): Msg =>
-      vary('mafia.bot.why.accused', 3, botId + ':borrow:' + slot, { who: nameOf(slot) });
+    const borrowed = (slot: number): Msg => {
+      /**
+       * The same borrowed conviction, with and without the jab.
+       *
+       * "X accused them and they never answered" is two facts, and this seat
+       * only ever checked the first. When the second is false the sentence is
+       * still mostly true, which is what makes it worth keeping rather than
+       * dropping: the accusation is real and citing it is honest. So the jab
+       * comes off and the citation stands.
+       */
+      const since = board.claims.find(
+        (claim) => claim.kind === 'accuse' && claim.claimerSlot === slot && claim.targetSlot === targetSlot
+      );
+      return since && !spokeSince(targetSlot, since.day)
+        ? vary('mafia.bot.why.accused', 6, botId + ':borrow:' + slot, { who: nameOf(slot) })
+        : vary('mafia.bot.why.pushedBy', 6, botId + ':borrow:' + slot, { who: nameOf(slot) });
+    };
 
     if (accusers[0]?.human) return borrowed(accusers[0].slot);
 
@@ -5972,9 +6484,29 @@ export class MafiaBotDriver {
      */
     const theirs = board.claims.find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === targetSlot);
     if (theirs?.claimedRole) {
+      /**
+       * A contest needs two people still in the room to have it.
+       *
+       * This counted every role claim ever filed, so a badge whose rival was
+       * hanged on day two and revealed as something else entirely was still
+       * being read out as a live contradiction on day four. Measured on a real
+       * table: the town spent two afternoons hanging seats because "he and
+       * Pac-Man both claim to be the Lookout", with Pac-Man in the ground since
+       * day two and publicly revealed as the Framer.
+       *
+       * The scoring side has always had this right — `badgesOf` counts living
+       * wearers only — so this was the spoken reason alone disagreeing with the
+       * arithmetic behind it, which is the worst of the two ways to be wrong:
+       * the bots voted for a decent reason and stated a stupid one.
+       */
       const rivals = board.claims.filter(
         (claim) =>
-          claim.kind === 'role-claim' && claim.claimedRole === theirs.claimedRole && claim.claimerSlot !== targetSlot
+          claim.kind === 'role-claim' &&
+          claim.claimedRole === theirs.claimedRole &&
+          claim.claimerSlot !== targetSlot &&
+          board.aliveSlots.includes(claim.claimerSlot) &&
+          // And a grave that already answered the question is not a rival either.
+          board.deadRoles.get(claim.claimerSlot) === undefined
       );
       if (rivals.some((claim) => claim.claimerSlot === me.slot)) {
         return vary('mafia.bot.why.myBadge', 3, botId + ':w:' + targetSlot, { role: ROLE.name(theirs.claimedRole) });
@@ -6021,9 +6553,42 @@ export class MafiaBotDriver {
 
     // 9. The wagon itself, which is a reason people really do give.
     const against = [...board.votes.values()].filter((slot) => slot === targetSlot).length;
-    if (against >= 2) return vary('mafia.bot.why.wagon', 3, botId + ':w:' + targetSlot);
+    if (against >= 2) {
+      // The wagon is on the board either way; only the "and said nothing back"
+      // half needed looking up. See `spokeSince`.
+      return spokeSince(targetSlot, board.day)
+        ? vary('mafia.bot.why.wagonPlain', 3, botId + ':w:' + targetSlot)
+        : vary('mafia.bot.why.wagon', 3, botId + ':w:' + targetSlot);
+    }
 
-    return board.day >= 3 ? vary('mafia.bot.why.nowhere', 3, botId + ':w:' + targetSlot) : null;
+    /**
+     * The last rung, and it has to check the thing it says.
+     *
+     * "They have never told us where they were on any night" was returned on
+     * day three or later with nothing looked at, so it was said about seats who
+     * had given an account every single day. The catalogue's own rule, written
+     * at the top of it, is that a variant asserts only what the call site has
+     * checked — this was the call site that checked nothing, and it read as
+     * flavour while playing as evidence.
+     *
+     * Reported from a real table. A Sheriff claimed its badge, named a mafioso
+     * and read out both its nights; a juror voted guilty because it "had never
+     * told us where it was on any night", in the same minute and in the same
+     * room. Whatever else was wrong with that afternoon, one seat at it was
+     * stating a fact that the transcript directly contradicted.
+     *
+     * Failing to null is the right failure: `sentence` turns a missing reason
+     * into a line that admits it is only a read, which is true, and true is the
+     * whole bar here.
+     */
+    const silentOnNights = !board.claims.some(
+      (claim) =>
+        claim.claimerSlot === targetSlot &&
+        // "I was doused", "I was roleblocked" is an account of a night as much
+        // as "I was home" is, and the seat that said it has told us where it was.
+        (claim.kind === 'account' || claim.kind === 'sighting' || claim.kind === 'ailing')
+    );
+    return board.day >= 3 && silentOnNights ? vary('mafia.bot.why.nowhere', 3, botId + ':w:' + targetSlot) : null;
   }
 
   /**
@@ -6777,9 +7342,23 @@ export class MafiaBotDriver {
      * leave regardless, and what made a bot's will worthless as evidence of
      * anything: a clean will was a town will, every time.
      */
-    const honest = ROLES[self.role].faction === 'town' || mind.agenda === 'passenger';
+    /**
+     * Honesty is a fact about the seat that wrote the notes, not about the
+     * badge it is wearing now.
+     *
+     * An audit rewrites `role` in place, so this flipped a Survivor into a
+     * Scumbag — passenger to parasite — and the truthful notebook it had been
+     * keeping all game was thrown away and replaced with a liar's. The nights
+     * in it were real. What changed was the seat's powers and the side it wins
+     * with, and neither of those makes yesterday's record a lie.
+     *
+     * Read off the dealt badge, so a seat that was town when it wrote its
+     * record still signs a true one. See `MafiaPlayer.roleBefore`.
+     */
+    const dealt = self.roleBefore ?? self.role;
+    const honest = ROLES[dealt].faction === 'town' || mind.agenda === 'passenger';
     const mask = honest ? null : this.maskOf(state, botId, mind);
-    const signed: RoleId | null = honest ? self.role : mask && mind.brain.personality.deceit > 0.35 ? mask : null;
+    const signed: RoleId | null = honest ? dealt : mask && mind.brain.personality.deceit > 0.35 ? mask : null;
     const record: readonly IntelEntry[] = honest
       ? self.intel
       : signed
@@ -6883,7 +7462,28 @@ export class MafiaBotDriver {
         .map((player) => player.lastWill)
     );
     const shelf = bare ? STANDS_ALONE : [1, 2, 3, 4, 5, 6, 7, 8, 9];
-    const roleLine = signed ? t(vary('mafia.bot.will.role', 3, botId + ':will', { role: ROLE.name(signed) })) : null;
+    /**
+     * And a signature that tells the room what happened to it.
+     *
+     * "I am the Citizen", written above five nights of a Sheriff's checks, reads
+     * to the whole table as a fabricated will — which is how an audited seat
+     * gets its real record thrown out. The honest sentence is the one the seat
+     * would actually write: this is what I was, this is what I am now, and
+     * somebody did it to me. It costs the Auditor nothing it was promised — the
+     * powers are gone and the reveal still shows the new badge — and it stops
+     * the audit silently destroying evidence the town had already paid for.
+     */
+    const changed = self.roleBefore != null && self.roleBefore !== self.role;
+    const roleLine = !signed
+      ? null
+      : changed
+        ? t(
+            vary('mafia.bot.will.audited', 3, botId + ':will', {
+              was: ROLE.name(signed),
+              now: ROLE.name(self.role)
+            })
+          )
+        : t(vary('mafia.bot.will.role', 3, botId + ':will', { role: ROLE.name(signed) }));
     const draft = (offset: number): string =>
       fitWill({
         role: roleLine,
@@ -7010,7 +7610,20 @@ export class MafiaBotDriver {
        */
       if (claimed) {
         return {
-          text: t(vary('mafia.bot.defend.role', 3, botId + ':stand:' + state.day, { role: ROLE.name(claimed) })),
+          /**
+           * Two of the three phrasings threaten the room with what it is about
+           * to lose, and a role with no power is no loss. A Citizen saying "hang
+           * me and the town loses its Citizen" is the tell, not the defence. See
+           * `bluffRole`, which now prefers a badge that has something to lose.
+           */
+          text: t(
+            vary(
+              ROLES[claimed].nightAction === null ? 'mafia.bot.defend.rolePlain' : 'mafia.bot.defend.role',
+              3,
+              botId + ':stand:' + state.day,
+              { role: ROLE.name(claimed) }
+            )
+          ),
           claim: { kind: 'role-claim', slot: null, role: claimed }
         };
       }
@@ -7481,7 +8094,25 @@ export class MafiaBotDriver {
         !worn.has(role as RoleId)
     );
     if (candidates.length === 0) return null;
-    return candidates[hashCode(botId + ':bluff') % candidates.length];
+    /**
+     * A bluff the room would miss, when there is one.
+     *
+     * The filter above asks only whether a role is town and unclaimed, so the
+     * Citizen was as good a lie as the Doctor — and it is the worst one
+     * available. `defenceStrength` prices it at 0.08 against 0.4 precisely
+     * because "I am a citizen" survives every check and proves nothing, so the
+     * safest lie in the game bought its teller almost nothing. Worse on the
+     * stand, where it produced "Hang me and the town loses its Citizen", which
+     * is a sentence with no threat in it at all.
+     *
+     * A role with a night action is a role the town loses something by hanging,
+     * which is the only reason to claim one. Falls back to the whole list when
+     * every powered badge is already spoken for, because a weak bluff still
+     * beats saying nothing on the stand.
+     */
+    const worthWearing = candidates.filter((role) => ROLES[role].nightAction !== null);
+    const pool = worthWearing.length > 0 ? worthWearing : candidates;
+    return pool[hashCode(botId + ':bluff') % pool.length];
   }
 
   /**
@@ -7824,7 +8455,8 @@ export class MafiaBotDriver {
       filed.add(player.playerId);
       this.testamentsFiled.set(state.code, filed);
 
-      const honest = ROLES[player.role].faction === 'town' || mind.agenda === 'passenger';
+      // The badge it was dealt, for the same reason the will signs it. See `roleBefore`.
+      const honest = ROLES[player.roleBefore ?? player.role].faction === 'town' || mind.agenda === 'passenger';
       if (honest || !mind.mask || mind.brain.personality.deceit <= 0.35 || !player.lastWill) continue;
       const death = state.deaths.find((entry) => entry.playerId === player.playerId);
       if (!death || death.hidden) continue;
@@ -7921,7 +8553,7 @@ export class MafiaBotDriver {
       jailSlot: whole('jailSlot'),
       revealMayor: raw.reveal === true,
       verdict: raw.verdict === 'guilty' || raw.verdict === 'innocent' || raw.verdict === 'abstain' ? raw.verdict : null,
-      claim: readClaim(raw, claimableRoles(state))
+      claim: readClaim(raw, claimableRoles(state), visitableSlots(state))
     };
 
     return this.vet(state, botId, task, channel, round, wanted);
@@ -8274,7 +8906,11 @@ function taskLine(view: MafiaView, task: BotTask, tongue: Locale): string {
  * something the table will not remember. Anything unrecognised becomes null
  * rather than a guess — a wrong entry on the board is worse than no entry.
  */
-function readClaim(raw: Record<string, unknown>, claimable: ReadonlySet<string>): Decision['claim'] {
+function readClaim(
+  raw: Record<string, unknown>,
+  claimable: ReadonlySet<string>,
+  visitable: ReadonlySet<number>
+): Decision['claim'] {
   const kind = typeof raw.claim === 'string' ? raw.claim : null;
   if (!kind) return null;
   const slot = typeof raw.claimSlot === 'number' && Number.isInteger(raw.claimSlot) ? raw.claimSlot : null;
@@ -8290,7 +8926,19 @@ function readClaim(raw: Record<string, unknown>, claimable: ReadonlySet<string>)
     case 'account-home':
       return { kind: 'account', slot: null, role: null, account: 'home' };
     case 'account-visited':
-      return slot === null ? null : { kind: 'account', slot, role: null, account: 'visited' };
+      /**
+       * A house that was already in the ground is not an alibi, it is a tell.
+       *
+       * Same rule as the roster check below and for the same reason: the board
+       * holds accounts as evidence and `deductions` reads a visit to a seat who
+       * died earlier as proof the speaker is lying. Filing one is handing the
+       * room a conviction the speaker never chose to offer. Dropped rather than
+       * corrected, because guessing which house it meant would be inventing an
+       * alibi on its behalf.
+       */
+      return slot === null || !visitable.has(slot)
+        ? null
+        : { kind: 'account', slot, role: null, account: 'visited' };
     case 'role-claim':
       // A role this table cannot contain is not a claim, it is a tell. Dropped
       // rather than filed: the board would otherwise carry a fact no player

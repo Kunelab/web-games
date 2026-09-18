@@ -469,6 +469,9 @@ export class MafiaManager {
     this.banked.delete(code);
     this.beats.delete(code);
     this.mourned.delete(code);
+    // Swept with the rest: a reused table code otherwise starts on a stale day
+    // and swallows its first night trace event.
+    this.logged.delete(code);
     // A table swept mid-game still closes its log, or its last minutes sit in a
     // buffer that nothing will ever flush. A table that never started has no
     // log, and `endTrace` will not invent one to close.

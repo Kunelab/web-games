@@ -25,7 +25,7 @@ const cache = new Map<Locale, Translate>();
 export function say(locale: Locale): Translate {
   let bound = cache.get(locale);
   if (!bound) {
-    bound = translator(CATALOGUES[locale] ?? en, en);
+    bound = translator(CATALOGUES[locale] ?? en, en, locale);
     cache.set(locale, bound);
   }
   return bound;

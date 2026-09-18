@@ -94,6 +94,26 @@ const FIRST_PERSON = /\b(?:i'?m|i am|im|me|myself|je suis|j'?suis|c'?est moi|moi
  * checking because a false role claim is the most expensive mistake either
  * reader can make: it is the one thing the whole table reasons from.
  */
+/**
+ * Saying what you are NOT, which is the opposite of a claim about yourself.
+ *
+ * "I'm not the serial killer" puts a first-person marker eight characters in
+ * front of a role name, which is all the test above looks for, so the reader
+ * filed the denial as a confession. It is the single most common sentence at a
+ * Mafia table and it was read as the single most damning one.
+ *
+ * Harmless until it was not. A self-claimed evil role used to be worth nothing
+ * in the arithmetic, so the misreading sat on the board doing no work; it is
+ * now the heaviest term in the model, and the same sentence gets its speaker
+ * jailed, convicted by every juror and shot by the Vigilante. Two rules
+ * crossing is how the expensive bugs in this file happen: see the note on
+ * `REPORTING`, which is the same mistake in the other direction.
+ *
+ * Checked on the run-up rather than on the line, so "I am the Doctor, I am not
+ * a killer" still reads the badge it actually claimed.
+ */
+const NEGATED = /\b(?:not|never|ain'?t|aint|no|pas|jamais|aucun)\b/i;
+
 const REPORTING =
   /\b(?:think|thinks|thought|believe|believes|guess|bet|say|says|said|suspect|suspects|reckon|wonder|hope|pense|crois|croit|dis|dit|suppose|parie|suspecte|imagine)\b/i;
 
@@ -484,13 +504,13 @@ export function selfClaim(text: string): RoleId | null {
     const at = line.indexOf(name);
     if (at < 0) continue;
     const runUp = line.slice(Math.max(0, at - 20), at);
-    if (FIRST_PERSON.test(runUp) && !REPORTING.test(runUp)) return role;
+    if (FIRST_PERSON.test(runUp) && !REPORTING.test(runUp) && !NEGATED.test(runUp)) return role;
   }
   // And the same test against what people type instead of the name.
   const nick = nicknameAt(line);
   if (nick) {
     const runUp = line.slice(Math.max(0, nick.at - 20), nick.at);
-    if (FIRST_PERSON.test(runUp) && !REPORTING.test(runUp)) return nick.role;
+    if (FIRST_PERSON.test(runUp) && !REPORTING.test(runUp) && !NEGATED.test(runUp)) return nick.role;
   }
   return null;
 }

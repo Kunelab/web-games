@@ -355,10 +355,24 @@ export default function MafiaPlayer() {
    * nothing, and the only feedback was a refusal in red. Now the button says
    * how long, which turns a broken control into a rule of the game.
    */
-  const [now, setNow] = useState(() => Date.now());
+  /**
+   * The server's clock, not this browser's.
+   *
+   * `voteOpensAt` is a server timestamp and this compared it against
+   * `Date.now()`, while `phaseEndsAt` on the same screen goes through
+   * `serverNow()` — the offset-corrected clock that exists for exactly this.
+   * A player whose machine runs behind the server sees every accuse button
+   * disabled for the whole afternoon; one running ahead clicks early and gets a
+   * refusal in red from `castVote`. Neither player has done anything wrong and
+   * neither has any way to tell what happened.
+   *
+   * The server-side reader in `turn.ts` already compares against real server
+   * time, so this was the only half of the rule keeping its own clock.
+   */
+  const [now, setNow] = useState(() => serverNow());
   const opensAt = canVote ? (view?.voteOpensAt ?? null) : null;
   useEffect(() => {
-    if (opensAt === null || Date.now() >= opensAt) return;
+    if (opensAt === null || serverNow() >= opensAt) return;
     /**
      * And it stops the moment the lock does.
      *
@@ -368,11 +382,11 @@ export default function MafiaPlayer() {
      * itself on the tick that passes the deadline instead.
      */
     const timer = setInterval(() => {
-      setNow(Date.now());
-      if (Date.now() >= opensAt) clearInterval(timer);
+      setNow(serverNow());
+      if (serverNow() >= opensAt) clearInterval(timer);
     }, 250);
     return () => clearInterval(timer);
-  }, [opensAt]);
+  }, [opensAt, serverNow]);
   const ballotOpensIn = opensAt === null ? 0 : Math.max(0, Math.ceil((opensAt - now) / 1000));
 
   const fail = (ack: { ok: boolean; error?: Msg }) => {

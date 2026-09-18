@@ -338,6 +338,26 @@ export interface MafiaPlayer {
   /** Night the poisoner struck; death comes the following night unless cured. */
   poisonedNight: number | null;
   /**
+   * The badge this seat was dealt, when something has since replaced it.
+   *
+   * The Auditor rewrites `role` in place and nothing kept the old one, so
+   * everything downstream read the new badge as though it had always been
+   * there. Three things fell out of that, and the will was the worst: it is
+   * signed from the current role, so an audited Sheriff rewrote itself next
+   * dawn as "I am the Citizen" over five nights of real checks, and the whole
+   * room read a will that contradicted its own contents as a fabrication.
+   *
+   * The `honest` flag reads the current role too, so a Survivor audited into a
+   * Scumbag flipped from passenger to parasite and had its truthful notebook
+   * thrown away and replaced with a liar's. That is the one case where the will
+   * genuinely lost its content rather than merely mis-signing it.
+   *
+   * Absent on every seat that was never audited, which is almost all of them,
+   * and absent on persisted tables from before this existed — both read as "the
+   * badge on `role` is the one it was dealt", which is exactly right.
+   */
+  roleBefore?: RoleId | null;
+  /**
    * The night somebody came for this seat and it lived, and what held.
    *
    * The single most valuable thing a town seat can say out loud, and until now

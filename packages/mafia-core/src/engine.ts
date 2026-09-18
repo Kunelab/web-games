@@ -2574,6 +2574,10 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         audited = 'scumbag';
       if (audited && audited !== target.role) {
         player.charges -= 1;
+        // Kept so the will can say what happened rather than sign a badge its
+        // own contents contradict. See `MafiaPlayer.roleBefore`. Only the first
+        // audit writes it: a seat audited twice was still dealt one role.
+        if (target.roleBefore === undefined || target.roleBefore === null) target.roleBefore = target.role;
         target.role = audited;
         target.charges = roleDef(audited).charges ?? 0;
         notify(target, NOTE.audited(audited));

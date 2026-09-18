@@ -1,5 +1,4 @@
 import {
-  BADGE_ROLES,
   BOARD_MEMO,
   isEvilRole,
   sheriffSuspects,
@@ -669,13 +668,68 @@ function provenRoles(state: MafiaState, claims: Claim[], deaths: PublicInfo['dea
   }
   for (const claim of claims) {
     if (claim.kind !== 'role-claim' || !claim.claimedRole || !alive.has(claim.claimerSlot)) continue;
-    if (!BADGE_ROLES.has(claim.claimedRole) || proven.has(claim.claimerSlot)) continue;
+    /**
+     * Any town badge, not only the six investigative ones.
+     *
+     * The rule below is about *outcomes* and never about which badge was
+     * claimed: a seat whose accusations hanged killers and never a townie has
+     * been reading the game right, and that is as true of a claimed Doctor or
+     * Bodyguard as of a claimed Sheriff. Restricting it to `BADGE_ROLES` meant
+     * the Vigilante, Jailor, Veteran, Doctor and Bodyguard could never be
+     * vouched for by the record however right they turned out to be, so the
+     * only roles the graveyard could confirm were the ones that already had the
+     * easiest time being believed.
+     *
+     * Town only. Vouching for a claimed killer's badge on the strength of good
+     * votes is not something a record can do, and `isEvilRole` is priced on the
+     * other side of the board entirely.
+     */
+    if (!(claim.claimedRole in ROLES) || roleDef(claim.claimedRole).faction !== 'town') continue;
+    if (proven.has(claim.claimerSlot)) continue;
     const outcomes = (accusationsBy.get(claim.claimerSlot) ?? [])
       .map((other) => deadRoleOf(other.targetSlot))
       .filter((role): role is RoleId => role !== null);
     const hangedEvil = outcomes.some((role) => isEvilRole(role));
     const hangedTown = outcomes.some((role) => roleDef(role).faction === 'town');
     if (hangedEvil && !hangedTown) proven.set(claim.claimerSlot, claim.claimedRole);
+  }
+
+  /**
+   * A killing this table's own dawn report signed for.
+   *
+   * The record could catch a liar nine ways and vouch for nobody, which is not
+   * a symmetry a game can afford: a seat that told the truth about a hard thing
+   * got exactly what a seat that said nothing got. The dawn report names a
+   * weapon for every night death, so a claimed killing is the one assertion the
+   * graveyard settles on its own, without anybody being believed.
+   *
+   * Three things have to line up, and a liar cannot arrange any of them after
+   * the fact: the night names a corpse, the corpse's report credits the weapon
+   * the claimer says it used, and the corpse came up evil. A Vigilante that
+   * shot a mafioso on night three can say so on day four and be *right* in a
+   * way the room can check on its own screens.
+   *
+   * The victim being evil is deliberately part of it. A Vigilante that shot a
+   * townie also told the truth, and the room may well still want it dead for
+   * it; this vouches for the seat's usefulness, not merely its honesty.
+   */
+  const killers: Partial<Record<DeathSource, RoleId>> = {
+    vigilante: 'vigilante',
+    jailor: 'jailor',
+    veteran: 'veteran'
+  };
+  for (const claim of claims) {
+    if (claim.kind !== 'kill-claim' || !alive.has(claim.claimerSlot) || proven.has(claim.claimerSlot)) continue;
+    const night = claim.night ?? Math.max(1, claim.day - 1);
+    const body = deaths.find(
+      (death) => death.slot === claim.targetSlot && death.phase === 'night' && death.day === night
+    );
+    if (!body?.source) continue;
+    const role = killers[body.source];
+    // The badge the claim names, when it names one; otherwise the weapon's own.
+    if (!role || (claim.claimedRole !== undefined && claim.claimedRole !== role)) continue;
+    const buried = deadRoleOf(claim.targetSlot);
+    if (buried !== null && isEvilRole(buried)) proven.set(claim.claimerSlot, role);
   }
 
   return proven;

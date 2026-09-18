@@ -164,3 +164,43 @@ describe('the ranking, in both directions', () => {
     assert.deepEqual(caseFor(3, board()), [], 'no evidence is not a thin case, it is no case');
   });
 });
+
+/**
+ * The strongest rule in the model, and the one afternoon it got backwards.
+ *
+ * `SAID.badge` is +2.77 because an uncontested investigative claim tends to be
+ * the bluff: the real Sheriff is alive, quiet and not standing up to argue. The
+ * whole of that reasoning is about a badge that has survived a day in which
+ * somebody could have objected, and nothing was checking that a day had passed.
+ */
+describe('a badge is only unchallenged once it has had time to be challenged', () => {
+  it('says nothing about a claim made this same afternoon', () => {
+    const today = board({
+      day: 3,
+      claims: [said({ claimerSlot: 1, targetSlot: 1, kind: 'role-claim', claimedRole: 'sheriff', day: 3 })]
+    });
+
+    /**
+     * Reported from a real table: a Sheriff claimed on day 3, named a mafioso
+     * and read out both its nights. The badge fired the same minute and the
+     * town hanged it 21 to 1 on the strength of having spoken.
+     */
+    assert.ok(
+      !codes(caseFor(1, today)).includes('badge-unchallenged'),
+      'a claim nobody has had a turn to answer is unread, not unchallenged'
+    );
+  });
+
+  it('and counts it from the next day on', () => {
+    const yesterday = board({
+      day: 4,
+      claims: [said({ claimerSlot: 1, targetSlot: 1, kind: 'role-claim', claimedRole: 'sheriff', day: 3 })]
+    });
+
+    // The room has had a full afternoon to stand up against it and did not.
+    assert.ok(
+      codes(caseFor(1, yesterday)).includes('badge-unchallenged'),
+      'the rule the bench fitted is still the rule, one day later'
+    );
+  });
+});
