@@ -36,6 +36,7 @@ import {
   alivePlayers,
   assignRoles,
   chatRules,
+  isMason,
   jailChannel,
   nextBotName,
   nextFreeSlot,
@@ -1128,6 +1129,30 @@ function promoteCarriers(state: MafiaState): void {
    * the heir starts with no cooldown, which is exactly where a fresh cultist
    * starts, and the cult still only converts a night in two.
    */
+  /**
+   * A lodge with no master, which is a lodge that does nothing at all.
+   *
+   * The Masons are two roles: the brothers, who have no night power and exist to
+   * know each other, and the Master, who is the only one who can bring anybody
+   * in. A deal that lands two brothers and no Master — which "chaos" and
+   * "census" setups do routinely, and which a real table played through — is
+   * three or four nights of a private room where nobody can do anything, and a
+   * town power that reads as broken because from the inside it is.
+   *
+   * So the lodge elects one. The same succession the families and the cult
+   * already get, and for the same reason: a side that still has people in it
+   * should still have the thing it was dealt. Chosen by seat order rather than
+   * at random, because it has to be the same on every screen and in every replay
+   * of the game, and because "the eldest brother" is a sentence a table accepts.
+   */
+  const lodge = Object.values(state.players).filter((player) => player.alive && isMason(player));
+  if (lodge.length > 0 && !lodge.some((brother) => brother.role === 'mason-leader')) {
+    const master = lodge.sort((left, right) => left.slot - right.slot)[0];
+    master.role = 'mason-leader';
+    master.charges = roleDef('mason-leader').charges ?? 0;
+    notify(master, NOTE.promoted('mason-leader'));
+  }
+
   const flock = Object.values(state.players).filter(
     (player) => player.alive && player.role !== null && roleDef(player.role).faction === 'cult'
   );
