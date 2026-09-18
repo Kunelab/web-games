@@ -872,25 +872,19 @@
  * Pure black at low alpha rather than a tinted grey, because it has to sit on
  * grass, on a plot, on the plaza and on a boarded plot without being mixed for
  * each.
+ *
+ * Two of the four have since left the board altogether: the painted house and
+ * the painted villager draw no mark under them at all. A cutout does not land
+ * on the ellipse drawn for its spot (there are always a few transparent pixels
+ * beneath its base), so the shadow stayed on the ground while the sprite sat
+ * above it, which is the floating a contact shadow is supposed to cure. What is
+ * left below is drawn geometry, where the shape and its shadow are the same
+ * numbers and always meet.
  */
 .mz-villager-shadow,
-.mz-house-shadow,
 .mz-tomb-ground,
 .mz-plot-empty {
   fill: var(--town-shadow);
-}
-
-/*
- * What a cutout cannot carry: whose house this is, and that it is standing on
- * ground rather than floating over it.
- *
- * The drawn villager wore the seat's colour; the painted one is the same person
- * two dozen times over, so the colour moves to the mark under their feet. It is
- * also the shadow, which is why it is there at all — a sprite with no contact
- * shadow reads as a sticker on a photograph.
- */
-.mz-villager-mark {
-  opacity: 0.5;
 }
 
 /*

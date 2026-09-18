@@ -477,12 +477,19 @@ function Prop({
  * house out for a headstone, which quietly emptied the hill: by the endgame half
  * the street was bare lawn, and a town that loses its houses stops reading as a
  * town. Nobody demolishes a house when its owner dies — they board it up.
+ *
+ * It stands without a contact shadow. There was an ellipse painted at the
+ * plot's own spot, and the cutout never landed on it: a trimmed photograph
+ * still carries transparent pixels under its base, so the house hovered above
+ * its own shadow instead of sitting in it, which is the one thing a contact
+ * shadow exists to prevent. A sprite on bare ground reads as standing on the
+ * ground. A sprite over a dark ellipse reads as floating over the spot it is
+ * supposed to be on.
  */
 function House({ plot, art, night, barred = false }: { plot: Plot; art: boolean; night: boolean; barred?: boolean }) {
   if (art) {
     return (
       <g className={barred ? 'mz-house mz-house--barred' : 'mz-house'}>
-        <ellipse cx={plot.x} cy={plot.y + 4} rx={30} ry={9} className="mz-house-shadow" />
         <Sprite
           /*
            * A boarded house looks the same after dark, because nobody lights a
@@ -564,9 +571,15 @@ function Boards({ x, w, h, base, eave }: { x: number; w: number; h: number; base
 /**
  * A villager, facing the same way as the house behind them.
  *
- * The cutout carries no seat colour, so the tint moves to the ground under
- * their feet: twenty-four identical models are a crowd, and the one thing the
- * hill has to do is let you find your own seat in it.
+ * The painted one stands on bare ground, for the reason the painted house
+ * does: the ellipse under their feet (the seat's colour doing duty as a
+ * contact shadow) sat on the spot the model was meant to occupy while the
+ * model floated a little above it, and a mark you hover over is worse than no
+ * mark at all. The roster still prints every name in its seat colour, so the
+ * colour has not left the game, only the hill.
+ *
+ * The drawn fallback below keeps its tint, where the villager is a vector and
+ * its feet really do touch the ground.
  */
 function Villager({
   x,
@@ -587,7 +600,6 @@ function Villager({
   if (art) {
     return (
       <g className={accused ? 'mz-villager mz-villager--accused' : 'mz-villager'}>
-        <ellipse cx={x} cy={y + 2} rx={9} ry={3.5} fill={tint} className="mz-villager-mark" />
         <Sprite
           file={accused ? 'model-villager-accused' : 'model-villager-base'}
           x={x}
