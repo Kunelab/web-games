@@ -317,6 +317,20 @@ export const screenFr: Catalogue = {
   'mafia.bot.accuse.1': 'Je vote {who}.',
   'mafia.bot.accuse.2': '{who} pour moi.',
   'mafia.bot.accuse.3': '{who}. Rien de solide, une impression.',
+  /**
+   * Un vote sans rien derriere lui sur le tableau, et qui le dit.
+   *
+   * Chacune de ces phrases admet la meme chose d'une voix differente, parce que
+   * l'alternative — poster « Je vote 7. » et laisser la salle deviner s'il y a
+   * un testament ou un tirage au sort derriere — est la facon la plus simple
+   * pour une table de bots d'avoir l'air de cacher des preuves. Voir `sentence`.
+   */
+  'mafia.bot.accuseRead.1': '{who}. Rien de solide, une impression.',
+  'mafia.bot.accuseRead.2': '{who} pour moi, au feeling. Rien sur le tableau pour l’instant.',
+  'mafia.bot.accuseRead.3': 'Je vote {who}. Aucune preuve, la place ne me plaît pas.',
+  'mafia.bot.accuseRead.4': '{who}, et je le dis franchement : je n’ai rien de solide.',
+  'mafia.bot.accuseRead.5': 'Je mets mon vote sur {who} pour lancer quelque chose. Ce n’est qu’une impression.',
+  'mafia.bot.accuseRead.6': '{who}. Une intuition, pas un dossier. Donnez-moi mieux.',
   'mafia.bot.accuse.4': 'Je pense que c’est {who}.',
   'mafia.bot.accuse.5': 'Mon vote : {who}.',
   'mafia.bot.accuse.6': 'Je vote {who} sauf si quelqu’un a mieux.',
@@ -332,6 +346,16 @@ export const screenFr: Catalogue = {
   'mafia.bot.clear.7': '{who}, c’est le mauvais nom.',
   'mafia.bot.clear.8': 'Pas {who}. Je le défendrai.',
   'mafia.bot.clear.9': '{who} tient debout, pour moi.',
+  /**
+   * Le tueur de la ville qui assume un coup que le rapport du matin confirme.
+   * Voir le type `kill-claim` : cela ne se dit qu'un matin verifiable.
+   */
+  'mafia.bot.killClaim.1': 'C’était moi. J’ai tué {who} la nuit {night}.',
+  'mafia.bot.killClaim.2': '{who}, c’était moi, nuit {night}. Vérifiez le rapport.',
+  'mafia.bot.killClaim.3': 'J’ai abattu {who} la nuit {night}. C’est dans le rapport de ce matin.',
+  'mafia.bot.killClaim.4': 'Nuit {night}, {who}. C’est mon œuvre et je l’assume.',
+  'mafia.bot.killClaim.5': 'J’ai pris {who} la nuit {night}. Le rapport dit comment.',
+  'mafia.bot.killClaim.6': '{who} est mort de ma main la nuit {night}. Lisez le matin.',
   'mafia.bot.roleClaim.1': 'Je suis {role}.',
   'mafia.bot.roleClaim.2': '{role}, c’est bien moi.',
   'mafia.bot.roleClaim.3': 'Je suis le {role}. Faites-moi travailler cette nuit.',
@@ -460,6 +484,8 @@ export const screenFr: Catalogue = {
   'mafia.bot.case.badge.2': 'tu as annoncé {role} et pas une personne ne s’y est opposée de toute la partie',
   'mafia.bot.case.savedKillers.1': 'tu as voté innocent sur des gens qui étaient des tueurs',
   'mafia.bot.case.savedKillers.2': 'tu as déjà voté pour épargner des tueurs',
+  'mafia.bot.case.pushedByPlain.1': '{other} t’a en haut de sa liste',
+  'mafia.bot.case.pushedByPlain.2': '{other} t’a nommé aujourd’hui et je pense qu’il a raison',
   'mafia.bot.case.pushedBy.1': '{other} t’a accusé et tu n’as pas répondu',
   'mafia.bot.case.pushedBy.2': '{other} t’a nommé et tu n’as rien dit',
   'mafia.bot.for.neverOut.1': 'personne ne l’a jamais signalé en visite chez qui que ce soit',
@@ -536,14 +562,38 @@ export const screenFr: Catalogue = {
   'mafia.bot.why.wagon.1': 'on vote contre lui et il n’a répondu à rien',
   'mafia.bot.why.wagon.2': 'la salle vote contre lui et il ne dit rien',
   'mafia.bot.why.wagon.3': 'il n’a répondu à aucun de ces votes',
+  /**
+   * La meme citation sans le reproche, quand le reproche est faux.
+   *
+   * Voir `spokeSince` : « et il n'a jamais repondu » est un second fait, et un
+   * siege qui a repondu a droit a la version qui ne dit pas le contraire.
+   */
+  'mafia.bot.why.pushedBy.1': '{who} l’a en haut de sa liste',
+  'mafia.bot.why.pushedBy.2': '{who} l’a nommé aujourd’hui et je pense que {who} a raison',
+  'mafia.bot.why.pushedBy.4': '{who} pousse dessus et je n’ai rien de mieux',
+  'mafia.bot.why.pushedBy.5': 'je suis {who} sur ce coup-là',
+  'mafia.bot.why.pushedBy.6': '{who} y est arrivé le premier et le dossier tient',
+  'mafia.bot.why.pushedBy.3': '{who} est sur lui, et ça suffit pour regarder',
+  'mafia.bot.why.wagonPlain.1': 'la moitié de la salle vote déjà contre lui',
+  'mafia.bot.why.wagonPlain.2': 'les votes s’accumulent sur lui et ce n’est pas moi qui vais les enlever',
+  'mafia.bot.why.wagonPlain.3': 'la salle s’est fait son idée sur lui',
+  'mafia.bot.why.ownBadge.1': 'il a annoncé {role} et pas une personne ne l’a contesté de toute la partie',
+  'mafia.bot.why.ownBadge.2': 'personne ne s’est opposé à son annonce de {role}, c’est ce que fait une fausse',
+  'mafia.bot.why.ownBadge.3': 'son annonce de {role} n’a jamais été contestée de toute la partie',
+  'mafia.bot.why.savedKillers.1': 'il a voté innocent sur des gens qui étaient des tueurs',
+  'mafia.bot.why.savedKillers.2': 'il a déjà voté pour épargner des tueurs',
+  'mafia.bot.why.savedKillers.3': 'quand on avait un tueur sur le banc, il a voté pour le relâcher',
   'mafia.bot.why.nowhere.1': 'il ne nous a jamais dit où il était, aucune nuit',
   'mafia.bot.why.nowhere.2': 'il n’a jamais rendu compte d’une seule nuit',
   'mafia.bot.why.nowhere.3': 'aucune de ses nuits n’est au registre',
   'mafia.bot.why.accused.1': '{who} l’a accusé et il n’a jamais répondu',
   'mafia.bot.why.accused.2': '{who} l’a nommé et il n’a pas répondu',
+  'mafia.bot.why.accused.4': '{who} l’a mis sur le tableau et rien n’est revenu',
+  'mafia.bot.why.accused.5': 'il a été nommé par {who} et il laisse courir',
+  'mafia.bot.why.accused.6': '{who} l’a interpellé et il n’y a plus touché depuis',
   'mafia.bot.why.accused.3': '{who} l’a accusé et rien n’est revenu',
-  'mafia.bot.why.badge.1': '{who} se dit {role}, et {who} l’a accusé',
-  'mafia.bot.why.badge.2': 'le {role}, c’est {who}, et {who} l’a accusé',
+  'mafia.bot.why.badge.1': '{who} se dit {role}, et il l’a accusé',
+  'mafia.bot.why.badge.2': 'le {role}, c’est {who}, et il l’a accusé',
   'mafia.bot.why.badge.3': '{who} a annoncé {role} et l’a mis en tête de liste',
   /** Le nez de l'enquêteur, comme raison : {line} est le métier trouvé. */
   'mafia.bot.why.trade.1': 'je l’ai examiné la nuit {night} : {line}',
@@ -555,7 +605,7 @@ export const screenFr: Catalogue = {
   'mafia.bot.whyClear.mine.2': 'ma vérification sur lui la nuit {night} était propre',
   'mafia.bot.whyClear.mine.3': 'je l’ai enquêté la nuit {night} et je n’ai rien trouvé',
   'mafia.bot.whyClear.vouched.1': '{who}, qui se dit {role}, affirme qu’il est innocent',
-  'mafia.bot.whyClear.vouched.2': 'le {role}, c’est {who}, et {who} l’a déjà blanchi',
+  'mafia.bot.whyClear.vouched.2': 'le {role}, c’est {who}, et il l’a déjà blanchi',
   'mafia.bot.whyClear.vouched.3': '{who} a annoncé {role} et a dit qu’il était propre',
   'mafia.bot.whyClear.accounted.1': 'il nous a dit où il était et personne ne l’a contredit',
   'mafia.bot.whyClear.accounted.2': 'son récit de la nuit est au registre et personne ne l’a cassé',
@@ -631,6 +681,15 @@ export const screenFr: Catalogue = {
   'mafia.bot.defend.accuser.1': '{who} a lancé ça. Pourquoi personne ne le regarde ?',
   'mafia.bot.defend.accuser.2': 'Tout vient de {who}. Demandez-lui une chose vérifiable.',
   'mafia.bot.defend.accuser.3': 'Les voix ont suivi {who}. Commencez par là, pas par moi.',
+  /**
+   * La meme defense, pour un role sans pouvoir derriere.
+   *
+   * `defend.role` menace la salle de ce que la pendaison lui coute, ce qui ne
+   * coute rien quand le role est Citoyen. Voir l'appel dans `stand`.
+   */
+  'mafia.bot.defend.rolePlain.1': 'Je suis le {role}. C’est tout ce que je suis, et c’est la vérité.',
+  'mafia.bot.defend.rolePlain.2': 'Je suis le {role}. Aucun pouvoir, rien à vous montrer, et toujours pas votre tueur.',
+  'mafia.bot.defend.rolePlain.3': 'Le {role}. Je sais que ça ne prouve rien. C’est ce que j’ai.',
   'mafia.bot.defend.role.1': 'Je suis le {role}. Pendez-moi et vous le verrez sur mon corps demain.',
   'mafia.bot.defend.role.2': 'Je suis le {role}. Pendez-moi et la ville perd son {role}.',
   'mafia.bot.defend.role.3': '{role}. C’est ma défense.',
@@ -878,9 +937,42 @@ export const screenFr: Catalogue = {
   'mafia.bot.dump.closing.1': 'C’est tout. Faites-en ce que vous voulez.',
   'mafia.bot.dump.closing.2': 'Vous avez tout.',
   'mafia.bot.dump.closing.3': 'Tout ce que je sais est sorti. Décidez.',
-  'mafia.bot.crier.suspect.1': 'Une voix dans le noir : regardez {who}.',
-  'mafia.bot.crier.suspect.2': 'De nulle part : surveillez {who} demain.',
-  'mafia.bot.crier.suspect.3': 'Vous n’avez entendu ça de personne. Surveillez {who}.',
+  /**
+   * La replique de nuit du crieur, qui etait un nom.
+   *
+   * Le role n'a aucune action de nuit : tout son pouvoir est que sa voix porte
+   * sur la place apres la tombee du jour, anonymement. Le suspect qu'il nommait
+   * n'etait donc pas une trouvaille, c'etait le haut du classement public
+   * ordinaire, lu a voix haute sur le ton de la confidence. « Tu n'as entendu
+   * ca de personne. Surveille 7. » promet une source que le role n'a pas.
+   *
+   * Une blague porte la voix, garde le seul vrai avantage du role (la ville
+   * entend quelqu'un dans le noir et sait que le crieur vit) et n'affirme rien.
+   */
+  /**
+   * Le crieur qui lit le registre a voix haute. Voir `crierNews`.
+   *
+   * Chacune de ces lignes est un decompte tire du tableau, verifiable par
+   * quiconque remonte le fil, et aucune ne designe un suspect ni ne pretend
+   * tenir ca de quelqu'un.
+   */
+  'mafia.bot.crier.news.contested.1': 'Comptez : {count} d’entre vous annoncent {role}. Au moins un ment.',
+  'mafia.bot.crier.news.contested.2': '{count} personnes ici disent être le {role}. Il n’y en a pas {count}.',
+  'mafia.bot.crier.news.toll.1': 'La corde en a pris {count} d’entre nous. {town} étaient de la ville.',
+  'mafia.bot.crier.news.toll.2': '{count} pendus jusqu’ici, dont {town} des nôtres. Comptez avant de tirer encore.',
+  'mafia.bot.crier.news.quiet.1': 'Personne n’est mort cette nuit. Quelqu’un choisit de ne pas frapper.',
+  'mafia.bot.crier.news.quiet.2': 'La charrette est vide ce matin. Demandez-vous pourquoi.',
+  'mafia.bot.crier.news.silent.1': '{who} n’a pas dit un mot de toute la partie. C’est au registre.',
+  'mafia.bot.crier.news.silent.2': 'Remontez le fil. {who} n’a pas fait une seule déclaration depuis le premier jour.',
+  'mafia.bot.crier.joke.1': 'Qu’est-ce qui est jaune et qui attend ? Jonathan.',
+  'mafia.bot.crier.joke.2': 'Qu’est-ce qu’un crocodile qui surveille la pharmacie ? Un Lacoste garde.',
+  'mafia.bot.crier.joke.3': 'Que dit un oignon quand il se cogne ? Aïe.',
+  'mafia.bot.crier.joke.4': 'Qu’est-ce qui est vert et qui monte et descend ? Un petit pois dans un ascenseur.',
+  'mafia.bot.crier.joke.5': 'Quel est le comble pour un électricien ? Ne pas être au courant.',
+  'mafia.bot.crier.joke.6': 'Qu’est-ce qui est petit et marron ? Un marron.',
+  'mafia.bot.crier.joke.7': 'Pourquoi les plongeurs plongent-ils en arrière ? Sinon ils tombent dans le bateau.',
+  'mafia.bot.crier.joke.8': 'Comment appelle-t-on un chat tombé dans un pot de peinture ? Un chat-peint.',
+  'mafia.bot.crier.joke.9': 'Quel est le sport le plus fruité ? La boxe, parce qu’on se prend des pêches.',
   'mafia.bot.crier.quiet.1': 'Dormez d’un œil. Quelqu’un ici ment.',
   'mafia.bot.crier.quiet.2': 'Fermez à clé.',
   'mafia.bot.crier.quiet.3': 'Nuit calme. Trop calme.',
@@ -979,6 +1071,15 @@ export const screenFr: Catalogue = {
   'mafia.bot.will.7': 'Je me suis trompé sur beaucoup. Pas sur tout.',
   'mafia.bot.will.8': 'Ne perdez pas la journée sur moi.',
   'mafia.bot.will.9': 'Comptez ceux à qui on n’a jamais posé de question.',
+  /**
+   * La signature d'un siege que l'Auditeur a reecrit. Voir `roleBefore`.
+   *
+   * Signer le nouveau role au-dessus des notes de l'ancien se lisait comme un
+   * faux testament et faisait jeter de vraies preuves ; le testament raconte.
+   */
+  'mafia.bot.will.audited.1': 'J’étais le {was}. Un Auditeur a fait de moi le {now}. Les nuits ci-dessous sont les miennes et elles sont vraies.',
+  'mafia.bot.will.audited.2': 'J’étais le {was} jusqu’à ce qu’un Auditeur me trouve. Je suis le {now} maintenant. Tout ce qui suit a bien eu lieu.',
+  'mafia.bot.will.audited.3': '{was}, puis un Auditeur. Je meurs {now}. Lisez les nuits quand même.',
   'mafia.bot.will.role.1': 'Je suis {role}.',
   'mafia.bot.will.role.2': '{role}, pour ce que ça vaut maintenant.',
   'mafia.bot.will.role.3': 'J’étais {role}. Chaque mot était vrai.',

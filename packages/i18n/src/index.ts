@@ -136,8 +136,43 @@ export function interpolate(pattern: string, params?: Record<string, string | nu
  */
 export type Translate = (message: Msg) => string;
 
-export function translator(primary: Catalogue, fallback?: Catalogue): Translate {
-  return (message) => render(message, primary, fallback);
+/**
+ * French elision, applied after substitution because that is the only moment
+ * the article and the word it belongs to are in the same string.
+ *
+ * A catalogue entry can only write "le {role}", and the role arriving in it is
+ * one of sixty-three names, eighteen of which begin with a vowel or a mute h:
+ * Hôtesse, Escorte, Amoureux, Espion, Incendiaire, Actrice. So the French table
+ * has been saying "Je suis le Hôtesse" and "le Actrice" for as long as those
+ * roles have been in it, which no French speaker has ever typed and which
+ * labels the line as machine-made to anybody reading.
+ *
+ * It cannot be fixed in the catalogue: the entry does not know which of the
+ * sixty-three it is about. It cannot be fixed at the call site either, because
+ * the call site does not know which language it is rendering into. Here it can,
+ * and it is one rule rather than eighteen special cases.
+ *
+ * Deliberately only `le`/`la`/`de`. `du`, `au` and the rest contract instead of
+ * eliding, which is a different rule with different exceptions, and no entry in
+ * either catalogue puts one in front of a `{role}`. There is also no h aspiré
+ * among the role names, so the one genuinely hard case does not arise; if one
+ * is ever added, it belongs on an exception list here rather than in a string.
+ */
+const FRENCH_ELISION = /\b([Ll]e|[Ll]a|[Dd]e) (?=[aeiouâàäéèêëîïôöûùüAEIOUÂÀÄÉÈÊËÎÏÔÖÛÙÜhH])/g;
+
+function elide(text: string): string {
+  return text.replace(FRENCH_ELISION, (whole, article: string) => `${article[0]}’`);
+}
+
+/**
+ * @param locale The reader's language. Only `fr` changes anything: see `elide`.
+ */
+export function translator(primary: Catalogue, fallback?: Catalogue, locale?: string): Translate {
+  const french = locale === 'fr';
+  return (message) => {
+    const text = render(message, primary, fallback);
+    return french ? elide(text) : text;
+  };
 }
 
 /**

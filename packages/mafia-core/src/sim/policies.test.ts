@@ -1004,3 +1004,40 @@ describe('a style, chosen once', () => {
     assert.equal(decideBallot(survivor, brain, board, 2, new Set(), always(0.5)), 'guilty', 'and any hanging ends it sooner');
   });
 });
+
+/**
+ * The other half of the acquittal rule, which had no test and no answer.
+ *
+ * The filter above is right that a seat tried and released today is a question
+ * already asked. It was also the only thing standing between the town and a
+ * null vote at the parity bell, where a null vote is the game.
+ */
+describe('the bell overrides the acquittal filter, but only when it must', () => {
+  const always = (value: number) => () => value;
+  it('still names somebody when every living seat was acquitted today', () => {
+    const state = table(['citizen', 'doctor', 'serial-killer'], 8);
+    const voter = playerBySlot(state, 1)!;
+    const brain = makeBrain(1, DEFAULT_PROFILE);
+    const board: PublicInfo = { ...toPublicInfo(state, [], []), totalDead: 12, day: 8 };
+
+    // Everybody the voter could name has already stood today and been released,
+    // and nothing hard came out of any of it.
+    const others = board.aliveSlots.filter((slot) => slot !== voter.slot);
+    const exhausted: PublicInfo = {
+      ...board,
+      trials: others.map((slot) => ({
+        day: 8,
+        accusedSlot: slot,
+        lynched: false,
+        guiltySlots: [],
+        innocentSlots: [...board.aliveSlots]
+      }))
+    };
+
+    assert.notEqual(
+      decideDay(voter, brain, exhausted, new Set(), new Set(), always(0.5)).voteSlot,
+      null,
+      'a town that names nobody at the bell does not skip, it spends the day, and that is the game'
+    );
+  });
+});

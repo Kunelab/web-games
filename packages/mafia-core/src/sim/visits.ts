@@ -260,7 +260,28 @@ export function visitOdds(info: PublicInfo): Map<number, VisitOdds> {
        */
       if (claim.kind === 'account' && claim.claimerSlot === slot && claim.account === 'visited') {
         if (diedOn(night, info).has(claim.targetSlot)) {
-          add({ code: 'admitted-doorstep', weight: LR.admittedDoorstep, night, at: claim.targetSlot });
+          /**
+           * Unless the record has already signed for why they were there.
+           *
+           * The rule reads a doorstep admission as a liar accounting for a
+           * sighting, and it is right about that most of the time. It is exactly
+           * wrong about the town's own killers: a Vigilante that shot a mafioso
+           * was on that step, says so, and was scored at +0.8 for it — the same
+           * as a mafioso caught on the same step, because nothing here looked at
+           * what the house turned out to be.
+           *
+           * `provenRoles` only holds a killing badge when the dawn report
+           * credited that weapon and the corpse came up evil (see `observe.ts`),
+           * so this is not "they said they are the Vigilante". It is the record
+           * agreeing with them, and a doorstep the record has explained is not
+           * evidence of anything.
+           */
+          const vouched = info.provenRoles.get(slot);
+          const explained =
+            vouched !== undefined && (vouched === 'vigilante' || vouched === 'jailor' || vouched === 'veteran');
+          if (!explained) {
+            add({ code: 'admitted-doorstep', weight: LR.admittedDoorstep, night, at: claim.targetSlot });
+          }
         }
       }
     }

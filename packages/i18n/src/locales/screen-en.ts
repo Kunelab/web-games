@@ -328,6 +328,20 @@ export const screenEn: Catalogue = {
   'mafia.bot.accuse.1': 'Voting {who}.',
   'mafia.bot.accuse.2': '{who} for me.',
   'mafia.bot.accuse.3': '{who}. Nothing hard, just a read.',
+  /**
+   * A vote with nothing on the board behind it, which says so.
+   *
+   * Every one of these admits the same thing in a different voice, because the
+   * alternative — posting "Voting 7." and letting the room guess whether a
+   * corpse's will or a coin flip is behind it — is the single easiest way for a
+   * table of bots to look like it is withholding evidence. See `sentence`.
+   */
+  'mafia.bot.accuseRead.1': '{who}. Nothing hard, just a read.',
+  'mafia.bot.accuseRead.2': '{who} for me, on feel. Nothing on the board yet.',
+  'mafia.bot.accuseRead.3': 'Voting {who}. No evidence, I just do not like the seat.',
+  'mafia.bot.accuseRead.4': '{who}, and I will say plainly I have nothing solid.',
+  'mafia.bot.accuseRead.5': 'Putting my vote on {who} to start something. It is only a read.',
+  'mafia.bot.accuseRead.6': '{who}. A hunch, not a case. Somebody give me better.',
   'mafia.bot.accuse.4': 'I think it is {who}.',
   'mafia.bot.accuse.5': 'My vote: {who}.',
   'mafia.bot.accuse.6': 'Voting {who} unless somebody has better.',
@@ -343,6 +357,16 @@ export const screenEn: Catalogue = {
   'mafia.bot.clear.7': '{who} is the wrong name.',
   'mafia.bot.clear.8': 'Not {who}. I would argue that.',
   'mafia.bot.clear.9': '{who} adds up for me.',
+  /**
+   * The town's own killer owning a shot the dawn report will back. See the
+   * `kill-claim` kind: this is only ever said on a morning it can be checked.
+   */
+  'mafia.bot.killClaim.1': 'That was me. I killed {who} on night {night}.',
+  'mafia.bot.killClaim.2': '{who} was mine, night {night}. Check the report.',
+  'mafia.bot.killClaim.3': 'I shot {who} on night {night}. It is in this morning’s report.',
+  'mafia.bot.killClaim.4': 'Night {night}, {who}. That was my doing and I will own it.',
+  'mafia.bot.killClaim.5': 'I took {who} on night {night}. The report says how.',
+  'mafia.bot.killClaim.6': '{who} died by my hand on night {night}. Read the morning.',
   'mafia.bot.roleClaim.1': 'I am the {role}.',
   'mafia.bot.roleClaim.2': '{role}, that is me.',
   'mafia.bot.roleClaim.3': 'I am the {role}. Put me to work tonight.',
@@ -478,6 +502,8 @@ export const screenEn: Catalogue = {
   'mafia.bot.case.badge.2': 'you claimed {role} and not one person has stood up against it all game',
   'mafia.bot.case.savedKillers.1': 'you voted innocent on people who turned out to be killers',
   'mafia.bot.case.savedKillers.2': 'you have voted to spare killers before',
+  'mafia.bot.case.pushedByPlain.1': '{other} has you at the top of their list',
+  'mafia.bot.case.pushedByPlain.2': '{other} named you today and I think they are right',
   'mafia.bot.case.pushedBy.1': '{other} accused you and you have not answered',
   'mafia.bot.case.pushedBy.2': '{other} named you and you have said nothing back',
   'mafia.bot.for.neverOut.1': 'nobody has ever reported them visiting anyone',
@@ -553,14 +579,38 @@ export const screenEn: Catalogue = {
   'mafia.bot.why.wagon.1': 'people are voting for them and they have not answered any of it',
   'mafia.bot.why.wagon.2': 'the room is voting for them and they have said nothing back',
   'mafia.bot.why.wagon.3': 'they have not answered a single one of those votes',
+  /**
+   * The same citation without the jab, for when the jab is not true.
+   *
+   * See `spokeSince`: "and they never answered" is a second fact, and a seat
+   * that has answered is owed the version that does not say otherwise.
+   */
+  'mafia.bot.why.pushedBy.1': '{who} has them at the top of their list',
+  'mafia.bot.why.pushedBy.2': '{who} named them today and I think {who} is right',
+  'mafia.bot.why.pushedBy.4': '{who} is pushing them and I have nothing better',
+  'mafia.bot.why.pushedBy.5': 'I am following {who} on this one',
+  'mafia.bot.why.pushedBy.6': '{who} got there first and the case reads',
+  'mafia.bot.why.pushedBy.3': '{who} is on them, and that is good enough to look',
+  'mafia.bot.why.wagonPlain.1': 'half the room is already voting for them',
+  'mafia.bot.why.wagonPlain.2': 'the votes are piling up on them and I am not going to be the one to move them off',
+  'mafia.bot.why.wagonPlain.3': 'the room has made its mind up about them',
+  'mafia.bot.why.ownBadge.1': 'they claimed {role} and not one person has disputed it all game',
+  'mafia.bot.why.ownBadge.2': 'nobody has stood up against their {role} claim, which is what a fake one does',
+  'mafia.bot.why.ownBadge.3': 'their {role} claim has gone unchallenged the whole game',
+  'mafia.bot.why.savedKillers.1': 'they voted innocent on people who turned out to be killers',
+  'mafia.bot.why.savedKillers.2': 'they have voted to spare killers before',
+  'mafia.bot.why.savedKillers.3': 'when we had a killer on the stand, they voted to let them go',
   'mafia.bot.why.nowhere.1': 'they have never told us where they were on any night',
   'mafia.bot.why.nowhere.2': 'they have never given an account of a single night',
   'mafia.bot.why.nowhere.3': 'not one of their nights is on the record',
   'mafia.bot.why.accused.1': '{who} accused them and they never answered it',
   'mafia.bot.why.accused.2': '{who} named them and they have not answered',
+  'mafia.bot.why.accused.4': '{who} put them on the board and nothing came back',
+  'mafia.bot.why.accused.5': 'they were named by {who} and have let it stand',
+  'mafia.bot.why.accused.6': '{who} called them out and they have not touched it since',
   'mafia.bot.why.accused.3': '{who} accused them and nothing came back',
-  'mafia.bot.why.badge.1': '{who} claims to be the {role}, and {who} accused them',
-  'mafia.bot.why.badge.2': 'the {role} is {who}, and {who} has accused them',
+  'mafia.bot.why.badge.1': '{who} claims to be the {role}, and accused them',
+  'mafia.bot.why.badge.2': 'the {role} is {who}, and they have accused them',
   'mafia.bot.why.badge.3': '{who} claimed {role} and put them at the top of the list',
   /**
    * The Investigator's nose, as a reason.
@@ -579,7 +629,7 @@ export const screenEn: Catalogue = {
   'mafia.bot.whyClear.mine.2': 'my night {night} check on them was clean',
   'mafia.bot.whyClear.mine.3': 'I investigated them on night {night} and found nothing',
   'mafia.bot.whyClear.vouched.1': '{who}, who claims to be the {role}, says they are innocent',
-  'mafia.bot.whyClear.vouched.2': 'the {role} is {who}, and {who} has already cleared them',
+  'mafia.bot.whyClear.vouched.2': 'the {role} is {who}, and they have already cleared them',
   'mafia.bot.whyClear.vouched.3': '{who} claimed {role} and said they are clean',
   'mafia.bot.whyClear.accounted.1': 'they told us where they were and nobody has contradicted it',
   'mafia.bot.whyClear.accounted.2': 'their account of the night is on the record and nobody has broken it',
@@ -669,6 +719,15 @@ export const screenEn: Catalogue = {
   'mafia.bot.defend.accuser.1': '{who} started this. Why is nobody looking at them?',
   'mafia.bot.defend.accuser.2': 'This all came from {who}. Ask them for one checkable thing.',
   'mafia.bot.defend.accuser.3': 'The votes followed {who}. Start there, not with me.',
+  /**
+   * The same stand, for a badge with no power behind it.
+   *
+   * `defend.role` threatens the room with what hanging you costs it, which is
+   * nothing when the badge is Citizen. See the call site in `stand`.
+   */
+  'mafia.bot.defend.rolePlain.1': 'I am the {role}. That is all I am, and it is the truth.',
+  'mafia.bot.defend.rolePlain.2': 'I am the {role}. No power, nothing to show you, and still not your killer.',
+  'mafia.bot.defend.rolePlain.3': 'The {role}. I know it proves nothing. It is what I have.',
   'mafia.bot.defend.role.1': 'I am the {role}. Hang me and you will see it on my body tomorrow.',
   'mafia.bot.defend.role.2': 'I am the {role}. Hang me and the town loses its {role}.',
   'mafia.bot.defend.role.3': '{role}. That is my defence.',
@@ -949,9 +1008,49 @@ export const screenEn: Catalogue = {
   'mafia.bot.dump.closing.1': 'That is everything. Do what you like with it.',
   'mafia.bot.dump.closing.2': 'You have all of it.',
   'mafia.bot.dump.closing.3': 'Everything I know is out. Decide.',
-  'mafia.bot.crier.suspect.1': 'A voice in the dark: look at {who}.',
-  'mafia.bot.crier.suspect.2': 'From nowhere: watch {who} tomorrow.',
-  'mafia.bot.crier.suspect.3': 'You did not hear this from anyone. Watch {who}.',
+  /**
+   * The crier's night line, which used to be a name.
+   *
+   * The role has no night action at all: its whole power is that its voice
+   * carries into the square after dark, anonymously. So the suspect it used to
+   * name was never a finding — it was the top of the ordinary public ranking,
+   * the same board every seat reads, read out in a voice that sounds like a
+   * tip-off. "You did not hear this from anyone. Watch 7." is a sentence that
+   * promises a source, and the role does not have one.
+   *
+   * That is worse than flavour that means nothing, because an anonymous name
+   * cannot be argued with: nobody can ask the voice how it knows, or hold it to
+   * the guess tomorrow. It was unaccountable pressure landing on whoever the
+   * board already disliked, which is the cascade that hangs the wrong seat.
+   *
+   * A joke carries the voice, keeps the role's one real perk (the town hears
+   * somebody in the dark and knows the crier is alive), and asserts nothing.
+   * The French set is French jokes rather than these translated, because a pun
+   * does not survive the crossing.
+   */
+  /**
+   * The crier reading the record aloud. See `crierNews`.
+   *
+   * Every one of these is a count off the board, checkable by anybody who
+   * scrolls up, and none of them names a suspect or claims a source.
+   */
+  'mafia.bot.crier.news.contested.1': 'Count them: {count} of you are claiming {role}. At least one is lying.',
+  'mafia.bot.crier.news.contested.2': '{count} people here say they are the {role}. There are not {count}.',
+  'mafia.bot.crier.news.toll.1': 'The rope has taken {count} of us. {town} were town.',
+  'mafia.bot.crier.news.toll.2': '{count} hanged so far, {town} of them ours. Count before you pull it again.',
+  'mafia.bot.crier.news.quiet.1': 'Nobody died last night. Somebody is choosing not to swing.',
+  'mafia.bot.crier.news.quiet.2': 'An empty cart this morning. Ask yourselves why.',
+  'mafia.bot.crier.news.silent.1': '{who} has not said one thing all game. That is on the record.',
+  'mafia.bot.crier.news.silent.2': 'Scroll up. {who} has not made a single claim since day one.',
+  'mafia.bot.crier.joke.1': 'I used to hate facial hair. Then it grew on me.',
+  'mafia.bot.crier.joke.2': 'I only know 25 letters of the alphabet. I do not know y.',
+  'mafia.bot.crier.joke.3': 'What do you call a fish with no eyes? A fsh.',
+  'mafia.bot.crier.joke.4': 'I would tell you a construction joke, but I am still working on it.',
+  'mafia.bot.crier.joke.5': 'I am afraid of calendars. Their days are numbered.',
+  'mafia.bot.crier.joke.6': 'What do you call cheese that is not yours? Nacho cheese.',
+  'mafia.bot.crier.joke.7': 'I used to be a banker, but I lost interest.',
+  'mafia.bot.crier.joke.8': 'Why did the scarecrow win an award? He was outstanding in his field.',
+  'mafia.bot.crier.joke.9': 'I do not trust stairs. They are always up to something.',
   'mafia.bot.crier.quiet.1': 'Sleep light. Somebody here is lying.',
   'mafia.bot.crier.quiet.2': 'Lock up.',
   'mafia.bot.crier.quiet.3': 'Quiet night. Too quiet.',
@@ -1071,6 +1170,15 @@ export const screenEn: Catalogue = {
   'mafia.bot.will.7': 'I was wrong about plenty. Not all of it.',
   'mafia.bot.will.8': 'Do not waste the day on me.',
   'mafia.bot.will.9': 'Count who never got asked a question.',
+  /**
+   * The signature of a seat the Auditor rewrote. See `roleBefore`.
+   *
+   * Signing the new badge over the old badge's notes read as a forged will and
+   * got real evidence thrown out, so the will says what happened instead.
+   */
+  'mafia.bot.will.audited.1': 'I was the {was}. An Auditor made me the {now}. The nights below are mine and they are true.',
+  'mafia.bot.will.audited.2': 'I was the {was} until an Auditor got to me. I am the {now} now. Everything under this still happened.',
+  'mafia.bot.will.audited.3': '{was}, then an Auditor. I died a {now}. Read the nights anyway.',
   'mafia.bot.will.role.1': 'I am the {role}.',
   'mafia.bot.will.role.2': 'The {role}, for what it is worth now.',
   'mafia.bot.will.role.3': 'I was the {role}. Every word was true.',

@@ -564,11 +564,75 @@ function legalMoves(view: MafiaView): string {
   return lines.join('\n');
 }
 
+/**
+ * Which day or night each line was said on, read off the game's own headers.
+ *
+ * The transcript carried one bit of time — a line was from this phase or it was
+ * not — and a model handed six lines with a single `[EARLIER]` between them
+ * cannot tell last night's claim from the one four nights ago. That is most of
+ * what "the bot answered something from ages ago" looks like from a chair: not
+ * the bot replying to a dead greeting, which the filters now stop, but the bot
+ * treating night 2's alibi and night 5's as the same fact.
+ *
+ * Derived rather than stored. `dayHeader` and `nightFall` are posted into the
+ * square at every phase change and both carry their day number, so walking the
+ * log in order gives every line its stamp without adding a field to
+ * `ChatMessage` that every persisted table would then be missing.
+ *
+ * The map is keyed by message id because the tail is reordered and merged
+ * before it is rendered.
+ */
+function stamps(chat: MafiaView['chat']): Map<number, string> {
+  const at = new Map<number, string>();
+  let label = 'day 1';
+  for (const message of chat) {
+    const key = message.msg?.k;
+    /**
+     * `D3` and `N3` rather than "day 3" and "night 3".
+     *
+     * Every line carries one, and six characters a line against a budget the
+     * bench measures in tokens is the difference between fitting and not: the
+     * long form put a fifteen-seat table with two people at it sixteen tokens
+     * over. The legend goes in the transcript header, which is paid once per
+     * request instead of once per line.
+     */
+    if (key === 'mafia.day.header') label = `D${message.msg?.p?.day ?? '?'}`;
+    else if (key === 'mafia.night.fall') label = `N${message.msg?.p?.day ?? '?'}`;
+    else at.set(message.id, label);
+  }
+  return at;
+}
+
 function transcript(view: MafiaView, window: number, humansPresent: boolean): string {
   // Authored lines only: the game's own announcements are already summarised
   // above, so this needs no renderer.
   const spoken = view.chat.filter((message) => message.authorId);
   const humanNames = new Set(view.players.filter((player) => !player.isBot).map((player) => player.name));
+
+  /**
+   * Where "earlier" stops being context and starts being a different game.
+   *
+   * The tail below deliberately keeps old lines and marks them — see the
+   * `[EARLIER]` note further down, and the reason given there: an accusation
+   * from yesterday is exactly the thing a defence has to answer, and the claims
+   * board keeps only the *fact* of one, never the words.
+   *
+   * The two rescues are not that. Their whole job is to reach back *past* the
+   * window and promote something into it, and neither had any bound at all, so
+   * both promoted lines the marker would then have to apologise for. On a table
+   * of fifteen talking bots and one quiet human, the human rescue meant the
+   * same "hello" from day one was lifted into every briefing for the rest of
+   * the game, under a header saying in capitals that what people said matters
+   * more than the numbers. A line nobody has repeated since day one is not
+   * being drowned out. It is over.
+   *
+   * `phaseStartedAt` is stamped at `beginDay` and `beginNight` only, never at a
+   * stage change, so one window holds an afternoon's argument, the trial it
+   * produced and the verdict — the unit a person would call "right now".
+   */
+  const since = view.phaseStartedAt ?? 0;
+  const when = stamps(view.chat);
+  const current = (message: { at: number }): boolean => message.at >= since;
 
   /**
    * A person's words keep their place in the window whatever the bots do.
@@ -588,14 +652,16 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
   const tail = spoken.slice(-window);
   const kept = new Set(tail);
   const rescued = spoken
-    .filter((message) => humanNames.has(message.authorName) && !kept.has(message))
+    .filter((message) => humanNames.has(message.authorName) && !kept.has(message) && current(message))
     .slice(-HUMAN_FLOOR);
   const recent = [...rescued, ...tail].sort((left, right) => spoken.indexOf(left) - spoken.indexOf(right));
 
   // The defendant's words, wherever they fell in the log.
   if (view.trial) {
     const defence = spoken
-      .filter((message) => message.authorName === view.trial?.name)
+      // This trial. A seat that stood here on day three and survived it is not
+      // defending itself now, and its old defence is not this one's.
+      .filter((message) => message.authorName === view.trial?.name && current(message))
       .slice(-3)
       .filter((message) => !recent.includes(message));
     recent.unshift(...defence);
@@ -689,17 +755,54 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
      * the words. Marked instead, so the model can read it and know better than
      * to reply to it.
      */
-    const old = message.at < startedAt ? ' [EARLIER — context only, already dealt with, do not reply to it]' : '';
-    const line = `${who}${person}${room(message.channel)}${old}: ${said}`;
+    /**
+     * Every line stamped, and the older ones still told to stay quiet.
+     *
+     * The stamp is the fact ("night 3"); the warning is the instruction. They
+     * do different jobs and the first is the one that survives a small model
+     * ignoring the second — a night number is something the line *is*, not
+     * something the model has to be persuaded about. Four characters a line
+     * against `TRANSCRIPT_CHARS`, which is the trade the header above is
+     * already making for the room label.
+     */
+    const stamp = when.get(message.id) ?? '?';
+    /**
+     * One marker carrying both the stamp and the warning.
+     *
+     * They were two, and the long one was spent on every old line: "[EARLIER —
+     * context only, already dealt with, do not reply to it]" is a dozen tokens
+     * of instruction repeated per line, which is the same mistake as putting a
+     * rule in the data. Merged, the old lines get *cheaper* than before and
+     * gain their night number, which is the fact the warning was standing in
+     * for all along.
+     *
+     * A line from the current phase carries nothing. It is now; the briefing
+     * has already said what day it is, and stamping "now" on every line of an
+     * active afternoon is the one place the per-line cost buys nothing at all.
+     */
+    const age = message.at < startedAt ? ` [${stamp}, earlier — context, do not reply]` : '';
+    const line = `${who}${person}${room(message.channel)}${age}: ${said}`;
     if (line.length > left && rendered.length > 0) break;
     left -= line.length;
     rendered.unshift(line);
   }
 
   if (rendered.length === 0) return 'Nobody has spoken yet.';
+  /**
+   * Every line is dated, and only the ones that need ink pay for it.
+   *
+   * An unmarked line is one said in the phase named here; a marked one carries
+   * its own. So the transcript is fully dated either way, and the common case —
+   * an active afternoon where every line is from this afternoon — spends
+   * nothing per line to say so. Stamping those too was measured at ten tokens
+   * over the bench's own ceiling on a fifteen-seat table with two people at it,
+   * and the ceiling is there because the model is paid for in tokens a minute.
+   */
+  const nowLabel = `${view.phase === 'night' ? 'N' : 'D'}${view.day}`;
+  const legend = `unmarked = now (${nowLabel}); D2 = day 2, N2 = night 2`;
   const header = humansPresent
-    ? 'WHAT WAS ACTUALLY SAID — read it properly. Claims, accusations and defences matter more than the numbers above, especially from human players:'
-    : 'Recent lines:';
+    ? `WHAT WAS ACTUALLY SAID (${legend}) — read it properly. Claims, accusations and defences matter more than the numbers above, especially from human players:`
+    : `Recent lines (${legend}):`;
   return `${header}\n${rendered.join('\n')}`;
 }
 

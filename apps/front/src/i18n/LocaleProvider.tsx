@@ -76,7 +76,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
         localStorage.setItem(LOCALE_STORAGE_KEY, next);
         setLocaleState(next);
       },
-      t: loaded ? translator(loaded.primary, loaded.fallback) : RAW,
+      t: loaded ? translator(loaded.primary, loaded.fallback, loaded.locale) : RAW,
       ready: current !== null
     };
   }, [locale, loaded]);
