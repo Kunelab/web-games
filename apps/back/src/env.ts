@@ -313,6 +313,30 @@ const envSchema = z.object({
   MAFIA_LOCAL_PARALLEL: z.coerce.number().int().min(1).max(8).default(1),
 
   /**
+   * How many of the leading API slots to actually keep in rotation.
+   *
+   * The pool picker prefers endpoints "within striking distance of the
+   * fastest", which sounds like load balancing and behaves like a winner takes
+   * all. Measured on the deployment box with ten live endpoints: the fastest
+   * answered in 183ms, the window works out at 433ms, and exactly four slots
+   * fell inside it. The other six — all reachable, all authorised, all
+   * answering in under a second and a quarter — were only ever reached on the
+   * rare afternoon when all four of the leaders were busy at once, which with
+   * one call in flight per endpoint means four simultaneous callers.
+   *
+   * That is the wrong trade for a free tier. Every one of those endpoints has
+   * its own daily allowance, and an allowance nobody spends is not saved for
+   * later, it expires. The point of configuring ten is to have ten.
+   *
+   * So: the first N slots are a working set, and work goes round them by turn
+   * rather than to whoever is quickest. Anything past N stays a reserve and is
+   * reached the way everything was reached before, when the working set is
+   * busy. `0` keeps the old behaviour for anybody who wants the fastest answer
+   * above all else.
+   */
+  MAFIA_API_SPREAD: z.coerce.number().int().min(0).max(24).default(0),
+
+  /**
    * How long to wait for an endpoint before asking a second one the same thing.
    *
    * Free tiers are not slow on average, they are slow *sometimes*: a few hundred
@@ -434,7 +458,12 @@ function readApiSlots(): ApiSlot[] {
     for (const [offset, model] of models.entries()) {
       if (seen.has(model)) continue;
       seen.add(model);
-      slots.push({ rung: offset === 0 ? `api${index}` : `api${index}${String.fromCharCode(97 + offset)}`, url, key, model });
+      slots.push({
+        rung: offset === 0 ? `api${index}` : `api${index}${String.fromCharCode(97 + offset)}`,
+        url,
+        key,
+        model
+      });
     }
   }
   return slots;
@@ -443,9 +472,7 @@ function readApiSlots(): ApiSlot[] {
 export const apiSlots: ApiSlot[] = readApiSlots();
 
 /** Where the flight recorder writes, as an absolute path. Same rule as the database. */
-export const traceDir = isAbsolute(env.GAME_TRACE_DIR)
-  ? env.GAME_TRACE_DIR
-  : resolve(packageRoot, env.GAME_TRACE_DIR);
+export const traceDir = isAbsolute(env.GAME_TRACE_DIR) ? env.GAME_TRACE_DIR : resolve(packageRoot, env.GAME_TRACE_DIR);
 
 /** The canonical frontend origin, used when a single value is needed. */
 export const frontOrigin = `${env.FRONT_PROTOCOL}://${env.FRONT_URL}${env.FRONT_PORT}`;

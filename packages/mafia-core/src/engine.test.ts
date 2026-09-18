@@ -304,14 +304,25 @@ describe('mafia engine', () => {
     assert.equal(jailor.charges, 2);
   });
 
-  it('the serial killer cuts through the godfather at night', () => {
+  /**
+   * The knife is an ordinary knife, and the Godfather's door is a real door.
+   *
+   * It used to go through, because the blade was power 2 against an immunity
+   * worth 1 — which made the Serial Killer the only role in the game that no
+   * defence answered. That is not a hard role to play against, it is a role
+   * there is no play against, so the blade came down to 1 and everything that
+   * stops a knife now stops it. What the Serial Killer keeps is the schedule:
+   * every night, for ever, with no charges to run out.
+   */
+  it('the godfather is safe at home from the serial killer', () => {
     const state = table(['serial-killer', 'godfather', 'citizen', 'doctor']);
     advanceMafia(state, 0, lcg(1)); // night
     setNightAction(state, bySlot(state, 1).playerId, 2); // SK stabs the GF
     setNightAction(state, bySlot(state, 2).playerId, 3); // GF orders the citizen dead
     advanceMafia(state, 1, lcg(1));
 
-    assert.equal(bySlot(state, 2).alive, false, 'night immunity does not stop the blade');
+    assert.equal(bySlot(state, 2).alive, true, 'night immunity turns a power-one blade');
+    assert.equal(bySlot(state, 3).alive, false, 'and the family still got its kill');
   });
 
   it('the arsonist douses, ignites through immunity, and heals do not argue with fire', () => {
@@ -486,6 +497,141 @@ describe('mafia engine', () => {
    * majority), cannot outlive him and cannot hit back. That is the whole of
    * `beyondSaving`, and everything here is one of its exits.
    */
+  /**
+   * Who wins *with* the winner, which is a different question from who won.
+   *
+   * The seats that live off somebody else's result — the Witch and her kind,
+   * the Survivor, the Lovers — are not obstacles to anybody's victory and must
+   * not be treated as any. A Witch standing beside the last Serial Killer has
+   * not stopped him and is not going to; her whole condition is that the town
+   * fails, which is exactly what is happening. So the game ends, he wins, and
+   * she wins with him.
+   *
+   * The mirror matters as much: she loses when the town wins, however alive she
+   * is. These pairs are the ones that used to keep a finished game running.
+   */
+  describe('the seats that win with whoever wins', () => {
+    const settle = (roles: RoleId[]): MafiaState => {
+      const state = table(roles, 8);
+      checkVictory(state, 1000);
+      return state;
+    };
+    const wonAs = (state: MafiaState, role: RoleId): string | null =>
+      state.winners.find((winner) => state.players[winner.playerId]?.role === role)?.kind ?? null;
+
+    /**
+     * The duel she wins by not needing a knife.
+     *
+     * At two seats there is one other hand at the table and hers is on it every
+     * night. A Vigilante shoots himself and dies of it; a Serial Killer stabs
+     * himself, survives, and never reaches her either. Either way she is the one
+     * standing when it stops, and the town is not.
+     */
+    it('gives the witch every duel against somebody who acts at night', () => {
+      for (const other of [
+        'serial-killer',
+        'arsonist',
+        'mass-murderer',
+        'poisoner',
+        'vigilante',
+        'godfather',
+        'mafioso',
+        'escort',
+        'bus-driver',
+        'doctor',
+        'sheriff',
+        'citizen'
+      ] as RoleId[]) {
+        const state = settle(['witch', other]);
+        assert.equal(state.phase, 'ended', `witch against ${other} is a finished game`);
+        assert.equal(wonAs(state, 'witch'), 'parasite', `the witch should take ${other}`);
+        assert.equal(wonAs(state, other), null, `${other} should not also be paid`);
+      }
+    });
+
+    /**
+     * And the ones that beat her, every one for the same reason: they act in
+     * the daylight, where her hand cannot reach — or, in the Veteran's case,
+     * they punish the reaching.
+     */
+    it('loses her the duel to a daylight power that cannot be spent', () => {
+      // Neither of these two is a charge. The sash and the reveal last as long
+      // as the man does, so there is no version of this table where she wins.
+      for (const standing of ['mayor', 'marshall'] as RoleId[]) {
+        assert.equal(wonAs(settle(['witch', standing]), standing), 'town');
+
+        const spent = table(['witch', standing], 8);
+        for (const player of Object.values(spent.players)) player.charges = 0;
+        checkVictory(spent, 1000);
+        assert.equal(wonAs(spent, standing), 'town', `nothing spends a ${standing}`);
+      }
+    });
+
+    it('loses it to a jailor or a veteran only while the charge is there', () => {
+      for (const daylight of ['jailor', 'veteran'] as RoleId[]) {
+        assert.equal(wonAs(settle(['witch', daylight]), daylight), 'town', `an armed ${daylight} beats her`);
+
+        // Spent, he is one more seat she steers.
+        const spent = table(['witch', daylight], 8);
+        for (const player of Object.values(spent.players)) player.charges = 0;
+        checkVictory(spent, 1000);
+        assert.equal(wonAs(spent, 'witch'), 'parasite', `a spent ${daylight} does not`);
+      }
+    });
+
+    /**
+     * The Judge is the one that looks like an exception and is not.
+     *
+     * His court is a daylight power and his ballot counts three inside it, so
+     * by the rule above he is not somebody she steers — and it changes nothing,
+     * because he wants what she wants. Two seats left, no town among them, and
+     * both of them live off the town's failure: they are not in a duel, they
+     * have both already won. Which is the ordinary case for two parasites and
+     * worth a test precisely because the exclusion list makes it look otherwise.
+     */
+    it('shares it with the judge, who wanted the same ending she did', () => {
+      const state = settle(['witch', 'judge']);
+      assert.equal(state.phase, 'ended');
+      assert.equal(wonAs(state, 'witch'), 'parasite');
+      assert.equal(wonAs(state, 'judge'), 'parasite');
+    });
+
+    /**
+     * And the mirror, which is the half that keeps her honest: she needs the
+     * town to fail, so a town that carries it leaves her with nothing. Three
+     * seats is not a duel — one real townsperson is a vote, and a vote is a
+     * game.
+     */
+    it('gives a witch nothing when the town carries it', () => {
+      // Three seats and no killer among them: the town has already met its
+      // condition, and she is a bystander to it rather than an obstacle.
+      const state = settle(['vigilante', 'witch', 'citizen']);
+      assert.equal(state.phase, 'ended');
+      assert.equal(wonAs(state, 'vigilante'), 'town');
+      assert.equal(wonAs(state, 'witch'), null, 'she needed the town to fail, and it did not');
+    });
+
+    it('pays a survivor for being alive and a jester for nothing at all', () => {
+      const alive = settle(['serial-killer', 'survivor']);
+      assert.equal(wonAs(alive, 'survivor'), 'survivor', 'still standing is the whole condition');
+
+      // The Jester wins by being hanged. Surviving to the end is losing.
+      const unhanged = settle(['serial-killer', 'jester']);
+      assert.equal(wonAs(unhanged, 'jester'), null);
+      // And the Executioner needs its target on a rope, which never happened here.
+      const unfulfilled = settle(['serial-killer', 'executioner']);
+      assert.equal(wonAs(unfulfilled, 'executioner'), null);
+    });
+
+    /**
+     * One real townsperson changes everything, which is the line this whole set
+     * is drawing: a bystander is not a threat, and a citizen is.
+     */
+    it('keeps the game open while one real townsperson is left', () => {
+      assert.equal(settle(['serial-killer', 'witch', 'citizen']).phase, 'day');
+    });
+  });
+
   describe('a lone killer wins the moment the last seat cannot stop him', () => {
     /** The ending, without a night in between: `checkVictory` on the morning. */
     const settles = (roles: RoleId[]): MafiaState => {
@@ -517,10 +663,28 @@ describe('mafia engine', () => {
       }
     });
 
-    it('waits for anything that can take the night away from him', () => {
-      for (const clutch of ['escort', 'bus-driver'] as RoleId[]) {
-        assert.equal(settles(['serial-killer', clutch]).phase, 'day', `a ${clutch} still has the game`);
+    /**
+     * A seat that can stop him but can never finish him is his win, not a draw.
+     *
+     * This asserted the opposite and it was the single largest source of games
+     * that never ended: fifteen of twenty-six timed-out benches were a Serial
+     * Killer and one Escort, twenty days of her taking his night away and
+     * neither of them able to remove the other. An Escort has no knife and one
+     * vote out of two is not a majority, so the town's condition — remove every
+     * threat — has become unreachable, while his is to be the one standing.
+     *
+     * The rule is about the *position*, not the roles: while there are enough
+     * townsfolk left to carry a majority it is an ordinary game, and the case
+     * below checks exactly that.
+     */
+    it('gives him a position the last seat can freeze but never finish', () => {
+      for (const blocker of ['escort', 'bus-driver'] as RoleId[]) {
+        const state = settles(['serial-killer', blocker]);
+        assert.equal(state.phase, 'ended', `a lone ${blocker} can never remove him`);
+        assert.ok(state.winners.some((winner) => winner.kind === 'solo-killer'));
       }
+      // Three seats is a majority for the two of them, and a majority is a game.
+      assert.equal(settles(['serial-killer', 'escort', 'citizen']).phase, 'day');
     });
 
     it('does not count a power that cannot be pointed at its own owner', () => {
@@ -532,10 +696,12 @@ describe('mafia engine', () => {
     });
 
     it('weighs the blade against the armour rather than naming roles', () => {
-      // The Stump does not die at night. A serial killer's blade is power 2 and
-      // goes through that; a massacre is power 1 and never will.
+      // A Stump does not die at night and cannot vote anybody out either, so
+      // whichever of them can never be removed, the game is already decided.
       assert.equal(settles(['serial-killer', 'stump']).phase, 'ended');
-      assert.equal(settles(['mass-murderer', 'stump']).phase, 'day');
+      assert.equal(settles(['mass-murderer', 'stump']).phase, 'ended');
+      // Fire is power three and answers to nothing at all.
+      assert.equal(settles(['arsonist', 'stump']).phase, 'ended');
       // And a bullet is power 1 against a killer who is night-immune to a man.
       assert.equal(settles(['serial-killer', 'vigilante']).phase, 'ended');
     });
@@ -556,6 +722,65 @@ describe('mafia engine', () => {
       lover.bondKind = 'lover';
       checkVictory(state, 1000);
       assert.equal(state.phase, 'day');
+    });
+
+    /**
+     * The endgame nobody's rule covered, from a real game.
+     *
+     * A Serial Killer and one Mafioso, and every branch looked straight past
+     * them: no family had parity, the lone-killer rule requires the families to
+     * be *gone*, and the town rule needs a town. So the table played a whole
+     * day of two people talking at each other and the night settled what the
+     * morning already knew — a Mafioso's knife does not open a night-immune
+     * door, and one vote out of two hangs nobody.
+     */
+    it('settles a lone killer against one family without playing the night', () => {
+      const state = settles(['serial-killer', 'mafioso']);
+      assert.equal(state.phase, 'ended', 'a mafioso cannot knife a serial killer and cannot hang him either');
+      assert.ok(
+        state.winners.some((winner) => winner.kind === 'solo-killer'),
+        'and the one who cannot be stopped is the one who wins'
+      );
+    });
+
+    /**
+     * The blade against the door, rather than the names on either side.
+     *
+     * A Godfather is night-immune and a Serial Killer goes through him anyway,
+     * because the blade is power 2 and immunity only turns aside a 1 — which is
+     * what the Serial Killer's own description has always promised: it pierces
+     * vests and the Godfather's guard alike. So this is not the deadlock it
+     * looks like, and the rule reaches the same answer as the role text without
+     * either of them knowing about the other.
+     */
+    /**
+     * Two seats that cannot touch each other, which the lone killer wins.
+     *
+     * A Godfather is immune to a power-one blade and the Serial Killer is
+     * immune to the family's, so neither night ever lands; one vote out of two
+     * is not a majority, so neither rope ever tightens. Not a draw, because the
+     * two are not in the same position: a family wins by converting parity into
+     * a hanging and this parity can never reach a rope, while a lone killer
+     * wins by standing at the end with nothing able to stop him — which is the
+     * position he is already in.
+     */
+    it('gives a frozen position to the lone killer rather than to nobody', () => {
+      const state = settles(['serial-killer', 'godfather']);
+      assert.equal(state.phase, 'ended', 'neither can kill or hang the other, so it is decided');
+      assert.ok(state.winners.some((winner) => winner.kind === 'solo-killer'));
+    });
+
+    it('leaves it open while either side can still reach the rope', () => {
+      // A mass murderer's blade is power 1 and a Godfather turns that aside, so
+      // no night settles it — but two mafiosi out of three seats is a majority,
+      // and a majority is a game.
+      assert.equal(settles(['mass-murderer', 'godfather', 'mafioso']).phase, 'day');
+    });
+
+    it('leaves the game alone while a townie is still in it', () => {
+      // The clause is for a straight fight between one family and a lone
+      // killer. A citizen in the room is a vote, and a vote is a game.
+      assert.equal(settles(['serial-killer', 'mafioso', 'citizen']).phase, 'day');
     });
   });
 
@@ -1002,23 +1227,33 @@ describe('mafia engine', () => {
    * The end of a game is still a morning: the bodies that ended it are named
    * before the headline, and a town nobody survived did not win anything.
    */
+  /**
+   * Two killers who go the same dawn, and the judge left alone in the ashes.
+   *
+   * It used to be a Serial Killer stabbing the poisoner, which stopped working
+   * the day the blade came down to power one: a poisoner is night-immune and an
+   * ordinary knife does not open that door. Fire does — it is power three and
+   * answers to nothing — so the arsonist takes that half of the job, and the
+   * poison takes the arsonist, which was always the shape of the test.
+   */
   it('reads out the last night before the last word, and gives an empty town to nobody', () => {
-    const state = table(['judge', 'poisoner', 'serial-killer'], 7);
+    const state = table(['judge', 'poisoner', 'arsonist'], 7);
     const judge = bySlot(state, 1);
     const poisoner = bySlot(state, 2);
     const killer = bySlot(state, 3);
 
     advanceMafia(state, 0, lcg(5)); // night 7
     setNightAction(state, poisoner.playerId, 3); // the dose, which takes a night
+    setNightAction(state, killer.playerId, 2); // the petrol, which takes a match
     advanceMafia(state, 1, lcg(5)); // day 8, everybody still up
     assert.equal(state.phase, 'day');
 
     advanceMafia(state, 2, lcg(5)); // night 8
-    setNightAction(state, killer.playerId, 2); // the blade, while the poison works
+    setNightAction(state, killer.playerId, 3); // self = the match, while the poison works
     advanceMafia(state, 3, lcg(5)); // dawn: both killers go
 
-    assert.equal(poisoner.alive, false, 'the blade lands');
-    assert.equal(killer.alive, false, 'and so does the poison');
+    assert.equal(poisoner.alive, false, 'fire goes through night immunity');
+    assert.equal(killer.alive, false, 'and the poison does not care about armour');
     assert.equal(judge.alive, true, 'the judge is the last one standing');
 
     const transcript = said(state);
@@ -1096,5 +1331,47 @@ describe('mafia engine', () => {
 
     const gag = sayInChat(state, citizen.playerId, 'day', 'je parle encore ?', 11);
     assert.equal(gag.ok, false);
+  });
+});
+
+/**
+ * The quiet clock, walked morning by morning.
+ *
+ * `hasStalled` is asked before `beginDay` moves the counter and `warnIfStalling`
+ * after, and the two were written one day apart without noticing: the warning
+ * fired the morning a body landed and never on the morning that was actually
+ * the last. Nothing covered it, so a scratch game found it. This walks the
+ * whole thing with the default clock (quiet from day 7, two quiet days).
+ */
+describe('the quiet clock', () => {
+  const warnings = (state: MafiaState): number =>
+    state.chat.messages.filter((message) => message.msg?.k === 'mafia.win.lastQuietDay').length;
+
+  it('warns on the last quiet morning, and only then, and rules the morning after', () => {
+    const state = table(['citizen', 'citizen', 'citizen', 'citizen', 'citizen', 'godfather'], 7);
+    const godfather = bySlot(state, 6);
+    const victim = bySlot(state, 1);
+
+    // Night 7: a body.
+    advanceMafia(state, 1_000, lcg(1));
+    assert.equal(state.phase, 'night');
+    assert.equal(setNightAction(state, godfather.playerId, victim.slot).ok, true);
+    advanceMafia(state, 2_000, lcg(1));
+    assert.equal(state.day, 8);
+    assert.equal(victim.alive, false);
+    assert.equal(warnings(state), 0, 'a morning with a corpse in it is not a quiet one');
+
+    // Night 8: nothing. Day 9 is the last quiet day, and says so.
+    advanceMafia(state, 3_000, lcg(1));
+    advanceMafia(state, 4_000, lcg(1));
+    assert.equal(state.phase, 'day');
+    assert.equal(state.day, 9);
+    assert.equal(warnings(state), 1, 'the warning comes on the morning the game ends on if nothing changes');
+
+    // Night 9: nothing. The clock rules.
+    advanceMafia(state, 5_000, lcg(1));
+    advanceMafia(state, 6_000, lcg(1));
+    assert.equal(state.phase, 'ended');
+    assert.equal(warnings(state), 1, 'and it is said once');
   });
 });

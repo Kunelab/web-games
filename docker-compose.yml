@@ -15,6 +15,29 @@ services:
         VITE_API_PORT: '3000'
     ports:
       - '3000:3000'
+    # Everything in .env reaches the container, and the list below only sets
+    # defaults for the handful that need one.
+    #
+    # This is here because of a bug that took a week to find and was invisible
+    # from every angle but one. The block below named four API slots; the
+    # deployment had ten configured and working, and six of them never reached
+    # the process — compose passes what compose is told to pass, and a variable
+    # nobody listed is simply not there. The boot log printed a four-rung chain,
+    # which is exactly what a four-rung configuration looks like, so nothing
+    # anywhere said that six endpoints had been asked for and dropped.
+    #
+    # The deployment worked around it with an untracked override file, which
+    # fixed that box and left the same trap set for the next one — and for the
+    # eleventh slot on this one. Reading the file is the fix: a variable the
+    # application understands now works by being written down, which is what an
+    # operator reasonably expects, and `MAX_API_SLOTS` can go to twenty-four
+    # without anybody editing YAML.
+    #
+    # `environment` still wins over `env_file`, so the defaults below are
+    # unaffected and a value set in .env still reaches anything not listed.
+    env_file:
+      - path: .env
+        required: false
     environment:
       # Required, 32+ characters: signs the session cookies. Set it in a `.env`
       # file next to this compose file, never in the repository.
@@ -39,28 +62,38 @@ services:
       MAFIA_BOT_TEMPO: ${MAFIA_BOT_TEMPO:-live}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       MAFIA_BOT_MODEL: ${MAFIA_BOT_MODEL:-qwen3.5:4b}
-      # Up to four OpenAI-compatible endpoints, tried in the order the chain
-      # names them. Slots 2-4 inherit slot 1's URL and key, so three free models
-      # on one provider is three lines. See docs/llm.md.
+      # Slot one only, because it is the one with a useful default. Slots two
+      # to twenty-four are read straight out of .env by `env_file` above:
+      # MAFIA_API_7_URL / _KEY / _MODEL and so on, with the URL and key
+      # inherited from slot one when left out. See docs/llm.md.
       MAFIA_API_URL: ${MAFIA_API_URL:-https://api.groq.com/openai/v1}
       MAFIA_API_KEY: ${MAFIA_API_KEY:-}
       MAFIA_API_MODEL: ${MAFIA_API_MODEL:-openai/gpt-oss-120b}
-      MAFIA_API_2_URL: ${MAFIA_API_2_URL:-}
-      MAFIA_API_2_KEY: ${MAFIA_API_2_KEY:-}
-      MAFIA_API_2_MODEL: ${MAFIA_API_2_MODEL:-}
-      MAFIA_API_3_URL: ${MAFIA_API_3_URL:-}
-      MAFIA_API_3_KEY: ${MAFIA_API_3_KEY:-}
-      MAFIA_API_3_MODEL: ${MAFIA_API_3_MODEL:-}
-      MAFIA_API_4_URL: ${MAFIA_API_4_URL:-}
-      MAFIA_API_4_KEY: ${MAFIA_API_4_KEY:-}
-      MAFIA_API_4_MODEL: ${MAFIA_API_4_MODEL:-}
+      # How many calls one endpoint may have in flight, and how many of the
+      # leading slots to take turns across. With a pile of free tiers the second
+      # is the one that matters: without it the ranking gives the work to
+      # whichever three or four are quickest and the rest go unspent. See
+      # `MAFIA_API_SPREAD` in apps/back/src/env.ts.
+      MAFIA_API_PARALLEL: ${MAFIA_API_PARALLEL:-1}
+      MAFIA_API_SPREAD: ${MAFIA_API_SPREAD:-0}
       # How long a refusing rung sits out, and how long one bot turn may spend
       # walking the chain before the played brain takes it. See docs/llm.md.
       MAFIA_BOT_COOLDOWN_MS: ${MAFIA_BOT_COOLDOWN_MS:-60000}
       MAFIA_BOT_TURN_MS: ${MAFIA_BOT_TURN_MS:-25000}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # The recording of a game, on the volume rather than in the container.
+      #
+      # It defaulted to ./traces, which resolves inside the image — so every
+      # restart and every deploy threw away the recordings, and the one artefact
+      # you need to explain what a table did is the one the next deploy deletes.
+      # Found the hard way: a game worth investigating had already been wiped by
+      # the redeploy that followed it, and there was nothing to investigate with.
+      GAME_TRACE: ${GAME_TRACE:-on}
+      GAME_TRACE_DIR: ${GAME_TRACE_DIR:-/data/traces}
+      GAME_TRACE_KEEP: ${GAME_TRACE_KEEP:-10}
     volumes:
-      # Accounts, media, playlists, game history. Everything worth keeping.
+      # Accounts, media, playlists, game history, and the game recordings.
+      # Everything worth keeping.
       - web-games-data:/data
     restart: unless-stopped
 

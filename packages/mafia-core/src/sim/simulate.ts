@@ -164,13 +164,47 @@ export interface SimOptions {
    * asking the question should not pay for it.
    */
   calibrate?: (row: Calibration) => void;
+  /**
+   * Called once for every seat that could act tonight, target or no target. See `NightChoice`.
+   *
+   * The third hook of the same kind, and it answers the questions the score columns structurally cannot: a
+   * Vigilante who never fires and a Vigilante who has no bullets left produce the same zero in `vigMisfires`,
+   * an Escort who blocks a Citizen every night for six nights produces nothing at all anywhere, and "the bots
+   * never use their powers" is not a thing a win rate can confirm or deny. A declined action is an event, so
+   * it is reported as one.
+   */
+  nightWatch?: (choice: NightChoice) => void;
+}
+
+/** One seat's decision on one night, including the decision not to act. */
+export interface NightChoice {
+  night: number;
+  slot: number;
+  role: RoleId;
+  action: string;
+  /** Null when the seat had a legal move and declined it. */
+  targetSlot: number | null;
+  /** The target's true role, for asking whether a power landed on anything. */
+  targetRole: RoleId | null;
+  /** Seats it could legally have chosen, so a refusal can be told from having no choice. */
+  choices: number;
 }
 
 export interface SimResult {
   seed: number;
   players: number;
   days: number;
-  winner: 'town' | 'mafia' | 'triad' | 'cult' | 'solo' | 'draw';
+  winner: 'town' | 'mafia' | 'triad' | 'cult' | 'solo' | 'witch' | 'draw';
+  /**
+   * Why a drawn game drew, read off the engine rather than inferred here.
+   *
+   * The bench used to guess from what was left standing, which cannot tell a
+   * clock running out from a position nobody could break — and those are not
+   * the same bug. See `MafiaState.drawReason`.
+   */
+  drawReason?: 'hollow' | 'clock' | 'frozen';
+  /** Who was still alive when it ended, for reading a draw back. */
+  aliveAtEnd: { slot: number; role: RoleId }[];
   jesterWin: boolean;
   jesterPresent: boolean;
   exeWin: boolean;
@@ -695,6 +729,18 @@ export function simulateGame(options: SimOptions): SimResult {
         if (target !== null && (!needsSecondTarget(legal.type) || second !== null)) {
           setNightAction(state, player.playerId, target, second);
         }
+        if (options.nightWatch && player.role) {
+          const aimedAt = target === null ? null : players.find((seat) => seat.slot === target);
+          options.nightWatch({
+            night: state.day,
+            slot: player.slot,
+            role: player.role,
+            action: legal.type,
+            targetSlot: target,
+            targetRole: aimedAt?.role ?? null,
+            choices: legal.targets.length
+          });
+        }
         // What this seat will be able to say tomorrow if asked — and what the
         // record can catch it out on if it says otherwise.
         const brain = brains.get(player.playerId)!;
@@ -773,7 +819,16 @@ function tally(
           ? 'cult'
           : won.has('solo-killer')
             ? 'solo'
-            : 'draw';
+            : /**
+               * A win nobody else's condition covers, and it is not a draw.
+               *
+               * The seats that live off the town's failure carry the game when they are the last thing standing —
+               * a Witch alone with somebody whose hand she has been holding every night has won, and reporting that
+               * as "nobody won" hides both the result and the fact that the rule fired at all.
+               */
+              won.has('parasite')
+              ? 'witch'
+              : 'draw';
 
   // A lynching is a daytime death with no killer behind it; an execution is the
   // jailor's. Both read off the record rather than off the sentence.
@@ -806,6 +861,8 @@ function tally(
     claimsTrue: claims.filter((claim) => claim.truthful).length,
     claimsFalse: claims.filter((claim) => !claim.truthful).length,
     finalAlive: players.filter((player) => player.alive).map((player) => player.role!),
+    ...(state.drawReason ? { drawReason: state.drawReason } : {}),
+    aliveAtEnd: players.filter((player) => player.alive).map((player) => ({ slot: player.slot, role: player.role! })),
     human: humanReport(players, claims, voteHistory)
   };
 }

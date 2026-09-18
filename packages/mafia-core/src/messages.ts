@@ -297,10 +297,35 @@ export const M = {
     msg(family === 'mafia' ? 'mafia.win.mafia' : family === 'triad' ? 'mafia.win.triad' : 'mafia.win.cult'),
   winJester: (): Msg => msg('mafia.win.jester'),
   winSolo: (role: RoleId): Msg => msg(SOLO_WIN_KEY[role] ?? 'mafia.win.serialKiller'),
+  /**
+   * Said on the last quiet day, before the standing order takes the game.
+   *
+   * A game that simply stops reads as broken however correct the rule is. This
+   * gives the room the one thing it can still act on: one more day to find
+   * somebody, and after that it is decided for them.
+   */
+  lastQuietDay: (): Msg => msg('mafia.win.lastQuietDay'),
+  /** The last two seats were her and somebody she could steer. See `witchDuel`. */
+  winWitch: (): Msg => msg('mafia.win.witch'),
   winDraw: (): Msg => msg('mafia.win.draw'),
   /** Every enemy dead, and every townsman with them: nobody carried it. */
   winHollow: (): Msg => msg('mafia.win.hollow'),
-  unmasked: (roster: string): Msg => msg('mafia.end.unmasked', { roster }),
+  /**
+   * The header over the reveal, and then one row per seat.
+   *
+   * It used to be a single line with the whole roster interpolated into it as a
+   * string — which meant the roles had to be rendered *here*, in the engine,
+   * before anybody knew who was reading. `roleDef().name` is the French
+   * constant on the role table, so an English table watched its own game end
+   * with "Max — Consigliere · Nemo — Guetteur · Mario — Limier". Every other
+   * announcement in this game travels as a key for exactly this reason.
+   *
+   * A row at a time, so the role can travel as a nested `Msg` and each phone
+   * renders it in its owner's language. It reads better in a transcript too:
+   * one greppable line per seat instead of a paragraph of middle dots.
+   */
+  unmasked: (): Msg => msg('mafia.end.unmasked'),
+  unmaskedRow: (slot: number, name: string, role: Msg): Msg => msg('mafia.end.unmaskedRow', { slot, name, role }),
 
   /**
    * The line under a winner's name on the podium.

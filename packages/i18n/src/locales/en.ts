@@ -121,9 +121,13 @@ export const en: Catalogue = {
   'mafia.win.massMurderer': 'The silence is total. The Mass Murderer wins.',
   'mafia.win.poisoner': 'Everybody had drunk something, once. The Poisoner wins.',
   'mafia.win.electromaniac': 'The town is still crackling. The Electromaniac wins.',
+  'mafia.win.lastQuietDay': 'Nobody has died in days. Find somebody today, or the town loses its hold on this.',
+  'mafia.win.witch': 'Every hand at that table was being moved by somebody. The Witch wins.',
   'mafia.win.draw': 'The town, exhausted, declares a draw.',
-  'mafia.win.hollow': 'The killers took the town down with them. There is nobody left to save, and nobody to save them.',
-  'mafia.end.unmasked': 'The masks come off: {roster}'
+  'mafia.win.hollow':
+    'The killers took the town down with them. There is nobody left to save, and nobody to save them.',
+  'mafia.end.unmasked': 'The masks come off:',
+  'mafia.end.unmaskedRow': '{slot}. {name} — {role}'
 };
 
 export default en;

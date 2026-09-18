@@ -34,6 +34,36 @@
   --accent-ink: #1a1205;
   --danger: #c4503c;
   --safe: #5f9a6a;
+
+  /*
+   * The factions, in one place, for the first time.
+   *
+   * There were three copies of this palette — one for the setup screen's slot
+   * chips, one for the role card, one for every piece of faction-coloured text
+   * — written at different times and drifting apart at their leisure. The text
+   * set was already a shade brighter than the other two, which is correct (it
+   * sits on the dark panel and has to carry a whole word), and nothing said so
+   * anywhere, so the next person to adjust a colour would have fixed one of the
+   * three and left the game two-thirds recoloured.
+   *
+   * Two tiers, then: the base for a border or a fill, and a -lit tier for text.
+   *
+   * Town is green. It was blue, which is a fine colour for a faction and the
+   * wrong one for *this* faction: green is what every other part of this
+   * interface already uses for safe, and blue in a game about who to trust
+   * reads as neutral rather than as friendly.
+   */
+  --fac-town: #4e9c5a;
+  --fac-town-lit: #7bc98a;
+  --fac-mafia: #c4503c;
+  --fac-mafia-lit: #e0705c;
+  --fac-triad: #d98b2b;
+  --fac-triad-lit: #e8a13d;
+  --fac-cult: #9a6bc4;
+  --fac-cult-lit: #b487e0;
+  --fac-neutral: #8d8474;
+  --fac-neutral-lit: #a89e8c;
+  --fac-hidden: #6b6459;
   --radius: 10px;
 
   /* The scenery, day version. */
@@ -319,22 +349,22 @@
 }
 
 .mz-slot--town {
-  --fac: #5b8fc9;
+  --fac: var(--fac-town);
 }
 .mz-slot--mafia {
-  --fac: #c4503c;
+  --fac: var(--fac-mafia);
 }
 .mz-slot--triad {
-  --fac: #d98b2b;
+  --fac: var(--fac-triad);
 }
 .mz-slot--cult {
-  --fac: #9a6bc4;
+  --fac: var(--fac-cult);
 }
 .mz-slot--neutral {
-  --fac: #8d8474;
+  --fac: var(--fac-neutral);
 }
 .mz-slot--hidden {
-  --fac: #6b6459;
+  --fac: var(--fac-hidden);
 }
 
 .mz-pool {
@@ -1058,19 +1088,19 @@
 }
 
 .mz-role--town {
-  --faction: #5b8fc9;
+  --faction: var(--fac-town);
 }
 .mz-role--mafia {
-  --faction: #c4503c;
+  --faction: var(--fac-mafia);
 }
 .mz-role--triad {
-  --faction: #d98b2b;
+  --faction: var(--fac-triad);
 }
 .mz-role--cult {
-  --faction: #9a6bc4;
+  --faction: var(--fac-cult);
 }
 .mz-role--neutral {
-  --faction: #8d8474;
+  --faction: var(--fac-neutral);
 }
 
 .mz-role-head {
@@ -1658,20 +1688,39 @@
   color: var(--fac, var(--ink-dim));
 }
 
+/*
+ * A role named in an announcement, wearing its faction.
+ *
+ * The morning report and a last will are the two places the game tells you what
+ * somebody *was*, and they arrive as one grey sentence with the single most
+ * important word in it looking like every other word. Player names in those
+ * lines have been coloured for a while; the roles they turned out to be were
+ * not, which is the wrong way round — a name you already know, and the role is
+ * the news.
+ *
+ * Weighted rather than boxed: this sits inside running text, several times in a
+ * sentence sometimes, and a badge for each would turn an announcement into a
+ * row of stickers.
+ */
+.chat-role {
+  font-weight: 600;
+  color: var(--fac, var(--ink-dim));
+}
+
 .mz-fac--town {
-  --fac: #6fa3d8;
+  --fac: var(--fac-town-lit);
 }
 .mz-fac--mafia {
-  --fac: #e0705c;
+  --fac: var(--fac-mafia-lit);
 }
 .mz-fac--triad {
-  --fac: #e8a13d;
+  --fac: var(--fac-triad-lit);
 }
 .mz-fac--cult {
-  --fac: #b487e0;
+  --fac: var(--fac-cult-lit);
 }
 .mz-fac--neutral {
-  --fac: #a89e8c;
+  --fac: var(--fac-neutral-lit);
 }
 .mz-fac--hidden {
   --fac: var(--ink-faint);

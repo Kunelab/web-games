@@ -512,9 +512,9 @@ export const screenFr: Catalogue = {
   'mafia.bot.why.badge.2': 'le {role}, c’est {who}, et {who} l’a accusé',
   'mafia.bot.why.badge.3': '{who} a annoncé {role} et l’a mis en tête de liste',
   /** Le nez de l'enquêteur, comme raison : {line} est le métier trouvé. */
-  'mafia.bot.why.trade.1': 'je l’ai examiné la nuit {night} et j’ai trouvé {line}',
-  'mafia.bot.why.trade.2': 'mon examen de la nuit {night} a trouvé {line}',
-  'mafia.bot.why.trade.3': 'je me suis penché sur lui la nuit {night} et j’ai trouvé {line}',
+  'mafia.bot.why.trade.1': 'je l’ai examiné la nuit {night} : {line}',
+  'mafia.bot.why.trade.2': 'mon examen de la nuit {night} a donné : {line}',
+  'mafia.bot.why.trade.3': 'je me suis penché sur lui la nuit {night} : {line}',
 
   /* -------------------- et pourquoi un siège mérite qu'on le garde ------------ */
   'mafia.bot.whyClear.mine.1': 'je l’ai vérifié la nuit {night} et le résultat était propre',
@@ -526,9 +526,8 @@ export const screenFr: Catalogue = {
   'mafia.bot.whyClear.accounted.1': 'il nous a dit où il était et personne ne l’a contredit',
   'mafia.bot.whyClear.accounted.2': 'son récit de la nuit est au registre et personne ne l’a cassé',
   'mafia.bot.whyClear.accounted.3': 'personne ne l’a pris en flagrant délit de mensonge sur une nuit',
-  'mafia.bot.whyClear.trade.1':
-    'je l’ai examiné la nuit {night} et j’ai trouvé {line}, ce qui est un résultat ville ici',
-  'mafia.bot.whyClear.trade.2': 'mon examen de la nuit {night} a trouvé {line}, et c’est ville sur cette liste',
+  'mafia.bot.whyClear.trade.1': 'je l’ai examiné la nuit {night} : {line}, ce qui est un résultat ville ici',
+  'mafia.bot.whyClear.trade.2': 'mon examen de la nuit {night} a donné : {line}, et c’est ville sur cette liste',
   'mafia.bot.whyClear.trade.3': 'mon examen l’a mis du côté de la ville',
 
   /* --------------------- le même geste, avec la raison dessus --------------- */
@@ -713,6 +712,16 @@ export const screenFr: Catalogue = {
   'mafia.bot.family.why.quiet.1': 'personne ne lui a rien demandé',
   'mafia.bot.family.why.quiet.2': 'aucune déclaration, aucune question, aucun train',
   'mafia.bot.family.why.quiet.3': 'il est invisible',
+  'mafia.bot.family.hush': 'Pas de noms, pas de numéros, pas de rôles ici. Un espion peut entendre cette pièce.',
+  'mafia.bot.family.hush.agree.1': 'Oui. Ce soir. Rien de plus ici.',
+  'mafia.bot.family.hush.agree.2': 'D’accord. Ne le répète pas, quelqu’un peut écouter.',
+  'mafia.bot.family.hush.agree.3': 'Bon, celui-là. Plus de noms dans cette pièce.',
+  'mafia.bot.family.hush.refuse.1': 'Non, pas celui-là. Pas ici. Donne-moi une raison demain.',
+  'mafia.bot.family.hush.refuse.2': 'Je préfère pas. Et reste vague ici, un espion peut nous entendre.',
+  'mafia.bot.family.hush.refuse.3': 'Pas ce soir. Pas de noms dans cette pièce.',
+  'mafia.bot.family.hush.reply.1': 'Entendu. Pas ici, quelqu’un peut écouter.',
+  'mafia.bot.family.hush.reply.2': 'Compris. Pas de noms ni de numéros dans cette pièce.',
+  'mafia.bot.family.hush.reply.3': 'Je t’entends. Reste vague ici.',
   'mafia.bot.family.agree.1': '{who}, donc.',
   'mafia.bot.family.agree.2': 'D’accord, {who}.',
   'mafia.bot.family.agree.3': '{who}, va pour ça.',

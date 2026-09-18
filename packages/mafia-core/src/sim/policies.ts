@@ -478,11 +478,80 @@ export interface Brain {
   desperation: number;
   /** Where I actually went last night, so `account` can be honest — or not. */
   wentTo: number | null;
+  /** The way this seat plays the whole game, for the two roles that get to choose one. See `styleOf`. */
+  style: Style | null;
+}
+
+/**
+ * How a Jester or a Survivor has decided to play, chosen once and kept.
+ *
+ * Two roles whose win has nothing to do with who else wins, and therefore
+ * nothing that tells the table how they will vote. A single scripted habit
+ * would: after three games everybody knows the Jester votes at random and the
+ * Survivor votes with the town, and both are then read straight through. So
+ * each seat rolls a style at its first decision and plays it to the end, and
+ * from outside the two styles look like two different people.
+ *
+ *  - A `clown` Jester is the one this file has always had: odd accusations,
+ *    a big checkable claim once he has been ignored long enough, ballots cast
+ *    at random. He gets hanged for being noise.
+ *  - A `scum` Jester plays like a mafioso with no self-control: guilty on the
+ *    seats the room trusts, innocent on the ones it has caught, always on the
+ *    wagon when the wagon is on a townsperson and conspicuously off it when it
+ *    is not. He gets hanged by the town's own trust model, which prices an
+ *    innocent ballot on a revealed evil as the loudest tell in the game.
+ *  - A `hurried` Survivor wants the game over, because every extra night is
+ *    another knife that might pick his door: from day four he rides the
+ *    biggest wagon and votes guilty on the stand.
+ *  - A `careful` Survivor votes as a cautious townsperson does, which is what
+ *    every Survivor did before there was a choice.
+ *
+ * Whatever the style, a Survivor follows the tide (see `tide`): when the town
+ * is losing, its suspects are the wrong wagon to be on, and he rides the
+ * biggest one instead; when the town is winning he votes with it. The side
+ * can change during a game and so does he, which is the one thing about him
+ * the table *can* read, if it is paying attention.
+ */
+export type Style = 'clown' | 'scum' | 'hurried' | 'careful';
+
+/** The seat's style, rolled at first use with the game's own dice and kept on the brain. */
+export function styleOf(self: MafiaPlayer, brain: Brain, rng: () => number): Style | null {
+  if (self.role !== 'jester' && self.role !== 'survivor') return null;
+  if (!brain.style) {
+    brain.style = self.role === 'jester' ? (rng() < 0.5 ? 'clown' : 'scum') : rng() < 0.5 ? 'hurried' : 'careful';
+  }
+  return brain.style;
+}
+
+/**
+ * Which side is winning, read off what every seat can see.
+ *
+ * The town's parity clock says when the town is losing; a graveyard holding
+ * nearly every evil the roster implies, with the clock quiet, says when it is
+ * winning. Between the two the game is open. Used by the Survivor, whose only
+ * interest in the answer is which wagon ends the game soonest with him alive.
+ */
+export function tide(info: PublicInfo): 'town' | 'evil' | 'even' {
+  const clock = parityPressure(info);
+  if (clock >= 0.6) return 'evil';
+  const initial = info.aliveSlots.length + info.totalDead;
+  const expectedEvils = Math.max(1, Math.round(initial * 0.3));
+  const deadEvils = [...info.deadRoles.values()].filter((role) => isEvilRole(role)).length;
+  if (clock === 0 && deadEvils >= expectedEvils - 1) return 'town';
+  return 'even';
 }
 
 /** A fresh brain, calm and with nothing to hide yet. */
 export function makeBrain(slot: number, personality: Personality): Brain {
-  return { slot, personality, checked: new Set<number>(), lastKillTarget: null, desperation: CALM, wentTo: null };
+  return {
+    slot,
+    personality,
+    checked: new Set<number>(),
+    lastKillTarget: null,
+    desperation: CALM,
+    wentTo: null,
+    style: null
+  };
 }
 
 export function makePersonality(profile: Personality, rng: () => number): Personality {
@@ -1839,6 +1908,35 @@ export function steadyVote(
       if (claim.kind !== 'urge' || claim.day !== info.day || claim.claimerSlot === self.slot) continue;
       pushing += (claim.urge === 'vote' ? 1 : -1) * claimerWeight(claim.claimerSlot, info);
     }
+
+    /**
+     * A family seat does not help the town go home while the town is halfway to
+     * hanging somebody who is not one of theirs.
+     *
+     * The complaint this comes from, in a real transcript: three afternoons
+     * running ended in "the town would rather hang nobody" with a wagon already
+     * well built on a townie. Every one of those was a free hanging the family
+     * declined to take, and it declined it by *voting for the skip itself* —
+     * because the skip branch reads the evidence, the evidence was thin, and
+     * thin evidence is exactly the position a family should want a vote in.
+     *
+     * Only about the skip. What the seat votes *for* is still its own business
+     * and still goes through the whole ranking above; this says only that
+     * hanging nobody is not an option worth offering while somebody else's neck
+     * is halfway into the noose.
+     */
+    /**
+     * A family or a lone killer, not merely "not town". The comment above says family and the test said
+     * `!townish`, which swept in the Survivor and the Jester — and a Survivor voting to hang nobody on thin evidence
+     * is a Survivor playing well, not a knife declining a free hanging.
+     */
+    if (self.role && isEvilRole(self.role) && info.day >= 3) {
+      const running = info.aliveSlots.some(
+        (slot) => slot !== self.slot && !allies.has(slot) && wagonAlong(slot, info) >= 0.5
+      );
+      if (running) return { slot: null, skip: false };
+    }
+
     if (!desperate && best < NO_CASE_CEILING && pushing <= 0) return { slot: null, skip: true };
     return { slot: null, skip: false };
   }
@@ -1929,6 +2027,22 @@ function brainHerd(self: MafiaPlayer): number {
 
 function votesAgainst(slot: number, info: PublicInfo): number {
   return [...info.votes.values()].filter((voted) => voted === slot).length;
+}
+
+/**
+ * How far along the rope already is for this seat, 0..1.
+ *
+ * The town's own momentum, read as a fraction rather than as a countdown. The
+ * first version of the family's opportunism asked "is this wagon one or two
+ * votes short", and the bench answered that it is, on 2.4% of the votes a
+ * family seat ever scores: a majority of the living is a lot of names to
+ * gather and the trial opens the instant the last one lands, so "nearly there"
+ * is a doorway rather than a room. A family that only acts in the doorway never
+ * acts.
+ */
+function wagonAlong(slot: number, info: PublicInfo): number {
+  const needed = Math.max(1, Math.floor(info.aliveSlots.length / 2) + 1);
+  return Math.min(1, votesAgainst(slot, info) / needed);
 }
 
 /**
@@ -2706,6 +2820,68 @@ export function decideDay(
       }
 
       /**
+       * "Three of you have said Escort."
+       *
+       * The block above is the victim speaking, and it only ever fires for the
+       * seat whose own badge was taken. Which leaves the commonest version of
+       * this uncovered entirely: the real one is already dead, or was never
+       * dealt, and two or three liars reach for the same convenient coat. Then
+       * nobody in the room is the victim, so nobody says anything — and a real
+       * game ran with **three** living Escort claims on the board, unremarked,
+       * for the rest of the afternoon.
+       *
+       * Nobody needs a badge to notice that. The claims are public and counting
+       * them is arithmetic anybody at the table can do, which is what makes this
+       * the one accusation that costs the speaker nothing and cannot be turned
+       * around on them: at least one of those seats is lying, and saying so out
+       * loud forces the liars to argue with each other.
+       *
+       * Aimed at the weakest of them — the one the room already trusts least —
+       * because "one of you is lying" is a shrug and naming which one is a
+       * question somebody has to answer. `suspicionParts` has priced duplicate
+       * claims since long before this; what was missing was anybody *saying* it.
+       */
+      const byRole = new Map<RoleId, number[]>();
+      for (const claim of info.claims) {
+        if (claim.kind !== 'role-claim' || !claim.claimedRole) continue;
+        if (!info.aliveSlots.includes(claim.claimerSlot)) continue;
+        const seats = byRole.get(claim.claimedRole) ?? [];
+        if (!seats.includes(claim.claimerSlot)) seats.push(claim.claimerSlot);
+        byRole.set(claim.claimedRole, seats);
+      }
+      for (const [role, seats] of byRole) {
+        /**
+         * Only a role the table cannot hold twice. Two Doctors is a preset (`nuit-noire-24` deals exactly that),
+         * two Sheriffs is any pair of `town-investigative` slots, and two truthful Citizens is most games; the
+         * pricing in `suspicionParts` has always checked `unique` and this has to as well or it calls honest seats
+         * liars in front of the whole room.
+         */
+        if (!roleDef(role).unique) continue;
+        if (seats.length < 2 || seats.includes(self.slot)) continue;
+        /**
+         * And said once per contested seat per day, by whoever gets there first — not once per seat *hearing* it.
+         * Every bot at the table can count, so without this every one of them rolled its own dice and five or six
+         * repeated the same accusation on the same afternoon, which reads as a chorus and not a room.
+         */
+        const saidToday = (slot: number): boolean =>
+          info.claims.some(
+            (claim) =>
+              claim.kind === 'counter-claim' &&
+              claim.day === info.day &&
+              claim.targetSlot === slot &&
+              claim.deniedRole === role
+          );
+        const weakest = seats
+          .filter((slot) => !saidToday(slot))
+          .sort((left, right) => trustOf(left, info) - trustOf(right, info))[0];
+        // Three mouths on one badge is louder than two, and worth interrupting for.
+        if (weakest !== undefined && rng() < (seats.length >= 3 ? 0.7 : 0.4)) {
+          publish(weakest, 'counter-claim', undefined, undefined, undefined, { deniedRole: role });
+          break;
+        }
+      }
+
+      /**
        * "Spare me and I will prove it tonight."
        *
        * A bet the next dawn settles, which is rarer and worth more than a
@@ -2801,13 +2977,27 @@ export function decideDay(
           .sort((a, b) => a.heat - b.heat)[0];
         if (calmest) publish(calmest.slot, 'accuse');
       };
+      /**
+       * The `scum` Jester's accusation is the opposite shape: not the calmest
+       * seat but the one already under the biggest wagon, provided the room has
+       * nothing hard on them. Piling onto a townsperson with no reason is what a
+       * mafioso in a hurry does, and it is read as one.
+       */
+      const pileOn = (): void => {
+        const wagon = others
+          .filter((slot) => votesAgainst(slot, info) > 0 && suspicionParts(slot, self, info, rng).hard < 1)
+          .sort((left, right) => votesAgainst(right, info) - votesAgainst(left, info))[0];
+        if (wagon !== undefined) publish(wagon, 'accuse');
+        else oddAccusation();
+      };
+      const accuse = styleOf(self, brain, rng) === 'scum' ? pileOn : oddAccusation;
       if (!accusedBefore) {
-        if (rng() < stance.falseAccuse) oddAccusation();
+        if (rng() < stance.falseAccuse) accuse();
       } else if (!claimedBefore && info.day >= 3 && brain.desperation >= 0.5) {
         const mask = pickMask('jester', stance, rng, burnedFaces(info));
         if (mask) publish(self.slot, 'role-claim', mask);
       } else if (claimedBefore && rng() < stance.falseAccuse * 0.5) {
-        oddAccusation();
+        accuse();
       }
     }
 
@@ -2960,9 +3150,66 @@ export function decideDay(
     }
   }
 
-  /* -------- The mayor comes out when the rope is looking at him. -------- */
+  /* --------------------- The mayor takes the sash off the shelf. -------------------- */
+
+  /**
+   * He used to come out only when the rope was already looking at him.
+   *
+   * Two conditions, both defensive: two votes on him, or standing on the
+   * trapdoor. Which means the sash was never once used for the thing it does —
+   * it was an escape hatch, pulled at the last possible moment, and a Mayor who
+   * reveals *on the stand* has bought himself one afternoon and told the family
+   * exactly whose door to use tonight. The town got the three votes for one day
+   * and then lost him.
+   *
+   * The sash is worth three ballots every day he lives, and it is worth them
+   * only on days where three ballots change something. So he now comes out when
+   * that is true, and stays a normal seat when it is not:
+   *
+   *  - **There is a wagon he agrees with, and he can finish it.** Somebody he
+   *    genuinely suspects is most of the way to a trial. Three votes closes a
+   *    gap one vote cannot, and it closes it today, in front of everybody.
+   *  - **The clock has run down.** At parity pressure the town does not get
+   *    another quiet afternoon to be careful in, and a sash saved for a day
+   *    that never comes is a sash wasted.
+   *  - **He is holding something nobody will act on.** A seat that has accused
+   *    the same person twice and been ignored is a seat with no weight, and the
+   *    sash is exactly the weight it is missing.
+   *
+   * Never on day one, whatever happens: revealing before anybody has said
+   * anything hands the family a free kill and buys three votes on a day with
+   * nothing to vote about. And the defensive trigger stays, because an escape
+   * hatch is still worth having when the rope is genuinely around his neck.
+   */
   if ((role === 'mayor' || role === 'marshall') && !self.revealed) {
-    if (votesAgainst(self.slot, info) >= 2 || info.trialSlot === self.slot) decision.revealMayor = true;
+    const cornered = votesAgainst(self.slot, info) >= 2 || info.trialSlot === self.slot;
+    if (cornered) decision.revealMayor = true;
+
+    // The mayor only: this reasoning is about three ballots, and the marshall's reveal is not three ballots. He has
+    // his own trigger below.
+    if (role === 'mayor' && !cornered && info.day >= 2) {
+      /** A wagon on somebody he actually believes is guilty, close enough that three ballots land it. */
+      const wagons = [...new Set(info.votes.values())].filter((slot) => slot !== self.slot);
+      const finishable = wagons.some(
+        (slot) => wagonAlong(slot, info) >= 0.4 && suspicion(slot, self, info, rng) >= 2
+      );
+      /** Twice accused the same seat, and the room has not moved once. */
+      const mine = info.claims.filter(
+        (claim) => claim.kind === 'accuse' && claim.claimerSlot === self.slot && claim.day >= info.day - 2
+      );
+      const ignored = mine.length >= 2 && !mine.some((claim) => votesAgainst(claim.targetSlot, info) >= 2);
+
+      /**
+       * Two reasons and a nudge. A wagon he can finish and a case nobody will act on are reasons: each names the
+       * day three ballots change. The late-game term is not a reason, it is the observation that a sash still on
+       * the shelf on day eight is probably never coming off, and at fifteen points a day it was revealing Mayors
+       * for nothing on quiet afternoons. Five is a nudge.
+       */
+      const chance =
+        (finishable ? 0.55 : 0) + parityPressure(info) * 0.5 + (ignored ? 0.3 : 0) + (info.day >= 5 ? 0.05 : 0);
+      if (rng() < chance) decision.revealMayor = true;
+    }
+
     // The marshall also comes out when the town has real leads to burn through.
     if (
       role === 'marshall' &&
@@ -3104,10 +3351,44 @@ function pickVote(
     if (obsession !== null && info.aliveSlots.includes(obsession)) return obsession;
   }
 
+  /** Every wagon running today that this seat could join. */
+  const wagons = [...new Set(info.votes.values())].filter((slot) => slot !== self.slot && candidates.includes(slot));
+
   if (role === 'jester') {
+    if (styleOf(self, brain, rng) === 'scum') {
+      /**
+       * The bus driver's ballot. On the wagon when it is on somebody the room has
+       * nothing on, off it when it is on somebody the room has caught, and with
+       * no wagon at all, half the time, a fresh one on the seat the room trusts
+       * most. Every one of those is a thing `trustOf` remembers and prices.
+       */
+      const rides = wagons
+        .map((slot) => ({ slot, caught: suspicionParts(slot, self, info, rng).hard, along: wagonAlong(slot, info) }))
+        .filter((wagon) => wagon.caught < 1)
+        .sort((left, right) => right.along - left.along)[0];
+      if (rides) return rides.slot;
+      if (wagons.length > 0) return null;
+      const cleanest = candidates
+        .map((slot) => ({ slot, warmth: trustOf(slot, info) }))
+        .sort((left, right) => right.warmth - left.warmth)[0];
+      return cleanest && rng() < 0.5 ? cleanest.slot : null;
+    }
     // Chaos: vote someone random, often, to look erratic.
     if (rng() < 0.6) return candidates[Math.floor(rng() * candidates.length)] ?? null;
     return null;
+  }
+
+  if (role === 'survivor') {
+    const loudest = wagons
+      .map((slot) => ({ slot, along: wagonAlong(slot, info) }))
+      .sort((left, right) => right.along - left.along)[0];
+    // The town is losing, so the seats it suspects are the wrong wagon: ride the biggest one, whoever is under it.
+    if (tide(info) === 'evil' && loudest) return loudest.slot;
+    // In a hurry, any real wagon is a way to make the table smaller tonight.
+    if (styleOf(self, brain, rng) === 'hurried' && info.day >= 4 && loudest && loudest.along >= 0.3) {
+      return loudest.slot;
+    }
+    // Otherwise, and whenever the town is winning, he votes as the town does: fall through.
   }
 
   const isMafiaSeat = teammates.size > 0;
@@ -3155,11 +3436,76 @@ function pickVote(
       let score = parts.evidence + parts.wagon;
       // A short shortlist is itself evidence: it must be one of you.
       if (possible && possible.size <= 3 && possible.has(slot)) score += 1;
+
+      /**
+       * And the seat with its hand up against this one.
+       *
+       * Counter-voting, which is half of answering an accusation and the half
+       * that costs the accuser something. A seat that opens a wagon on
+       * nothing should be spending its own safety to do it; until now it
+       * spent nothing at all, because the accused's ballot went wherever the
+       * evidence pointed and the evidence never pointed at the person doing
+       * the accusing.
+       *
+       * Deliberately small. This is a thumb on the scale and not a rule: a
+       * seat that always votes its loudest accuser is a seat anybody can aim
+       * by accusing it, which is a worse exploit than the one being fixed.
+       * And never at somebody who gave a reason — answer the reason.
+       */
+      if (
+        info.claims.some(
+          (claim) =>
+            claim.kind === 'accuse' &&
+            claim.claimerSlot === slot &&
+            claim.targetSlot === self.slot &&
+            !backedUp(slot, self.slot, info)
+        )
+      ) {
+        score += 0.8;
+      }
       if (isMafiaSeat) {
         // Never your own brother. The bus, when it is boarded, is boarded on
         // purpose above, not by a brother outscoring a stranger here.
         if (familyKnownEvil.has(slot)) return { slot, score: -10, evidence: 0, hard: 0 };
         if (teammateWagons.has(slot)) score += 1.5;
+
+        /**
+         * A wagon one or two votes short of the stand, which is a free hanging.
+         *
+         * The cheapest thing a family ever does and the thing this one never
+         * did. The town builds a case against one of its own all afternoon,
+         * gets within a vote of a trial, and the family sits on its hands
+         * scoring that seat on the same evidence everybody else is looking at —
+         * as if it were trying to find the killer rather than trying to bury a
+         * townie. A transcript from a real game has three separate afternoons
+         * ending in "the town would rather hang nobody" with a wagon already
+         * two thirds built.
+         *
+         * Scaled by how far along the wagon is, rather than switched on at one
+         * or two votes short. That was the first shape and the bench said it
+         * fires on 2.4% of the votes a family seat ever scores: a majority of
+         * the living is a lot of names to gather, and the moment the last one
+         * lands the trial opens, so "nearly there" is a doorway rather than a
+         * room. A family that only acts in that doorway is a family that never
+         * acts.
+         *
+         * So the whole slope counts. A wagon at six of seven is worth going out
+         * of your way for; one at two of seven is worth a nudge; one at nothing
+         * is worth nothing, which is what `votesAgainst` returns for it. What
+         * the family is really doing is preferring *whoever the town has
+         * already started on* over its own read, which is the cheapest day it
+         * can have — the town does the work, the family only has to agree.
+         *
+         * Never a brother: the check above has already priced one at minus ten
+         * and this is added to that.
+         *
+         * From day three, because an early wagon is mostly the town flailing at
+         * random, and joining it costs a night of knives to hang somebody it was
+         * going to hang anyway. By day three the town is building cases on
+         * something, and a case on the wrong person is the family's best
+         * afternoon of the week.
+         */
+        if (info.day >= 3) score += 2.4 * wagonAlong(slot, info);
         /**
          * To the people it is aimed at, the sash is a target and not a shield.
          *
@@ -3413,9 +3759,31 @@ export function decideBallot(
   }
   if (role === 'executioner' && (self.obsessionSlotHint ?? null) === accusedSlot) return 'guilty';
   if (roleDef(role).faction === 'mafia') return 'guilty';
-  // Any hanging is a good hanging: it keeps the rope in the room's hand and the
-  // Jester in the running for it.
-  if (role === 'jester') return rng() < 0.35 + stance.pushHard * 0.5 ? 'guilty' : 'innocent';
+  if (role === 'jester') {
+    if (styleOf(self, brain, rng) === 'scum') {
+      /**
+       * Innocent on the caught, guilty on the clean. The first is priced at
+       * minus two and a half by `trustOf` the moment the corpse is revealed; the
+       * second is remembered by every seat that trusted the one he hanged. He is
+       * building the case against himself out of the town's own bookkeeping.
+       */
+      const parts = suspicionParts(accusedSlot, self, info, rng);
+      const proven = info.provenRoles.get(accusedSlot);
+      if (parts.hard >= 1.5 || (proven !== undefined && isEvilRole(proven))) return 'innocent';
+      if (parts.evidence < 0.8) return 'guilty';
+      return rng() < 0.5 ? 'guilty' : 'innocent';
+    }
+    // Any hanging is a good hanging: it keeps the rope in the room's hand and the
+    // Jester in the running for it.
+    return rng() < 0.35 + stance.pushHard * 0.5 ? 'guilty' : 'innocent';
+  }
+
+  if (role === 'survivor') {
+    // Whoever is on the stand, a hanging tonight is one fewer night for a knife to find him.
+    if (tide(info) === 'evil') return 'guilty';
+    if (styleOf(self, brain, rng) === 'hurried' && info.day >= 4 && rng() < 0.8) return 'guilty';
+    // Otherwise he judges as the town does: fall through.
+  }
 
   const parts = suspicionParts(accusedSlot, self, info, rng);
   /**
@@ -3488,6 +3856,80 @@ export function decideBallot(
 
 /* -------------------------------- night --------------------------------- */
 
+/**
+ * Does the Veteran sit on his porch with the rifle across his knees tonight?
+ *
+ * He used to, about every other night, from night one, on nothing but nerve.
+ * That is the worst possible schedule and it is worth being exact about why.
+ *
+ * On night one nobody has said anything, so the family's knife goes wherever it
+ * likes and the odds it picks this particular door are one in ten. What *does*
+ * come to the door on night one is the town: a Sheriff doing his rounds, a
+ * Lookout picking a house at random, a Doctor covering somebody quiet. Every
+ * one of those is a visit, and an alert kills visitors without asking who they
+ * were. So an early alert is a coin flip between nothing at all and shooting
+ * one of his own — and he only has three of them.
+ *
+ * What the role is actually for is the night somebody is *coming*. That night
+ * announces itself: he has been accused, there is a wagon on him, he has said
+ * the word "veteran" out loud, the town is down to the seats that matter, or
+ * the game is close enough to over that a charge saved is a charge wasted. So
+ * the nerve is still there and still his — it is just no longer the whole of
+ * the decision, and it can no longer fire on night one on its own.
+ *
+ * Note what is deliberately *not* here: making himself bait. Advertising the
+ * porch to the killers without also advertising it to every Doctor and Lookout
+ * in the game is not something a seat at this table can do, so he does not try.
+ */
+function alertTonight(
+  self: MafiaPlayer,
+  info: PublicInfo,
+  brain: Brain,
+  stance: Stance,
+  rng: () => number
+): boolean {
+  /**
+   * Reasons to think somebody is coming up the path tonight.
+   *
+   * Each is a thing the rest of the table can see, which is what makes it a
+   * prediction rather than a mood: a seat under a wagon is a seat the family
+   * would rather not lose tomorrow, and a seat that has claimed Veteran out
+   * loud has told the family exactly which door not to use — or exactly which
+   * door to send somebody expendable through.
+   */
+  /**
+   * Yesterday's closing votes, not today's running ones — there are none. `beginNight` empties the ballot box and
+   * the trial is over by the time anybody acts, so `votesAgainst` and `trialSlot` are structurally zero and null
+   * at night and this read as "never hunted" for every Veteran in every game. The day's record is what says whether
+   * the room was pointing at him when the sun went down.
+   */
+  const hunted =
+    info.voteHistory.some((vote) => vote.day === info.day && vote.targetSlot === self.slot) ||
+    info.trials.some((trial) => trial.day === info.day && trial.accusedSlot === self.slot && !trial.lynched);
+  const accused = info.claims.some(
+    (claim) => claim.kind === 'accuse' && claim.targetSlot === self.slot && claim.day >= info.day - 1
+  );
+  const outed = info.claims.some(
+    (claim) => claim.kind === 'role-claim' && claim.claimerSlot === self.slot && claim.claimedRole === 'veteran'
+  );
+  /** Charges he will never get to spend: at four seats a hoarded alert is a wasted one. */
+  const running = info.aliveSlots.length <= Math.max(4, self.charges + 2);
+
+  const nerve = brain.personality.courage * 0.35 + stance.pushHard * 0.25;
+  const reason = (hunted ? 0.45 : 0) + (accused ? 0.3 : 0) + (outed ? 0.35 : 0) + (running ? 0.4 : 0);
+
+  /**
+   * And the clock on top, because a quiet night five is not a quiet night one.
+   *
+   * By then the visitors are mostly dead, the seats still walking around at
+   * night are the ones with something to do, and the knife has run out of
+   * easier doors. Nothing before night three fires on nerve alone.
+   */
+  const late = info.day >= 5 ? 0.3 : info.day >= 3 ? 0.15 : 0;
+  const chance = info.day <= 2 ? reason * 0.5 : Math.min(0.85, nerve + reason + late);
+  return rng() < chance;
+}
+
 export function decideNightTarget(
   self: MafiaPlayer,
   brain: Brain,
@@ -3529,9 +3971,7 @@ export function decideNightTarget(
   if (legalTargets.length === 0) {
     // Self-targeted powers. Vests are free comfort; alerts are rationed nerve —
     // and a veteran who feels hunted spends one.
-    if (actionType === 'alert') {
-      return rng() < 0.25 + brain.personality.courage * 0.4 + stance.pushHard * 0.3 ? self.slot : null;
-    }
+    if (actionType === 'alert') return alertTonight(self, info, brain, stance, rng) ? self.slot : null;
     return self.slot;
   }
 
@@ -3653,8 +4093,33 @@ export function decideNightTarget(
       .map((slot) => ({ slot, score: suspicion(slot, self, info, rng) }))
       .sort((a, b) => b.score - a.score);
     const top = scored[0];
-    // Discipline: only shoot with real conviction; cowards never shoot.
-    if (top && top.score >= 2.9 - brain.personality.courage) return top.slot;
+
+    /**
+     * Discipline, priced against what the discipline was actually buying.
+     *
+     * The bar was `2.9 - courage`, and measured over three hundred fifteen-seat
+     * games it produced a Vigilante who took 17% of the shots available to him
+     * and hit an evil seat with **85%** of the ones he took. Those two numbers
+     * together are not a portrait of a careful man. They say the bar was set
+     * well above the point where his judgement stops being reliable, so most of
+     * what it filtered out was good shots — and a bullet not fired by the end
+     * is worth exactly nothing, which is the part a suspicion threshold alone
+     * can never see.
+     *
+     * So the bar drops, and two things push it down further:
+     *
+     *  - **Bullets he will not get to fire.** Roughly one seat dies a night, so
+     *    the nights left are about the seats left over two. Holding three
+     *    bullets with four nights to go is not caution, it is hoarding.
+     *  - **The parity clock**, for the ordinary reason: at LyLo a wrong shot and
+     *    no shot lose the same game, so only the wrong shot can be worse.
+     *
+     * Cowards still mostly hold fire, which is what `courage` is for.
+     */
+    const nightsLeft = Math.max(1, Math.floor(info.aliveSlots.length / 2));
+    const hoarding = Math.max(0, self.charges - nightsLeft) * 0.35;
+    const bar = 2.2 - brain.personality.courage * 0.7 - hoarding - parityPressure(info) * 0.4;
+    if (top && top.score >= Math.max(1.2, bar)) return top.slot;
     return null;
   }
 
@@ -3730,13 +4195,54 @@ export function decideNightTarget(
       if (loudList.length > 0) return pickRanked(loudList, rng);
       return random();
     }
-    // The town's escort trips the likeliest killer: the top public suspect.
-    const scored = legalTargets
+    /**
+     * The town's escort trips the likeliest killer — and, far more often, tripped one of her own.
+     *
+     * Measured over three hundred fifteen-seat games: 45% of her nights landed
+     * on somebody with a knife, and **40% landed on a townsperson with a power**
+     * — a Sheriff who then had no check to report, a Doctor whose save never
+     * happened, a Lookout who saw nothing. That is not a near miss. A blocked
+     * Doctor is a death the family did not have to work for, so on those nights
+     * she was the best thing the mafia had.
+     *
+     * Almost all of it came from the last line: top suspect if anybody scored
+     * above 1, otherwise **a seat drawn at random**, and on a quiet night two
+     * nobody scores above 1. She was rolling dice against a board that is three
+     * quarters town.
+     *
+     * So the seats she has reason to believe are town come out of the hat
+     * first, and what is left is ranked rather than drawn. She can still be
+     * wrong — a liar in a Sheriff's coat is exactly what this costs — but she is
+     * no longer wrong by default on the nights nothing is happening.
+     */
+    const cleared = new Set<number>();
+    for (const entry of self.intel) {
+      if (entry.kind === 'sheriff' && entry.value === 'clear') cleared.add(entry.targetSlot);
+    }
+    for (const [slot, role] of info.provenRoles) {
+      if (roleDef(role).faction === 'town') cleared.add(slot);
+    }
+    const worth = legalTargets.filter((slot) => !cleared.has(slot));
+    const pool = worth.length > 0 ? worth : legalTargets;
+
+    const scored = pool
       .map((slot) => ({ slot, score: suspicion(slot, self, info, rng) }))
       .sort((a, b) => b.score - a.score);
     const top = scored[0];
     if (top && top.score >= 1) return top.slot;
-    return random();
+
+    /**
+     * Nothing above the bar, so she goes where the room is quietest about.
+     *
+     * A seat nobody has vouched for and nobody has checked is worth a night far
+     * more than one the record likes, and it is also the seat a family hides
+     * its knife behind. Trust is the only signal left on a night like this, so
+     * it is the one she uses, rather than none.
+     */
+    const coldest = scored
+      .map((row) => ({ slot: row.slot, warmth: trustOf(row.slot, info) }))
+      .sort((a, b) => a.warmth - b.warmth);
+    return coldest[0]?.slot ?? random();
   }
 
   if (actionType === 'frame') {

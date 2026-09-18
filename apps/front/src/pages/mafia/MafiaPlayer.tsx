@@ -517,25 +517,73 @@ export default function MafiaPlayer() {
    */
   const colourNames = useMemo(() => {
     const names = (view?.players ?? []).map((player) => player.name).filter(Boolean);
-    if (names.length === 0) return undefined;
-    const escaped = [...names]
-      .sort((a, b) => b.length - a.length)
-      .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(${escaped.join('|')})(?![\\p{L}\\p{N}])`, 'gu');
+
+    /**
+     * And the roles, which are the half of an announcement that is actually
+     * news.
+     *
+     * You already know who Loki is. What the morning is telling you is that he
+     * was the Doctor, and that word sat in the sentence looking like every
+     * other word in it. Coloured by faction, the report answers "was that a
+     * good hanging?" before anybody has finished reading it — which is the
+     * question a dawn report and a last will exist to answer.
+     *
+     * Built from `ROLES` rather than from this table's roster, because a report
+     * names roles the reader was never told were in play — that is rather the
+     * point of one — and a last will can name anything its author felt like
+     * claiming.
+     */
+    const roleCamp = new Map<string, string>();
+    for (const [id, role] of Object.entries(ROLES)) {
+      const shown = tk(`mafia.role.${id}.name`).trim();
+      if (shown && shown !== `mafia.role.${id}.name`) roleCamp.set(shown.toLowerCase(), role.faction);
+    }
+    if (names.length === 0 && roleCamp.size === 0) return undefined;
+
+    /**
+     * Names first in the alternation, so a player who calls themselves
+     * "Veteran" is still a player. Longest first within each set and matched on
+     * word boundaries, so "Max" does not light up inside "Maximum" and "Tintin"
+     * beats "Tin".
+     */
+    const quote = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const words = [
+      ...[...names].sort((a, b) => b.length - a.length),
+      ...[...roleCamp.keys()].sort((a, b) => b.length - a.length)
+    ].map(quote);
+    const isName = new Set(names);
+    /**
+     * Exact case, on purpose. Matched without regard to case, "loki" typed by a
+     * player matched the name "Loki", failed the exact-case `isName` test below,
+     * and fell through to the role branch, drawn as a neutral role; and every
+     * ordinary "doctor" or "agent" in a spoken line lit up as if the dawn report
+     * had said it. Announcements and wills write names and roles with their
+     * display capitals, which is what this requires; a player's own lowercase
+     * stays plain, which is what it did before roles were added here.
+     */
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(${words.join('|')})(?![\\p{L}\\p{N}])`, 'gu');
+
     return (text: string): ReactNode => {
       const parts = text.split(pattern);
       if (parts.length === 1) return text;
-      return parts.map((part, index) =>
-        index % 2 === 1 ? (
-          <span key={index} className="chat-name" style={{ color: authorColour(part) }}>
+      return parts.map((part, index) => {
+        if (index % 2 === 0) return part;
+        if (isName.has(part)) {
+          return (
+            <span key={index} className="chat-name" style={{ color: authorColour(part) }}>
+              {part}
+            </span>
+          );
+        }
+        const camp = roleCamp.get(part.toLowerCase()) ?? 'neutral';
+        return (
+          <span key={index} className={`chat-role mz-fac--${camp}`}>
             {part}
           </span>
-        ) : (
-          part
-        )
-      );
+        );
+      });
     };
-  }, [view?.players]);
+  }, [view?.players, tk]);
 
   /** The private feed, folded into the square. See the chat panel below. */
   const mine = useMemo(
@@ -755,8 +803,16 @@ export default function MafiaPlayer() {
                       <span className={`mz-fac mz-fac--${player.faction ?? 'hidden'}`}> · {t(player.roleName)}</span>
                     )}
                   </h4>
+                  {/*
+                    The body of a will is where the roles actually get named.
+                    "3 is the Sheriff, 7 is a Serial Killer" is the whole point
+                    of reading a dead player's notes, and it arrived as one flat
+                    paragraph — so it goes through the same decorator the dawn
+                    reports use, and the names and roles in it light up the same
+                    way they do in the square.
+                  */}
                   <p className={player.lastWill ? undefined : 'mz-muted'}>
-                    {player.lastWill ?? tk('mafia.ui.willsNone')}
+                    {player.lastWill ? (colourNames?.(player.lastWill) ?? player.lastWill) : tk('mafia.ui.willsNone')}
                   </p>
                 </section>
               ))}
