@@ -123,8 +123,22 @@ const VISITED_BY =
   /\b(?:had (?:a )?visitors?|was visited|got (?:a )?visitors?|someone went (?:to|into)|somebody went (?:to|into)|a eu (?:de la )?visite|quelqu'?un est alle|on est alle chez|il y avait quelqu'?un)\b/i;
 
 /** The vocabulary of an accusation. */
+/**
+ * A verdict that puts a house on the wrong side.
+ *
+ * The camps belong here as much as the insults do, and they were missing. A
+ * Sheriff in this game does not report "suspicious", it reports what it found —
+ * "came back Cult", "came back Triad" — and the reader had words for every way
+ * of calling somebody shady and none for the three sides they might actually
+ * be on. "Came back mafia" was read; "came back Cult" was dropped, so the one
+ * finding in the game that names a *confirmed* member of a growing faction was
+ * the one finding the board never heard.
+ *
+ * The solo killers are here on the same argument. Nothing in either language
+ * calls somebody an arsonist as a figure of speech.
+ */
 const EVIL =
-  /\b(?:sus|suspicious|suspect|suspecte|suspects|mafia|maf|scum|evil|wolf|liar|lying|lies|lied|guilty|shady|dodgy|fishy|bad|dirty|red|louche|chelou|menteur|menteuse|ment|mentait|coupable|bizarre|traitre|traite|rouge|mauvais|sk|serial killer|tueur en serie)\b/i;
+  /\b(?:sus|suspicious|suspect|suspecte|suspects|mafia|maf|scum|evil|wolf|liar|lying|lies|lied|guilty|shady|dodgy|fishy|bad|dirty|red|louche|chelou|menteur|menteuse|ment|mentait|coupable|bizarre|traitre|traite|rouge|mauvais|sk|serial killer|tueur en serie|cult|cultist|culte|secte|sectateur|triad|triade|arsonist|incendiaire|witch|sorciere)\b/i;
 
 /**
  * A house pulled out of the line of fire, immediately before it is named.
@@ -304,8 +318,23 @@ const NEAR = 44;
  * away the half that says what was found. The case a comma usually marks —
  * "7 is sus, 4 is fine" — needs no rule of its own, because a second house is
  * already where the first house's window ends.
+ *
+ * A colon is not a boundary *forwards*, for exactly the same reason and on
+ * exactly the same sentence. "Night 1, Robin: clean" is the other shape every
+ * sheriff's will is written in — the will generator in this codebase produces
+ * it — and the colon there does not end what is being said about Robin, it
+ * introduces it. Cutting there threw away every check written that way: a dead
+ * Sheriff's four findings reached the board as one, and the town went on
+ * hanging people for having "never given an account".
+ *
+ * Backwards it still is a boundary, which is the same asymmetry the comma has
+ * and for the same reason: reading back from a house into somebody else's
+ * verdict is how a reader files the opposite of what was said.
  */
-const CLAUSE = /;|:|\. | and | but | or | so | then | et | mais | ou | donc | puis /i;
+const CLAUSE = /;| and | but | or | so | then | et | mais | ou | donc | puis /i;
+
+/** The run-out's boundaries plus the two that only end a sentence looking back. */
+const CLAUSE_END = new RegExp(`:|\\. |${CLAUSE.source}`, 'i');
 
 /**
  * The run-up to a house: from the previous clause boundary, at most `NEAR` back.
@@ -316,7 +345,7 @@ const CLAUSE = /;|:|\. | and | but | or | so | then | et | mais | ou | donc | pu
  * back bad" reads forwards from 7 into the rest of its own report, so it must
  * not. A comma ends what was being said about the house before it.
  */
-const CLAUSE_BACK = new RegExp(`,|${CLAUSE.source}`, 'i');
+const CLAUSE_BACK = new RegExp(`,|${CLAUSE_END.source}`, 'i');
 
 function runUp(line: string, from: number, at: number): string {
   const window = line.slice(Math.max(from, at - NEAR), at);
@@ -327,7 +356,8 @@ function runUp(line: string, from: number, at: number): string {
 /** And the run-out: up to the next clause boundary, at most `NEAR` on. */
 function runOut(line: string, at: number, to: number): string {
   const window = line.slice(at, Math.min(to, at + NEAR));
-  return window.split(CLAUSE)[0] ?? window;
+  // A full stop still ends a report; a colon introduces one. See `CLAUSE`.
+  return window.split(new RegExp(`\\. |${CLAUSE.source}`, 'i'))[0] ?? window;
 }
 
 /**

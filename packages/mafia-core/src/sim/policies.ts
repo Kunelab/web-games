@@ -1,6 +1,16 @@
 import type { DeathSource } from '../messages.js';
 import type { NightActionType, RoleId } from '../roles.js';
-import { familyOf, isSoloKiller, QUIET_TRADE, roleDef, ROLES, staysHome, tradeSuspects } from '../roles.js';
+import {
+  duelBeats,
+  ENDGAME_SEATS,
+  familyOf,
+  isSoloKiller,
+  QUIET_TRADE,
+  roleDef,
+  ROLES,
+  staysHome,
+  tradeSuspects
+} from '../roles.js';
 import { beliefs, surestSuspect } from './beliefs.js';
 import { deductions, deductionWeight } from './deduce.js';
 export { QUIET_TRADE };
@@ -14,7 +24,7 @@ import {
   type Pressure,
   type Stance
 } from '../social.js';
-import { sheriffSuspects, type IntelEntry, type MafiaPlayer, type SheriffVerdict } from '../state.js';
+import { sheriffSuspects, type IntelEntry, type MafiaPlayer, type MafiaState, type SheriffVerdict } from '../state.js';
 export { sheriffSuspects, type SheriffVerdict };
 
 /**
@@ -306,6 +316,22 @@ export interface Claim {
    * bots file about themselves exactly where it was.
    */
   confidence?: number;
+  /**
+   * This claim is the seat reporting a night it actually worked.
+   *
+   * The difference between "I checked 9 and he is clean" and "I think 9 is
+   * clean", which read identically on the board — both arrive as a `clear`
+   * about house 9 — and are not remotely the same statement. The first says
+   * where the speaker *was*; the second says what they reckon.
+   *
+   * Without it there was no way to tell them apart, so a Sheriff who read out
+   * four checks by name had, as far as the board could see, never said a word
+   * about any of its own nights. Three jurors voted it guilty for exactly that,
+   * in the same minute it had listed them. Set by whatever turns a night's
+   * record into a sentence, and by nothing else — a seat reasoning aloud never
+   * gets it.
+   */
+  worked?: boolean;
   /**
    * The night this is *about*, when it is about a night at all.
    *
@@ -1037,6 +1063,17 @@ export function contradicted(slot: number, info: PublicInfo): boolean {
 export function possibilitySet(self: MafiaPlayer, info: PublicInfo): Set<number> {
   const remaining = new Set(info.aliveSlots.filter((slot) => slot !== self.slot));
   for (const slot of [...remaining]) {
+    /**
+     * A house this seat's own knife came back blunted from.
+     *
+     * The one deduction in this game that cannot be faked, argued with or
+     * relayed: the seat was there, and what it found was armour. Almost
+     * everything wearing armour at night is a rival killer or a family leader,
+     * so this house stays on the shortlist whatever anybody has said about it —
+     * a chorus of clears from the room does not un-bounce a knife.
+     */
+    if (self.bounced?.includes(slot)) continue;
+
     // Own hard clears.
     if (self.intel.some((entry) => entry.targetSlot === slot && entry.kind === 'sheriff' && entry.value === 'clear')) {
       remaining.delete(slot);
@@ -1739,7 +1776,7 @@ export function suspicionParts(
    * while capping the other would simply have moved the runaway.
    */
   const ECHO = 0.65;
-  const chorus = (kind: ClaimKind): number => {
+  const chorus = (kind: ClaimKind): { loudest: number; total: number } => {
     /**
      * Firsthand, and then the room repeating it.
      *
@@ -1783,11 +1820,56 @@ export function suspicionParts(
       total += weight * echo;
       echo *= ECHO;
     }
-    return total;
+    // Split, because the two halves are different kinds of thing: see `crowd`.
+    return { loudest: voices[0] ?? 0, total };
   };
 
-  score += 2.0 * chorus('accuse');
-  score -= 2.2 * chorus('clear');
+  /**
+   * The crowd, and what happens when there is nothing under it.
+   *
+   * `ECHO` already stops a chorus growing without limit — the tenth voice adds
+   * almost nothing — but it does not stop the *first* one deciding the day. A
+   * seat named with no evidence at all still gathered two points a voice, and
+   * two points a voice is a conviction by the fourth person to agree. So a room
+   * would settle on whoever was named first and each bot's own reasoning would
+   * then confirm what the room had already done, which is not a room reasoning:
+   * it is one accusation wearing twelve hats.
+   *
+   * Measured against `hard` rather than against the chorus itself. Hard is what
+   * somebody actually holds — a check, a sighting, a seat caught contradicting
+   * itself — and it is exactly the thing a pile-on has none of. With even a
+   * little of it the crowd is worth its full weight, because then the room is
+   * agreeing *about* something. With none it is worth a third, which leaves it
+   * able to raise a suspicion and unable to hang anybody by itself.
+   *
+   * Applied after `hard` is known, at the bottom of this function, because the
+   * evidence terms are still being counted at this point.
+   */
+  const accusers = chorus('accuse');
+
+  /**
+   * The crowd, and what part of it is somebody agreeing rather than knowing.
+   *
+   * `ECHO` already stops a chorus growing without limit — the tenth voice adds
+   * almost nothing — but it never asked what was *under* the first one. A seat
+   * named with nothing against it still gathered two points a voice, so the
+   * fourth person to agree convicted, the room settled on whoever was named
+   * first, and every bot's own reasoning then confirmed what the room had
+   * already done. That is not twelve people reasoning; it is one accusation
+   * wearing twelve hats, and it is what hanged a Doctor on "you're the quiet
+   * one" six lines after somebody said it first.
+   *
+   * So the loudest voice keeps its full weight and only the *echo* behind it is
+   * discounted, and only when nobody holds anything. This is deliberately the
+   * narrowest version of the rule: one credible accuser still convicts — a dead
+   * Sheriff's will is one voice at 1.6 and hangs its man exactly as before — and
+   * what it costs is the eighth person to say "yeah, them".
+   *
+   * Folded in at the bottom of this function, where `hard` is finally known.
+   */
+  const crowd = 2.0 * accusers.loudest;
+  const echoed = 2.0 * (accusers.total - accusers.loudest);
+  score -= 2.2 * chorus('clear').total;
 
   for (const claim of info.claims) {
     if (claim.targetSlot !== targetSlot) continue;
@@ -1872,6 +1954,30 @@ export function suspicionParts(
 
   // Tunnel vision smells like an obsession.
   score += monomaniacScore(targetSlot, info);
+
+  /**
+   * Armour this seat has personally walked into.
+   *
+   * The narrowest and least forgeable thing a killer can know. Almost
+   * everything that shrugs a knife off at night is a rival killer or a family
+   * leader — the Godfather, the Dragon Head, the Serial Killer, the Arsonist,
+   * the Mass Murderer, the Poisoner, the Electromaniac — and the one town badge
+   * on that list, the Stump, has no night at all. So a house that bounced is a
+   * short list, and almost all of it is somebody's enemy.
+   *
+   * Firsthand, so it is `hard`: this seat was there, nobody told it, and no
+   * liar can manufacture it. A lead rather than a conviction, because the list
+   * is short and not empty of townsfolk — an alerted Veteran reads as armour
+   * too, to whoever survives the porch.
+   *
+   * Private by construction. It is read off `self`, so it moves this seat's
+   * opinion and nobody else's, which is exactly what a thing you learned alone
+   * in the dark should do.
+   */
+  if (self.bounced?.includes(targetSlot)) {
+    score += 1.2;
+    hard += 1.2;
+  }
 
   // Role-claim cross-checks: two living claimants of one unique role means at
   // least one liar; claiming a role the graveyard already revealed is worse.
@@ -2056,6 +2162,15 @@ export function suspicionParts(
   // The wagon: herd instinct, weighted by personality. Returned separately, so
   // the caller decides whether momentum is allowed to carry the day.
   const wagon = [...info.votes.values()].filter((voted) => voted === targetSlot).length;
+
+  /**
+   * And the crowd, weighed against what anybody actually has. See `crowd`.
+   *
+   * A third rather than nothing: a room agreeing is information, and a seat
+   * everybody distrusts for reasons none of them can name is still worth
+   * looking at. It is just not worth a rope on its own.
+   */
+  score += crowd + (hard > 0 ? echoed : echoed / 3);
 
   return { evidence: score + rng() * 0.3, wagon: wagon * 0.5 * brainHerd(self), hard };
 }
@@ -3928,7 +4043,18 @@ function pickVote(
   // The parity clock and the shortlist: as LyLo approaches, a town seat stops
   // guessing among everyone and starts counting among the possible.
   const pressure = isMafiaSeat ? 0 : parityPressure(info);
-  const possible = pressure >= 0.6 && !isMafiaSeat ? possibilitySet(self, info) : null;
+  /**
+   * The shortlist, from the parity bell or from a small enough room.
+   *
+   * Pressure alone opened it, and pressure is about the *ratio* of killers to
+   * town — so a late game that happened to stay comfortable never narrowed
+   * anybody's thinking, and the bots went on guessing among six people as
+   * though it were day two with twenty. Six seats is the other way in: by then
+   * the roster on the wall has crossed most of itself off and the question is
+   * no longer who is suspicious but who is left.
+   */
+  const endgame = info.aliveSlots.length <= ENDGAME_SEATS;
+  const possible = (pressure >= 0.6 || endgame) && !isMafiaSeat ? possibilitySet(self, info) : null;
   const pool = possible && possible.size > 0 ? candidates.filter((slot) => possible.has(slot)) : candidates;
 
   const scored = pool
@@ -3939,6 +4065,27 @@ function pickVote(
       let score = parts.evidence + parts.wagon;
       // A short shortlist is itself evidence: it must be one of you.
       if (possible && possible.size <= 3 && possible.has(slot)) score += 1;
+
+      /**
+       * And, at the end, whoever wins the room this seat is trying to survive.
+       *
+       * A duel is decided at two seats and decided by the night, so by the time
+       * it arrives there is nothing left to play: the last useful decision was
+       * the last rope, and it should have gone to whoever was going to win.
+       * This is the daylight half of that — spend the vote on the seat that
+       * beats you before there are only two of you.
+       *
+       * Only on what this seat actually knows. A proven role is public and
+       * checkable; armour is firsthand and unforgeable. A guess about somebody's
+       * role is not a reason to hang them, at six seats or at twenty, and
+       * dressing one up as endgame arithmetic would be the same bad hanging
+       * with better vocabulary.
+       */
+      if (endgame && self.role) {
+        const proven = info.provenRoles.get(slot);
+        if (proven && duelBeats(self.role, proven)) score += 2;
+        else if (self.bounced?.includes(slot) && !roleDef(self.role).nightImmune) score += 2;
+      }
 
       /**
        * And the seat with its hand up against this one.
@@ -4099,8 +4246,49 @@ function pickVote(
    * left to say, and only at the bell. `decideBallot` votes with the square
    * there for the same reason, so the second trial is a different question.
    */
+  /**
+   * Before any of the bars: whoever has a hand up against this seat.
+   *
+   * The bars below exist to stop the town hanging people on nothing, and the
+   * bench numbers behind them are not in doubt — 92% of town seats that hanged
+   * did so on a day when no living juror held one checkable thing against them.
+   * But they are written for a seat choosing *whom to accuse*, and they were
+   * also silencing a seat choosing *whether to answer*. Those are different
+   * questions.
+   *
+   * A seat under a wagon that casts no ballot at all reads as broken, and on a
+   * real table it was: two seats voted for it every day, it argued with both of
+   * them in the square, and it never once voted back, because its own read of
+   * everybody was below a threshold meant for somebody else. Answering is not
+   * hanging anybody on nothing — it is the one vote in the game that makes an
+   * accusation cost the accuser something, and it is what any person would do.
+   *
+   * Narrow on purpose, and all three clauses matter. Only when this seat has
+   * nothing of its own that cleared the bars; only against somebody actually
+   * accusing it; and never against somebody who gave a reason — a reason gets
+   * an answer, not a counter-vote. `backedUp` is the same test the thumb on the
+   * scale above uses, so the two agree about what a reason is.
+   */
+  const answered = (): number | null => {
+    const pushers = [...info.votes.entries()]
+      .filter(
+        ([voter, target]) =>
+          target === self.slot &&
+          voter !== self.slot &&
+          !teammates.has(voter) &&
+          candidates.includes(voter) &&
+          !backedUp(voter, self.slot, info)
+      )
+      .map(([voter]) => voter);
+
+    if (pushers.length === 0) return null;
+    // The loudest of them, which for equal voices is the one the room already
+    // has most against: answering the strongest accuser is worth most.
+    return pushers.sort((left, right) => suspicion(right, self, info, rng) - suspicion(left, self, info, rng))[0] ?? null;
+  };
+
   const top = open[0] ?? (pressure >= 1 ? scored[0] : undefined);
-  if (!top) return null;
+  if (!top) return answered();
 
   // Desperation lowers the bar; at full LyLo the town must lynch someone.
   const threshold = (1.7 - brain.personality.aggression) * (1 - 0.6 * pressure);
@@ -4176,7 +4364,10 @@ function pickVote(
    * back a good share of what that floor had just taken out.
    */
   if (top.evidence >= 0.8 && rng() < brain.personality.aggression * 0.04) return top.slot;
-  return null;
+
+  // Nothing of its own cleared the bars. If somebody has a hand up against this
+  // seat, answering it beats saying nothing at all. See `answered`.
+  return answered();
 }
 
 /**
@@ -4312,6 +4503,28 @@ export function defenceStrength(accusedSlot: number, info: PublicInfo): number {
 
 /* ------------------------------ judgement ------------------------------- */
 
+/**
+ * Evidence past which the room hangs a brother whatever the family does.
+ *
+ * The old name for this was `hopeless` and the number has not moved: it is the
+ * point at which a case is legible to everybody, and an innocent ballot stops
+ * being a rescue and becomes a confession.
+ */
+const DOOMED_BROTHER = 2.2;
+
+/** And below which the case is thin enough that mercy might still carry. */
+const SAVABLE_BROTHER = 1.4;
+
+/**
+ * How much of the electorate the family must hold before mercy is worth its price.
+ *
+ * Roughly a fifth. Below it the innocent ballots are a rounding error against
+ * the room's own count, and all they do is put a name beside the man being
+ * revealed evil in an hour — which is the exact trade this branch exists to
+ * stop making.
+ */
+const FAMILY_SWING = 0.18;
+
 export function decideBallot(
   self: MafiaPlayer,
   brain: Brain,
@@ -4326,23 +4539,61 @@ export function decideBallot(
 
   if (teammates.has(accusedSlot)) {
     /**
-     * The brother at the barre. Voting innocent is the reflex and, once the
-     * family is cornered, the wrong move: a public "guilty" on one of your own
-     * is the single most trust-buying thing a mafioso can do, and it costs a man
-     * the room was going to take anyway.
+     * The brother at the barre, and the third option the family never used.
      *
-     * How far gone he is decides it. A case the whole room can read hangs him
-     * whatever the family does, and an innocent ballot on a seat about to be
-     * revealed evil is the loudest tell in the game, priced at minus two and a
-     * half by `trustOf`. So a brother is saved when saving is still possible
-     * and, when it is not, the family votes with the room and keeps its face.
-     * The first shape voted innocent on a doomed brother nine times in ten and
-     * handed the town the family's whole roster over the next two trials.
+     * A verdict has three answers and this branch only ever gave two, so every
+     * ballot a family cast on one of its own was a statement: either mercy for
+     * a seat about to be revealed evil, which `trustOf` prices at minus two and
+     * a half, or a public hanging of a brother on a case that had not actually
+     * been made. Late in a losing game `sacrificeAlly` climbs past 0.8 and the
+     * second was what came out, over and over — the family hanging its own on
+     * thin evidence and buying nothing with it, because a room that was not
+     * going to convict does not notice who helped.
+     *
+     * An abstention is not a compromise between the two. The verdict counts
+     * guilty against innocent and ignores everything else, so withholding a
+     * ballot *lowers the rope* — it is a vote for mercy that nobody can read as
+     * one. That makes it the right answer far more often than either of the
+     * others, and it is now the default rather than an option nobody took.
+     *
+     * Three bands, and the thing that decides which is how doomed he already is:
+     *
+     *  - **The room has him.** An innocent ballot here is the loudest tell in
+     *    the game and buys a man who is dead either way. Vote with the room, or
+     *    say nothing — never mercy.
+     *  - **The case is thin and there are enough of us to matter.** Mercy is
+     *    worth its price only when it can actually change the count. `reach`
+     *    is what makes that a judgement rather than a reflex: two brothers in a
+     *    room of fifteen save nobody and mark themselves doing it.
+     *  - **Anything else.** Say nothing.
      */
-    const room = suspicionParts(accusedSlot, self, info, rng).evidence;
-    const hopeless = room >= 2.2;
-    if (hopeless) return rng() < 0.7 + stance.sacrificeAlly * 0.3 ? 'guilty' : 'innocent';
-    return rng() < stance.sacrificeAlly ? 'guilty' : 'innocent';
+    const evidence = suspicionParts(accusedSlot, self, info, rng).evidence;
+
+    /**
+     * How much of the electorate the family is, this seat included.
+     *
+     * The accused casts no ballot of his own, so the room he has to be saved
+     * from is everyone else — which is what the denominator says.
+     */
+    const kin =
+      1 + [...teammates].filter((slot) => slot !== accusedSlot && info.aliveSlots.includes(slot)).length;
+    const reach = kin / Math.max(1, info.aliveSlots.length - 1);
+
+    // The room has him. Mercy is not on the table; the only question is whether
+    // to be seen helping.
+    if (evidence >= DOOMED_BROTHER) {
+      return rng() < 0.55 + stance.sacrificeAlly * 0.35 ? 'guilty' : 'abstain';
+    }
+
+    // Thin case, and enough of the room is ours for a ballot to count. Worth
+    // being seen for — unless this seat has already decided he is expendable.
+    if (evidence < SAVABLE_BROTHER && reach >= FAMILY_SWING && rng() > stance.sacrificeAlly * 0.5) {
+      return 'innocent';
+    }
+
+    // Everything else: a quiet no. See above — an abstention lowers the rope
+    // without putting a name beside mercy.
+    return rng() < stance.sacrificeAlly * 0.4 ? 'guilty' : 'abstain';
   }
   if (role === 'executioner' && (self.obsessionSlotHint ?? null) === accusedSlot) return 'guilty';
   if (roleDef(role).faction === 'mafia') return 'guilty';
@@ -4609,6 +4860,152 @@ function vestTonight(self: MafiaPlayer, info: PublicInfo, brain: Brain, rng: () 
   const caution = 0.3 - brain.personality.courage * 0.2;
   const chance = odds * 1.5 + caution + (outed ? 0.25 : 0) + (hunted ? 0.2 : 0) + (running ? 0.45 : 0);
   return rng() < Math.min(0.9, chance);
+}
+
+/**
+ * What one family's powers want from the house its knife is aimed at.
+ *
+ * A family is several people spending several powers on one night, and until
+ * they were told about each other they spent them at random: the Kidnapper took
+ * the seat the Mafioso was about to stab, the Blackmailer gagged a man who
+ * would not see the morning, and the Janitor — whose whole job is the body the
+ * family is about to make — cleaned somebody else's house.
+ *
+ * So each power says what it wants of the knife:
+ *
+ *  - **follow.** The cleaner. Hiding a role is only worth a night on a body
+ *    that is about to exist, and any other house is a wasted charge.
+ *  - **avoid.** Everything that spends its night on a *living* man. The cell
+ *    shelters its prisoner from the family's own knife, so kidnap and kill
+ *    together leave the target alive and both powers spent. A gag buys a day of
+ *    silence from a corpse. A roleblock stops a power that was about to stop
+ *    mattering. A frame plants evidence on a man nobody will investigate.
+ *  - **nothing.** The knife itself, which is what the others are reading.
+ *
+ * Keyed on the action rather than the role, which is how the Triad gets all of
+ * this for nothing: its Silencer, Interrogator and Incense Master are the same
+ * actions under different names.
+ */
+export const FAMILY_AIM: Partial<Record<NightActionType, 'follow' | 'avoid'>> = {
+  clean: 'follow',
+  kidnap: 'avoid',
+  silence: 'avoid',
+  block: 'avoid',
+  frame: 'avoid',
+  examine: 'avoid',
+  charm: 'avoid'
+};
+
+/** The rank that decides whose order the engine actually carries out. */
+function rankOf(player: MafiaPlayer): 'leader' | 'executor' | null {
+  const rank = player.role ? roleDef(player.role).familyRank : undefined;
+  return rank === 'leader' || rank === 'executor' ? rank : null;
+}
+
+/**
+ * Where this family's knife is pointing tonight, as far as anyone can tell yet.
+ *
+ * The leader's order outranks an executor's, because that is exactly how the
+ * engine resolves it: the Godfather names the house and the Mafioso is the one
+ * who walks to it. So a family that disagrees is not a family with two knives,
+ * it is a family whose executor is about to be overruled — and the right thing
+ * for the executor to do is to agree first.
+ *
+ * Null when nobody has decided yet, which is the ordinary case for whoever is
+ * asked first and is why none of this needs a turn order.
+ */
+export function familyKnife(state: MafiaState, family: string): number | null {
+  let leader: number | null = null;
+  let executor: number | null = null;
+
+  for (const [actorId, order] of Object.entries(state.nightActions)) {
+    if (order.type !== 'kill' || !order.targetId) continue;
+    const actor = state.players[actorId];
+    if (!actor?.alive || !actor.role || familyOf(actor.role) !== family) continue;
+
+    const target = state.players[order.targetId];
+    if (!target) continue;
+
+    const rank = rankOf(actor);
+    if (rank === 'leader') leader = target.slot;
+    else if (rank === 'executor' && executor === null) executor = target.slot;
+  }
+
+  return leader ?? executor;
+}
+
+/**
+ * The legal targets, arranged around what the rest of the family is doing.
+ *
+ * Three outcomes, and each one is a whole list rather than a single slot so
+ * that the policy underneath still gets to choose — this narrows the board, it
+ * does not play the move.
+ *
+ * Falls back to the full list whenever narrowing would leave nowhere to go: a
+ * power with no target does nothing at all, which is a worse night than the
+ * overlap any of this is avoiding.
+ */
+export function unclashedTargets(
+  state: MafiaState,
+  playerId: string,
+  action: NightActionType,
+  targets: number[]
+): number[] {
+  const self = state.players[playerId];
+  const family = self?.role ? familyOf(self.role) : null;
+  if (!family || targets.length === 0) return targets;
+
+  const knife = familyKnife(state, family);
+
+  /**
+   * An executor falls in behind its leader.
+   *
+   * Not merely to avoid two knives — the engine only carries one, so the
+   * executor's own choice was being discarded anyway — but so that the family
+   * *argues for one house*. A room where the Godfather says 7 and the Mafioso
+   * says 12 is a room a Spy reads as two plans, and a room the family itself
+   * cannot close.
+   */
+  if (action === 'kill') {
+    if (knife !== null && rankOf(self) === 'executor' && targets.includes(knife)) return [knife];
+
+    // And never into its own cellar or onto its own gagged man.
+    const spent = familySpent(state, playerId, family);
+    const free = targets.filter((slot) => !spent.has(slot));
+    return free.length > 0 ? free : targets;
+  }
+
+  const wants = FAMILY_AIM[action];
+  if (!wants || knife === null) return targets;
+
+  if (wants === 'follow') return targets.includes(knife) ? [knife] : targets;
+
+  const free = targets.filter((slot) => slot !== knife);
+  return free.length > 0 ? free : targets;
+}
+
+/**
+ * Houses this family has already taken out of the knife's reach tonight.
+ *
+ * The mirror of `avoid`: the seat holding the knife reads what the support
+ * powers have done, so whichever of the two is asked second is the one that
+ * steps aside and no turn order is needed.
+ */
+function familySpent(state: MafiaState, playerId: string, family: string): Set<number> {
+  const spent = new Set<number>();
+
+  for (const [actorId, order] of Object.entries(state.nightActions)) {
+    if (actorId === playerId || !order.targetId) continue;
+    if (FAMILY_AIM[order.type] !== 'avoid') continue;
+
+    const actor = state.players[actorId];
+    if (!actor?.alive || !actor.role || familyOf(actor.role) !== family) continue;
+
+    const target = state.players[order.targetId];
+    if (target) spent.add(target.slot);
+  }
+
+  return spent;
 }
 
 export function decideNightTarget(
@@ -5174,6 +5571,46 @@ export function decideNightTarget(
    * there is nothing else left — which is exactly what falling through to the
    * full list gives it.
    */
+  /**
+   * The knife, and the two houses it should not be aimed at.
+   *
+   * Armour it has already hit: the engine's own note beside that finding says
+   * it "is worth never visiting again", and until `bounced` existed nothing
+   * remembered it past dawn — so a killer walked into the same Godfather on
+   * three separate nights while the board held nothing to stop it.
+   *
+   * And whoever was voting *with* it today. A seat on the same wagon is the
+   * nearest thing a killer has to an ally in daylight, and removing it buys the
+   * room a corpse and costs the killer its only cover: reported from a real
+   * table, where the last seat voting alongside the killer was the one it went
+   * for. Read off `voteHistory`, which is the day just closed, because
+   * `info.votes` is emptied when night falls.
+   *
+   * Both are preferences and not bans: a knife with nowhere left to go still
+   * goes somewhere, because a night not spent killing is a night the town gets
+   * for free.
+   */
+  if (actionType === 'kill' || actionType === 'rampage') {
+    const armoured = new Set(self.bounced ?? []);
+
+    const lastDay = info.voteHistory.reduce((most, record) => Math.max(most, record.day), 0);
+    const mine = info.voteHistory.find(
+      (record) => record.day === lastDay && record.voterSlot === self.slot
+    )?.targetSlot;
+    const alongside = new Set(
+      mine === undefined
+        ? []
+        : info.voteHistory
+            .filter((record) => record.day === lastDay && record.targetSlot === mine && record.voterSlot !== self.slot)
+            .map((record) => record.voterSlot)
+    );
+
+    const open = legalTargets.filter((slot) => !armoured.has(slot) && !alongside.has(slot));
+    if (open.length > 0 && open.length < legalTargets.length) {
+      return decideNightTarget(self, brain, info, open, actionType, teammates, familyIntel, rng);
+    }
+  }
+
   if (actionType === 'convert' || actionType === 'recruit') {
     const shut = new Set(self.refused ?? []);
     const open = legalTargets.filter((slot) => !shut.has(slot));

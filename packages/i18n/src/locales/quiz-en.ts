@@ -80,6 +80,22 @@ export const quizEn: Catalogue = {
     'What a body gives away — its whole role, its camp only, or nothing at all — is a table setting. The middle one is the interesting one: it keeps the shape of the game while giving the Coroner something to do.',
   'mafia.guide.roleCount': '{count} roles',
   'mafia.guide.unique': 'One per table at most.',
+  'mafia.guide.will': 'Writing a will the town can read',
+  'mafia.guide.will.why':
+    'Your will is read out **the moment you die**, and for an investigator it is the most valuable thing on the table: a corpse has nothing left to gain by lying about a check. But it is read by a machine as well as by people, and a finding it cannot parse is a finding the room never hears.',
+  'mafia.guide.will.how':
+    'The rule is **one finding per line**, and each line names a house, a night, and what you found. Use the number or the name — both work — and keep the verdict to a plain word.',
+  'mafia.guide.will.claim': 'Say what you are, once, on its own line:',
+  'mafia.guide.will.claim.eg': 'I am the Sheriff.',
+  'mafia.guide.will.checks': 'Then your nights, one to a line. All of these are read:',
+  'mafia.guide.will.checks.eg':
+    'Night 1, 12: clean.\nNight 2, Demogorgon: cult.\n9 is mafia.\nOptimus came back clean on night 3.',
+  'mafia.guide.will.words':
+    'Clean, clear, innocent, town and trusted all clear a house. Sus, mafia, triad, cult, scum, liar and guilty all condemn one. **Name the camp if you know it** — "came back cult" says far more than "suspicious".',
+  'mafia.guide.will.where': 'Where you were counts too, and protects you from being hanged for silence:',
+  'mafia.guide.will.where.eg': 'Night 3: I was at 9.\nNight 4: I stayed home.\nNight 2: I saw 12 go to 9.',
+  'mafia.guide.will.dont':
+    'What does not survive: two findings crammed into one sentence, a verdict with no house beside it, and sarcasm. Write it as a record, not as an argument — the argument is what the square is for.',
   'mafia.guide.back': '← Back to the Mafia menu'
 };
 

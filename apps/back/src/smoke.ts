@@ -1628,6 +1628,32 @@ section('the private room reader');
       .join(' ');
   check('a refusal carries across a connector', kinds('not 13 or 10') === 'spare:13 spare:10', kinds('not 13 or 10'));
   check('and a verb in between ends it', kinds('not 13, take 10') === 'spare:13 target:10', kinds('not 13, take 10'));
+  /*
+   * A refusal that has a verb phrase in it is still a refusal.
+   *
+   * "Don’t try to kill 1" was read as a request FOR house 1, because the
+   * reader measured the distance from the refusal to the house in characters
+   * and thirteen was one too many. Every hesitant phrasing fell off that
+   * window, and the family knifed houses it had just agreed to leave alone -
+   * while answering "copy that", because the mouth had understood the sentence
+   * and the policy had not.
+   */
+  check(
+    'a refusal survives a verb phrase',
+    kinds('don’t try to kill 13 or 10 yet please') === 'spare:13 spare:10',
+    kinds('don’t try to kill 13 or 10 yet please')
+  );
+  check(
+    'and a hedged one',
+    kinds('please don’t bother killing 13') === 'spare:13',
+    kinds('please don’t bother killing 13')
+  );
+  /* And the other direction: a refusal of something else is not a reprieve. */
+  check(
+    'but a refusal of something else is not one',
+    kinds('don’t rush, take 10') === 'target:10',
+    kinds('don’t rush, take 10')
+  );
   check('a longer number is not a house', asked('131 is not a seat') === 'none', asked('131 is not a seat'));
   check('a name inside a word is not a name', asked('that is baloonish') === 'none', asked('that is baloonish'));
   check('a role claimed in the first person', selfClaim('look, I am the Doctor, I healed 4') === 'doctor');

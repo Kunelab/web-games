@@ -58,8 +58,61 @@ const EMPTY: RoomAsks = { ask: null, spared: [], claimed: null };
  * told to leave alone. The window is short for the same reason: "13 is quiet,
  * and we should not rush" must not turn into a reprieve for 13.
  */
-const SPARED =
-  /\b(?:not|no|dont|don'?t|never|nope|leave|spare|skip|save|protect|keep|pas|jamais|laisse|laissez|épargne|epargne|garde|surtout)\b[^.!?]{0,12}$/i;
+const REFUSAL_WORD =
+  /\b(?:not|no|dont|don'?t|never|nope|leave|spare|skip|save|protect|keep|pas|jamais|laisse|laissez|épargne|epargne|garde|surtout)\b/gi;
+
+/**
+ * Words that belong to the act being refused, rather than to a new sentence.
+ *
+ * "Don't try to kill 1" was read as a request for house 1, and the reason was a
+ * character count: the refusal had to sit within twelve characters of the
+ * house, so "don't kill 1" fitted and "don't try to kill 1" did not. Every
+ * polite or hesitant way of saying the same thing fell off the end of that
+ * window — "don't go for 13", "don't even think about 13", "please don't
+ * bother killing 13" — and each one was then read as the exact instruction it
+ * was refusing.
+ *
+ * What made that expensive rather than merely wrong is that the *mouth* read
+ * the sentence correctly. A family told twice to leave a house alone answered
+ * "copy that, keeping my hands clean" and knifed it the same night, because the
+ * line and the order were decided by two different readers and only one of them
+ * had understood.
+ *
+ * So the window is about grammar rather than length: a refusal carries for as
+ * long as everything between it and the house belongs to the verb phrase it
+ * negates — a modal, an infinitive, a preposition, or a verb for acting on a
+ * house. Anything else means the sentence has moved on, which is what keeps
+ * "not 13, take 10" the two instructions it is.
+ */
+const NEGATED_RUN =
+  /^(?:[\s,]*(?:to|even|just|really|ever|yet|please|you|we|us|i|should|shall|would|could|must|need|needs|have|has|try|trying|tries|attempt|want|wanna|wants|go|going|gonna|bother|bothering|think|thinking|about|for|on|at|be|being|hit|hitting|kill|killing|shoot|shooting|target|targeting|touch|touching|aim|aiming|take|taking|essaie|essayer|essaye|tuer|tue|toucher|touche|viser|vise|veux|veut|vouloir|aller|va|encore|pour|le|la|les|de|du|des)\b)*[\s,]*$/i;
+
+/** How far a negated verb phrase may reasonably run before the house. */
+const NEGATED_MAX = 48;
+
+/**
+ * Whether this run-up refuses the house that follows it.
+ *
+ * The *last* refusal word is the one that counts — "leave 10, not 13" hands
+ * each house its own nearest negation — and everything between it and the
+ * house has to belong to the act being refused. Nothing between them at all is
+ * the commonest case there is: "not 13".
+ *
+ * This replaced a plain character window, which was wrong in both directions at
+ * once. It missed "don't try to kill 1", because the refusal sat thirteen
+ * characters from the house instead of twelve; and it accepted "don't rush,
+ * kill 10", because that one happens to fit. Counting characters was never a
+ * way of asking whether a sentence had moved on.
+ */
+function refuses(run: string): boolean {
+  REFUSAL_WORD.lastIndex = 0;
+  let last: RegExpExecArray | null = null;
+  for (let hit = REFUSAL_WORD.exec(run); hit; hit = REFUSAL_WORD.exec(run)) last = hit;
+  if (!last) return false;
+
+  const after = run.slice(last.index + last[0].length);
+  return after.length <= NEGATED_MAX && NEGATED_RUN.test(after);
+}
 
 /**
  * A gap that carries the last instruction across to the next house.
@@ -125,10 +178,28 @@ const REPORTING =
  * happens once per line and once per name rather than per comparison.
  */
 export function fold(text: string): string {
-  return text
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLowerCase();
+  return (
+    text
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      /**
+       * Every apostrophe is the same apostrophe.
+       *
+       * A phone keyboard turns ' into ’ without being asked, French typing uses
+       * ’ by habit, and this codebase writes it in every other sentence. So
+       * "don’t kill 13" is what a table actually types — and the refusal reader
+       * was looking for "don't", which is a different string. Every hedged
+       * instruction typed on a phone was read as the exact opposite of itself:
+       * the family was told to spare a house and heard a request for it.
+       *
+       * Folded here rather than in the patterns, so the names, the roles and the
+       * refusals all get it at once. Each variant is one character replaced by
+       * one character, so the offsets this returns still line up with the ones
+       * `seatHits` reports against the same folded text.
+       */
+      .replace(/[\u2018\u2019\u02bc\u055a\u2032\u00b4`]/g, "'")
+      .toLowerCase()
+  );
 }
 
 /**
@@ -413,7 +484,7 @@ export function mentions(
       for (let hit2 = CORRECTION.exec(gap); hit2; hit2 = CORRECTION.exec(gap)) {
         fresh = gap.slice(hit2.index + hit2[0].length);
       }
-      kind = SPARED.test(fresh.slice(-24)) ? 'spare' : 'target';
+      kind = refuses(fresh) ? 'spare' : 'target';
     }
 
     found.push({ slot: hit.slot, who: hit.who, kind, at: hit.at });

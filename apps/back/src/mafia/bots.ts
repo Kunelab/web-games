@@ -21,6 +21,7 @@ import {
   needsSecondTarget,
   parityPressure,
   playerFamily,
+  unclashedTargets,
   FACTION,
   isEvilRole,
   ROLE,
@@ -197,6 +198,8 @@ export interface Decision {
     role: string | null;
     account?: 'home' | 'visited';
     ailment?: Claim['ailment'];
+    /** Built from a night this seat actually worked. See `Claim.worked`. */
+    worked?: boolean;
   } | null;
   /**
    * What this turn means, for the mouth to phrase.
@@ -4836,7 +4839,8 @@ export class MafiaBotDriver {
     this.minds.record(state, botId, claim.kind, slot, {
       ...(claim.kind === 'role-claim' && claim.role ? { claimedRole: claim.role as RoleId } : {}),
       ...(claim.account ? { account: claim.account } : {}),
-      ...(claim.ailment ? { ailment: claim.ailment } : {})
+      ...(claim.ailment ? { ailment: claim.ailment } : {}),
+      ...(claim.worked ? { worked: true } : {})
     });
   }
 
@@ -4961,7 +4965,21 @@ export class MafiaBotDriver {
         const home = decideNightTarget(self, mind.brain, board, [], action.type, allies, me.intel, rng);
         return { ...EMPTY, targetSlot: home };
       }
-      const decided = decideNightTarget(self, mind.brain, board, action.targets, action.type, allies, me.intel, rng);
+      /**
+       * The houses the family has already committed a conflicting power to.
+       *
+       * Applied before anything else chooses, so the ordinary pick, the spared
+       * list and a teammate's request all work from the same narrowed board —
+       * granting an ask that lands on a kidnapped house would waste the knife
+       * just as surely as blundering into it.
+       *
+       * Falls back to the full list when narrowing would leave nowhere to go: a
+       * power with no legal target is a power that does nothing, which is a
+       * worse outcome than the overlap this avoids.
+       */
+      const targets = unclashedTargets(state, botId, action.type, action.targets);
+
+      const decided = decideNightTarget(self, mind.brain, board, targets, action.type, allies, me.intel, rng);
 
       /**
        * And what the person in the family actually asked for.
@@ -5005,7 +5023,7 @@ export class MafiaBotDriver {
        */
       const heeded =
         ask !== null &&
-        action.targets.includes(ask.slot) &&
+        targets.includes(ask.slot) &&
         willHeed(mind, ask.fromSlot, (hashCode(botId + ':ask:' + state.day + ':' + ask.slot) % 1000) / 1000);
 
       /**
@@ -5017,7 +5035,7 @@ export class MafiaBotDriver {
        * house is dropped whenever there is anywhere else to go.
        */
       const spared = new Set((room?.spared ?? []).map((entry) => entry.slot));
-      const elsewhere = action.targets.filter((target) => !spared.has(target));
+      const elsewhere = targets.filter((target) => !spared.has(target));
       const own =
         spared.has(decided ?? -1) && elsewhere.length > 0
           ? decideNightTarget(self, mind.brain, board, elsewhere, action.type, allies, me.intel, rng)
@@ -7078,7 +7096,16 @@ export class MafiaBotDriver {
         claim.claimerSlot === targetSlot &&
         // "I was doused", "I was roleblocked" is an account of a night as much
         // as "I was home" is, and the seat that said it has told us where it was.
-        (claim.kind === 'account' || claim.kind === 'sighting' || claim.kind === 'ailing')
+        //
+        // And so is every check, watch and track a seat reads out: a power is
+        // spent at a house, so naming what it found there names where its owner
+        // spent the night. Those arrive as ordinary verdicts — a `clear` about
+        // house 9 looks the same whether it was investigated or merely guessed
+        // at — which is why the ones that come from a night's record carry
+        // `worked`. Without it an investigator's whole evening was invisible
+        // here, and this sentence was said about the most talkative seat at the
+        // table.
+        (claim.kind === 'account' || claim.kind === 'sighting' || claim.kind === 'ailing' || claim.worked === true)
     );
     return board.day >= 3 && silentOnNights ? vary('mafia.bot.why.nowhere', 3, botId + ':w:' + targetSlot) : null;
   }
@@ -9034,27 +9061,45 @@ export class MafiaBotDriver {
   }
 
   /** The claim a night's page puts on the board when it is said out loud. */
+  /**
+   * The claim a night's record makes when it is read out loud.
+   *
+   * Every one of these is marked `worked`, and that is the whole reason the
+   * flag exists: an `IntelEntry` is a night this seat actually spent, so any
+   * sentence built from one says where the speaker was as surely as "I was at
+   * 4" does. Read as bare verdicts they did not — a Sheriff's four checks
+   * looked exactly like four opinions — and the seat was hanged for having
+   * "never given an account of a single night" by jurors who had just heard
+   * four of them.
+   */
   private claimFor(entry: IntelEntry, rolesInPlay?: ReadonlySet<RoleId>): Decision['claim'] {
+    const worked = true;
     switch (entry.kind) {
       case 'sheriff':
-        return { kind: sheriffSuspects(entry.value) ? 'accuse' : 'clear', slot: entry.targetSlot, role: null };
+        return {
+          kind: sheriffSuspects(entry.value) ? 'accuse' : 'clear',
+          slot: entry.targetSlot,
+          role: null,
+          worked
+        };
       case 'trade': {
         // A smell is a verdict once the roster has been crossed off it.
         const verdict = tradeVerdict(entry.value, rolesInPlay);
         return {
           kind: verdict === 'damning' ? 'accuse' : verdict === 'clean' ? 'clear' : 'hint',
           slot: entry.targetSlot,
-          role: null
+          role: null,
+          worked
         };
       }
       case 'visitors':
         return entry.slots && entry.slots.length > 0
-          ? { kind: 'sighting', slot: entry.slots[0], role: null }
-          : { kind: 'account', slot: entry.targetSlot, role: null, account: 'visited' };
+          ? { kind: 'sighting', slot: entry.slots[0], role: null, worked }
+          : { kind: 'account', slot: entry.targetSlot, role: null, account: 'visited', worked };
       case 'tracked':
-        return { kind: 'sighting', slot: entry.targetSlot, role: null };
+        return { kind: 'sighting', slot: entry.targetSlot, role: null, worked };
       default:
-        return { kind: 'account', slot: entry.targetSlot, role: null, account: 'visited' };
+        return { kind: 'account', slot: entry.targetSlot, role: null, account: 'visited', worked };
     }
   }
 

@@ -80,6 +80,22 @@ export const quizFr: Catalogue = {
     'Ce qu’un cadavre révèle — son rôle complet, son camp seulement, ou rien du tout — est un réglage de la table. Le réglage intermédiaire est le plus intéressant : il garde la forme du jeu tout en donnant du travail au légiste.',
   'mafia.guide.roleCount': '{count} rôles',
   'mafia.guide.unique': 'Un seul par table.',
+  'mafia.guide.will': 'Écrire un testament que la ville peut lire',
+  'mafia.guide.will.why':
+    'Votre testament est lu **au moment où vous mourez**, et pour un enquêteur c’est ce qu’il y a de plus précieux sur la table : un mort n’a plus rien à gagner à mentir sur une visite. Mais il est lu par une machine autant que par des gens, et une trouvaille qu’elle ne comprend pas est une trouvaille que la salle n’entendra jamais.',
+  'mafia.guide.will.how':
+    'La règle, c’est **une trouvaille par ligne**, et chaque ligne nomme une maison, une nuit, et ce que vous avez trouvé. Le numéro ou le nom, les deux marchent, et le verdict tient en un mot simple.',
+  'mafia.guide.will.claim': 'Dites ce que vous êtes, une fois, sur sa propre ligne :',
+  'mafia.guide.will.claim.eg': 'Je suis le Shérif.',
+  'mafia.guide.will.checks': 'Puis vos nuits, une par ligne. Toutes celles-ci sont lues :',
+  'mafia.guide.will.checks.eg':
+    'Nuit 1, 12 : clean.\nNuit 2, Demogorgon : secte.\n9 est mafia.\nOptimus est revenu clean la nuit 3.',
+  'mafia.guide.will.words':
+    'Clean, innocent, ville, fiable, blanc : autant de façons de blanchir une maison. Suspect, mafia, triade, secte, menteur, coupable : autant de façons de l’accuser. **Nommez le camp si vous le connaissez** : « revenu secte » en dit bien plus que « louche ».',
+  'mafia.guide.will.where': 'Où vous étiez compte aussi, et vous protège d’être pendu pour votre silence :',
+  'mafia.guide.will.where.eg': 'Nuit 3 : j’étais chez 9.\nNuit 4 : je suis resté chez moi.\nNuit 2 : j’ai vu 12 aller chez 9.',
+  'mafia.guide.will.dont':
+    'Ce qui ne passe pas : deux trouvailles entassées dans une phrase, un verdict sans maison à côté, et l’ironie. Écrivez un procès-verbal, pas un plaidoyer — le plaidoyer, c’est la place publique qui est faite pour ça.',
   'mafia.guide.back': '← Retour au menu Mafia'
 };
 

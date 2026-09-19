@@ -985,6 +985,57 @@ export function staysHome(role: RoleId): boolean {
   return action === null || action === 'alert' || action === 'vest';
 }
 
+/**
+ * How many seats are left before the endgame is worth thinking about.
+ *
+ * Six. Above it the board is still a crowd and a shortlist of "who could this
+ * be" is mostly guesswork dressed as arithmetic; at six the dead outnumber the
+ * living, the roster on the wall has crossed most of itself off, and the
+ * question stops being "who is suspicious" and becomes "who is left, and which
+ * of them beats me".
+ */
+export const ENDGAME_SEATS = 6;
+
+/**
+ * Whether `theirs` takes the last two seats off `mine`.
+ *
+ * At two, the day cannot hang anybody — the threshold is two votes and nobody
+ * may vote for themselves — so the duel is decided entirely by the night, and
+ * the night is decided by three things in this order:
+ *
+ *  1. **A hand that guides another.** The Witch spends her night making
+ *     somebody else act, so against anybody with a night she wins without
+ *     owning a knife at all, and against somebody with no night there is
+ *     nothing to guide and neither of them can finish it.
+ *  2. **Armour.** Two knives, one of which bounces, is one corpse and it is
+ *     not the armoured one. This is the rule behind the thing a Mafioso can
+ *     work out for itself: a knife that came back blunted names a seat that
+ *     will beat it at the end, and it is worth a rope before then.
+ *  3. **A knife at all.** A seat with no night kill cannot end a duel, so it
+ *     loses to anybody who can and stalemates with anybody who cannot.
+ *
+ * Deliberately about mechanics rather than about sides: a Mafioso and a Serial
+ * Killer are enemies at two seats however the factions are drawn, and so are
+ * two townsfolk who have both been left holding knives.
+ */
+export function duelBeats(mine: RoleId, theirs: RoleId): boolean {
+  const me = roleDef(mine);
+  const them = roleDef(theirs);
+
+  const acts = (role: RoleDef): boolean => role.nightAction !== null;
+  const kills = (role: RoleDef): boolean => role.nightAction === 'kill' || role.nightAction === 'rampage';
+
+  // The hand that guides: she needs an opponent with a night, not a knife.
+  if (them.nightAction === 'control') return acts(me);
+  if (me.nightAction === 'control') return false;
+
+  if (!kills(them)) return false;
+  if (!kills(me)) return true;
+
+  // Two knives: the one that bounces loses.
+  return !!them.nightImmune && !me.nightImmune;
+}
+
 export function familyOf(role: RoleId): FamilyId | null {
   const faction = ROLES[role].faction;
   return faction === 'mafia' || faction === 'triad' || faction === 'cult' ? faction : null;

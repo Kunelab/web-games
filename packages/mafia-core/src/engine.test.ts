@@ -34,6 +34,8 @@ import {
   type MafiaState,
 } from "./state.js";
 import { toMafiaView } from "./view.js";
+import { familyKnife, unclashedTargets } from "./sim/policies.js";
+import { duelBeats } from "./roles.js";
 import { simulateGame } from "./sim/simulate.js";
 
 /**
@@ -409,7 +411,14 @@ describe("mafia engine", () => {
     // so it has to say what the room would have been shown.
     state.config.setup = {
       mode: "custom",
-      slots: ["investigator", "consort", "citizen", "godfather", "doctor", "escort"],
+      slots: [
+        "investigator",
+        "consort",
+        "citizen",
+        "godfather",
+        "doctor",
+        "escort",
+      ],
     };
     advanceMafia(state, 0, lcg(1));
     // The Consort spends her night on somebody, so she leaves a smell at all.
@@ -1432,7 +1441,11 @@ describe("mafia engine", () => {
     setNightAction(state, bySlot(state, 5).playerId, bySlot(state, 4).slot);
     advanceMafia(state, 1, lcg(3));
 
-    assert.equal(digger.alive, true, "the doctor is the only reason this reads");
+    assert.equal(
+      digger.alive,
+      true,
+      "the doctor is the only reason this reads",
+    );
     assert.deepEqual(
       digger.intel
         .filter((entry) => entry.kind === "trade")
@@ -2373,36 +2386,44 @@ describe("restoring a table from an older snapshot", () => {
  * Cultist, who was lynched on day two, still lost six seats to the cult by day
  * ten. The night is the budget now, not the cultist.
  */
-describe('the cult', () => {
-  it('takes one soul a night however many are asking', () => {
-    const state = table(['cultist', 'cultist', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+describe("the cult", () => {
+  it("takes one soul a night however many are asking", () => {
+    const state = table(
+      ["cultist", "cultist", "citizen", "citizen", "citizen", "godfather"],
+      3,
+    );
     const first = bySlot(state, 1);
     const second = bySlot(state, 2);
     const townA = bySlot(state, 3);
     const townB = bySlot(state, 4);
 
     advanceMafia(state, 1_000, lcg(1));
-    assert.equal(state.phase, 'night');
+    assert.equal(state.phase, "night");
     assert.equal(setNightAction(state, first.playerId, townA.slot).ok, true);
     assert.equal(setNightAction(state, second.playerId, townB.slot).ok, true);
     advanceMafia(state, 2_000, lcg(1));
 
-    const taken = [townA, townB].filter((seat) => seat.role === 'cultist').length;
-    assert.equal(taken, 1, 'two cultists, one night, one convert');
+    const taken = [townA, townB].filter(
+      (seat) => seat.role === "cultist",
+    ).length;
+    assert.equal(taken, 1, "two cultists, one night, one convert");
   });
 
-  it('does not let the newest member recruit the same night it arrived', () => {
-    const state = table(['cultist', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+  it("does not let the newest member recruit the same night it arrived", () => {
+    const state = table(
+      ["cultist", "citizen", "citizen", "citizen", "godfather"],
+      3,
+    );
     const leader = bySlot(state, 1);
     const taken = bySlot(state, 2);
 
     advanceMafia(state, 1_000, lcg(1));
     assert.equal(setNightAction(state, leader.playerId, taken.slot).ok, true);
     advanceMafia(state, 2_000, lcg(1));
-    assert.equal(taken.role, 'cultist', 'the first convert lands');
+    assert.equal(taken.role, "cultist", "the first convert lands");
     assert.ok(
       taken.cooldownUntilDay !== null && taken.cooldownUntilDay > state.day,
-      'and arrives on the same cooldown as the one who brought them in'
+      "and arrives on the same cooldown as the one who brought them in",
     );
   });
 
@@ -2414,9 +2435,12 @@ describe('the cult', () => {
    * cult still spends the night finding out, which is the price the information
    * should have: the button is offered, the knock is refused.
    */
-  for (const badge of ['jailor', 'marshall', 'mason-leader'] as RoleId[]) {
+  for (const badge of ["jailor", "marshall", "mason-leader"] as RoleId[]) {
     it(`cannot take the ${badge}`, () => {
-      const state = table(['cultist', badge, 'citizen', 'citizen', 'godfather'], 3);
+      const state = table(
+        ["cultist", badge, "citizen", "citizen", "godfather"],
+        3,
+      );
       const cultist = bySlot(state, 1);
       const power = bySlot(state, 2);
 
@@ -2424,7 +2448,7 @@ describe('the cult', () => {
       setNightAction(state, cultist.playerId, power.slot);
       advanceMafia(state, 2_000, lcg(1));
 
-      assert.equal(power.role, badge, 'the badge is unchanged');
+      assert.equal(power.role, badge, "the badge is unchanged");
     });
   }
 
@@ -2437,8 +2461,11 @@ describe('the cult', () => {
    * second, separate rule about what a power badge is worth, and it needs no
    * gate: the refusal says "not this house", never which kind of house.
    */
-  it('cannot take an unrevealed mayor either', () => {
-    const state = table(['cultist', 'mayor', 'citizen', 'citizen', 'godfather'], 3);
+  it("cannot take an unrevealed mayor either", () => {
+    const state = table(
+      ["cultist", "mayor", "citizen", "citizen", "godfather"],
+      3,
+    );
     const cultist = bySlot(state, 1);
     const mayor = bySlot(state, 2);
     assert.equal(mayor.revealed, false);
@@ -2447,7 +2474,7 @@ describe('the cult', () => {
     setNightAction(state, cultist.playerId, mayor.slot);
     advanceMafia(state, 2_000, lcg(1));
 
-    assert.equal(mayor.role, 'mayor');
+    assert.equal(mayor.role, "mayor");
   });
 
   /**
@@ -2457,8 +2484,11 @@ describe('the cult', () => {
    * The Stump is the only town badge this catches, and it is exactly the seat
    * the rule is for: nothing else the night can do touches it.
    */
-  it('cannot take a seat the night cannot kill', () => {
-    const state = table(['cultist', 'stump', 'citizen', 'citizen', 'godfather'], 3);
+  it("cannot take a seat the night cannot kill", () => {
+    const state = table(
+      ["cultist", "stump", "citizen", "citizen", "godfather"],
+      3,
+    );
     const cultist = bySlot(state, 1);
     const stump = bySlot(state, 2);
 
@@ -2466,7 +2496,7 @@ describe('the cult', () => {
     setNightAction(state, cultist.playerId, stump.slot);
     advanceMafia(state, 2_000, lcg(1));
 
-    assert.equal(stump.role, 'stump');
+    assert.equal(stump.role, "stump");
   });
 
   /**
@@ -2476,8 +2506,11 @@ describe('the cult', () => {
    * same wasted knock came round again and again — and with the badges above now
    * refusing outright there is more to waste a night on than there was.
    */
-  it('remembers the door that refused the cult', () => {
-    const state = table(['cultist', 'jailor', 'citizen', 'citizen', 'godfather'], 3);
+  it("remembers the door that refused the cult", () => {
+    const state = table(
+      ["cultist", "jailor", "citizen", "citizen", "godfather"],
+      3,
+    );
     const cultist = bySlot(state, 1);
     const jailor = bySlot(state, 2);
 
@@ -2488,8 +2521,11 @@ describe('the cult', () => {
     assert.deepEqual(cultist.refused, [jailor.slot]);
   });
 
-  it('remembers the door that refused the lodge', () => {
-    const state = table(['mason-leader', 'doctor', 'citizen', 'citizen', 'godfather'], 3);
+  it("remembers the door that refused the lodge", () => {
+    const state = table(
+      ["mason-leader", "doctor", "citizen", "citizen", "godfather"],
+      3,
+    );
     const leader = bySlot(state, 1);
     const doctor = bySlot(state, 2);
 
@@ -2497,13 +2533,16 @@ describe('the cult', () => {
     setNightAction(state, leader.playerId, doctor.slot);
     advanceMafia(state, 2_000, lcg(1));
 
-    assert.equal(doctor.role, 'doctor', 'only a citizen can be initiated');
+    assert.equal(doctor.role, "doctor", "only a citizen can be initiated");
     assert.deepEqual(leader.refused, [doctor.slot]);
   });
 
   /** What the cult learned is the cult's; a second cultist pays for it again. */
-  it('does not share a refusal between two cultists', () => {
-    const state = table(['cultist', 'cultist', 'jailor', 'citizen', 'godfather'], 3);
+  it("does not share a refusal between two cultists", () => {
+    const state = table(
+      ["cultist", "cultist", "jailor", "citizen", "godfather"],
+      3,
+    );
     const first = bySlot(state, 1);
     const second = bySlot(state, 2);
     const jailor = bySlot(state, 3);
@@ -2517,8 +2556,11 @@ describe('the cult', () => {
   });
 
   /** And an ordinary townsman still goes, or none of the above means anything. */
-  it('still takes a plain citizen', () => {
-    const state = table(['cultist', 'jailor', 'citizen', 'citizen', 'godfather'], 3);
+  it("still takes a plain citizen", () => {
+    const state = table(
+      ["cultist", "jailor", "citizen", "citizen", "godfather"],
+      3,
+    );
     const cultist = bySlot(state, 1);
     const citizen = bySlot(state, 3);
 
@@ -2526,12 +2568,15 @@ describe('the cult', () => {
     setNightAction(state, cultist.playerId, citizen.slot);
     advanceMafia(state, 2_000, lcg(1));
 
-    assert.equal(citizen.role, 'cultist');
+    assert.equal(citizen.role, "cultist");
   });
 
   /** A sash is not a soul to be bought. See `keepsRole`. */
-  it('cannot take a revealed mayor, and the auditor cannot strip one', () => {
-    const state = table(['cultist', 'mayor', 'citizen', 'citizen', 'godfather'], 3);
+  it("cannot take a revealed mayor, and the auditor cannot strip one", () => {
+    const state = table(
+      ["cultist", "mayor", "citizen", "citizen", "godfather"],
+      3,
+    );
     const cultist = bySlot(state, 1);
     const mayor = bySlot(state, 2);
     mayor.revealed = true;
@@ -2539,7 +2584,7 @@ describe('the cult', () => {
     advanceMafia(state, 1_000, lcg(1));
     setNightAction(state, cultist.playerId, mayor.slot);
     advanceMafia(state, 2_000, lcg(1));
-    assert.equal(mayor.role, 'mayor', 'the mayor keeps his role');
+    assert.equal(mayor.role, "mayor", "the mayor keeps his role");
   });
 });
 
@@ -2552,35 +2597,49 @@ describe('the cult', () => {
  * families share one knife, the Serial Killer takes one seat, the Arsonist
  * spends nights dousing before it gets a fire.
  */
-describe('the mass murderer', () => {
-  it('stays in the night after a massacre lands', () => {
-    const state = table(['mass-murderer', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+describe("the mass murderer", () => {
+  it("stays in the night after a massacre lands", () => {
+    const state = table(
+      ["mass-murderer", "citizen", "citizen", "citizen", "godfather"],
+      3,
+    );
     const killer = bySlot(state, 1);
     const first = bySlot(state, 2);
     const second = bySlot(state, 3);
 
     advanceMafia(state, 1_000, lcg(1));
-    assert.equal(state.phase, 'night');
+    assert.equal(state.phase, "night");
     assert.equal(setNightAction(state, killer.playerId, first.slot).ok, true);
     advanceMafia(state, 2_000, lcg(1));
-    assert.equal(first.alive, false, 'the massacre lands');
+    assert.equal(first.alive, false, "the massacre lands");
 
     // Next night: the rampage is not on offer at all.
     advanceMafia(state, 3_000, lcg(1));
-    assert.equal(state.phase, 'night');
-    assert.equal(setNightAction(state, killer.playerId, second.slot).ok, false, 'locked in for one night');
+    assert.equal(state.phase, "night");
+    assert.equal(
+      setNightAction(state, killer.playerId, second.slot).ok,
+      false,
+      "locked in for one night",
+    );
     advanceMafia(state, 4_000, lcg(1));
-    assert.equal(second.alive, true, 'and nobody dies to him');
+    assert.equal(second.alive, true, "and nobody dies to him");
 
     // The night after that, he is out again.
     advanceMafia(state, 5_000, lcg(1));
-    assert.equal(state.phase, 'night');
-    assert.equal(setNightAction(state, killer.playerId, second.slot).ok, true, 'one night only');
+    assert.equal(state.phase, "night");
+    assert.equal(
+      setNightAction(state, killer.playerId, second.slot).ok,
+      true,
+      "one night only",
+    );
   });
 
   /** Spending the night for nothing is already the price of being unlucky. */
-  it('is not locked when the massacre killed nobody', () => {
-    const state = table(['mass-murderer', 'serial-killer', 'citizen', 'citizen', 'godfather'], 3);
+  it("is not locked when the massacre killed nobody", () => {
+    const state = table(
+      ["mass-murderer", "serial-killer", "citizen", "citizen", "godfather"],
+      3,
+    );
     const killer = bySlot(state, 1);
     // A seat the rampage cannot touch, and nobody visiting it to be caught in the house.
     const immune = bySlot(state, 2);
@@ -2588,11 +2647,15 @@ describe('the mass murderer', () => {
     advanceMafia(state, 1_000, lcg(1));
     setNightAction(state, killer.playerId, immune.slot);
     advanceMafia(state, 2_000, lcg(1));
-    assert.equal(immune.alive, true, 'night immunity holds');
+    assert.equal(immune.alive, true, "night immunity holds");
 
     advanceMafia(state, 3_000, lcg(1));
-    assert.equal(state.phase, 'night');
-    assert.equal(setNightAction(state, killer.playerId, bySlot(state, 3).slot).ok, true, 'a wasted night costs him nothing extra');
+    assert.equal(state.phase, "night");
+    assert.equal(
+      setNightAction(state, killer.playerId, bySlot(state, 3).slot).ok,
+      true,
+      "a wasted night costs him nothing extra",
+    );
   });
 });
 
@@ -2605,33 +2668,53 @@ describe('the mass murderer', () => {
  * `castVote`, so the room sat looking at a tally past the threshold with nobody
  * on the stand, until somebody happened to vote again.
  */
-describe('the sash and the standing votes', () => {
-  it('opens the stand when the reveal itself carries the wagon over', () => {
-    const state = table(['mayor', 'citizen', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+describe("the sash and the standing votes", () => {
+  it("opens the stand when the reveal itself carries the wagon over", () => {
+    const state = table(
+      ["mayor", "citizen", "citizen", "citizen", "citizen", "godfather"],
+      3,
+    );
     state.voteOpensAt = null;
     const mayor = bySlot(state, 1);
     const accused = bySlot(state, 6);
 
     // Two of six behind it, plus the mayor: three of six, and the bar is four.
     assert.equal(castVote(state, mayor.playerId, accused.slot, 1_000).ok, true);
-    assert.equal(castVote(state, bySlot(state, 2).playerId, accused.slot, 1_100).ok, true);
-    assert.equal(castVote(state, bySlot(state, 3).playerId, accused.slot, 1_200).ok, true);
-    assert.equal(state.trial === null, true, 'three of six is not a majority');
+    assert.equal(
+      castVote(state, bySlot(state, 2).playerId, accused.slot, 1_100).ok,
+      true,
+    );
+    assert.equal(
+      castVote(state, bySlot(state, 3).playerId, accused.slot, 1_200).ok,
+      true,
+    );
+    assert.equal(state.trial === null, true, "three of six is not a majority");
 
     // The sash: his vote is now three, so the wagon is five of eight and the bar five.
     assert.equal(revealMayor(state, mayor.playerId, 1_300).ok, true);
-    assert.equal(state.trial?.accusedId, accused.playerId, 'the reveal carried it');
+    assert.equal(
+      state.trial?.accusedId,
+      accused.playerId,
+      "the reveal carried it",
+    );
   });
 
-  it('leaves the day alone when the reveal changes nothing', () => {
-    const state = table(['mayor', 'citizen', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+  it("leaves the day alone when the reveal changes nothing", () => {
+    const state = table(
+      ["mayor", "citizen", "citizen", "citizen", "citizen", "godfather"],
+      3,
+    );
     state.voteOpensAt = null;
     const mayor = bySlot(state, 1);
 
-    assert.equal(castVote(state, bySlot(state, 2).playerId, bySlot(state, 6).slot, 1_000).ok, true);
+    assert.equal(
+      castVote(state, bySlot(state, 2).playerId, bySlot(state, 6).slot, 1_000)
+        .ok,
+      true,
+    );
     assert.equal(revealMayor(state, mayor.playerId, 1_100).ok, true);
-    assert.equal(state.trial === null, true, 'one vote is still one vote');
-    assert.equal(state.stage, 'discussion');
+    assert.equal(state.trial === null, true, "one vote is still one vote");
+    assert.equal(state.stage, "discussion");
   });
 });
 
@@ -2642,8 +2725,14 @@ describe('the sash and the standing votes', () => {
  * the square into a lie the chat itself tells, and every reader in this game
  * resolves role words against the roster.
  */
-describe('names that are roles', () => {
-  const fresh = () => createMafiaGame({ code: 'NAME1', hostToken: 'h', hostUserId: null, now: 0 });
+describe("names that are roles", () => {
+  const fresh = () =>
+    createMafiaGame({
+      code: "NAME1",
+      hostToken: "h",
+      hostUserId: null,
+      now: 0,
+    });
   const tryName = (name: string): boolean => {
     const state = fresh();
     try {
@@ -2654,14 +2743,35 @@ describe('names that are roles', () => {
     }
   };
 
-  it('refuses a faction or a role, in either language, however it is typed', () => {
-    for (const taken of ['Mafia', 'town', 'Triade', 'secte', 'Sheriff', 'shérif', 'Médecin', 'doctor', 'serial killer', 'Tueur de masse', 'MAYOR']) {
+  it("refuses a faction or a role, in either language, however it is typed", () => {
+    for (const taken of [
+      "Mafia",
+      "town",
+      "Triade",
+      "secte",
+      "Sheriff",
+      "shérif",
+      "Médecin",
+      "doctor",
+      "serial killer",
+      "Tueur de masse",
+      "MAYOR",
+    ]) {
       assert.equal(tryName(taken), false, `"${taken}" should be refused`);
     }
   });
 
-  it('leaves ordinary names alone', () => {
-    for (const fine of ['Xavier', 'Tintin', 'Bidule', 'Lucky', 'Sheriffa', 'Docteur Maboul', 'Villeneuve', 'Mafioso2']) {
+  it("leaves ordinary names alone", () => {
+    for (const fine of [
+      "Xavier",
+      "Tintin",
+      "Bidule",
+      "Lucky",
+      "Sheriffa",
+      "Docteur Maboul",
+      "Villeneuve",
+      "Mafioso2",
+    ]) {
       assert.equal(tryName(fine), true, `"${fine}" should be allowed`);
     }
   });
@@ -2675,27 +2785,40 @@ describe('names that are roles', () => {
  * eight, fourteen alive with the sash out and the bar was nine. Seen on a real
  * table as "eight of fourteen and no trial".
  */
-describe('the sash and the bar', () => {
-  it('leaves the threshold where it was', () => {
-    const state = table(['mayor', 'citizen', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+describe("the sash and the bar", () => {
+  it("leaves the threshold where it was", () => {
+    const state = table(
+      ["mayor", "citizen", "citizen", "citizen", "citizen", "godfather"],
+      3,
+    );
     const mayor = bySlot(state, 1);
-    assert.equal(voteThreshold(state), 4, 'six alive, four to hang');
+    assert.equal(voteThreshold(state), 4, "six alive, four to hang");
     assert.equal(revealMayor(state, mayor.playerId, 1_000).ok, true);
-    assert.equal(voteThreshold(state), 4, 'and still four with the sash out');
+    assert.equal(voteThreshold(state), 4, "and still four with the sash out");
   });
 
-  it('lets the sash carry a wagon three seats short of it', () => {
-    const state = table(['mayor', 'citizen', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+  it("lets the sash carry a wagon three seats short of it", () => {
+    const state = table(
+      ["mayor", "citizen", "citizen", "citizen", "citizen", "godfather"],
+      3,
+    );
     state.voteOpensAt = null;
     const mayor = bySlot(state, 1);
     const accused = bySlot(state, 6);
 
     assert.equal(revealMayor(state, mayor.playerId, 1_000).ok, true);
-    assert.equal(castVote(state, bySlot(state, 2).playerId, accused.slot, 1_100).ok, true);
-    assert.equal(state.trial === null, true, 'one seat is not four');
+    assert.equal(
+      castVote(state, bySlot(state, 2).playerId, accused.slot, 1_100).ok,
+      true,
+    );
+    assert.equal(state.trial === null, true, "one seat is not four");
     // The sash alone is worth three, so his vote is the fourth.
     assert.equal(castVote(state, mayor.playerId, accused.slot, 1_200).ok, true);
-    assert.equal(state.trial?.accusedId, accused.playerId, 'one seat plus the sash carries it');
+    assert.equal(
+      state.trial?.accusedId,
+      accused.playerId,
+      "one seat plus the sash carries it",
+    );
   });
 });
 
@@ -2706,38 +2829,61 @@ describe('the sash and the bar', () => {
  * knock happened. It is the only counter the town has to conversion: without it
  * the cult grows and nothing on the board shrinks it except the rope.
  */
-describe('the lodge and the cult', () => {
-  it('kills a cultist the mason leader knocks on', () => {
-    const state = table(['mason-leader', 'cultist', 'citizen', 'citizen', 'godfather'], 3);
+describe("the lodge and the cult", () => {
+  it("kills a cultist the mason leader knocks on", () => {
+    const state = table(
+      ["mason-leader", "cultist", "citizen", "citizen", "godfather"],
+      3,
+    );
     const master = bySlot(state, 1);
     const preacher = bySlot(state, 2);
 
     advanceMafia(state, 1_000, lcg(1));
-    assert.equal(state.phase, 'night');
-    assert.equal(setNightAction(state, master.playerId, preacher.slot).ok, true);
+    assert.equal(state.phase, "night");
+    assert.equal(
+      setNightAction(state, master.playerId, preacher.slot).ok,
+      true,
+    );
     advanceMafia(state, 2_000, lcg(1));
 
-    assert.equal(preacher.alive, false, 'the cult does not survive the lodge door');
+    assert.equal(
+      preacher.alive,
+      false,
+      "the cult does not survive the lodge door",
+    );
     assert.equal(master.alive, true);
   });
 
-  it('kills a cultist who comes to preach at the lodge', () => {
-    const state = table(['mason-leader', 'cultist', 'citizen', 'citizen', 'godfather'], 3);
+  it("kills a cultist who comes to preach at the lodge", () => {
+    const state = table(
+      ["mason-leader", "cultist", "citizen", "citizen", "godfather"],
+      3,
+    );
     const master = bySlot(state, 1);
     const preacher = bySlot(state, 2);
 
     advanceMafia(state, 1_000, lcg(1));
-    assert.equal(setNightAction(state, preacher.playerId, master.slot).ok, true);
+    assert.equal(
+      setNightAction(state, preacher.playerId, master.slot).ok,
+      true,
+    );
     advanceMafia(state, 2_000, lcg(1));
 
-    assert.equal(preacher.alive, false, 'and the knock costs the same either way');
-    assert.equal(master.alive, true, 'the lodge does not convert');
-    assert.equal(master.role, 'mason-leader');
+    assert.equal(
+      preacher.alive,
+      false,
+      "and the knock costs the same either way",
+    );
+    assert.equal(master.alive, true, "the lodge does not convert");
+    assert.equal(master.role, "mason-leader");
   });
 
   /** The lodge still does what it is for on anybody who is not the cult. */
-  it('still initiates an ordinary citizen', () => {
-    const state = table(['mason-leader', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+  it("still initiates an ordinary citizen", () => {
+    const state = table(
+      ["mason-leader", "citizen", "citizen", "citizen", "godfather"],
+      3,
+    );
     const master = bySlot(state, 1);
     const recruit = bySlot(state, 2);
 
@@ -2746,6 +2892,297 @@ describe('the lodge and the cult', () => {
     advanceMafia(state, 2_000, lcg(1));
 
     assert.equal(recruit.alive, true);
-    assert.equal(recruit.role, 'mason');
+    assert.equal(recruit.role, "mason");
+  });
+});
+
+/**
+ * A family spending its night as one hand rather than four.
+ *
+ * Every one of these was a whole night thrown away, and the kidnap one was
+ * worse than nothing: the cell shelters its prisoner from everything except its
+ * own keeper, so the family's knife bounced and the man it had picked walked
+ * into the morning alive.
+ */
+describe("a family's night, spent as one", () => {
+  /** `table` deals in slot order, so slot 1 is the first role named. */
+  function night(roles: RoleId[]): MafiaState {
+    const state = table(roles);
+    advanceMafia(state, 0, lcg(1));
+    return state;
+  }
+
+  it("keeps the knife out of its own cellar", () => {
+    const state = night([
+      "kidnapper",
+      "mafioso",
+      "citizen",
+      "doctor",
+      "sheriff",
+      "escort",
+    ]);
+    setNightAction(state, bySlot(state, 1).playerId, 3);
+
+    const left = unclashedTargets(
+      state,
+      bySlot(state, 2).playerId,
+      "kill",
+      [3, 4, 5],
+    );
+    assert.ok(!left.includes(3), "the knife looks elsewhere");
+  });
+
+  it("and the cellar out of the way of its own knife", () => {
+    const state = night([
+      "kidnapper",
+      "mafioso",
+      "citizen",
+      "doctor",
+      "sheriff",
+      "escort",
+    ]);
+    setNightAction(state, bySlot(state, 2).playerId, 3);
+
+    // Symmetric: whichever of the two is asked second is the one that moves.
+    assert.equal(familyKnife(state, "mafia"), 3);
+    assert.ok(
+      !unclashedTargets(
+        state,
+        bySlot(state, 1).playerId,
+        "kidnap",
+        [3, 4, 5],
+      ).includes(3),
+    );
+  });
+
+  it("does not gag a man it is about to kill", () => {
+    const state = night([
+      "blackmailer",
+      "mafioso",
+      "citizen",
+      "doctor",
+      "sheriff",
+      "escort",
+    ]);
+    setNightAction(state, bySlot(state, 2).playerId, 3);
+
+    assert.ok(
+      !unclashedTargets(
+        state,
+        bySlot(state, 1).playerId,
+        "silence",
+        [3, 4, 5],
+      ).includes(3),
+    );
+  });
+
+  it("nor roleblock, frame or read him", () => {
+    for (const [role, action] of [
+      ["consort", "block"],
+      ["framer", "frame"],
+      ["consigliere", "examine"],
+    ] as [RoleId, "block" | "frame" | "examine"][]) {
+      const state = night([
+        role,
+        "mafioso",
+        "citizen",
+        "doctor",
+        "sheriff",
+        "escort",
+      ]);
+      setNightAction(state, bySlot(state, 2).playerId, 3);
+
+      assert.ok(
+        !unclashedTargets(
+          state,
+          bySlot(state, 1).playerId,
+          action,
+          [3, 4, 5],
+        ).includes(3),
+        `${role} still spent its night on the body`,
+      );
+    }
+  });
+
+  /**
+   * The cleaner is the opposite rule, and the reason the others are a list
+   * rather than "anything the family is doing".
+   */
+  it("but the cleaner goes exactly where the knife goes", () => {
+    const state = night([
+      "janitor",
+      "mafioso",
+      "citizen",
+      "doctor",
+      "sheriff",
+      "escort",
+    ]);
+    setNightAction(state, bySlot(state, 2).playerId, 3);
+
+    assert.deepEqual(
+      unclashedTargets(state, bySlot(state, 1).playerId, "clean", [3, 4, 5]),
+      [3],
+    );
+  });
+
+  /**
+   * The engine carries the leader's order and sends the executor to it, so an
+   * executor that disagrees is not a second knife — it is a man about to be
+   * overruled, arguing for a house the family will not visit.
+   */
+  it("and the executor falls in behind its leader", () => {
+    const state = night([
+      "godfather",
+      "mafioso",
+      "citizen",
+      "doctor",
+      "sheriff",
+      "escort",
+    ]);
+    setNightAction(state, bySlot(state, 1).playerId, 4);
+
+    assert.equal(familyKnife(state, "mafia"), 4);
+    assert.deepEqual(
+      unclashedTargets(state, bySlot(state, 2).playerId, "kill", [3, 4, 5]),
+      [4],
+    );
+  });
+
+  it("though the leader is not dragged by its executor", () => {
+    const state = night([
+      "godfather",
+      "mafioso",
+      "citizen",
+      "doctor",
+      "sheriff",
+      "escort",
+    ]);
+    setNightAction(state, bySlot(state, 2).playerId, 4);
+
+    assert.deepEqual(
+      unclashedTargets(state, bySlot(state, 1).playerId, "kill", [3, 4, 5]),
+      [3, 4, 5],
+    );
+  });
+
+  it("ignores another family's orders entirely", () => {
+    const state = night([
+      "kidnapper",
+      "dragon-head",
+      "citizen",
+      "doctor",
+      "sheriff",
+      "escort",
+    ]);
+    setNightAction(state, bySlot(state, 2).playerId, 3);
+
+    assert.equal(
+      familyKnife(state, "mafia"),
+      null,
+      "the Triad is not the family",
+    );
+    assert.ok(
+      unclashedTargets(
+        state,
+        bySlot(state, 1).playerId,
+        "kidnap",
+        [3, 4, 5],
+      ).includes(3),
+    );
+  });
+
+  /** A power with nowhere left to go still acts: an overlap beats a wasted seat. */
+  it("would rather overlap than do nothing at all", () => {
+    const state = night([
+      "kidnapper",
+      "mafioso",
+      "citizen",
+      "doctor",
+      "sheriff",
+      "escort",
+    ]);
+    setNightAction(state, bySlot(state, 1).playerId, 3);
+
+    assert.deepEqual(
+      unclashedTargets(state, bySlot(state, 2).playerId, "kill", [3]),
+      [3],
+    );
+  });
+});
+
+/**
+ * The last two seats, and the table the bots reason from.
+ *
+ * `duelBeats` is what a seat consults at six players to decide which rope is
+ * worth spending — so if it disagrees with the engine, the bots spend their
+ * last useful day on the wrong person with perfect confidence. It is checked
+ * against the engine rather than asserted, which is the only way a hand-written
+ * table stays true to rules it does not own.
+ */
+describe("who takes the last two seats", () => {
+  /** A duel, played out by the engine: eight nights of both acting. */
+  function duel(mine: RoleId, theirs: RoleId): RoleId | null {
+    const state = table([mine, theirs], 2);
+    const me = bySlot(state, 1);
+    const them = bySlot(state, 2);
+
+    for (let night = 0; night < 8 && me.alive && them.alive; night++) {
+      advanceMafia(state, night * 1000, lcg(night + 1));
+      if (state.phase !== "night") continue;
+
+      // Each aims at the other, or at itself where the power is worn at home.
+      for (const [actor, other] of [
+        [me, them],
+        [them, me],
+      ] as const) {
+        if (!actor.alive || !actor.role) continue;
+        const legal = legalNightAction(state, actor.playerId);
+        if (!legal) continue;
+        const wants = legal.targets.includes(other.slot)
+          ? other.slot
+          : (legal.targets[0] ?? actor.slot);
+        setNightAction(state, actor.playerId, wants);
+      }
+      advanceMafia(state, night * 1000 + 500, lcg(night + 2));
+    }
+
+    if (me.alive === them.alive) return null;
+    return (me.alive ? me.role : them.role) ?? null;
+  }
+
+  /**
+   * Armour decides two knives, which is the case the whole feature rests on: a
+   * Mafioso whose blade came back blunted has met the seat that beats it.
+   */
+  it("the armoured knife beats the bare one", () => {
+    assert.equal(duelBeats("mafioso", "serial-killer"), true);
+    assert.equal(
+      duel("mafioso", "serial-killer"),
+      "serial-killer",
+      "and the engine agrees",
+    );
+
+    assert.equal(duelBeats("serial-killer", "mafioso"), false);
+  });
+
+  it("and a knife beats no knife", () => {
+    assert.equal(duelBeats("citizen", "mafioso"), true);
+    assert.equal(duelBeats("mafioso", "citizen"), false);
+  });
+
+  it("two bare knives settle nothing either way", () => {
+    assert.equal(duelBeats("mafioso", "vigilante"), false);
+    assert.equal(duelBeats("vigilante", "mafioso"), false);
+  });
+
+  /** She needs a hand to guide, not a knife. See the existing witch cases. */
+  it("the witch beats anybody with a night", () => {
+    assert.equal(duelBeats("mafioso", "witch"), true);
+    assert.equal(duelBeats("serial-killer", "witch"), true);
+    assert.equal(duelBeats("citizen", "witch"), false, "nothing to guide");
+  });
+
+  it("and nothing beats the witch", () => {
+    assert.equal(duelBeats("witch", "serial-killer"), false);
   });
 });

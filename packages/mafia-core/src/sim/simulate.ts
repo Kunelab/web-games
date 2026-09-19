@@ -28,6 +28,7 @@ import {
   feelPressure,
   makeBrain,
   decideNightTarget,
+  unclashedTargets,
   decideSecondTarget,
   executesCaptive,
   isEvilRole,
@@ -720,7 +721,10 @@ export function simulateGame(options: SimOptions): SimResult {
           player,
           brains.get(player.playerId)!,
           info,
-          legal.targets,
+          // The orders already in tonight decide what is left worth aiming at:
+          // the family's own knife and its own cellar must not meet. See
+          // `unclashedTargets`.
+          unclashedTargets(state, player.playerId, legal.type, legal.targets),
           legal.type,
           teammatesOf(player.playerId),
           familyIntelFor(player.playerId),

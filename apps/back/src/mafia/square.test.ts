@@ -437,3 +437,48 @@ describe('sentences from a real table', () => {
     assert.equal(roleNamed('nothing here'), null);
   });
 });
+
+/**
+ * A dead investigator's will, read the way the will generator writes one.
+ *
+ * The most reliable evidence in the game — a corpse has nothing left to gain by
+ * lying about a check — and three quarters of it was being dropped on the floor.
+ * Of the four findings a real Sheriff left behind, the board heard one: the
+ * colon shape was cut at the colon, and "came back Cult" had no word for the
+ * side it named. The town hanged the Sheriff that wrote it for having said
+ * nothing about its nights.
+ */
+describe("a sheriff's will", () => {
+  const seats = [
+    { slot: 24, name: 'Baloo' },
+    { slot: 12, name: 'Robin' },
+    { slot: 9, name: 'Demogorgon' },
+    { slot: 8, name: 'Optimus Prime' },
+    { slot: 5, name: 'Ursula' }
+  ];
+
+  const read = (line: string) => readSquare(line, 24, seats, { implicitSelf: true });
+
+  it('reads a check written with a colon', () => {
+    assert.deepEqual(read('Night 1, Robin: clean.'), [{ kind: 'clear', targetSlot: 12 }]);
+    assert.deepEqual(read('Ursula: clean'), [{ kind: 'clear', targetSlot: 5 }]);
+  });
+
+  it('and one written with a verb, as it always did', () => {
+    assert.deepEqual(read('Optimus Prime came back clean on night 3.'), [{ kind: 'clear', targetSlot: 8 }]);
+  });
+
+  /** The finding that matters most: a confirmed member of a growing faction. */
+  it('reads a camp as a verdict, not only an insult', () => {
+    assert.deepEqual(read('Demogorgon came back Cult on night 2.'), [{ kind: 'accuse', targetSlot: 9 }]);
+    assert.deepEqual(read('Demogorgon came back Triad on night 2.'), [{ kind: 'accuse', targetSlot: 9 }]);
+  });
+
+  /**
+   * And the asymmetry the colon change rests on: forwards it introduces a
+   * report, backwards it still separates one seat's verdict from another's.
+   */
+  it('still does not read backwards across a colon', () => {
+    assert.deepEqual(read('Robin is scum: Ursula'), [{ kind: 'accuse', targetSlot: 12 }]);
+  });
+});

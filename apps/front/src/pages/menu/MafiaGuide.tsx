@@ -79,6 +79,32 @@ export default function MafiaGuide() {
         );
       })}
 
+      {/*
+        How to write a will the board can actually read.
+
+        Here rather than beside the will box, because it is a thing to learn
+        once and not a thing to be reminded of while typing under a clock. The
+        examples are the shapes the reader genuinely accepts — each one was run
+        through it — so this page is a contract rather than advice.
+      */}
+      <section className="guide-section">
+        <h2>{t(msg('mafia.guide.will'))}</h2>
+        <Prose className="guide-prose" k="mafia.guide.will.why" />
+        <Prose className="guide-prose" k="mafia.guide.will.how" />
+
+        <Prose className="guide-prose" k="mafia.guide.will.claim" />
+        <pre className="guide-example">{t(msg('mafia.guide.will.claim.eg'))}</pre>
+
+        <Prose className="guide-prose" k="mafia.guide.will.checks" />
+        <pre className="guide-example">{t(msg('mafia.guide.will.checks.eg'))}</pre>
+        <Prose className="guide-prose" k="mafia.guide.will.words" />
+
+        <Prose className="guide-prose" k="mafia.guide.will.where" />
+        <pre className="guide-example">{t(msg('mafia.guide.will.where.eg'))}</pre>
+
+        <Prose className="guide-prose" k="mafia.guide.will.dont" />
+      </section>
+
       <Link to={entry.path} className="menu-back">
         {t(msg('mafia.guide.back'))}
       </Link>

@@ -647,8 +647,20 @@ export function willHeed(mind: BotMind, fromSlot: number, roll: number): boolean
    * The base rate is the biddable half of a temperament rather than a constant.
    * `herd` is what already decides how much this seat moves for other people
    * anywhere else in the model, so it decides it here too.
+   *
+   * Half to nine tenths, raised from a third. Every request that reaches here
+   * was typed by a *person* — `readRoom` reads nothing a bot said — and the one
+   * room in this game where a player and the bots are on the same side is worth
+   * more than an even chance of being heard. A third meant the commonest thing
+   * a person does in a family room, which is name a house, was refused twice in
+   * three by the stubborn half of the table.
+   *
+   * What does not move is the ceiling or the burn. A voice that has misled this
+   * seat in the dark is still refused outright, and no temperament obeys every
+   * time, so a person still has to be worth listening to rather than merely
+   * loud.
    */
-  const base = 0.35 + mind.brain.personality.herd * 0.45;
+  const base = 0.5 + mind.brain.personality.herd * 0.4;
   const earned = 0.2 * Math.tanh(credit * 0.6);
   return roll < Math.max(0.05, Math.min(0.95, base + earned));
 }

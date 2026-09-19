@@ -458,6 +458,23 @@ export interface MafiaPlayer {
    * Optional, so a table persisted before this existed restores without it.
    */
   refused?: number[];
+  /**
+   * Houses whose armour turned this seat's attack away.
+   *
+   * The engine already tells an attacker what it hit, and the note beside that
+   * line says the finding "is worth never visiting again" — but it was said
+   * once, into a notification feed, and written down nowhere. `nightLog` is
+   * rewritten every night, so a killer that bounced off a Godfather on night
+   * three walked into the same door on night five, and on night seven, with the
+   * board holding nothing to stop it.
+   *
+   * Only permanent armour is recorded. A vest is a charge somebody spent and
+   * tomorrow is a fresh question, which is the distinction the engine draws
+   * between `immune` and `vested` and the reason it draws it.
+   *
+   * Optional, so a table persisted before this existed restores without it.
+   */
+  bounced?: number[];
   lastWill: string;
   /**
    * Private feed: night results, warnings. Only ever sent to this player.

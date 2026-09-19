@@ -2015,6 +2015,18 @@ function convertible(player: MafiaPlayer): boolean {
  * Kept per seat rather than per table: what the cult has learned is the cult's,
  * and a second cultist has to spend its own night to find the same thing out.
  */
+/**
+ * Remembers a door that did not open *because of what was behind it*.
+ *
+ * Per attacker, like `noteRefused` and for the same reason: what one killer
+ * has learned by spending a night on it is that killer's, and the next one pays
+ * its own night to find out.
+ */
+function noteBounced(player: MafiaPlayer, slot: number): void {
+  const doors = (player.bounced ??= []);
+  if (!doors.includes(slot)) doors.push(slot);
+}
+
 function noteRefused(player: MafiaPlayer, slot: number): void {
   const doors = (player.refused ??= []);
   if (!doors.includes(slot)) doors.push(slot);
@@ -3026,11 +3038,21 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         notify(target, NOTE.survived());
         rescued(target, state.day, "self");
       }
-      if (attacker)
+      if (attacker) {
         notify(
           attacker,
           armour === "vested" ? NOTE.attackVested() : NOTE.attackImmune(),
         );
+        /**
+         * And written down, not merely said.
+         *
+         * Armour of its own is a fact about the house that does not expire, so
+         * it belongs on the attacker's own record rather than in a feed that
+         * is rewritten at the next dawn. A vest is not: somebody spent a
+         * charge, and tomorrow night is a fresh question.
+         */
+        if (armour === "immune") noteBounced(attacker, target.slot);
+      }
       note(armour);
       continue;
     }

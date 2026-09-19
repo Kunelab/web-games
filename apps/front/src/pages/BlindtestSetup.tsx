@@ -97,7 +97,7 @@ export default function BlindtestSetup() {
    * room that would rather play what other rooms have already vetted and
    * corrected turns it up and pays nothing.
    */
-  const [replayShare, setReplayShare] = useState(0.5);
+  const [replayPercent, setReplayPercent] = useState(50);
 
   /**
    * The last count, tagged with the settings that produced it.
@@ -290,7 +290,8 @@ export default function BlindtestSetup() {
         difficultyMax: Math.max(difficulty.min, difficulty.max),
         region,
         maxRounds,
-        replayShare
+        // The server takes a share, the slider speaks percent.
+        replayShare: replayPercent / 100
       });
       /**
        * The host token proves ownership over the socket, and the host screen
@@ -457,19 +458,30 @@ export default function BlindtestSetup() {
           </div>
 
           <div>
-            <label htmlFor="bt-replay">Source des manches</label>
-            <select
+            <label htmlFor="bt-replay">
+              Part du catalogue{' '}
+              <span className="bt-range">
+                {replayPercent} % catalogue · {100 - replayPercent} % nouveautés
+              </span>
+            </label>
+            {/*
+              A dial rather than five named steps.
+
+              The two ends are real settings and everything between them is
+              real too: a room that wants mostly new songs but not at full
+              price has no reason to be pushed to the nearest quarter. Fives,
+              because nobody is choosing between 62 and 63 per cent.
+            */}
+            <input
               id="bt-replay"
               className="bt-input"
-              value={String(replayShare)}
-              onChange={(event) => setReplayShare(Number(event.target.value))}
-            >
-              <option value="0">Que des nouveautés</option>
-              <option value="0.25">Surtout des nouveautés</option>
-              <option value="0.5">Moitié-moitié</option>
-              <option value="0.75">Surtout le catalogue</option>
-              <option value="1">Que le catalogue</option>
-            </select>
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={replayPercent}
+              onChange={(event) => setReplayPercent(Number(event.target.value))}
+            />
             <p className="bt-hint">
               Le catalogue, c&apos;est ce que les autres salles ont déjà joué : gratuit, et déjà vérifié. Une nouveauté
               coûte une recherche. Jamais deux fois le même morceau dans une partie, quel que soit le réglage.
