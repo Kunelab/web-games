@@ -778,13 +778,22 @@ export function jailTarget(
 }
 
 /** The weighted majority of the living: what it takes to move the day. */
+/**
+ * Heads, not weight.
+ *
+ * The sash is worth three votes and used to be worth three *seats* as well: it
+ * sat in the numerator and the denominator at once, so a Mayor who revealed
+ * raised the bar he was trying to carry. Fourteen alive and the bar was eight;
+ * fourteen alive with the sash out and the bar was nine, so unless he voted with
+ * the wagon himself the town needed one more seat than before he stood up.
+ * Reported from a real table as "eight of fourteen and no trial".
+ *
+ * Revealing is meant to be a gift to the town. The rope is a majority of the
+ * people in the room; how loudly any of them speaks is a fact about the votes,
+ * not about how many people are there.
+ */
 export function voteThreshold(state: MafiaState): number {
-  return (
-    Math.floor(
-      alivePlayers(state).reduce((sum, player) => sum + voteWeight(player), 0) /
-        2,
-    ) + 1
-  );
+  return Math.floor(alivePlayers(state).length / 2) + 1;
 }
 
 /** Weighted votes currently sitting on one target id (a player, or `SKIP_VOTE`). */
@@ -1883,6 +1892,17 @@ function evilRole(role: RoleId): boolean {
  * unrevealed Mayor is an ordinary townsman to convert, which is the cult doing
  * what the cult is for, and the moment he puts the sash on he is untouchable.
  */
+/**
+ * A soul the cult already has.
+ *
+ * The Witch Doctor is what a converted Doctor becomes, so it is a cultist that
+ * does not say so in its id, and a rule that only looked for  would
+ * have let one walk up to the lodge untouched.
+ */
+function isCultist(player: MafiaPlayer): boolean {
+  return player.role === "cultist" || player.role === "witch-doctor";
+}
+
 function keepsItsRole(player: MafiaPlayer): boolean {
   return (
     player.role !== null &&
@@ -3364,7 +3384,20 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       target.alive
     ) {
       visit(player.playerId, target.playerId);
-      if (target.role === "citizen") {
+      /**
+       * The lodge and the cult recruit from the same room, and only one of them
+       * walks away from meeting the other.
+       *
+       * A Mason Leader who knocks on a Cultist has found the thing his whole role
+       * exists to stop, and a Cultist who knocks on a Mason Leader has walked into
+       * the one house on the board that cannot be preached to. Both end the same
+       * way. It is the only counter the town has to conversion: without it the
+       * cult grows and nothing on the board can shrink it except the rope.
+       */
+      if (isCultist(target)) {
+        kill(state, target, "night", CAUSE.killedBy("lodge"), "lodge");
+        notify(player, NOTE.lodgeStruck(target.name));
+      } else if (target.role === "citizen") {
         target.role = "mason";
         notify(target, NOTE.initiated());
         notify(player, NOTE.initiateDone(target.name));
@@ -3386,7 +3419,11 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
        */
       visit(player.playerId, target.playerId);
       // A sash is not a soul to be bought. See `keepsRole`.
-      if (convertedTonight) {
+      // The other side of the same doorstep. See the note in `recruit`.
+      if (target.role === "mason-leader") {
+        kill(state, player, "night", CAUSE.killedBy("lodge"), "lodge");
+        notify(target, NOTE.lodgeHeld(player.name));
+      } else if (convertedTonight) {
         notify(player, NOTE.convertCrowded(target.name));
       } else if (
         target.role &&
@@ -3687,9 +3724,8 @@ function beyondSaving(
   )
     ? 2
     : 0;
-  const table =
-    alivePlayers(state).reduce((sum, player) => sum + voteWeight(player), 0) +
-    standing;
+  // Heads, like `voteThreshold`: the bar is a majority of the room, not of its volume.
+  const table = alivePlayers(state).length;
   const theirs =
     rest.reduce((sum, player) => sum + voteWeight(player), 0) + standing;
   if (theirs >= Math.floor(table / 2) + 1) return false;
@@ -3773,9 +3809,8 @@ function canRemove(
   )
     ? 2
     : 0;
-  const table =
-    alivePlayers(state).reduce((sum, player) => sum + voteWeight(player), 0) +
-    standing;
+  // Heads, like `voteThreshold`: the bar is a majority of the room, not of its volume.
+  const table = alivePlayers(state).length;
   const mine =
     side.reduce((sum, player) => sum + voteWeight(player), 0) + standing;
   if (mine >= Math.floor(table / 2) + 1) return true;

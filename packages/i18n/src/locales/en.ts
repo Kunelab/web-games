@@ -108,6 +108,7 @@ export const en: Catalogue = {
   'mafia.source.jailor': 'the Jailor',
   'mafia.source.kidnapper': 'a cellar nobody came out of',
   'mafia.source.veteran': 'the Veteran',
+  'mafia.source.lodge': 'the lodge',
   'mafia.source.mafia': 'the Mafia',
   'mafia.source.triad': 'the Triad',
   'mafia.source.cult': 'the Cult',

@@ -103,6 +103,7 @@ export const fr: Catalogue = {
   'mafia.source.jailor': 'le Geôlier',
   'mafia.source.kidnapper': 'une cave dont personne n’est ressorti',
   'mafia.source.veteran': 'le Vétéran',
+  'mafia.source.lodge': 'la loge',
   'mafia.source.mafia': 'la Mafia',
   'mafia.source.triad': 'la Triade',
   'mafia.source.cult': 'la Secte',

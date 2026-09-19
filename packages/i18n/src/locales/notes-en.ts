@@ -15,6 +15,8 @@ import type { Catalogue } from '../index.js';
  */
 export const notesEn: Catalogue = {
   /* ------------------------------ what you are ------------------------------ */
+  'mafia.note.lodgeStruck': 'You knocked, and {name} answered in the cult’s words. They did not see the morning.',
+  'mafia.note.lodgeHeld': '{name} came to preach at your door. The lodge does not convert.',
   'mafia.note.roleDealt': 'You are the {role}. {description}',
   'mafia.note.obsession': 'Your obsession: get {name} (house {slot}) hanged.',
   'mafia.note.jailedNight': 'You have been dragged to a cell for the night. The Jailor is listening.',
