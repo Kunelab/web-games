@@ -44,7 +44,7 @@ export const siteEn: Catalogue = {
   "site.game.coronaz.tagline":
     "Co-operative survival against the horde, board-game style.",
   "site.game.mafia.tagline":
-    "One town, some killer, and nobody telling the truth.",
+    "One town, some killers, and nobody telling the truth.",
 
   /* ------------------------------- a game's menu ---------------------------- */
   "site.menu.aria": "{game} menu",

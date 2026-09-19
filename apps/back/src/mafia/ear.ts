@@ -33,6 +33,7 @@ import type { ChatMessage } from 'chat-core';
 import type { Claim, ClaimKind, MafiaState, RoleId } from 'mafia-core';
 import { ROLES } from 'mafia-core';
 
+import { roleFromName } from './asks.js';
 import { screen } from './guard.js';
 
 /** The shape the model must answer in. Every field is required, null when unused. */
@@ -172,6 +173,7 @@ Rules:
 - A finding the speaker says somebody ELSE made is relay, not accuse or clear. "I am the sheriff and 3 is bad" is the speaker's own claim; "the sheriff told us 3 is bad" is a relay with source = the sheriff's house.
 - A line can produce several claims, or none. Banter, jokes, greetings and reactions produce none.
 - Houses are numbers. If a line names a person rather than a house, use that person's house number from the roster.
+- NIGHTS are numbers too, and they are not houses. "n3", "night 3", "nuit 3", "N1" and "on 3 and 4" after the word night all name a night. A line that names only nights names no house: "I used my vest on n3, n4 & n6" is an account, never a sighting of houses 3, 4 or 6. Never turn a night number into an "about".
 - A line may name a ROLE instead of a house — "the sheriff", "as the crier", "veteran, answer me". The roster says who claimed what. Use that seat's house number.
 - NAMING a role to address somebody is NOT the speaker claiming it. "veteran, where were you?" is a question to whoever claimed Veteran; it is never a role-claim by the person asking. A role-claim is only ever the speaker saying it about THEMSELVES: "I am the veteran", "veteran here", "that is me".
 - If the roster shows nobody claiming the role that a line names, the line is about nobody. Skip it.
@@ -235,6 +237,7 @@ export interface DroppedClaim {
     | 'about themselves'
     | 'house is dead'
     | 'role not in this game'
+    | 'that number was a night'
     | 'unknown ailment'
     | 'unknown kind';
 }
@@ -386,6 +389,40 @@ function spoken(state: MafiaState, lines: readonly ChatMessage[]): string {
  * a wrong entry on the claims board is worse than a missing one, because the
  * board is what every bot reasons from and what `contradicted` hangs people on.
  */
+/**
+ * Every number the transcript spoke as a *night*, and every one it spoke as a house.
+ *
+ * The ear kept turning one into the other. A last will reading "I just used vest on
+ * n3, n4 & n6" came back as two sightings, of houses 3 and 23, from a seat whose
+ * very next line was "I don't visit people" — and a bot then hanged somebody
+ * citing a sighting nobody had made. The claim board is what every bot reasons
+ * from, so an invented entry on it is worth more damage than a missing one.
+ *
+ * Both sets, because the same number can be both: "night 3, I was at 3" is a
+ * night and a house in one breath, and only a number that is *never* spoken as a
+ * house is safe to refuse.
+ */
+function numbersSpoken(said: string): { nights: Set<number>; houses: Set<number> } {
+  const nights = new Set<number>();
+  const houses = new Set<number>();
+  const text = said.toLowerCase();
+  for (const found of text.matchAll(/\b(?:n|nights?|nuits?)\s*[°º]?\s*(\d{1,2})\b/g)) {
+    nights.add(Number(found[1]));
+  }
+  // A run like "n3, n4 & n6" names the marker once and the rest by comma.
+  for (const run of text.matchAll(/\b(?:n|nights?|nuits?)\s*[°º]?\s*\d{1,2}((?:\s*(?:,|&|and|et|\/)\s*\d{1,2})+)/g)) {
+    for (const more of run[1].matchAll(/\d{1,2}/g)) nights.add(Number(more[0]));
+  }
+  for (const found of text.matchAll(/\d{1,2}/g)) {
+    const at = found.index ?? 0;
+    const before = text.slice(Math.max(0, at - 24), at);
+    if (!/\b(?:n|nights?|nuits?)\s*[°º]?\s*(?:\d{1,2}\s*(?:,|&|and|et|\/)\s*)*$/.test(before)) {
+      houses.add(Number(found[0]));
+    }
+  }
+  return { nights, houses };
+}
+
 export function readHeard(
   state: MafiaState,
   raw: Record<string, unknown>,
@@ -393,9 +430,15 @@ export function readHeard(
   /** Dead seats whose last will is among the lines, and who may therefore speak. */
   testators: ReadonlySet<string> = new Set(),
   /** Filled with everything the board refused, for the recorder. See `DroppedClaim`. */
-  dropped: DroppedClaim[] = []
+  dropped: DroppedClaim[] = [],
+  /** The transcript the model was given, so a night cannot be filed as a house. */
+  said = ''
 ): HeardClaim[] {
   const heard = Array.isArray(raw.claims) ? (raw.claims as Heard[]) : [];
+  const spokenNumbers = numbersSpoken(said);
+  /** A house the transcript only ever mentioned as a night is not a house. See `numbersSpoken`. */
+  const onlyANight = (slot: number): boolean =>
+    spokenNumbers.nights.has(slot) && !spokenNumbers.houses.has(slot);
   const bySlot = new Map(Object.values(state.players).map((player) => [player.slot, player]));
   const filed: HeardClaim[] = [];
   const drop = (entry: Heard, why: DroppedClaim['why']): undefined => {
@@ -433,6 +476,10 @@ export function readHeard(
           drop(entry, 'no such house');
           continue;
         }
+        if (onlyANight(about.slot)) {
+          drop(entry, 'that number was a night');
+          continue;
+        }
         if (about.playerId === speaker.playerId) {
           drop(entry, 'about themselves');
           continue;
@@ -453,14 +500,25 @@ export function readHeard(
           drop(entry, 'no such house');
           continue;
         }
+        if (onlyANight(about.slot)) {
+          drop(entry, 'that number was a night');
+          continue;
+        }
         filed.push({ claimerId: speaker.playerId, kind: 'account', targetSlot: about.slot, account: 'visited' });
         break;
 
       case 'role-claim': {
-        // Only a role this table could contain — the same test a bot's bluff has
-        // to pass, for the same reason.
-        const role = typeof entry.role === 'string' ? entry.role.toLowerCase() : null;
-        if (!role || !(role in ROLES) || !claimable.has(role)) {
+        /**
+         * Only a role this table could contain, named however the model named it.
+         *
+         * `role in ROLES` alone wanted a canonical id, and the prompt above hands
+         * the model the roster in the table's own language, so it answers with
+         * "Maître de loge" or "Survivant" and every single role claim the ear
+         * heard was thrown away. `roleFromName` resolves both, folded, the way the
+         * deterministic reader has always done.
+         */
+        const role = typeof entry.role === 'string' ? roleFromName(entry.role) : null;
+        if (!role || !claimable.has(role)) {
           drop(entry, 'role not in this game');
           continue;
         }
@@ -468,7 +526,7 @@ export function readHeard(
           claimerId: speaker.playerId,
           kind: 'role-claim',
           targetSlot: speaker.slot,
-          claimedRole: role as RoleId
+          claimedRole: role
         });
         break;
       }

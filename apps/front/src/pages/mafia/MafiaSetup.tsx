@@ -297,12 +297,14 @@ export default function MafiaSetup() {
                     {draftSlots.length === 0 && <span className="mz-hint">{tk('mafia.setup.emptyDraft')}</span>}
                   </div>
                   {/*
-                   * Typed rather than scrolled.
+                   * Typed or scrolled, whichever the host is.
                    *
                    * Seventy roles and categories in one column meant a trip
                    * through the whole catalogue for every seat on the table, for
-                   * a word the host already knew: they are building a list of
-                   * roles, so they know the name of the one they want next.
+                   * a word the host already knew: someone building a list of
+                   * roles usually knows the name of the one they want next. One
+                   * who does not still gets the whole catalogue on focus, before
+                   * a single letter narrows it.
                    */}
                   <Autocomplete
                     placeholder={tk('mafia.setup.addSeat', { count: draftSlots.length })}

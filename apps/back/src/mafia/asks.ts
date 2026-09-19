@@ -430,6 +430,28 @@ export function mentions(
  * a two-word role beats the one-word role hiding inside it.
  */
 let ROLE_NAMES: { name: string; role: RoleId }[] | null = null;
+/**
+ * A role the ear or a player named, whatever they called it.
+ *
+ * The ear used to test the model's answer with `role in ROLES`, so it only ever
+ * accepted a canonical id like `mason-leader`. But the prompt hands the model
+ * the roster in the table's own language ("Médecin, Hôtesse, Détective privé"),
+ * so the model answers in those words, and every role claim the ear heard was
+ * dropped as "role not in this game". It cost a Mason Leader his Mason: he
+ * stood up mid-trial, said "I am mason leader", and the board never heard it.
+ *
+ * The deterministic reader has resolved names this way since it was written.
+ * There was never a reason for the two to disagree.
+ */
+export function roleFromName(said: string): RoleId | null {
+  const folded = fold(said).trim();
+  if (!folded) return null;
+  if (folded in ROLES) return folded as RoleId;
+  const hyphenated = folded.replace(/s+/g, '-');
+  if (hyphenated in ROLES) return hyphenated as RoleId;
+  return roleNames().find((entry) => entry.name === folded)?.role ?? null;
+}
+
 function roleNames(): { name: string; role: RoleId }[] {
   if (ROLE_NAMES) return ROLE_NAMES;
   const seen = new Map<string, RoleId>();
