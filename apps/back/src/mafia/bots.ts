@@ -832,6 +832,21 @@ const OWN_DEED: RegExp[] = [
   // English: I killed / stabbed / shot / poisoned him, her, them or a house
   /\b(?:i|i've|ive)\s+(?:have\s+)?(?:just\s+)?(?:kill(?:ed)?|murder(?:ed)?|stab(?:bed)?|shot|poison(?:ed)?|strangl(?:ed)?|slit)\b[^.!?]{0,20}\b(?:you|him|her|them|your|his|their|[0-9]{1,2})\b/i,
   new RegExp(String.raw`${GOING_TO}(?:kill|stab|shoot|poison|strangle)\s+(?:you|him|her|them|[0-9]{1,2})\b`, 'i'),
+  /**
+   * The flourish that convicts, without ever naming the deed.
+   *
+   * "I was busy turning 6's house into a crime scene, left his batmobile in
+   * pieces" — said on the stand, by a Witch, while claiming Veteran. It names no
+   * kill and no side, so neither list above catches it, and it is still the most
+   * incriminating sentence anybody said that afternoon. A model asked to sound
+   * menacing reaches for exactly this, and the room reads it exactly as written.
+   *
+   * Only about its own night. "Whoever did it left a crime scene" is the room
+   * describing a corpse, which is the room's whole job.
+   */
+  /\b(?:i|we)\b[^.!?]{0,30}\b(?:crime\s*scene|blood\s*bath|bloodbath|mess\s+of\s+(?:the|his|her|their)\b)/i,
+  /\b(?:i|we)\b[^.!?]{0,30}\b(?:ransack|tore?\s+(?:up|apart|through)|smash(?:ed)?\s+up|broke\s+into|turned\s+\S+\s+over)\b/i,
+  /\b(?:j'?ai|nous avons)\b[^.!?]{0,30}\b(?:scène de crime|scene de crime|carnage|saccag|mis .{0,12}en pièces|mis .{0,12}en pieces)/i,
   // English: the visit a killer makes, owned outright
   /\b(?:i|i've|ive)\s+(?:have\s+)?(?:just\s+)?(?:visit(?:ed)?|went\s+to|was\s+at)\b[^.!?]{0,24}\b(?:to\s+)?(?:kill|burn|douse|finish)\b/i,
   // French: j'ai brulé, je t'ai tué, je vais te bruler
@@ -2175,11 +2190,37 @@ export class MafiaBotDriver {
        */
       void this.readTrial(code, signature);
 
+      /**
+       * The booth is not a silent room, and the accused is still in it.
+       *
+       * Two things were wrong with the stand going quiet the moment the defence
+       * clock ran out. Jurors spoke once each, no sooner than a third of the way
+       * in, so the first ten seconds of every judgement were dead air; and the
+       * accused was skipped outright, so every question put to them in the booth
+       * went unanswered. From the floor that reads as a seat that has given up,
+       * which is not what happened: nobody asked it anything it was allowed to
+       * hear.
+       */
       for (const bot of bots) {
         if (bot.playerId === state.trial?.accusedId) continue;
-        this.later(code, within(0.35, 0.8, state.config.judgementMs), () =>
-          this.decide(code, bot.playerId, 'judgement')
-        );
+        this.later(code, within(0.12, 0.55, state.config.judgementMs), () => this.decide(code, bot.playerId, 'judgement'));
+      }
+
+      /**
+       * And the accused answers, on the same task the defence used.
+       *
+       * `judgement` casts a ballot and the accused has none to cast, so this is a
+       * `defense` turn: the one that answers whoever is talking to them. Twice,
+       * late, because the questions worth answering are the ones asked after the
+       * room has heard the defence and started arguing about it.
+       */
+      const onTrial = state.trial ? state.players[state.trial.accusedId] : null;
+      if (onTrial?.isBot && onTrial.alive) {
+        for (let round = 1; round <= 2; round++) {
+          this.later(code, within(0.2 + round * 0.22, 0.32 + round * 0.22, state.config.judgementMs), () =>
+            this.decide(code, onTrial.playerId, 'defense', 'day', round)
+          );
+        }
       }
     }
   }
@@ -6445,6 +6486,47 @@ export class MafiaBotDriver {
 
     // An acquittal with a reason is already a whole sentence; see `standUpFor`.
     const stand = this.standUpFor(state, board, accusedSlot, botId);
+
+    /**
+     * A seat that put this name up and is now voting to let it go.
+     *
+     * Reported from a table: the bot opened the case against Gollum, the room
+     * followed it onto the wagon, and then it voted innocent without a word.
+     * From the floor that is indistinguishable from a seat protecting somebody,
+     * and it is the single most suspicious thing a player can do silently.
+     *
+     * Changing your mind is allowed and often right: the defence is *for*
+     * something. Doing it without saying so is not. So the reversal is named
+     * out loud, with the reason when there is one and an admission when there
+     * is not.
+     */
+    const mySlot = view.me?.slot ?? null;
+    const mine =
+      mySlot !== null &&
+      board.voteHistory.some(
+        (vote) => vote.day === state.day && vote.voterSlot === mySlot && vote.targetSlot === accusedSlot
+      );
+    if (mine) {
+      /**
+       * The bare reason rather than `standUpFor`'s whole sentence, because this
+       * frame already names the seat and says the verdict. Composing one line
+       * inside another is how the square got "It is Nami: Nami. Someone saw you
+       * visiting 5 on night 3.." See the note on `sentence`.
+       */
+      const nameOf = (slot: number): string =>
+        Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
+      const seed = botId + ':for:' + String(accusedSlot);
+      const reason = defenceFor(accusedSlot, board, 3)
+        .map((entry) => this.forFragment(entry, nameOf, seed))
+        .find((part): part is Msg => part !== null);
+      const why = reason ? t(reason) : null;
+      return t(
+        why
+          ? vary('mafia.bot.verdict.turned.why', 3, salt, { who, why })
+          : vary('mafia.bot.verdict.turned.plain', 3, salt, { who })
+      );
+    }
+
     return t(stand ?? vary('mafia.bot.verdict.innocent.plain', 3, salt, { who }));
   }
 

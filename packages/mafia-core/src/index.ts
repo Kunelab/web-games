@@ -19,6 +19,7 @@ export {
   ROLES,
   SELF_FIRES,
   familyOf,
+  staysHome,
   isSoloKiller,
   roleDef,
   rolesOfFaction,

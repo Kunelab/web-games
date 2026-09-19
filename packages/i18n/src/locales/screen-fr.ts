@@ -532,6 +532,12 @@ export const screenFr: Catalogue = {
   'mafia.bot.verdict.innocent.plain.2':
     'Innocent. On a mis {who} là-haut sur une intuition, et l’intuition ne s’est pas améliorée.',
   'mafia.bot.verdict.innocent.plain.3': 'Innocent. Apportez-moi quelque chose de vérifiable et je changerai d’avis.',
+  'mafia.bot.verdict.turned.why.1': 'C’est moi qui ai mis {who} là, et je vote innocent : {why}.',
+  'mafia.bot.verdict.turned.why.2': 'Mon nom est sur ce chariot et je vote innocent quand même, parce que {why}.',
+  'mafia.bot.verdict.turned.why.3': 'Je voulais {who} ici. Innocent, et voilà ce qui a changé : {why}.',
+  'mafia.bot.verdict.turned.plain.1': 'C’est moi qui ai mis {who} là et je vote innocent. La défense m’a répondu.',
+  'mafia.bot.verdict.turned.plain.2': 'Je voulais {who} au banc. Je l’ai écouté, et je vote innocent.',
+  'mafia.bot.verdict.turned.plain.3': 'C’est mon vote qui a amené {who} ici et je le retire. Innocent.',
   'mafia.bot.why.contradiction.1': 'il dit être resté chez lui, et {who} l’a vu aller chez quelqu’un cette nuit-là',
   'mafia.bot.why.contradiction.2': 'son alibi est qu’il n’est jamais sorti, et {who} l’a vu entrer dans une maison',
   'mafia.bot.why.contradiction.3': '{who} l’a vu rendre visite à quelqu’un une nuit où il dit n’avoir pas bougé',

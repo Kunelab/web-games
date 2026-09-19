@@ -1,6 +1,6 @@
 import type { DeathSource } from '../messages.js';
 import type { NightActionType, RoleId } from '../roles.js';
-import { familyOf, isSoloKiller, QUIET_TRADE, roleDef, ROLES } from '../roles.js';
+import { familyOf, isSoloKiller, QUIET_TRADE, roleDef, ROLES, staysHome } from '../roles.js';
 import { beliefs, surestSuspect } from './beliefs.js';
 import { deductions, deductionWeight } from './deduce.js';
 export { QUIET_TRADE };
@@ -1278,18 +1278,30 @@ export function claimerWeight(claimerSlot: number, info: PublicInfo): number {
    * Not flattery: it is what the table is for. Twenty bots reading each other's
    * claims off a shared board agree far more readily than a room of people
    * does, so a human Sheriff spent an afternoon shouting into a square that had
-   * already made up its mind among itself. Weighing a person half again as
-   * heavily is the cheapest way to make the one seat that is actually playing
-   * the loudest voice in the room, and — with the chorus discount in
-   * `suspicionParts` — the anchor a wagon forms around rather than a footnote
-   * to it.
+   * already made up its mind among itself. A person should be the anchor a wagon
+   * forms around rather than a footnote to it, and with the chorus discount in
+   * `suspicionParts` something has to do that work.
+   *
+   * Mostly flat, and small. Half again as heavy was a *multiplier*, so it scaled
+   * with whatever the claim was already worth and made a person permanently
+   * louder than the evidence: a human mafioso named two townsfolk as the Serial
+   * Killer on two consecutive afternoons, with no reason either time, and the
+   * room hanged both — the second one after the first had been disproved by the
+   * corpse. A bare assertion should get somebody a hearing, not a conviction.
+   *
+   * So the multiplier is nearly nothing and the bonus is a constant: it lifts a
+   * quiet claim off the floor, where being heard at all is what a person needs,
+   * and it adds almost nothing to a claim that was already heavy, where the
+   * evidence should be doing the talking. Everything else about a person still
+   * applies, `trustOf` and `settledCredit` included, so being wrong twice still
+   * costs what it costs anybody.
    *
    * It cuts both ways, which is the point: a person who talks is heard, and a
    * person who is heard is worth killing. Every headless bench is all bots, so
-   * this multiplies nothing there and the balance numbers still mean what they
+   * this changes nothing there and the balance numbers still mean what they
    * meant.
    */
-  if (info.humanSlots.has(claimerSlot)) weight *= 1.5;
+  if (info.humanSlots.has(claimerSlot)) weight = weight * 1.05 + 0.15;
 
   /**
    * A badge nobody has disputed is worth something before anybody dies.
@@ -2901,13 +2913,29 @@ export function decideDay(
     const stonewalls = beingAsked && !alreadyAnswered && quirked(quirks.stonewall, rng);
 
     if (beingAsked && !alreadyAnswered && !stonewalls) {
+      /**
+       * A badge this seat is wearing that never leaves its own porch.
+       *
+       * The honest answer is where this seat actually went, and for a liar that
+       * is the wrong kind of honest: a Witch bluffing Veteran answered "where
+       * were you" with the truth, having spent the night out controlling
+       * somebody, and told the room it had been at a house while claiming the
+       * one role that never goes to one. The room does not need to catch a liar
+       * out; the liar hands it over. A bluff has to be consistent with itself.
+       */
+      const badge = info.claims
+        .filter(
+          (claim) => claim.kind === 'role-claim' && claim.claimerSlot === self.slot && claim.claimedRole
+        )
+        .map((claim) => claim.claimedRole as RoleId)
+        .pop();
+      const homebody = badge !== undefined && staysHome(badge);
+
       const honest = rng() < stance.answerHonestly;
-      if (honest && brain.wentTo !== null && brain.wentTo !== self.slot) {
+      if (!homebody && honest && brain.wentTo !== null && brain.wentTo !== self.slot) {
         publish(brain.wentTo, 'account', undefined, 'visited');
-      } else if (honest) {
-        publish(self.slot, 'account', undefined, 'home');
       } else {
-        // The comfortable lie, and the one the record can catch.
+        // Home: honestly, or because the badge on the table says so.
         publish(self.slot, 'account', undefined, 'home');
       }
     }
