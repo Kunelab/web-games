@@ -1091,3 +1091,69 @@
   align-items: center;
   gap: var(--space-1);
 }
+
+/*
+ * The clock stopped, said on the screen facing the room.
+ *
+ * A countdown that has simply gone is indistinguishable from one that has
+ * broken, and the host is the only person who knows which.
+ */
+.host-held {
+  text-align: center;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+/*
+ * Correcting a round, in front of a room that is waiting.
+ *
+ * Wide inputs and one field per line: this is typed once, under mild pressure,
+ * by somebody who is also talking. Nothing here is worth making compact.
+ */
+.host-correct {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 34rem;
+  margin: 0 auto;
+}
+
+.host-correct label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.host-correct-input {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-2, 6px);
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+/* The four numbers sit together: they are one decision, not four. */
+.host-correct-clip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: var(--space-2);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-2, 6px);
+  padding: var(--space-2);
+  opacity: 0.9;
+}
+
+.host-correct-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+/* The same note on the phone: a quiet box is a pause, not a lost connection. */
+.play-held {
+  text-align: center;
+  font-weight: 600;
+  opacity: 0.85;
+}

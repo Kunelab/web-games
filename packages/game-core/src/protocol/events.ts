@@ -118,6 +118,42 @@ export interface ClientToServerEvents {
    * is the one person in the room already arbitrating the round.
    */
   'host:flagRound': (payload: z.infer<typeof hostActionSchema>) => void;
+  /**
+   * Stops the clock on the round in play, or starts it again.
+   *
+   * Any phase, because the moment a host needs this is rarely the tidy one: an
+   * answer that is plainly wrong gets noticed while people are still typing at
+   * it, not politely at the reveal. Nothing acts while it is held — no deadline
+   * fires, no answer lands, no buzzer resolves — and releasing gives the room
+   * back the phase it was in with what was left of it.
+   */
+  'host:holdRound': (payload: { hostToken: string; hold: boolean }) => void;
+  /**
+   * Fixes what an answer actually is.
+   *
+   * A generated round's answers were read off a title by a model, and it gets
+   * one wrong now and then — the wrong artist, a subtitle that is not part of
+   * the name, the song where the work was wanted. The room finds out at the
+   * reveal, which until now was a moment with nowhere to put the correction:
+   * the only thing on offer was throwing the round away entirely.
+   *
+   * Per field, so "the artist is wrong but the title is right" is one edit and
+   * not a retype of both.
+   */
+  'host:correctRound': (payload: {
+    hostToken: string;
+    fields?: { key: string; value: string }[];
+    /**
+     * And where the clip should actually start and stop.
+     *
+     * A generated round's window is worked out from a chorus lookup, and when
+     * that lookup misses the round opens on an intro, on silence, or on the
+     * wrong half of the song — which is not a wrong answer but is just as
+     * unplayable, and was the one kind of mistake the room could hear and
+     * nobody could fix. Seconds, as the payload stores them.
+     */
+    clip?: { startGuess?: number; endGuess?: number; startReveal?: number; endReveal?: number };
+  }) => void;
 }
 
 /** Server to client. */

@@ -88,6 +88,16 @@ export default function BlindtestSetup() {
   const [difficulty, setDifficulty] = useState({ min: 0, max: 100 });
   const [region, setRegion] = useState('FR');
   const [maxRounds, setMaxRounds] = useState<number | null>(null);
+  /**
+   * How much of the evening is replayed from the shared catalogue.
+   *
+   * The two ends are genuinely different evenings rather than a performance
+   * dial, which is why it is a choice and not a constant: a room that wants to
+   * hear things nobody has heard turns it down and pays for it in quota, and a
+   * room that would rather play what other rooms have already vetted and
+   * corrected turns it up and pays nothing.
+   */
+  const [replayShare, setReplayShare] = useState(0.5);
 
   /**
    * The last count, tagged with the settings that produced it.
@@ -279,7 +289,8 @@ export default function BlindtestSetup() {
         difficultyMin: Math.min(difficulty.min, difficulty.max),
         difficultyMax: Math.max(difficulty.min, difficulty.max),
         region,
-        maxRounds
+        maxRounds,
+        replayShare
       });
       /**
        * The host token proves ownership over the socket, and the host screen
@@ -442,6 +453,26 @@ export default function BlindtestSetup() {
             </select>
             <p className="bt-hint">
               Une partie infinie se termine quand vous le décidez, depuis l&apos;écran d&apos;animation.
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="bt-replay">Source des manches</label>
+            <select
+              id="bt-replay"
+              className="bt-input"
+              value={String(replayShare)}
+              onChange={(event) => setReplayShare(Number(event.target.value))}
+            >
+              <option value="0">Que des nouveautés</option>
+              <option value="0.25">Surtout des nouveautés</option>
+              <option value="0.5">Moitié-moitié</option>
+              <option value="0.75">Surtout le catalogue</option>
+              <option value="1">Que le catalogue</option>
+            </select>
+            <p className="bt-hint">
+              Le catalogue, c&apos;est ce que les autres salles ont déjà joué : gratuit, et déjà vérifié. Une nouveauté
+              coûte une recherche. Jamais deux fois le même morceau dans une partie, quel que soit le réglage.
             </p>
           </div>
         </div>

@@ -3,8 +3,10 @@ import { sessionConfigSchema } from 'game-core';
 import { z } from 'zod';
 
 import { env } from '../env.js';
+import { GameManager } from '../game/manager.js';
 import { GENRES, SECTIONS, catalogAvailable, genreById, poolStatus } from '../services/blindtest-catalog.js';
 import { countAvailable, drawRounds, emptyHistory } from '../services/blindtest-draw.js';
+import { takeOpener, warmOpener } from '../services/blindtest-opener.js';
 
 /**
  * The generated blind test: a room that never runs out.
@@ -90,6 +92,21 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
     const settings = ordered(request.body);
     const counted = countAvailable(settings);
 
+    /**
+     * And one song put aside while the host reads the list.
+     *
+     * This endpoint is already the warm-up — it is what fills the pools — and
+     * it is already polled every few seconds by a screen nobody is waiting
+     * behind. Finding the opening round here is the difference between starting
+     * instantly and starting with a draw the room watches happen; see
+     * `warmOpener`, which draws exactly one and keeps it until its genre is
+     * unticked.
+     *
+     * Not awaited. A count that waited on a cold pool would take a minute and
+     * the number on screen is what this call is for.
+     */
+    warmOpener(request.currentUser.id, settings);
+
     return {
       region: settings.region,
       total: counted.total,
@@ -115,7 +132,15 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
         body: settingsSchema.extend({
           config: sessionConfigSchema.partial().optional(),
           /** Null, or absent, for genuinely endless. */
-          maxRounds: z.coerce.number().int().min(1).max(500).nullable().default(null)
+          maxRounds: z.coerce.number().int().min(1).max(500).nullable().default(null),
+          /**
+           * How much of the evening is replayed from the shared catalogue.
+           *
+           * 0 searches for every round, 1 plays only what other rooms have
+           * already vetted, and the default splits it. See
+           * `InfiniteState.replayShare`.
+           */
+          replayShare: z.coerce.number().min(0).max(1).default(GameManager.REPLAY_SHARE)
         })
       }
     },
@@ -130,8 +155,17 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
         return reply.code(400).send({ message: `Genre inconnu : ${unknown.join(', ')}` });
       }
 
-      const history = emptyHistory();
-      const items = await drawRounds(settings, history, INITIAL_ROUNDS);
+      /**
+       * The song the setup screen already found, or one drawn now.
+       *
+       * On the ordinary path the host has had the genre list open for a few
+       * seconds and the opener is sitting in hand, so starting costs nothing.
+       * The draw below is the cold path: somebody who posted straight here, or
+       * whose choice changed in the last moment before pressing start.
+       */
+      const reserved = takeOpener(request.currentUser.id, settings);
+      const history = reserved?.history ?? emptyHistory();
+      const items = reserved ? [reserved.item] : await drawRounds(settings, history, INITIAL_ROUNDS);
 
       if (items.length === 0) {
         return reply.code(409).send({
@@ -159,7 +193,8 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
           region: settings.region,
           playedTracks: [...history.playedTracks],
           recentArtists: history.recentArtists,
-          maxRounds: request.body.maxRounds
+          maxRounds: request.body.maxRounds,
+          replayShare: request.body.replayShare
         }
       });
 

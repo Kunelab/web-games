@@ -105,6 +105,17 @@ export interface BotMind {
    */
   stayedIn: number[];
   /**
+   * The night lines of this seat's own will, as last written.
+   *
+   * Cached here rather than rebuilt, because the will is rewritten every dawn
+   * anyway and these are the expensive half of it. What reads them is the
+   * stand: a seat arguing for its life should be reading out the record it has
+   * been keeping all game, and until it could get at that record it was
+   * improvising instead — four different accounts of night 3 in four lines,
+   * while the will in its pocket said something else again.
+   */
+  willNights: string[];
+  /**
    * The day this seat opened its defence with "I am muted." and must now keep
    * to it: a muted person does not say a second thing. See `defenceLine`.
    */
@@ -262,6 +273,7 @@ export class BotMinds {
         notes: [],
         went: [],
         stayedIn: [],
+        willNights: [],
         confided: [],
         privateTrust: new Map()
       };

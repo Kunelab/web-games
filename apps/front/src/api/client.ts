@@ -90,6 +90,17 @@ function safeJson(text: string): unknown {
 export interface AuthUser {
   id: number;
   login: string;
+  /**
+   * What this account may do beyond its own things.
+   *
+   * Sent so a screen can *offer* what the server will allow — the correction
+   * controls on a generated round are an admin's, and drawing them for
+   * everybody would mean most hosts pressing a button that answers "réservée à
+   * un administrateur". Never the authority: every one of those actions is
+   * checked again on the server, against this same field read from the session
+   * rather than from the client.
+   */
+  role?: string;
 }
 
 /** Mirrors MediaView on the server. */
@@ -424,7 +435,14 @@ export const api = {
       method: 'POST',
       body: settings
     }),
-  blindtestCreate: (settings: BlindtestSettings & { maxRounds: number | null; config?: Partial<SessionConfig> }) =>
+  blindtestCreate: (
+    settings: BlindtestSettings & {
+      maxRounds: number | null;
+      /** 0 searches every round, 1 replays only the shared catalogue. */
+      replayShare?: number;
+      config?: Partial<SessionConfig>;
+    }
+  ) =>
     request<{ code: string; hostToken: string; total: number; infinite: boolean }>('/blindtest/sessions', {
       method: 'POST',
       body: settings

@@ -443,6 +443,21 @@ export interface MafiaPlayer {
   bondKind: 'lover' | 'charm' | null;
   /** Next day this player's cooldown power may fire again (cult conversion). */
   cooldownUntilDay: number | null;
+  /**
+   * Doors this seat has knocked on and been turned away from.
+   *
+   * Only the two recruiting powers write here: the cult's preaching and the
+   * lodge's initiation, both of which can spend a whole night finding out that
+   * a house was never going to open. The seat was told so at the time; this is
+   * the same fact in a shape something can act on.
+   *
+   * Not a ban. The house stays selectable, because a role can change under an
+   * Auditor and because a player may have a reason of their own — it is simply
+   * the last place anybody should try. See `decideNightTarget`.
+   *
+   * Optional, so a table persisted before this existed restores without it.
+   */
+  refused?: number[];
   lastWill: string;
   /**
    * Private feed: night results, warnings. Only ever sent to this player.

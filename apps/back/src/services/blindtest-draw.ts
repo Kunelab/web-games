@@ -33,6 +33,7 @@ import {
   type Genre,
   type PoolEntry
 } from './blindtest-catalog.js';
+import { libraryVideoCodes } from './blindtest-library.js';
 import { playableIn } from './youtube-service.js';
 
 export interface DrawSettings {
@@ -377,6 +378,21 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
     }
   }
 
+  /**
+   * What the shared catalogue already holds, which a *search* should never
+   * return.
+   *
+   * A draw is the expensive half of the endless mode and its whole job is to
+   * find something new; a track already in the catalogue is one the room can be
+   * handed for nothing. Deliberately not part of `eligible`, which the setup
+   * screen's count also runs: a catalogued song is still perfectly playable, so
+   * hiding it from the count would understate what these settings are worth.
+   *
+   * Best-effort. A catalogue that cannot be read is a reason to draw a song that
+   * may be a repeat, never a reason to fail to draw at all.
+   */
+  const catalogued = await libraryVideoCodes().catch(() => new Set<string>());
+
   for (let round = 0; round < count; round++) {
     const target = Math.round(
       settings.difficultyMin + Math.random() * Math.max(0, settings.difficultyMax - settings.difficultyMin)
@@ -385,7 +401,9 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
     const usable = buckets
       .map((bucket) => ({
         genre: bucket.genre,
-        entries: bucket.entries.filter((entry) => eligible(entry, bucket.genre, settings, history))
+        entries: bucket.entries.filter(
+          (entry) => !catalogued.has(entry.videoId) && eligible(entry, bucket.genre, settings, history)
+        )
       }))
       .filter((bucket) => bucket.entries.length > 0);
 

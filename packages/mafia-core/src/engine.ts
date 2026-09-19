@@ -1962,6 +1962,64 @@ function isCultist(player: MafiaPlayer): boolean {
   return player.role === "cultist" || player.role === "witch-doctor";
 }
 
+/**
+ * The badges the cult cannot preach to, however long it knocks.
+ *
+ * Read off the published `town-power` category rather than listed again here,
+ * so the setup screen's idea of a power role and the cult's idea of one cannot
+ * drift apart. Whatever a host sees under "Town Power" is what is safe.
+ */
+const TOWN_POWER: ReadonlySet<RoleId> = new Set(slotPool('town-power'));
+
+/**
+ * Whether this seat can be taken by the cult at all.
+ *
+ * Four refusals, and each one is a different promise the game makes.
+ *
+ *  - Not town: the cult recruits from the town and nowhere else, which
+ *    `legalNightAction` already enforces on the button. Repeated here because
+ *    this is the rule and that is the affordance.
+ *  - A revealed sash: a Mayor or Marshall who has stood up in daylight is not a
+ *    soul to be bought. Gated on the reveal on purpose — see `keepsRole`, where
+ *    an ungated version of this test was handing the cult the Mayor's name on
+ *    night one.
+ *  - Town Power: the Jailor, the Mayor, the Marshall and the Mason Leader. These
+ *    are the badges a town builds a game around, and a cult that can simply take
+ *    one has ended the game on a coin flip rather than won it. (The Mason Leader
+ *    never reaches here — knocking on his door is its own, worse, outcome.)
+ *  - Night immunity: a seat that cannot be killed in the dark cannot be carried
+ *    off in it either. One rule about what the night can do to a house, not two.
+ *
+ * Deliberately decided here rather than by shortening the cult's target list.
+ * A button that is missing is a fact delivered for free and with no risk; a
+ * knock that comes back refused costs the cult the night it spent, which is the
+ * price the information should have.
+ *
+ * And the refusal is the same whichever of these fired: the cult learns that
+ * this house is not for turning, never which kind of house it is.
+ */
+function convertible(player: MafiaPlayer): boolean {
+  if (!player.role) return false;
+  const def = roleDef(player.role);
+  return (
+    def.faction === "town" &&
+    !keepsItsRole(player) &&
+    !TOWN_POWER.has(player.role) &&
+    !def.nightImmune
+  );
+}
+
+/**
+ * Remembers a door that did not open, for the seat that knocked.
+ *
+ * Kept per seat rather than per table: what the cult has learned is the cult's,
+ * and a second cultist has to spend its own night to find the same thing out.
+ */
+function noteRefused(player: MafiaPlayer, slot: number): void {
+  const doors = (player.refused ??= []);
+  if (!doors.includes(slot)) doors.push(slot);
+}
+
 function keepsItsRole(player: MafiaPlayer): boolean {
   return (
     player.role !== null &&
@@ -3473,6 +3531,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         notify(target, NOTE.initiated());
         notify(player, NOTE.initiateDone(target.name));
       } else {
+        noteRefused(player, target.slot);
         notify(player, NOTE.initiateRefused(target.name));
       }
     }
@@ -3496,11 +3555,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         notify(target, NOTE.lodgeHeld(player.name));
       } else if (convertedTonight) {
         notify(player, NOTE.convertCrowded(target.name));
-      } else if (
-        target.role &&
-        roleDef(target.role).faction === "town" &&
-        !keepsItsRole(target)
-      ) {
+      } else if (convertible(target)) {
         const converted: RoleId =
           target.role === "doctor" ? "witch-doctor" : "cultist";
         target.role = converted;
@@ -3520,6 +3575,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         notify(player, NOTE.convertDone(target.name));
         announcements.push({ line: M.cultChant(), reveals: true });
       } else {
+        noteRefused(player, target.slot);
         notify(player, NOTE.convertRefused(target.name));
       }
     }

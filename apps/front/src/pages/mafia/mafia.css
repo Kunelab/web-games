@@ -2201,3 +2201,22 @@
     backdrop-filter: blur(8px);
   }
 }
+
+/*
+ * A resumable table and the way to be rid of it.
+ *
+ * The close button is deliberately the smaller of the two and deliberately last:
+ * the common thing to do with a table you opened is to walk back into it, and a
+ * destructive action that sits where the eye lands first gets pressed by
+ * accident. It asks twice anyway.
+ */
+.mz-mine-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.mz-mine-row > :first-child {
+  flex: 1 1 auto;
+}

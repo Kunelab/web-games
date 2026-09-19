@@ -117,6 +117,23 @@ export interface RoundState {
    */
   buzz?: BuzzState;
   /**
+   * Server time this round was held, or absent while it is running.
+   *
+   * A pause is the host taking the clock off the room — to explain an answer,
+   * to settle an argument, or to correct one. It has to be more than blanking
+   * the deadline, because everything this engine times is measured from
+   * `phaseStartAt`: a round held for two minutes and released would come back
+   * with its whole answering window already elapsed, and every answer after it
+   * clamped to the same instant, which is the ordering the scoring is built on.
+   *
+   * So the moment is recorded here and the start is shifted forward by the
+   * length of the pause on release. What the room gets back is the phase it was
+   * in, with what was left of it.
+   */
+  heldAt?: number | null;
+  /** What was left of the phase when it was held. Null for a phase with no clock. */
+  heldMs?: number | null;
+  /**
    * Set once the room has thrown this round's library entry away.
    *
    * Kept on the round rather than re-queried, so the button disappears from the
@@ -290,6 +307,20 @@ export interface InfiniteState {
   recentArtists: string[];
   /** Hard stop, or null for genuinely endless. */
   maxRounds: number | null;
+  /**
+   * How much of this room's evening comes out of the shared catalogue.
+   *
+   * 0 is every round searched for fresh, 1 is every round replayed from what
+   * other rooms have already played and vouched for, and anything between is
+   * the mix. Per session rather than one number for the deployment, because the
+   * two ends are different evenings: a room that wants to hear things nobody
+   * has heard turns it down, a room on a thin quota or one that would rather
+   * play the corrected catalogue turns it up.
+   *
+   * Optional, so a session persisted before this existed restores and falls
+   * back to the default share.
+   */
+  replayShare?: number;
   /**
    * Set by the host's "stop after this round".
    *
@@ -548,6 +579,113 @@ export function advance(state: SessionState, lookup: MediaLookup, now = Date.now
   };
 }
 
+/** True while the host has the clock stopped on this round. */
+export function isHeld(state: SessionState): boolean {
+  return state.round?.heldAt != null;
+}
+
+/**
+ * Stops the clock on the round in play, or starts it again.
+ *
+ * Any phase, because the moment a host needs this is rarely the tidy one: an
+ * answer that is plainly wrong is noticed while people are still typing at it,
+ * not politely at the reveal.
+ *
+ * Releasing shifts `phaseStartAt` forward by however long the pause lasted,
+ * which is what makes the resumed phase the same phase rather than a new one
+ * with a stale start. Every timing decision in this engine — the answer clamp,
+ * the reveal animation, the buzzer's arbitration — is a difference against that
+ * field, so moving it is how the pause becomes invisible to all of them at once.
+ */
+export function holdRound(state: SessionState, hold: boolean, now = Date.now()): boolean {
+  const round = state.round;
+  if (!round || state.phase !== 'playing') return false;
+
+  if (hold) {
+    if (round.heldAt != null) return false;
+    round.heldAt = now;
+    round.heldMs = round.phaseEndsAt === null ? null : Math.max(0, round.phaseEndsAt - now);
+    round.phaseEndsAt = null;
+    state.lastActivityAt = now;
+    return true;
+  }
+
+  if (round.heldAt == null) return false;
+
+  round.phaseStartAt += Math.max(0, now - round.heldAt);
+  round.phaseEndsAt = round.heldMs == null ? null : now + round.heldMs;
+  round.heldAt = null;
+  round.heldMs = null;
+  state.lastActivityAt = now;
+  return true;
+}
+
+/**
+ * Corrects what this round's answers actually are.
+ *
+ * Deliberately does not re-score. The round may already have closed, the points
+ * are on the board and the players have read them, and quietly rewriting a
+ * scoreboard somebody is looking at is a worse surprise than a round that was
+ * marked strictly. What this changes is the answer on screen and, through the
+ * caller, the copy kept in the shared catalogue — so the next room dealt this
+ * song gets the right one.
+ *
+ * Values only, and only for fields the round already has. A key naming no field
+ * is ignored rather than added: the fields are the round's shape, fixed when it
+ * was built, and a client inventing one must not be able to grow it.
+ */
+export function correctAnswers(state: SessionState, fields: { key: string; value: string }[]): boolean {
+  const round = state.round;
+  if (!round) return false;
+
+  let changed = false;
+  for (const field of fields) {
+    const answer = round.answers.find((candidate) => candidate.key === field.key);
+    const value = field.value.trim();
+    if (!answer || !value || answer.value === value) continue;
+    answer.value = value;
+    changed = true;
+  }
+
+  if (changed) state.lastActivityAt = Date.now();
+  return changed;
+}
+
+/**
+ * Moves this round's clip window.
+ *
+ * Validated through the kind's own payload schema rather than field by field,
+ * so the bounds that a saved item is held to are the bounds a correction is
+ * held to: one rule, in one place, whichever door the value came in through. A
+ * patch that would not survive being saved is refused whole rather than
+ * applied in part.
+ *
+ * `round.timing` is deliberately left alone. The answer window was fixed when
+ * the round was built and the room is inside it; stretching it under people who
+ * are already typing would be a stranger thing to do than leaving one round
+ * slightly out of step. The stored copy is re-timed from its payload whenever
+ * it is next read, so the correction takes full effect the next time the song
+ * is played.
+ */
+export function correctClip(state: SessionState, clip: Record<string, number | undefined>): boolean {
+  const round = state.round;
+  if (!round) return false;
+
+  const patch: Record<string, number> = {};
+  for (const [key, value] of Object.entries(clip)) {
+    if (typeof value === 'number' && Number.isFinite(value)) patch[key] = Math.round(value);
+  }
+  if (Object.keys(patch).length === 0) return false;
+
+  const current = (round.payload ?? {}) as Record<string, unknown>;
+  const parsed = getMediaKind(round.kind).payloadSchema.safeParse({ ...current, ...patch });
+  if (!parsed.success) return false;
+
+  round.payload = parsed.data;
+  state.lastActivityAt = Date.now();
+  return true;
+}
+
 /** Study phase over: answers open. */
 export function openAnswers(state: SessionState, now = Date.now()): void {
   const round = state.round;
@@ -706,6 +844,7 @@ export function buzz(options: {
   if (!round || round.id !== roundId) return { ok: false, error: 'Ce tour est terminé' };
   if (!isBuzzerRound(state)) return { ok: false, error: 'Ce tour ne se joue pas au buzzer' };
   if (round.phase !== 'answering') return { ok: false, error: 'Les réponses ne sont pas ouvertes' };
+  if (round.heldAt != null) return { ok: false, error: 'La manche est en pause' };
 
   const player = state.players[playerId];
   if (!player) return { ok: false, error: 'Joueur inconnu' };
@@ -822,6 +961,9 @@ export type SessionDeadline = { at: number; kind: 'phase' | 'buzz-race' | 'buzz-
 export function nextDeadline(state: SessionState): SessionDeadline | null {
   const round = state.round;
   if (state.phase !== 'playing' || !round) return null;
+  // A held round has no deadlines at all, the buzzer's two included: the whole
+  // of the pause is that nothing fires.
+  if (round.heldAt != null) return null;
 
   const candidates: SessionDeadline[] = [];
   if (round.phaseEndsAt !== null) candidates.push({ at: round.phaseEndsAt, kind: 'phase' });
@@ -868,6 +1010,12 @@ export function submitAnswer(options: SubmitOptions): SubmitResult {
   }
   if (round.phase !== 'answering') {
     return { ok: false, error: 'Les réponses ne sont pas ouvertes' };
+  }
+  // Held: the clock is off the room, so nothing lands. Refused rather than
+  // queued, because an answer accepted during a pause would be timed against a
+  // window that is not running.
+  if (round.heldAt != null) {
+    return { ok: false, error: 'La manche est en pause' };
   }
 
   const player = state.players[playerId];
@@ -1209,6 +1357,7 @@ export function toRoundView(state: SessionState, playerId: string | null, contex
     phase: round.phase,
     phaseStartAt: round.phaseStartAt,
     phaseEndsAt: round.phaseEndsAt,
+    held: round.heldAt != null,
     answerMs: round.timing.answerMs,
     // Answers are not open during the study phase, so nothing is presented yet
     // beyond what the kind chooses to show.
@@ -1342,6 +1491,8 @@ function toHostRoundView(state: SessionState, title: string): HostRoundView | nu
     phase: round.phase,
     phaseStartAt: round.phaseStartAt,
     phaseEndsAt: round.phaseEndsAt,
+    held: round.heldAt != null,
+    libraryCode: libraryCodeOf(round),
     answerMs: round.timing.answerMs,
     payload: round.payload,
     answers: round.answers.map((field) => ({

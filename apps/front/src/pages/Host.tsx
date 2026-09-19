@@ -24,6 +24,22 @@ import './play.css';
  * all. It is a real route keyed by the join code, so a refresh reattaches to the
  * running game instead of ending it, which is what the old implementation did.
  */
+/**
+ * The clip window's four numbers, and the words the editor already uses for them.
+ *
+ * Reused rather than reworded: a host who has ever opened the media editor has
+ * seen these exact labels against these exact fields, and two names for one
+ * number is how a form teaches somebody the wrong thing.
+ */
+const CLIP_FIELDS = [
+  { key: 'startGuess', group: 'field.guessClip', edge: 'field.start' },
+  { key: 'endGuess', group: 'field.guessClip', edge: 'field.end' },
+  { key: 'startReveal', group: 'field.revealClip', edge: 'field.start' },
+  { key: 'endReveal', group: 'field.revealClip', edge: 'field.end' }
+] as const;
+
+const CLIP_KEYS = CLIP_FIELDS.map((field) => field.key);
+
 export default function Host() {
   const { code = '' } = useParams<{ code: string }>();
   const navigate = useNavigate();
@@ -41,6 +57,12 @@ export default function Host() {
   const [solo, setSolo] = useState(() => params.get('solo') === '1');
   const { socket, connected, session, error, serverNow } = useGameSocket();
   const { t, locale } = useLocale();
+  const { user } = useAuth();
+  /**
+   * Whether to *offer* the correction controls. The server decides whether to
+   * honour them, against the role on the session rather than this.
+   */
+  const canCorrect = user?.role === 'admin' || user?.role === 'super-admin';
 
   const [hostToken] = useState(() => sessionStorage.getItem(`kune.host.${code}`) ?? '');
   const [openError, setOpenError] = useState<string | null>(null);
@@ -55,6 +77,23 @@ export default function Host() {
    * Keyed by round id so it clears itself on the next one.
    */
   const [flagged, setFlagged] = useState('');
+  /**
+   * The correction being typed, keyed by answer field, or null when closed.
+   *
+   * Held in one object rather than an input each, because the fields are the
+   * round's and vary by kind: a blind test asks for a title and an artist, an
+   * anime opening for the work alone.
+   */
+  const [correcting, setCorrecting] = useState<Record<string, string> | null>(null);
+  /**
+   * The clip window being typed, in seconds, or null when the form is closed.
+   *
+   * Apart from the answers because it is a different kind of mistake: the model
+   * read the title wrong, or the chorus lookup missed and the round opens on an
+   * intro. Either can be right while the other is wrong, and the server takes
+   * them independently.
+   */
+  const [clip, setClip] = useState<Record<string, string> | null>(null);
 
   // Re-runs on every reconnect: a fresh socket after a drop knows nothing, so
   // the television re-presents its token each time the line comes back.
@@ -443,6 +482,104 @@ export default function Host() {
             )}
           </div>
 
+          {/*
+            Stopped, and saying so.
+
+            A clock that has simply gone is indistinguishable from a clock that
+            has broken, and the host is the one person who knows which. Said on
+            this screen because it is the one facing the room.
+          */}
+          {round.held && <p className="host-held">⏸ {t(msg('host.heldNote'))}</p>}
+
+          {/*
+            Correcting what the answer actually is.
+
+            Offered at any point in the round rather than only at the reveal,
+            because a wrong answer is usually spotted while people are still
+            typing at it — and correcting it then is the difference between a
+            round the room argues about and one it simply plays. The clock is
+            stopped on open: without that, typing a correction is a race against
+            an auto-advance.
+
+            Admin only, and the check is doubled on purpose. This decides what
+            is *drawn*; the server decides what is honoured, from the role on
+            the session rather than from anything this screen says.
+          */}
+          {canCorrect && round.libraryCode && correcting !== null && (
+            <form
+              className="host-correct"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const fields = Object.entries(correcting).map(([key, value]) => ({ key, value }));
+                // Blank or unparseable is "leave it alone", not zero: the server
+                // takes only the keys it is sent.
+                const seconds = Object.fromEntries(
+                  Object.entries(clip ?? {})
+                    .map(([key, value]) => [key, Number(value)] as const)
+                    .filter(([, value]) => Number.isFinite(value) && value >= 0)
+                );
+                socket?.emit('host:correctRound', { hostToken, fields, clip: seconds });
+                setCorrecting(null);
+                setClip(null);
+                socket?.emit('host:holdRound', { hostToken, hold: false });
+              }}
+            >
+              {round.answers.map((answer) => (
+                <label key={answer.key}>
+                  <span className="play-label">{fieldText(t, answer.label)}</span>
+                  <input
+                    className="host-correct-input"
+                    value={correcting[answer.key] ?? ''}
+                    onChange={(event) => setCorrecting((current) => ({ ...current, [answer.key]: event.target.value }))}
+                  />
+                </label>
+              ))}
+              {/*
+                The window, for a round that opens in the wrong place.
+
+                Shown for every kind whose payload has one rather than gated on
+                the kind by name: the keys are read off the payload above, so a
+                round without them simply renders no boxes.
+              */}
+              {clip && CLIP_KEYS.some((key) => key in clip) && (
+                <fieldset className="host-correct-clip">
+                  <legend className="play-label">{t(msg('host.correctClip'))}</legend>
+                  {CLIP_FIELDS.map((field) => (
+                    <label key={field.key}>
+                      <span className="play-note">
+                        {t(msg(field.group))} · {t(msg(field.edge))}
+                      </span>
+                      <input
+                        className="host-correct-input tabular"
+                        type="number"
+                        min={0}
+                        value={clip[field.key] ?? ''}
+                        onChange={(event) => setClip((current) => ({ ...current, [field.key]: event.target.value }))}
+                      />
+                    </label>
+                  ))}
+                </fieldset>
+              )}
+              <p className="play-note">{t(msg('host.correctNote'))}</p>
+              <div className="host-correct-actions">
+                <Button type="submit" variant="primary" size="sm">
+                  {t(msg('host.correctSave'))}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setCorrecting(null);
+                    setClip(null);
+                    socket?.emit('host:holdRound', { hostToken, hold: false });
+                  }}
+                >
+                  {t(msg('host.correctCancel'))}
+                </Button>
+              </div>
+            </form>
+          )}
+
           <div className="host-bottom">
             {/* Nobody scored anything in an oral game, so the strip would be a row of
                 zeros at best and empty at worst. */}
@@ -458,6 +595,37 @@ export default function Host() {
             )}
 
             <div className="host-controls">
+              {/*
+                The clock, off and on.
+
+                Any phase, because the moment a host needs it is rarely the tidy
+                one: a plainly wrong answer gets noticed while people are still
+                typing at it. The host's to press and not an admin's — stopping
+                a game you are running is what running it is, and it changes
+                nothing outside the room.
+              */}
+              <Button variant="ghost" onClick={() => socket?.emit('host:holdRound', { hostToken, hold: !round.held })}>
+                {round.held ? `▶ ${t(msg('host.resume'))}` : `⏸ ${t(msg('host.hold'))}`}
+              </Button>
+              {canCorrect && round.libraryCode && correcting === null && (
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    // Stopped first, then opened: the other order gives the
+                    // auto-advance a window to fire in.
+                    socket?.emit('host:holdRound', { hostToken, hold: true });
+                    setCorrecting(Object.fromEntries(round.answers.map((answer) => [answer.key, answer.value])));
+                    const payload = (round.payload ?? {}) as Record<string, unknown>;
+                    setClip(
+                      Object.fromEntries(
+                        CLIP_KEYS.map((key) => [key, String(typeof payload[key] === 'number' ? payload[key] : 0)])
+                      )
+                    );
+                  }}
+                >
+                  ✎ {t(msg('host.correct'))}
+                </Button>
+              )}
               {round.phase === 'answering' && (
                 <Button
                   variant={session.oral ? 'primary' : 'secondary'}

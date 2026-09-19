@@ -87,6 +87,17 @@ export const playFr: Catalogue = {
   "host.showAnswer": "Montrer la réponse",
   "host.next": "Suivant",
   "host.skip": "Passer",
+  "host.hold": "Pause",
+  "host.resume": "Reprendre",
+  "host.heldNote":
+    "Le chrono est arr\u00eat\u00e9. Personne ne peut r\u00e9pondre tant que vous n\u2019avez pas repris.",
+  "host.heldPlayer": "Pause demand\u00e9e par l\u2019animateur",
+  "host.correct": "Corriger la r\u00e9ponse",
+  "host.correctClip": "Extrait (secondes)",
+  "host.correctSave": "Enregistrer",
+  "host.correctCancel": "Annuler",
+  "host.correctNote":
+    "Corrige cette manche \u00e0 l\u2019\u00e9cran et dans le catalogue commun, pour toutes les salles qui auront ce morceau ensuite. Les points d\u00e9j\u00e0 attribu\u00e9s ne bougent pas.",
   "host.flagWrong": "Info incorrecte",
   "host.flagHint":
     "Cette manche a \u00e9t\u00e9 g\u00e9n\u00e9r\u00e9e et gard\u00e9e dans la biblioth\u00e8que commune. Si la r\u00e9ponse est fausse, retirez-la.",

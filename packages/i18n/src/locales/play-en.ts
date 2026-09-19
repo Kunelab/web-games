@@ -93,6 +93,16 @@ export const playEn: Catalogue = {
   "host.showAnswer": "Show the answer",
   "host.next": "Next",
   "host.skip": "Skip",
+  "host.hold": "Pause",
+  "host.resume": "Resume",
+  "host.heldNote": "The clock is stopped. Nothing can be answered until you resume.",
+  "host.heldPlayer": "Paused by the host",
+  "host.correct": "Correct the answer",
+  "host.correctClip": "Clip (seconds)",
+  "host.correctSave": "Save",
+  "host.correctCancel": "Cancel",
+  "host.correctNote":
+    "Fixes this round on screen and in the shared catalogue, for every room dealt this song afterwards. The points already given stay as they are.",
   "host.flagWrong": "Wrong information",
   "host.flagHint":
     "This round was generated and kept in the shared library. If the answer is wrong, throw it out.",

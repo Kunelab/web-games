@@ -100,6 +100,13 @@ export const atelierEn: Catalogue = {
   "field.answer": "Answer",
   "field.title": "Title",
   "field.artist": "Artist",
+  /*
+   * The prompt for a round whose answer is what the music comes FROM, not what
+   * the music is: an anime opening is answered with the anime, a theme with the
+   * series, a level track with the game. One label over five genres, so it has
+   * to be the word that covers all of them rather than any one of their names.
+   */
+  "field.work": "Film, series or game",
   "field.volume": "Volume",
   "field.volumeHelp":
     "Levels this clip against the rest of the playlist. 100 is full — turn it down only for a clip mastered louder than everything around it.",

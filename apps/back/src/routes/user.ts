@@ -54,7 +54,9 @@ const userRoutes: FastifyPluginAsyncZod = async (app) => {
       return reply.code(200).send(null);
     }
 
-    return reply.send({ login: user.login, id: user.id });
+    // The role travels so a screen can offer only what the server will allow.
+    // It is never the authority; see `AuthUser.role`.
+    return reply.send({ login: user.login, id: user.id, role: user.role ?? "member" });
   });
 
   app.post(
