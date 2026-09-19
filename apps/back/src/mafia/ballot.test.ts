@@ -84,6 +84,7 @@ function table(): { state: MafiaState; cast: (number | 'skip' | null)[]; driver:
     action: () => ({ ok: true }),
     dayAction: () => ({ ok: true }),
     will: () => ({ ok: true }),
+    whisper: () => ({ ok: true }),
     busy: () => undefined,
     get: () => state
   });

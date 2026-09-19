@@ -41,6 +41,7 @@ const hooks = {
   action: () => ({ ok: true as const }),
   dayAction: () => ({ ok: true as const }),
   will: () => ({ ok: true as const }),
+  whisper: () => ({ ok: true as const }),
   busy: () => undefined,
   get: () => undefined
 };

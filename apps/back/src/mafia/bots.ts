@@ -116,6 +116,14 @@ interface BotHooks {
   ) => ActionOutcome;
   /** What the town reads on the body. A bot that dies mute helps nobody. */
   will: (code: string, botId: string, text: string) => ActionOutcome;
+  /**
+   * A word said to one seat. The square sees the gesture, never the content.
+   *
+   * Refusals are ordinary here: the other seat may have died between the
+   * decision and the delivery, and a whisper nobody can receive is simply not
+   * sent. See `worthWhispering`.
+   */
+  whisper: (code: string, botId: string, targetSlot: number, text: string) => ActionOutcome;
   get: (code: string) => MafiaState | undefined;
   /**
    * Which machinery is running, for the screens.
@@ -198,6 +206,8 @@ export interface Decision {
   jailSlot?: number | null;
   /** Mayor only: put the sash on today. */
   revealMayor?: boolean;
+  /** A word for one seat rather than the room. See `worthWhispering`. */
+  whisper?: { toSlot: number; role: RoleId } | null;
   /**
    * The seat a private line is about, when the turn talks and does not act.
    *
@@ -4451,6 +4461,23 @@ export class MafiaBotDriver {
      */
     if (task === 'defense' && decision.revealMayor) this.hooks.dayAction(code, botId, { type: 'reveal' });
 
+    /**
+     * The aside, said to one seat.
+     *
+     * Outside the day block because the square is not the only room a turn can
+     * reach, and refused silently: the listener may have died between the
+     * decision and this line, and a whisper nobody can receive is simply not a
+     * whisper. The phrasebook writes it — a private sentence is short, its
+     * content is one word, and none of it is worth a model call.
+     */
+    if (decision.whisper) {
+      const { toSlot, role } = decision.whisper;
+      const t = say(spokenLocale(state));
+      const salt = botId + ':whisper:' + String(toSlot);
+      const text = t(vary('mafia.bot.whisper.role', 4, salt, { role: ROLE.name(role) }));
+      this.hooks.whisper(code, botId, toSlot, text);
+    }
+
     if (task === 'day' || task === 'react') {
       /**
        * The two day powers, taken before the vote.
@@ -5442,7 +5469,8 @@ export class MafiaBotDriver {
         verdict: null,
         claim: null,
         jailSlot: day.jailSlot,
-        revealMayor: day.revealMayor
+        revealMayor: day.revealMayor,
+        whisper: day.whisper
       };
     }
 
@@ -5666,7 +5694,8 @@ export class MafiaBotDriver {
         verdict: null,
         claim: null,
         jailSlot: day.jailSlot,
-        revealMayor: day.revealMayor
+        revealMayor: day.revealMayor,
+        whisper: day.whisper
       };
     }
 
@@ -5701,7 +5730,8 @@ export class MafiaBotDriver {
             }
           : null,
       jailSlot: day.jailSlot,
-      revealMayor: day.revealMayor
+      revealMayor: day.revealMayor,
+        whisper: day.whisper
     };
   }
 
