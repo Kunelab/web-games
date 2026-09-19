@@ -195,6 +195,7 @@ export {
   makePersonality,
   parityPressure,
   provenLiar,
+  rivalThreat,
   steadyVote,
   suspicion,
   suspicionParts,

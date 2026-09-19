@@ -159,10 +159,22 @@ export function screen(text: string): Screened {
   let injection = false;
 
   for (const pattern of INJECTION) {
-    if (pattern.test(out)) {
-      injection = true;
-      out = out.replace(pattern, '⟨removed: an instruction aimed at you, not at the table⟩');
-    }
+    if (!pattern.test(out)) continue;
+    injection = true;
+    /**
+     * Every occurrence, not the first one.
+     *
+     * The patterns are written without `g` so that `test` above stays
+     * stateless, and `replace` without `g` neutralises exactly one match. A
+     * line that says "ignore all previous instructions" twice therefore had the
+     * second copy passed through to the model intact, which is the whole of
+     * what this function exists to prevent, and repeating yourself is the first
+     * thing anybody tries when the first attempt visibly did nothing.
+     */
+    out = out.replace(
+      new RegExp(pattern.source, `${pattern.flags}g`),
+      '⟨removed: an instruction aimed at you, not at the table⟩'
+    );
   }
 
   const explicit = EXPLICIT.test(out);
@@ -180,9 +192,4 @@ export function screen(text: string): Screened {
   if (out.length > CAP) out = `${out.slice(0, CAP)}…`;
 
   return { text: out, injection, explicit };
-}
-
-/** Screens a run of lines, keeping only what a prompt should carry. */
-export function screenAll<T extends { text: string }>(lines: readonly T[]): (T & Screened)[] {
-  return lines.map((line) => ({ ...line, ...screen(line.text) }));
 }

@@ -88,8 +88,8 @@ import {
 import { JURY_FORMAT, JURY_RULES, juryPrompt, readJury, type JuryLean } from './jury.js';
 import { screen } from './guard.js';
 import { MOUTH_FORMAT, mouthPrompt, mouthRules, readLine, SAY_CHARS, type Intent } from './mouth.js';
-import { readSquare, utterance, type SquareClaim } from './square.js';
-import { fumble, protectedWords } from './typos.js';
+import { nightNamed, readSquare, utterance, type SquareClaim } from './square.js';
+import { fumble, protectedWords, punctuates, unpunctuated } from './typos.js';
 
 /**
  * The town's extras: LLM-driven players that fill the empty seats.
@@ -1955,6 +1955,21 @@ export class MafiaBotDriver {
     const ear = this.earTimer.get(state.code);
     if (ear) clearTimeout(ear);
     this.earTimer.delete(state.code);
+    /**
+     * And the replies somebody was owed in the phase that has just ended.
+     *
+     * The loop above cancels their timers and used to leave the entries behind,
+     * which is not a leak but is worse: `replyLater` reads `first` off the
+     * stale entry to work out the ceiling, so the *next* time that seat was
+     * named the ceiling was already in the past and the reply fired at the
+     * 60 ms floor. A seat that answers a person a tenth of a second after they
+     * press enter has not read the sentence, and it is the one place at this
+     * table where being fast looks worst. `holdReplies` swaps a timer into the
+     * same entry without registering it above, so this is also what cancels
+     * one of those when the phase turns.
+     */
+    for (const waiting of this.replies.get(state.code)?.values() ?? []) clearTimeout(waiting.timer);
+    this.replies.delete(state.code);
 
     if (state.phase === 'lobby' || state.phase === 'ended') return;
 
@@ -2670,9 +2685,7 @@ export class MafiaBotDriver {
          * the board can hold a reading without betting a rope on it.
          */
         confidence: 0.65,
-        ...(claim.claimedRole ? { claimedRole: claim.claimedRole } : {}),
-        ...(claim.account ? { account: claim.account } : {}),
-        ...(claim.ailment ? { ailment: claim.ailment } : {})
+        ...saidFields(claim)
       });
     }
 
@@ -2832,11 +2845,19 @@ export class MafiaBotDriver {
       const filed: SquareClaim[] = [];
       for (const line of player.lastWill.split(/[\n\r]+/).slice(0, 12)) {
         if (!line.trim()) continue;
+        /**
+         * The night this entry is about, taken from the entry itself.
+         *
+         * A will is a list of nights and each line opens with its own; without
+         * it every claim in a six-night will was filed as though it were about
+         * last night. See `nightNamed`, and `Claim.night` for why the field
+         * exists at all.
+         */
+        const night = nightNamed(line);
         for (const claim of readSquare(line, player.slot, seats, { implicitSelf: true })) {
           this.minds.record(state, player.playerId, claim.kind, claim.targetSlot, {
-            ...(claim.claimedRole ? { claimedRole: claim.claimedRole } : {}),
-            ...(claim.account ? { account: claim.account } : {}),
-            ...(claim.ailment ? { ailment: claim.ailment } : {})
+            ...(night !== null ? { night } : {}),
+            ...saidFields(claim)
           });
           filed.push(claim);
         }
@@ -3699,11 +3720,25 @@ export class MafiaBotDriver {
       const drafted = Date.now();
       const decision = this.scripted(state, botId, task, channel, round);
       const sayChannel = decision.say ? this.sayChannelFor(state, botId, task, channel) : null;
+      /**
+       * Is the door of that room actually open right now?
+       *
+       * `mayWriteIn` says it is "most of a second saved on every turn that was
+       * never going to be said", and it was not being asked until `apply`, by
+       * which time the second had been spent: a gagged seat, or one drafting a
+       * day line while the stand has the floor, paid for a whole mouth call to
+       * have the line thrown away on arrival. `apply` still asks again, because
+       * a room that was open when this turn was drafted may have shut while the
+       * model was writing; this is the half that stops the call being made at
+       * all.
+       */
+      const openRoom = sayChannel !== null && this.mayWriteIn(state, botId, sayChannel);
       const worthAModel =
         !busy &&
         !!decision.intent &&
         !!decision.say &&
         sayChannel !== null &&
+        openRoom &&
         this.deservesModel(state, botId, task, decision, sayChannel);
 
       /**
@@ -3748,7 +3783,9 @@ export class MafiaBotDriver {
                 ? 'nothing to say'
                 : sayChannel === null
                   ? 'no room to say it in'
-                  : 'not worth a model',
+                  : !openRoom
+                    ? 'the room is shut to this seat'
+                    : 'not worth a model',
         ms: Date.now() - drafted
       });
 
@@ -4441,11 +4478,24 @@ export class MafiaBotDriver {
          * twice. Names are handed over protected: a mistyped house is a
          * different accusation, not a typo.
          */
+        /**
+         * And the other half of how a line is typed rather than printed.
+         *
+         * `punctuates` and `unpunctuated` were written for this call and never
+         * reached it, so the habit they describe never existed: every bot line
+         * in every game ended in a tidy full stop, all of them, which is a tell
+         * a person spots in one afternoon and no human table has ever looked
+         * like. Decided once per seat off its id, so it is a habit and not a
+         * per-message coin flip, and applied where the typing mistakes are
+         * applied, after the floor has passed the line: the room's
+         * no-verbatim-repeats check still compares what the seat meant to say.
+         */
+        const typed = punctuates(botId) ? text : unpunctuated(text);
         const posted = this.hooks.chat(
           code,
           botId,
           sayChannel,
-          fumble(text, spokenLocale(state), botId + ':' + state.day + ':' + text, this.namesAt(state))
+          fumble(typed, spokenLocale(state), botId + ':' + state.day + ':' + text, this.namesAt(state))
         );
         if (posted.ok) {
           /**
@@ -5857,8 +5907,17 @@ export class MafiaBotDriver {
      * always produces exactly three lines per hanging is a square with a
      * quota. Fixed per house per day, so a seat that keeps quiet about it
      * keeps quiet all afternoon.
+     *
+     * One to three, never nought. `% 3` gave nought a third of the time, and
+     * nought voices is not one of the afternoons described above: `seconds` is
+     * nought as well when nobody has spoken yet, so the test caught the *first*
+     * seat to name the house and the wagon then formed in complete silence.
+     * Which is the single thing this file works hardest to prevent everywhere
+     * else, and it was happening to a third of the hangings in the game: the
+     * tally moved, nobody said why, and the claim never reached the board
+     * either, because a line refused here files nothing. See `apply`.
      */
-    const allowed = voting === null ? 0 : hashCode(state.code + ':echo:' + state.day + ':' + voting) % 3;
+    const allowed = voting === null ? 0 : 1 + (hashCode(state.code + ':echo:' + state.day + ':' + voting) % 3);
     const following =
       seconds >= allowed &&
       consistent?.kind === 'accuse' &&
@@ -8132,19 +8191,6 @@ export class MafiaBotDriver {
   }
 
   /**
-   * What a seat says when the room starts pointing at it, before any trial.
-   *
-   * Deliberately not an argument: at this stage the seat does not know what it
-   * is accused of, and a paragraph of exculpatory detail from somebody nobody
-   * has questioned reads as guilt. It is a demand to be told, which is what
-   * pushes the accusers into saying something the board can hold them to.
-   */
-  private pressureLine(state: MafiaState, botId: string): string {
-    const t = say(spokenLocale(state));
-    return t(msg('mafia.bot.pressure.' + (1 + (hashCode(botId + ':' + state.day) % 12))));
-  }
-
-  /**
    * Two seconds at the stand, or from the bench beside it.
    *
    * From the bench it is a mutter and always was. On the stand it used to be a
@@ -9152,8 +9198,20 @@ export class MafiaBotDriver {
       for (const entry of this.fakeIntel(state, player.playerId, mind.mask, death.day)) {
         const claim = this.claimFor(entry);
         if (!claim || claim.slot === null) continue;
+        /**
+         * The night the page is about, said in both fields rather than one.
+         *
+         * `day` carries the night here, which is the convention a testament has
+         * always used and what `record` deduplicates on. `night` was left to
+         * `record`'s fallback, which stamps the night before *today*, so the two
+         * fields on the same claim named two different nights: a liar's
+         * notebook page about night 2, filed on day 6, was read out by `why`
+         * and `sentence` as night 5. A record that contradicts itself is worse
+         * than a lie, because it convicts the seat that quoted it.
+         */
         this.minds.record(state, player.playerId, claim.kind, claim.slot, {
           day: entry.night,
+          night: entry.night,
           ...(claim.account ? { account: claim.account } : {})
         });
       }
@@ -9469,12 +9527,29 @@ export class MafiaBotDriver {
      * with a perfectly good model behind it looked like a dead rung.
      */
     const asked = `${rung}:${request.formatName ?? 'answer'}`;
-    const from = this.dialect.get(asked) ?? 0;
+    /**
+     * The remembered shape first, then the whole list from the top.
+     *
+     * The search used to resume at the shape *after* the remembered one, which
+     * is the right order only for the first walk. A slot whose model has been
+     * swapped under us starts refusing what it used to accept, and everything
+     * better than that shape sits in front of it in the list: the strict schema
+     * forms are the front half of `REQUEST_SHAPES` precisely because they are
+     * the ones worth asking for. Resuming past them meant a slot that once
+     * settled on a loose `json_object` could never be asked properly again, for
+     * the life of the process, even after the endpoint had learned how.
+     */
+    const remembered = this.dialect.get(asked);
+    const order =
+      remembered === undefined
+        ? REQUEST_SHAPES.map((_, index) => index)
+        : [remembered, ...REQUEST_SHAPES.map((_, index) => index).filter((index) => index !== remembered)];
+
     let response: Response | null = null;
-    for (let form = from; form < REQUEST_SHAPES.length; form++) {
+    for (const form of order) {
       response = await send(REQUEST_SHAPES[form]);
       if (!UNDERSTOOD_NOTHING.has(response.status)) {
-        if (!this.dialect.has(asked)) {
+        if (this.dialect.get(asked) !== form) {
           this.dialect.set(asked, form);
           this.log.info(
             { rung, model: slot.model, schema: REQUEST_SHAPES[form].schema, quiet: REQUEST_SHAPES[form].quiet },
@@ -9485,7 +9560,7 @@ export class MafiaBotDriver {
       }
       // A remembered form that has started refusing is no longer remembered:
       // the model behind a slot can be changed under us.
-      if (form === from) this.dialect.delete(asked);
+      if (form === remembered) this.dialect.delete(asked);
     }
 
     if (!response) throw new RungError(`${rung} no usable request shape`);
@@ -9707,6 +9782,38 @@ function clip(text: string, limit: number): string {
 /** Is this a role that exists in this game? Guards the claims board. */
 function isKnownRole(role: string | null): role is string {
   return role !== null && role in ROLES;
+}
+
+/**
+ * Everything a line was read as carrying, not the three fields that came first.
+ *
+ * `readSquare` produces `urge`, `deniedRole` and `promise` as well, and for the
+ * kinds that carry them the field *is* the claim: an `urge` with nothing on it
+ * is read by `steadyVote` as `claim.urge === 'vote' ? 1 : -1`, so a person
+ * typing "we need to vote" was counted, at their own credibility, as asking the
+ * room for the day off. A `promise` with no `promise` never reaches the
+ * broken-promise deduction, and a `counter-claim` with no `deniedRole` never
+ * reaches the weight in `suspicionParts` written to read it.
+ *
+ * Worse than an ordinary missing field, because it could not be repaired
+ * later: `record` keys a claim by claimer, target, kind, day and room, so the
+ * stripped version filed here is exactly what the ear's own correct reading is
+ * then swallowed as a duplicate of. The instant reader poisoned the entry and
+ * held the door shut behind it.
+ *
+ * One function, used by both readers, so the next kind to grow a field cannot
+ * arrive on the board hollow in one path and whole in the other. The ear does
+ * the same thing inline in `listen`; that list is the shape this copies.
+ */
+function saidFields(claim: SquareClaim): Partial<Claim> {
+  return {
+    ...(claim.claimedRole ? { claimedRole: claim.claimedRole } : {}),
+    ...(claim.account ? { account: claim.account } : {}),
+    ...(claim.ailment ? { ailment: claim.ailment } : {}),
+    ...(claim.urge ? { urge: claim.urge } : {}),
+    ...(claim.deniedRole ? { deniedRole: claim.deniedRole } : {}),
+    ...(claim.promise ? { promise: claim.promise } : {})
+  };
 }
 
 /**

@@ -289,9 +289,18 @@ export class MafiaManager {
       stage: state.stage
     });
 
-    // The bots' ear reads the square when a person has spoken in it, not on a
-    // fixed clock; this is how it hears.
-    this.bots.onChat(state, result.message);
+    /**
+     * The bots' ear reads the square when a person has spoken in it, not on a
+     * fixed clock; this is how it hears.
+     *
+     * Not while the table is parked. `onVote` and `afterChange` both refuse to
+     * wake the bots on a paused table, for the reason stated there: the wait
+     * exists precisely so that nobody acts without the absentee. This one did
+     * not, so a person filling the silence woke the whole room to re-vote, to
+     * answer them and to spend model calls on lines the engine then refused,
+     * one per seat, for as long as the pause lasted.
+     */
+    if (!mafiaPaused(state)) this.bots.onChat(state, result.message);
     this.persistSoon(state);
     return { ok: true };
   }

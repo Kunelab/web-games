@@ -1716,6 +1716,114 @@ const FRIEND_ENOUGH = 2.4;
 const EMPTY_SIDE: ReadonlySet<number> = new Set<number>();
 
 /**
+ * Neutrals a family wants gone even though they are not killing anybody.
+ *
+ * The Witch steers somebody's knife every night and it is very often ours: a
+ * family that has had its kill sent into a Veteran's porch has lost a brother
+ * to a seat the town has no reason to touch. The Auditor dissolves a role
+ * outright, and the role it dissolves is as likely to be a Mafioso's as
+ * anybody's. Both are neutral, so `isEvilRole` says nothing about them and the
+ * town's arithmetic has no particular quarrel with either, which is exactly
+ * why the family has to carry this read itself.
+ *
+ * Deliberately short. The Jester and the Executioner both want a hanging and
+ * the family is happy to give them one; the Survivor and the Lover are nobody's
+ * problem; the Amnesiac is whatever it has not become yet. Adding those would
+ * turn "our rivals" into "everybody who is not town", which is the read the
+ * square already has.
+ */
+export const RIVAL_NEUTRALS: ReadonlySet<RoleId> = new Set<RoleId>(['witch', 'auditor']);
+
+/** What each rung of the rival read is worth. Certainty first. */
+const RIVAL_KNOWN = 2.5;
+const RIVAL_SAID = 2;
+const RIVAL_ARMOURED = 2;
+const RIVAL_SMELT = 1.2;
+
+/**
+ * How much a family wants that house hanged for belonging to somebody else.
+ *
+ * The families hunted the town and nothing but the town. A rival blade counted
+ * for exactly what the square happened to think of it, so a quiet Serial Killer
+ * or a Triad that had said nothing all game was, to a Mafioso, an ordinary
+ * neighbour to be weighed against the day's wagon — and the wagon usually won,
+ * because the wagon is on a townsperson and the bonus for joining it is real.
+ * Three sides raced to the same parity and only one of them was playing to
+ * remove the others.
+ *
+ * The rope is also the *right* tool, which is the part that makes this a day
+ * rule rather than a night one. Nearly everything worth calling a rival shrugs
+ * a knife off in the dark: a Godfather, a Dragon Head, a Serial Killer, an
+ * Arsonist. A family that decides at night to deal with one of them spends its
+ * kill and learns nothing it did not know. A hanging asks no such question, and
+ * it costs the family nothing but a vote it was going to cast anyway.
+ *
+ * Every rung is something this seat can actually know, and they are ordered by
+ * how sure it is. Nothing here reads a hidden role off the state: the record,
+ * the family's own examiner, the target's own mouth, this seat's own blunted
+ * knife, and a smell whose shortlist has nobody of ours in it. A seat the
+ * family knows nothing about scores nothing, which is the point, because the
+ * failure to avoid is a family that hangs a Citizen for being quiet and calls
+ * it a rival.
+ *
+ * `ours` is this seat's own side: the family, and whoever it is bound to. A
+ * bonded heart is not a rival however it wins, and hanging one is suicide.
+ */
+export function rivalThreat(
+  self: MafiaPlayer,
+  targetSlot: number,
+  info: PublicInfo,
+  ours: ReadonlySet<number>
+): number {
+  const family = self.role ? familyOf(self.role) : null;
+  if (family === null || targetSlot === self.slot || ours.has(targetSlot)) return 0;
+  if (!info.aliveSlots.includes(targetSlot)) return 0;
+
+  /** Somebody who wins without us, or who can take a night off us. */
+  const rival = (role: RoleId): boolean =>
+    (isEvilRole(role) && familyOf(role) !== family) || RIVAL_NEUTRALS.has(role);
+
+  /**
+   * The record signed for it, which is the one reading nobody can argue with,
+   * and the one the rest of the room is looking at too.
+   */
+  const proven = info.provenRoles.get(targetSlot);
+  if (proven) return rival(proven) ? RIVAL_KNOWN : 0;
+
+  /**
+   * Our own examiner read the card. This is what a Consigliere is *for*, and
+   * until now the answer only ever moved the night's knife.
+   */
+  const card = self.intel.find((entry) => entry.kind === 'role' && entry.targetSlot === targetSlot);
+  if (card && card.value in ROLES) return rival(card.value as RoleId) ? RIVAL_KNOWN : 0;
+
+  // They said it themselves, out loud, in front of everybody.
+  const said = info.claims
+    .filter((claim) => claim.kind === 'role-claim' && claim.claimerSlot === targetSlot && claim.claimedRole)
+    .pop();
+  if (said?.claimedRole && rival(said.claimedRole)) return RIVAL_SAID;
+
+  /**
+   * Our knife came back blunted off that door.
+   *
+   * Short list, and the family can cross its own leader off it, which nobody
+   * else at the table can do: what is left is very nearly all rival blades.
+   * Firsthand and unforgeable, so it counts as hard evidence the same way
+   * `suspicionParts` already counts it.
+   */
+  if (self.bounced?.includes(targetSlot)) return RIVAL_ARMOURED;
+
+  // A smell whose whole shortlist belongs to somebody else's side.
+  const smelt = self.intel.find((entry) => entry.kind === 'trade' && entry.targetSlot === targetSlot);
+  if (smelt) {
+    const shortlist = tradeSuspects(smelt.value, info.rolesInPlay);
+    if (shortlist.length > 0 && shortlist.every((role) => rival(role))) return RIVAL_SMELT;
+  }
+
+  return 0;
+}
+
+/**
  * Why a seat looks guilty, split into the two things that are not the same.
  *
  * `evidence` is what the board actually holds against them: an account that did
@@ -4057,12 +4165,30 @@ function pickVote(
   const possible = (pressure >= 0.6 || endgame) && !isMafiaSeat ? possibilitySet(self, info) : null;
   const pool = possible && possible.size > 0 ? candidates.filter((slot) => possible.has(slot)) : candidates;
 
+  /**
+   * This seat's own side, for the rival read below: the family it knows about,
+   * the teammates the view gave it, and whoever it is bound to.
+   */
+  const ours = new Set<number>([self.slot, ...teammates, ...familyKnownEvil]);
+
   const scored = pool
     .filter((slot) => !teammates.has(slot))
     .map((slot) => {
       const parts = suspicionParts(slot, self, info, rng);
-      const evidence = parts.evidence;
-      let score = parts.evidence + parts.wagon;
+      /**
+       * A blade that is not ours, which the family wants hanged whatever the
+       * square happens to think of it. See `rivalThreat`.
+       *
+       * Added to the evidence rather than to the score alone, because from this
+       * seat's side of the table it *is* evidence: our examiner read the card,
+       * our knife bounced off that door, they said it out loud. And to `hard`
+       * for the same reason `suspicionParts` counts a bounced knife as hard, so
+       * the hearsay floor below does not then refuse the one name at this table
+       * the family is actually sure about.
+       */
+      const rival = rivalThreat(self, slot, info, ours);
+      const evidence = parts.evidence + rival;
+      let score = evidence + parts.wagon;
       // A short shortlist is itself evidence: it must be one of you.
       if (possible && possible.size <= 3 && possible.has(slot)) score += 1;
 
@@ -4172,7 +4298,7 @@ function pickVote(
           score += 1.2;
         }
       }
-      return { slot, score, evidence, hard: parts.hard };
+      return { slot, score, evidence, hard: parts.hard + rival };
     })
     .sort((a, b) => b.score - a.score);
 
@@ -4596,7 +4722,19 @@ export function decideBallot(
     return rng() < stance.sacrificeAlly * 0.4 ? 'guilty' : 'abstain';
   }
   if (role === 'executioner' && (self.obsessionSlotHint ?? null) === accusedSlot) return 'guilty';
-  if (roleDef(role).faction === 'mafia') return 'guilty';
+  /**
+   * Any family, not only the one that was in the game first.
+   *
+   * This read `faction === 'mafia'`, which is twelve Triad roles and two Cult
+   * roles short of what it means: the branch above already handles a brother on
+   * the stand for all three families, and everybody else fell straight through
+   * this into the town's own reasoning — reasonable doubt, the defence weight,
+   * the lot. So a Triad enforcer sat in the booth weighing whether the case
+   * against a townsperson was really strong enough, and acquitted him, while
+   * its own side was trying to hang him. `familyOf` is the question this was
+   * always asking; every other seat in the tree already asks it that way.
+   */
+  if (familyOf(role) !== null) return 'guilty';
   if (role === 'jester') {
     if (styleOf(self, brain, rng) === 'scum') {
       /**

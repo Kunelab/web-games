@@ -31,7 +31,6 @@
  */
 import type { ChatMessage } from 'chat-core';
 import type { Claim, ClaimKind, MafiaState, RoleId } from 'mafia-core';
-import { ROLES } from 'mafia-core';
 
 import { roleFromName } from './asks.js';
 import { screen } from './guard.js';
@@ -242,18 +241,26 @@ export interface DroppedClaim {
     | 'unknown kind';
 }
 
-/** What a seat may say was done to it, as the board spells them. */
-const AILMENTS = new Set([
-  'poison',
-  'douse',
-  'healed',
-  'guarded',
-  'survived',
-  'silenced',
-  'blocked',
-  'controlled',
-  'bussed'
-]);
+/**
+ * What a seat may say was done to it, as the board spells them.
+ *
+ * Every entry of the schema's own enum, which is what this list has to be and
+ * was not: `jailed` was named in `HEARD_FORMAT`, spelled out in the rules the
+ * model reads, priced highest of the lot by `AILMENT_VALUE` and used by the
+ * `two-in-one-cell` deduction, and missing from here. So the one ailment in
+ * the game with a living witness to confirm it, the only thing said in that
+ * cell the jailor can check, was the one a person could not get onto the
+ * board: every "I was in the cell last night" was dropped as an unknown
+ * ailment, silently, all game.
+ *
+ * Read off the schema rather than written out twice, so the next kind added to
+ * the enum cannot go missing here the same way.
+ */
+const AILMENTS = new Set(
+  (HEARD_FORMAT.properties.claims.items.properties.ailment.enum as readonly (string | null)[]).filter(
+    (name): name is string => name !== null
+  )
+);
 
 /**
  * The lines this table's people have typed since the ear last looked.
@@ -616,12 +623,21 @@ export function readHeard(
           drop(entry, 'about themselves');
           continue;
         }
-        const denied = typeof entry.role === 'string' ? entry.role.toLowerCase() : null;
+        /**
+         * Resolved by name, like the role claim above and for the same reason.
+         *
+         * A lower-cased id is what the model answers with about as often as it
+         * answers "Médecin", because the roster it is handed is in the table's
+         * own language, and the badge is the entire content of this kind: a
+         * counter-claim with no `deniedRole` never reaches the weight in
+         * `suspicionParts` that exists to read it.
+         */
+        const denied = typeof entry.role === 'string' ? roleFromName(entry.role) : null;
         filed.push({
           claimerId: speaker.playerId,
           kind: 'counter-claim',
           targetSlot: about.slot,
-          ...(denied && denied in ROLES ? { deniedRole: denied as RoleId } : {})
+          ...(denied ? { deniedRole: denied } : {})
         });
         break;
       }
@@ -811,13 +827,23 @@ export function readRoomAsks(
     if (!speaker || speaker.isBot || !speaker.alive) continue;
 
     if (entry.kind === 'role-claim') {
-      const role = typeof entry.role === 'string' ? entry.role.toLowerCase() : null;
-      if (!role || !(role in ROLES) || !claimable.has(role)) continue;
+      /**
+       * By name, exactly as the square's own reader does it.
+       *
+       * The fix landed in `readHeard` and stopped here, so the private rooms
+       * kept the bug the note on `roleFromName` describes: the prompt hands the
+       * model a roster in the table's language, the model answers "Maître de
+       * loge", and a lower-cased id lookup throws it away. A badge claimed in a
+       * cell is the only currency that room has, and it was being dropped on
+       * every French table.
+       */
+      const role = typeof entry.role === 'string' ? roleFromName(entry.role) : null;
+      if (!role || !claimable.has(role)) continue;
       filed.push({
         claimerId: speaker.playerId,
         kind: 'role-claim',
         targetSlot: speaker.slot,
-        claimedRole: role as RoleId
+        claimedRole: role
       });
       continue;
     }

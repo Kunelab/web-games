@@ -102,6 +102,29 @@ export function utterance(
   return joined.length > MAX_UTTERANCE ? joined.slice(joined.length - MAX_UTTERANCE) : joined;
 }
 
+/**
+ * The night one line of a will is about, when it says.
+ *
+ * A will is a list and every entry of it opens with its night: "N1 stayed
+ * home", "night 3, checked 7, bad". The claims read out of those lines used to
+ * reach the board dated to *last* night whatever they said, because nothing
+ * filled in `Claim.night` and `record` falls back to the day it was filed on.
+ * So a Sheriff's night-two check, read out of its will on day six, was offered
+ * to the room as a night-five check, which is a sentence the room can go and
+ * disprove: the one source that was telling the truth, caught out by the
+ * driver's own arithmetic.
+ *
+ * The first marker in the line wins, because a will entry is about one night
+ * and names it first. Null when the line names none, and then the old guess is
+ * still the best available.
+ */
+export function nightNamed(text: string): number | null {
+  const found = /\b(?:n|nights?|nuits?)\s*[°º]?\s*(\d{1,2})\b/i.exec(fold(text));
+  if (!found) return null;
+  const night = Number(found[1]);
+  return Number.isInteger(night) && night >= 1 ? night : null;
+}
+
 /* ------------------------------- the cues -------------------------------- */
 
 /** Anybody talking about themselves. Weak on its own, which is why it is never alone. */

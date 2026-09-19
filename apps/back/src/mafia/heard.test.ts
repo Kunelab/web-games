@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import { addMafiaBot, createMafiaGame, joinMafia, startMafia, type MafiaState } from 'mafia-core';
 
-import { readHeard, type DroppedClaim } from './ear.js';
+import { HEARD_FORMAT, readHeard, type DroppedClaim } from './ear.js';
 
 /**
  * What the ear is allowed to put on the claims board.
@@ -175,5 +175,52 @@ describe('what the ear files', () => {
       []
     );
     assert.equal(filed.length, 1);
+  });
+
+  /**
+   * A seat saying it spent the night in the cell is the one ailment with a
+   * living witness: the jailor confirms it, or catches a liar. `AILMENTS` was
+   * written out by hand beside the schema and left `jailed` out of it, so the
+   * schema offered the model a word, the rules spelled out how to use it, the
+   * board priced it highest of the lot, and then the reader threw every one of
+   * them away as unknown. It is read off the schema now, and this is what says
+   * so the next time one is added.
+   */
+  it('accepts every ailment its own schema names', () => {
+    const state = table();
+    const self = Object.values(state.players).find((player) => !player.isBot)!;
+    const named = (HEARD_FORMAT.properties.claims.items.properties.ailment.enum as readonly (string | null)[]).filter(
+      (name): name is string => name !== null
+    );
+    assert.ok(named.includes('jailed'), 'the schema stopped offering the cell');
+
+    for (const ailment of named) {
+      const dropped: DroppedClaim[] = [];
+      const filed = readHeard(
+        state,
+        { claims: [{ speaker: self.slot, kind: 'ailing', ailment }] },
+        roles(state),
+        new Set(),
+        dropped
+      );
+      assert.equal(filed.length, 1, `${ailment} was dropped: ${JSON.stringify(dropped)}`);
+      assert.equal(filed[0]?.ailment, ailment);
+    }
+  });
+
+  /** And nothing it does not name. */
+  it('still refuses an ailment nobody can suffer', () => {
+    const state = table();
+    const self = Object.values(state.players).find((player) => !player.isBot)!;
+    const dropped: DroppedClaim[] = [];
+    const filed = readHeard(
+      state,
+      { claims: [{ speaker: self.slot, kind: 'ailing', ailment: 'haunted' }] },
+      roles(state),
+      new Set(),
+      dropped
+    );
+    assert.equal(filed.length, 0);
+    assert.equal(dropped[0]?.why, 'unknown ailment');
   });
 });

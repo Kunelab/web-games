@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { roleNamed, seatHits, selfClaim } from './asks.js';
-import { readSquare, type Seat } from './square.js';
+import { nightNamed, readSquare, type Seat } from './square.js';
 
 /** A table with the awkward names on it: an accent, a two-worder, a short one. */
 const SEATS: Seat[] = [
@@ -480,5 +480,30 @@ describe("a sheriff's will", () => {
    */
   it('still does not read backwards across a colon', () => {
     assert.deepEqual(read('Robin is scum: Ursula'), [{ kind: 'accuse', targetSlot: 12 }]);
+  });
+});
+
+/**
+ * Which night a line of a will is about.
+ *
+ * Nothing ever filled in `Claim.night`, so every claim read out of a six-night
+ * will was dated to the night before it was read: a Sheriff's night-two check,
+ * offered to the room on day six, came out as a night-five check. The room can
+ * check that and find it false, which hangs the one source that was telling the
+ * truth.
+ */
+describe('the night a will line names', () => {
+  it('reads the marker a record is written with', () => {
+    assert.equal(nightNamed('N3: checked Robin, clean'), 3);
+    assert.equal(nightNamed('night 1 stayed home'), 1);
+    assert.equal(nightNamed('Nuit 12, personne'), 12);
+    assert.equal(nightNamed('n2 watched 7'), 2);
+  });
+
+  it('and says nothing about a line that names none', () => {
+    assert.equal(nightNamed('stayed home'), null);
+    assert.equal(nightNamed('I told you what I knew while I could'), null);
+    // A bare house number is not a night: that is the whole of the confusion.
+    assert.equal(nightNamed('7 is lying'), null);
   });
 });

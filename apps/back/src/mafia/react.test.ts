@@ -192,3 +192,60 @@ describe('a person says something', () => {
     fixture.driver.stop();
   });
 });
+
+/**
+ * What a read line actually carries onto the board.
+ *
+ * The instant reader forwarded three fields and produced six. For the three it
+ * dropped, the field *is* the claim: an `urge` with nothing on it is read by
+ * `steadyVote` as `claim.urge === 'vote' ? 1 : -1`, so a person asking the room
+ * to vote was counted, at their own credibility, as asking for the day off.
+ *
+ * And it could not be repaired afterwards. `record` keys a claim by claimer,
+ * target, kind, day and room, so the hollow entry filed here was exactly what
+ * the ear's own correct reading was then swallowed as a duplicate of.
+ */
+describe('a read line keeps what it was read as', () => {
+  it('carries which way an urge was pushing', () => {
+    const fixture = table();
+    types(fixture, 'we need to vote today, no more skipping');
+
+    const urge = fixture.driver.ledger('TEST').find((claim) => claim.kind === 'urge');
+    assert.ok(urge, 'the push on the clock never reached the board');
+    assert.equal(urge.urge, 'vote', 'a call to vote was filed as a call to skip');
+    fixture.driver.stop();
+  });
+
+  it('carries the other direction too', () => {
+    const fixture = table();
+    types(fixture, "let's skip today, there is nothing here");
+
+    const urge = fixture.driver.ledger('TEST').find((claim) => claim.kind === 'urge');
+    assert.ok(urge, 'the push on the clock never reached the board');
+    assert.equal(urge.urge, 'skip');
+    fixture.driver.stop();
+  });
+
+  it('carries what a promise was a promise of', () => {
+    const fixture = table();
+    types(fixture, 'spare me and I will prove it tonight, I mean it');
+
+    const bet = fixture.driver.ledger('TEST').find((claim) => claim.kind === 'promise');
+    assert.ok(bet, 'the bet never reached the board');
+    assert.equal(bet.promise, 'night', 'a promise with nothing promised is never settled by dawn');
+    fixture.driver.stop();
+  });
+
+  it('carries which badge a counter-claim denies', () => {
+    const fixture = table();
+    const target = Object.values(fixture.state.players).find((player) => player.isBot && player.alive);
+    assert.ok(target);
+
+    types(fixture, `${target.slot} can't be the doctor`);
+
+    const denial = fixture.driver.ledger('TEST').find((claim) => claim.kind === 'counter-claim');
+    assert.ok(denial, 'the denial never reached the board');
+    assert.equal(denial.deniedRole, 'doctor', 'a denial with no badge on it is weighed as nothing');
+    fixture.driver.stop();
+  });
+});

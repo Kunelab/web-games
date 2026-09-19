@@ -24,6 +24,7 @@ import {
   losingClock,
   makeBrain,
   parityPressure,
+  rivalThreat,
   EVEN_TEMPERAMENT,
   steadyVote,
   styleOf,
@@ -1698,5 +1699,221 @@ describe("the shortlist an examiner’s line actually narrows to", () => {
       ["kidnapper", "interrogator"],
       "a roster that explains nothing allows everything: a shortlist is never cut to nothing",
     );
+  });
+});
+
+describe("a family in the booth", () => {
+  /**
+   * The booth read `faction === 'mafia'`, which is twelve Triad roles and two
+   * Cult roles short of what it meant. Everybody else fell through into the
+   * town's own reasoning — reasonable doubt, the defence weight, the lot — so a
+   * Triad enforcer sat there weighing whether the case against a townsperson
+   * was really strong enough, and acquitted him, while its own side was trying
+   * to hang him.
+   */
+  it("votes guilty on an outsider whatever family it belongs to", () => {
+    const state = table([
+      "citizen",
+      "enforcer",
+      "mafioso",
+      "doctor",
+      "sheriff",
+      "cultist",
+    ]);
+    const info = toPublicInfo(state, [], []);
+
+    for (const slot of [2, 3, 6]) {
+      const self = playerBySlot(state, slot)!;
+      const brain = makeBrain(slot, DEFAULT_PROFILE);
+      assert.equal(
+        decideBallot(self, brain, info, 1, new Set(), () => 0.5),
+        "guilty",
+        `a ${self.role} acquitted a stranger on the stand`,
+      );
+    }
+  });
+
+  /** And a brother on the stand is still the branch above, for all three. */
+  it("does not hang its own on a thin case", () => {
+    const state = table(["citizen", "enforcer", "enforcer", "doctor", "sheriff"]);
+    const info = toPublicInfo(state, [], []);
+    const self = playerBySlot(state, 2)!;
+    const brain = makeBrain(2, DEFAULT_PROFILE);
+    assert.notEqual(
+      decideBallot(self, brain, info, 3, new Set([3]), () => 0.9),
+      "guilty",
+    );
+  });
+});
+
+describe("the blades that are not ours", () => {
+  /**
+   * The families hunted the town and nothing but the town. A rival counted for
+   * exactly what the square happened to think of it, so a quiet Serial Killer
+   * was, to a Mafioso, an ordinary neighbour to be weighed against the day's
+   * wagon — and the wagon wins, because the wagon is on a townsperson. Three
+   * sides raced to the same parity and only one was playing to remove the
+   * others.
+   */
+  const board = (state: MafiaState): PublicInfo => toPublicInfo(state, [], []);
+
+  it("reads a rival off the family's own examiner", () => {
+    const state = table([
+      "mafioso",
+      "consigliere",
+      "serial-killer",
+      "citizen",
+      "doctor",
+      "witch",
+    ]);
+    const ours = new Set([1, 2]);
+    const self = playerBySlot(state, 2)!;
+
+    assert.equal(
+      rivalThreat(self, 3, board(state), ours),
+      0,
+      "a seat nothing is known about is not a rival",
+    );
+
+    self.intel = [
+      { night: 1, kind: "role", targetSlot: 3, value: "serial-killer" },
+    ];
+    assert.ok(
+      rivalThreat(self, 3, board(state), ours) > 0,
+      "the card the family paid a night to read moved nothing",
+    );
+
+    self.intel = [{ night: 1, kind: "role", targetSlot: 4, value: "citizen" }];
+    assert.equal(
+      rivalThreat(self, 4, board(state), ours),
+      0,
+      "a townsperson read correctly is not a rival",
+    );
+  });
+
+  /** The Witch kills nobody and costs the family brothers all the same. */
+  it("counts the neutrals that take a night off the family", () => {
+    const state = table([
+      "mafioso",
+      "consigliere",
+      "serial-killer",
+      "citizen",
+      "doctor",
+      "witch",
+    ]);
+    const self = playerBySlot(state, 2)!;
+    self.intel = [{ night: 1, kind: "role", targetSlot: 6, value: "witch" }];
+    assert.ok(rivalThreat(self, 6, board(state), new Set([1, 2])) > 0);
+  });
+
+  it("never reads one of ours as one of theirs", () => {
+    const state = table(["mafioso", "godfather", "serial-killer", "citizen"]);
+    const self = playerBySlot(state, 1)!;
+    self.intel = [{ night: 1, kind: "role", targetSlot: 2, value: "godfather" }];
+    assert.equal(
+      rivalThreat(self, 2, board(state), new Set([1, 2])),
+      0,
+      "a brother is not a rival however armoured he is",
+    );
+  });
+
+  it("says nothing at all to a seat with no family", () => {
+    const state = table(["citizen", "sheriff", "serial-killer", "doctor"]);
+    const self = playerBySlot(state, 2)!;
+    self.intel = [
+      { night: 1, kind: "role", targetSlot: 3, value: "serial-killer" },
+    ];
+    assert.equal(
+      rivalThreat(self, 3, board(state), new Set([2])),
+      0,
+      "this is the family's read and nobody else's",
+    );
+  });
+
+  /**
+   * And the whole point of it: the rope reaches the seats the knife cannot.
+   * Nearly everything worth calling a rival shrugs a knife off in the dark, so
+   * the day vote is the only tool a family has against one.
+   */
+  /**
+   * The ballot, where the read has to actually beat something.
+   *
+   * A family knife that comes back blunted off a door is the narrowest thing a
+   * Mafioso can know and the one the town can never hold: almost everything
+   * wearing armour at night is a rival blade, and the family can cross its own
+   * leader off the list. It was worth 1.2 and lost to any wagon the town had
+   * started, so the seat the family *knew* about went on living while the
+   * family helped hang a Citizen.
+   */
+  /**
+   * An afternoon arguing about house 4: three seats have said so out loud and
+   * `voters` of them have actually moved a ballot onto it.
+   */
+  const wagonOf = (
+    voters: number[],
+  ): { state: MafiaState; self: MafiaPlayer; claims: Claim[] } => {
+    const state = table(
+      [
+        "mafioso",
+        "consigliere",
+        "serial-killer",
+        "citizen",
+        "doctor",
+        "sheriff",
+        "lookout",
+      ],
+      4,
+    );
+    for (const voter of voters) state.votes[`s${voter}`] = "s4";
+    const claims = [5, 6, 7].map((accuser) =>
+      claim({ day: 4, claimerSlot: accuser, targetSlot: 4, kind: "accuse" }),
+    );
+    return { state, self: playerBySlot(state, 2)!, claims };
+  };
+
+  const votes = (fixture: {
+    state: MafiaState;
+    self: MafiaPlayer;
+    claims: Claim[];
+  }): number | null => {
+    const brain = makeBrain(2, DEFAULT_PROFILE);
+    bindPersonalities([brain]);
+    return decideDay(
+      fixture.self,
+      brain,
+      toPublicInfo(fixture.state, fixture.claims, []),
+      new Set([1]),
+      new Set([1]),
+      () => 0.5,
+    ).voteSlot;
+  };
+
+  it("pushes the rope at the door its knife bounced off", () => {
+    const blind = wagonOf([5]);
+    assert.equal(
+      votes(blind),
+      4,
+      "with nothing of its own, the family follows the room",
+    );
+
+    const knowing = wagonOf([5]);
+    knowing.self.bounced = [3];
+    assert.equal(
+      votes(knowing),
+      3,
+      "the family helped hang a townie with an armoured door in front of it",
+    );
+  });
+
+  /**
+   * And it is a preference, not an obsession. A wagon the town has nearly
+   * finished is the cheapest afternoon a family ever gets, and walking away
+   * from one to open a fresh case on a seat nobody else suspects costs more
+   * than it buys: the rival keeps until tomorrow, the free hanging does not.
+   */
+  it("still takes a hanging the town has nearly finished", () => {
+    const nearly = wagonOf([5, 6, 7]);
+    nearly.self.bounced = [3];
+    assert.equal(votes(nearly), 4);
   });
 });
