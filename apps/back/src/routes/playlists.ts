@@ -27,7 +27,7 @@ const playlistRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   app.post('/playlists', { schema: { body: playlistInputSchema } }, async (request, reply) => {
-    const created = await playlistService.create(request.body, request.currentUser.id);
+    const created = await playlistService.create(request.body, request.currentUser);
     return reply.code(201).send(created);
   });
 
@@ -36,13 +36,13 @@ const playlistRoutes: FastifyPluginAsyncZod = async (app) => {
     { schema: { params: idParamSchema, body: playlistInputSchema.partial() } },
     async (request, reply) => {
       // Visibility and ownership are different questions: a public playlist is
-      // readable by everyone and editable only by its owner.
-      const owned = await playlistService.isOwnedBy(request.params.id, request.currentUser.id);
-      if (!owned) {
+      // readable by everyone and editable only by its owner, or by an admin.
+      const mayEdit = await playlistService.mayEdit(request.params.id, request.currentUser);
+      if (!mayEdit) {
         throw app.httpErrors.notFound('Playlist introuvable');
       }
 
-      const updated = await playlistService.update(request.params.id, request.body, request.currentUser.id);
+      const updated = await playlistService.update(request.params.id, request.body, request.currentUser);
       if (!updated) {
         throw app.httpErrors.notFound('Playlist introuvable');
       }
@@ -58,7 +58,7 @@ const playlistRoutes: FastifyPluginAsyncZod = async (app) => {
    * What survives the copy is decided by the service.
    */
   app.post('/playlists/:id/duplicate', { schema: { params: idParamSchema } }, async (request, reply) => {
-    const result = await playlistService.duplicate(request.params.id, request.currentUser.id);
+    const result = await playlistService.duplicate(request.params.id, request.currentUser);
     if (!result) {
       throw app.httpErrors.notFound('Playlist introuvable');
     }
@@ -66,7 +66,7 @@ const playlistRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   app.delete('/playlists/:id', { schema: { params: idParamSchema } }, async (request, reply) => {
-    const deleted = await playlistService.remove(request.params.id, request.currentUser.id);
+    const deleted = await playlistService.remove(request.params.id, request.currentUser);
     if (!deleted) {
       throw app.httpErrors.notFound('Playlist introuvable');
     }

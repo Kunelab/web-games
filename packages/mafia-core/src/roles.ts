@@ -280,6 +280,56 @@ const L = {
   dirt: 'dirt'
 } as const;
 
+/* ----------------------------- the answer sheet ---------------------------- */
+
+/**
+ * Every role an investigator's trade line could be pointing at.
+ *
+ * The result of an examine is not a name, it is a *smell*: gunpowder, new rope,
+ * ink on the fingers. Several roles share each one, and which roles those are is
+ * public — the line is the same at every table. So the finding is a shortlist,
+ * and a shortlist is evidence in exactly the way a name is not: it narrows.
+ */
+export function rolesWithTrade(trade: string): RoleId[] {
+  return (Object.keys(ROLES) as RoleId[]).filter((role) => roleDef(role).investigated === trade);
+}
+
+/**
+ * Whether a badge can ever leave its own smell.
+ *
+ * An examiner reads a night, not a badge: the engine hands back the target's
+ * trade only for a seat that did something, and the quiet line for everybody
+ * else. A role with no night action at all therefore *never* produces the line
+ * written on its card, which makes those roles padding in every shortlist that
+ * lists them, and padding is not a neutral cost here. Four town badges sit on
+ * `hands` and none of them can act, so the one line in the game that is a
+ * guaranteed family leader was being read out as a six-way shrug with the Mayor
+ * at the top of it.
+ *
+ * The alert and the vest count: they name no house but they are a night's work,
+ * and the engine agrees with this function about that.
+ */
+export function canEmitTrade(role: RoleId): boolean {
+  return roleDef(role).nightAction !== null;
+}
+
+/**
+ * The shortlist as the room should actually read it: the roles that could have
+ * produced this line, at this table, on some night.
+ *
+ * Two crossings-off, and both are things a player could do from the two screens
+ * in front of them: the roster on the wall removes what was never dealt, and the
+ * role cards remove what cannot act. Empty for the quiet line, which is not a
+ * shortlist at all but the absence of one, and every caller has to say something
+ * different about that case rather than print three harmless names.
+ */
+export function tradeSuspects(trade: string, rolesInPlay?: ReadonlySet<RoleId>): RoleId[] {
+  if (trade === QUIET_TRADE) return [];
+  const able = rolesWithTrade(trade).filter(canEmitTrade);
+  const dealt = rolesInPlay ? able.filter((role) => rolesInPlay.has(role)) : able;
+  return dealt.length > 0 ? dealt : able;
+}
+
 const def = (role: RoleDef): RoleDef => role;
 
 export const ROLES: Record<RoleId, RoleDef> = {
@@ -575,8 +625,17 @@ export const ROLES: Record<RoleId, RoleDef> = {
     name: 'Ravisseur',
     faction: 'mafia',
     nightAction: 'kidnap',
-    // Three executions; the abduction itself is unlimited. See `optionalCharges`.
-    charges: 3,
+    /**
+     * One execution; the abduction itself is unlimited. See `optionalCharges`.
+     *
+     * Three made the cellar the mafia's second knife rather than its threat: a
+     * Ravisseur who blocks *and* kills three times over is doing the Parrain's
+     * job with none of the exposure, since the cell also shelters his victim from
+     * everything the town aims at them that night. One keeps what the role is for
+     * — taking a seat out of the night — and keeps the execution as the thing he
+     * has to choose the right moment for.
+     */
+    charges: 1,
     optionalCharges: true,
     description:
       'Enlève un joueur pour la nuit : injoignable, inoffensif, furieux — et peut l’exécuter dans sa cave.',

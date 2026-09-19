@@ -36,27 +36,58 @@ export function quizLedgerKey(player: { name: string; account?: string }): strin
   return player.account ? quizAccountKey(player.account) : player.name;
 }
 
-async function readStats(name: string): Promise<QuizCareerStats> {
-  const key = name.trim().toLowerCase();
-  const [row] = await db.select().from(quizCareers).where(eq(quizCareers.name, key)).limit(1);
-  if (!row) return emptyQuizStats();
+function parseStats(blob: string | undefined): QuizCareerStats {
+  if (blob === undefined) return emptyQuizStats();
   try {
-    return { ...emptyQuizStats(), ...(JSON.parse(row.stats) as Partial<QuizCareerStats>) };
+    return { ...emptyQuizStats(), ...(JSON.parse(blob) as Partial<QuizCareerStats>) };
   } catch {
     return emptyQuizStats();
   }
 }
 
-async function writeStats(name: string, stats: QuizCareerStats): Promise<void> {
+async function readStats(name: string): Promise<QuizCareerStats> {
   const key = name.trim().toLowerCase();
-  const payload = JSON.stringify(stats);
-  await db
-    .insert(quizCareers)
-    .values({ name: key, stats: payload, updated_at: new Date().toISOString() })
-    .onConflictDoUpdate({
-      target: quizCareers.name,
-      set: { stats: payload, updated_at: new Date().toISOString() }
-    });
+  const [row] = await db.select().from(quizCareers).where(eq(quizCareers.name, key)).limit(1);
+  return parseStats(row?.stats);
+}
+
+/**
+ * Reads a wallet, changes it and writes it back, all inside one transaction.
+ *
+ * A balance is the one number here that two things genuinely race for: a game
+ * banking its tokens and the shop taking some out can overlap to the millisecond,
+ * and the reads and writes used to be separate awaits with nothing holding them
+ * together. Both sides then read the same starting balance and the later write
+ * won outright — a credit could erase a purchase, or a purchase could hand back
+ * money that had been spent.
+ *
+ * better-sqlite3 is synchronous, so a transaction is genuinely the whole of the
+ * fix: nothing can interleave between the read and the write because there is no
+ * await for it to interleave at.
+ *
+ * `change` returns null to refuse, which rolls the whole thing back and writes
+ * nothing — that is how a debit against too small a balance declines without
+ * having to look before it leaps.
+ */
+function mutateStats<R>(name: string, change: (stats: QuizCareerStats) => R | null): R | null {
+  const key = name.trim().toLowerCase();
+
+  return db.transaction((tx) => {
+    const [row] = tx.select().from(quizCareers).where(eq(quizCareers.name, key)).limit(1).all();
+    const stats = parseStats(row?.stats);
+
+    const result = change(stats);
+    if (result === null) return null;
+
+    const payload = JSON.stringify(stats);
+    const stamp = new Date().toISOString();
+    tx.insert(quizCareers)
+      .values({ name: key, stats: payload, updated_at: stamp })
+      .onConflictDoUpdate({ target: quizCareers.name, set: { stats: payload, updated_at: stamp } })
+      .run();
+
+    return result;
+  });
 }
 
 export const quizCareerService = {
@@ -73,22 +104,28 @@ export const quizCareerService = {
    */
   async credit(name: string, points: number): Promise<QuizCareerStats> {
     const gained = Math.max(0, Math.floor(points));
-    const stats = await readStats(name);
-    if (gained === 0) return stats;
+    if (gained === 0) return readStats(name);
 
-    stats.tokens += gained;
-    stats.lifetime += gained;
-    await writeStats(name, stats);
-    return stats;
+    return (
+      mutateStats(name, (stats) => {
+        stats.tokens += gained;
+        stats.lifetime += gained;
+        return { ...stats };
+      }) ?? emptyQuizStats()
+    );
   },
 
   /** Spends, refusing rather than going negative. The caller has already priced it. */
   async debit(name: string, amount: number): Promise<{ ok: true; stats: QuizCareerStats } | { ok: false }> {
-    const stats = await readStats(name);
-    if (stats.tokens < amount) return { ok: false };
+    // The balance is tested inside the transaction, so the money is either there
+    // and taken or not there and refused, with nothing in between for a second
+    // caller to read.
+    const stats = mutateStats(name, (current) => {
+      if (current.tokens < amount) return null;
+      current.tokens -= amount;
+      return { ...current };
+    });
 
-    stats.tokens -= amount;
-    await writeStats(name, stats);
-    return { ok: true, stats };
+    return stats ? { ok: true, stats } : { ok: false };
   }
 };

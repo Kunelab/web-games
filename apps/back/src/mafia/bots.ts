@@ -25,6 +25,7 @@ import {
   isEvilRole,
   ROLE,
   ROLES,
+  staysHome,
   tradeSuspects,
   QUIET_TRADE,
   sheriffSuspects,
@@ -7925,22 +7926,43 @@ export class MafiaBotDriver {
      *
      * Oldest first, like the rest of the record. A will is read from night one.
      */
+    /**
+     * A night at home is not a journey, and must not be written as one.
+     *
+     * The Veteran's alert and the Survivor's vest visit nobody: the only slot
+     * the engine has to hand for either is the seat's own, so filed as a trip
+     * they produced a will that named its own author as the house it was going
+     * to. What the town wants from those two roles is which *night* the power
+     * was spent, which is what the record below says instead.
+     */
+    const homebound = staysHome(dealt);
+
     if (honest && tonight !== null && state.phase === 'night') {
-      const already = mind.went.find((trip) => trip.night === state.day);
-      if (!already) mind.went.push({ night: state.day, slot: tonight });
+      if (homebound) {
+        if (!mind.stayedIn.includes(state.day)) mind.stayedIn.push(state.day);
+      } else if (tonight !== self.slot && !mind.went.some((trip) => trip.night === state.day)) {
+        mind.went.push({ night: state.day, slot: tonight });
+      }
     }
-    const going = honest
-      ? [...mind.went]
-          .sort((left, right) => left.night - right.night)
-          .map((trip) =>
-            t(
-              vary('mafia.bot.dump.going', 3, botId + ':going:' + trip.night, {
-                night: trip.night,
-                who: nameOf(trip.slot)
-              })
-            )
-          )
-      : [];
+
+    const powerKey = ROLES[dealt].nightAction === 'vest' ? 'onVest' : 'onAlert';
+
+    const going = !honest
+      ? []
+      : homebound
+        ? [...mind.stayedIn]
+            .sort((left, right) => left - right)
+            .map((night) => t(vary(`mafia.bot.dump.${powerKey}`, 3, botId + ':home:' + night, { night })))
+        : [...mind.went]
+            .sort((left, right) => left.night - right.night)
+            .map((trip) =>
+              t(
+                vary('mafia.bot.dump.going', 3, botId + ':going:' + trip.night, {
+                  night: trip.night,
+                  who: nameOf(trip.slot)
+                })
+              )
+            );
 
     /**
      * The journal: who this seat thought was lying, day by day, and where it

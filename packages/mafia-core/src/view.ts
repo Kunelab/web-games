@@ -9,7 +9,7 @@ import {
   type LegalAction,
   type MafiaPresenceView
 } from './engine.js';
-import { ROLE } from './messages.js';
+import { ACTION, ROLE } from './messages.js';
 import { roleDef, type Faction, type RoleId } from './roles.js';
 import type { SlotToken } from './setups.js';
 import {
@@ -83,6 +83,27 @@ export interface MafiaPublicPlayer {
    * dark cannot agree on one if none of them can see the other two.
    */
   familyVotes: number;
+  /**
+   * What this ally has told the family they are doing tonight — in *my*
+   * projection only, and null in everybody else's.
+   *
+   * The family could already see each other's names and a count of knives on a
+   * house. What it could not see was who was holding any of them, or what the
+   * half of the family that does not kill was doing at all: a Consort spends her
+   * night deciding which town power to switch off, and until now the two people
+   * she is conspiring with could not tell whether she had chosen, let alone
+   * whom. Three people planning in the dark cannot plan if each can only see
+   * their own hands.
+   *
+   * Present for every living family ally who has a night power, decided or not:
+   * `targetSlot: null` is "has not said yet", which is the thing you most need
+   * to know while the clock runs. Null for everybody else — the viewer's own row
+   * included, because their own orders are already on their own screen.
+   *
+   * Night only. The orders are cleared at dawn, so a day projection would be a
+   * column of "has not decided" beside every ally.
+   */
+  allyIntent: { action: Msg; targetSlot: number | null; secondSlot: number | null } | null;
   /**
    * Known to all only after death or at the end, and only as far as the table's
    * `revealOnDeath` policy allows. Under `faction` the camp is named and these
@@ -339,8 +360,45 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
       }
     }
 
+    /**
+     * Every ally's order, by the hand holding it.
+     *
+     * Deliberately every night power and not only the knife, which is what
+     * `aim` above is for. The knife is one decision the family takes together;
+     * the rest of the night is four people spending their own powers, and those
+     * are exactly the ones nobody could see. A Blackmailer gagging the seat the
+     * Consort was about to block is two nights wasted, and neither of them could
+     * have known.
+     *
+     * The family, not the lodge: `isLodgeMate` also answers true for two masons,
+     * who are on the same side without being a family with a shared night, and
+     * whose powers are nobody's business but their own.
+     */
+    const intent = new Map<string, { action: Msg; targetSlot: number | null; secondSlot: number | null }>();
+
+    if (family !== null && state.phase === 'night') {
+      for (const other of players) {
+        if (other.playerId === viewerId || !other.alive || !other.role) continue;
+        if (playerFamily(other) !== family) continue;
+
+        const power = roleDef(other.role).nightAction;
+        if (!power) continue;
+
+        const chosen = state.nightActions[other.playerId];
+        const slotOf = (id: string | null | undefined): number | null =>
+          id ? (state.players[id]?.slot ?? null) : null;
+
+        intent.set(other.playerId, {
+          action: ACTION(power),
+          targetSlot: slotOf(chosen?.targetId),
+          secondSlot: slotOf(chosen?.secondTargetId)
+        });
+      }
+    }
+
     return {
       aim,
+      intent,
       roleOf: (other: MafiaPlayer): Msg | null =>
         other.playerId !== viewerId && other.role && isLodgeMate(self, other) ? ROLE.name(other.role) : null
     };
@@ -349,6 +407,7 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
   const side = viewer.kind === 'player' ? sideOf(viewer.playerId) : null;
   const familyAim = side?.aim ?? new Map<string, number>();
   const allyRoleOf = (player: MafiaPlayer): Msg | null => side?.roleOf(player) ?? null;
+  const allyIntentOf = (player: MafiaPlayer) => side?.intent.get(player.playerId) ?? null;
 
   /**
    * What the body says, per the table's policy.
@@ -394,6 +453,7 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
       votedSkip: votedId === SKIP_VOTE,
       allyRole: allyRoleOf(player),
       familyVotes: familyAim.get(player.playerId) ?? 0,
+      allyIntent: allyIntentOf(player),
       role: showRole ? player.role : null,
       roleName: showRole && player.role ? ROLE.name(player.role) : null,
       faction: showFaction && player.role ? roleDef(player.role).faction : null,

@@ -29,27 +29,62 @@ export function mafiaLedger(player: { name: string; account?: string }): string 
   return player.account ? `@${player.account}` : player.name;
 }
 
-async function readStats(name: string): Promise<MafiaCareerStats> {
-  const key = name.trim().toLowerCase();
-  const [row] = await db.select().from(mafiaCareers).where(eq(mafiaCareers.name, key)).limit(1);
-  if (!row) return emptyMafiaStats();
+function parseStats(blob: string | undefined): MafiaCareerStats {
+  if (blob === undefined) return emptyMafiaStats();
   try {
-    return { ...emptyMafiaStats(), ...(JSON.parse(row.stats) as Partial<MafiaCareerStats>) };
+    return { ...emptyMafiaStats(), ...(JSON.parse(blob) as Partial<MafiaCareerStats>) };
   } catch {
     return emptyMafiaStats();
   }
 }
 
-async function writeStats(name: string, stats: MafiaCareerStats): Promise<void> {
+/**
+ * A detached copy, for the "before" and "after" a reward is the difference of.
+ *
+ * `unlocked` is copied by hand: a shallow spread would leave both halves sharing
+ * the array, and the badge diff would find nothing new because the before had
+ * quietly gained tonight's badges too.
+ */
+function snapshot(stats: MafiaCareerStats): MafiaCareerStats {
+  return { ...stats, unlocked: [...stats.unlocked] };
+}
+
+async function readStats(name: string): Promise<MafiaCareerStats> {
   const key = name.trim().toLowerCase();
-  const payload = JSON.stringify(stats);
-  await db
-    .insert(mafiaCareers)
-    .values({ name: key, stats: payload, updated_at: new Date().toISOString() })
-    .onConflictDoUpdate({
-      target: mafiaCareers.name,
-      set: { stats: payload, updated_at: new Date().toISOString() }
-    });
+  const [row] = await db.select().from(mafiaCareers).where(eq(mafiaCareers.name, key)).limit(1);
+  return parseStats(row?.stats);
+}
+
+/**
+ * Reads a ledger, changes it and writes it back, all inside one transaction.
+ *
+ * Points are banked when a table ends and spent in the shop, and the two can
+ * overlap: across separate awaits both sides read the same balance and the later
+ * write won outright, so a table paying out could hand back points a purchase had
+ * just taken. better-sqlite3 is synchronous, so a transaction closes the window
+ * completely — there is no await between read and write to interleave at.
+ *
+ * `change` returns null to refuse, writing nothing.
+ */
+function mutateStats<R>(name: string, change: (stats: MafiaCareerStats) => R | null): R | null {
+  const key = name.trim().toLowerCase();
+
+  return db.transaction((tx) => {
+    const [row] = tx.select().from(mafiaCareers).where(eq(mafiaCareers.name, key)).limit(1).all();
+    const stats = parseStats(row?.stats);
+
+    const result = change(stats);
+    if (result === null) return null;
+
+    const payload = JSON.stringify(stats);
+    const stamp = new Date().toISOString();
+    tx.insert(mafiaCareers)
+      .values({ name: key, stats: payload, updated_at: stamp })
+      .onConflictDoUpdate({ target: mafiaCareers.name, set: { stats: payload, updated_at: stamp } })
+      .run();
+
+    return result;
+  });
 }
 
 /**
@@ -99,38 +134,45 @@ export const mafiaCareerService = {
       }
 
       const ledger = mafiaLedger(player);
-      const before = await readStats(ledger);
-      // A copy, or the comparison below would be a snapshot of itself: the badge
-      // diff asks what changed tonight, and it cannot ask that of one object.
-      const stats: MafiaCareerStats = { ...before, unlocked: [...before.unlocked] };
-      stats.points += gained;
-      stats.games += 1;
-      if (state.winners.some((winner) => winner.playerId === player.playerId)) {
-        stats.wins += 1;
-        /**
-         * A solo win is read off the scored entry, not off the winner's prose.
-         *
-         * It used to test `reason.includes('gagne seul')`, a sentence only the
-         * hanged Jester's line contains — so the Executioner, the last blade
-         * standing, the Arsonist, the Survivor, the lovers and every other seat
-         * that wins alone banked the points and never the tally.
-         */
-        if (earned.some((entry) => entry.reason === 'solo-win')) stats.soloWins += 1;
-      }
-      stats.kills += earned.filter((entry) => entry.reason === 'kill').length;
-      if (player.alive) stats.survived += 1;
-      await writeStats(ledger, stats);
 
-      rewards.push(
-        mafiaReward({
-          playerId: player.playerId,
-          name: player.name,
-          before,
-          after: stats,
-          gained,
-          total: stats.points
-        })
-      );
+      // The before/after pair is taken inside the transaction, so it describes
+      // this table's own payout rather than whatever the balance happened to be
+      // either side of an overlapping purchase.
+      const banked = mutateStats(ledger, (stats) => {
+        // A copy, or the comparison below would be a snapshot of itself: the badge
+        // diff asks what changed tonight, and it cannot ask that of one object.
+        const before = snapshot(stats);
+        stats.points += gained;
+        stats.games += 1;
+        if (state.winners.some((winner) => winner.playerId === player.playerId)) {
+          stats.wins += 1;
+          /**
+           * A solo win is read off the scored entry, not off the winner's prose.
+           *
+           * It used to test `reason.includes('gagne seul')`, a sentence only the
+           * hanged Jester's line contains — so the Executioner, the last blade
+           * standing, the Arsonist, the Survivor, the lovers and every other seat
+           * that wins alone banked the points and never the tally.
+           */
+          if (earned.some((entry) => entry.reason === 'solo-win')) stats.soloWins += 1;
+        }
+        stats.kills += earned.filter((entry) => entry.reason === 'kill').length;
+        if (player.alive) stats.survived += 1;
+        return { before, after: snapshot(stats) };
+      });
+
+      if (banked) {
+        rewards.push(
+          mafiaReward({
+            playerId: player.playerId,
+            name: player.name,
+            before: banked.before,
+            after: banked.after,
+            gained,
+            total: banked.after.points
+          })
+        );
+      }
     }
 
     return rewards;
@@ -143,11 +185,14 @@ export const mafiaCareerService = {
 
   /** Spends, refusing rather than going negative. The shop owns the price. */
   async spend(name: string, amount: number): Promise<{ ok: boolean; balance: number }> {
-    const stats = await readStats(name);
-    if (stats.points < amount) return { ok: false, balance: stats.points };
+    const spent = mutateStats(name, (stats) => {
+      if (stats.points < amount) return null;
+      stats.points -= amount;
+      return { balance: stats.points };
+    });
 
-    stats.points -= amount;
-    await writeStats(name, stats);
-    return { ok: true, balance: stats.points };
+    // Refused: report the balance as it stands, which is what the caller prices
+    // its "you are short by" message from.
+    return spent ? { ok: true, balance: spent.balance } : { ok: false, balance: await this.balance(name) };
   }
 };

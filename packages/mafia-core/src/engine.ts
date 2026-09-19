@@ -42,6 +42,7 @@ import {
   QUIET_TRADE,
   roleDef,
   ROLES,
+  tradeSuspects,
   type Faction,
   type FamilyId,
   type NightActionType,
@@ -62,6 +63,7 @@ import {
   pmChannel,
   seatPlayer,
   SKIP_VOTE,
+  tableRoleList,
   type SheriffVerdict,
   tablePresence,
   voteWeight,
@@ -73,6 +75,7 @@ import {
   type NightAction,
   type PointEntry,
 } from "./state.js";
+import { slotPool } from "./setups.js";
 
 /**
  * All mutation of a Mafia table. Every function validates against the state it
@@ -3339,7 +3342,19 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
           : acted
             ? shown.investigated
             : QUIET_TRADE;
-        notify(player, NOTE.tradeLine(target.name, line));
+        /**
+         * The shortlist is computed against this table's published roster, not
+         * against the whole census.
+         *
+         * That is what makes it worth printing. Gunpowder is a shrug in the
+         * abstract and a conviction at a table whose role list has no Vigilante,
+         * and the roster is on every screen — so this tells the examiner what a
+         * careful player could already have worked out, rather than handing them
+         * anything the room does not collectively hold. `tradeSuspects` also
+         * drops the roles that can never act, which is the other crossing-off a
+         * player could do from the role cards.
+         */
+        notify(player, NOTE.tradeLine(target.name, line, tradeSuspects(line, rosterRoles(state))));
         player.intel.push({
           night: state.day,
           kind: "trade",
@@ -4191,6 +4206,20 @@ function witchDuel(
 }
 
 /** True when the game just ended; the caller stops scheduling. */
+/**
+ * Every role this table's setup could have dealt.
+ *
+ * The published roster expanded through its categories, which is exactly the
+ * list `observe` builds for the bots — same source, same answer, so the
+ * shortlist a player reads and the one a bot reasons from cannot disagree.
+ * Computed per examine rather than cached: it is a handful of seats, once a
+ * night, for the one or two seats holding this power.
+ */
+function rosterRoles(state: MafiaState): ReadonlySet<RoleId> {
+  const seats = Object.keys(state.players).length;
+  return new Set(tableRoleList(state, seats).flatMap((token) => slotPool(token)));
+}
+
 export function checkVictory(
   state: MafiaState,
   now: number,

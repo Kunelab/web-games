@@ -110,6 +110,17 @@ export interface RevealView {
    * screen can say "trop haut" or "trop bas".
    */
   guesses?: { playerId: string; name: string; value: number; delta: number }[];
+  /**
+   * The recording this round is filed under in the shared library, if it is.
+   *
+   * Present only for a generated round that was kept, and only while it is still
+   * there. The host screen turns it into the one thing that can be done about a
+   * wrong answer at the moment somebody notices: the reveal is read out, the room
+   * says that is not the song, and the entry goes. Absent means there is nothing
+   * to throw away - the round came from somebody's own library, or it has already
+   * been purged - and the screen shows no button at all.
+   */
+  libraryCode?: string;
   roundScores: {
     playerId: string;
     name: string;

@@ -46,27 +46,64 @@ export class SqliteSessionStore implements SessionStore {
     }
   }
 
+  /**
+   * Reads a session, and is careful about which failures destroy one.
+   *
+   * The two are not the same and used to share a `catch`. A row whose JSON cannot
+   * be parsed is genuinely unusable, and dropping it is right — the browser gets a
+   * fresh session and notices nothing. A failure to *read* the table is a fact
+   * about the database, not about the row: under `SQLITE_BUSY`, or an I/O error on
+   * a tired disk, the old code deleted a perfectly good session and signed
+   * somebody out for a hiccup that had already passed.
+   *
+   * So only the parse drops the row, and it answers with no session rather than an
+   * error, because handing `@fastify/session` an error makes it `done(err)` — the
+   * hard 500 the comment here used to claim it was avoiding. A read failure is
+   * reported as what it is and touches nothing.
+   */
   get(sessionId: string, callback: CallbackSession): void {
+    let row;
     try {
-      const [row] = db.select().from(sessions).where(eq(sessions.sid, sessionId)).limit(1).all();
-
-      if (!row) {
-        callback(null, null);
-        return;
-      }
-
-      if (row.expiresAt <= Date.now()) {
-        db.delete(sessions).where(eq(sessions.sid, sessionId)).run();
-        callback(null, null);
-        return;
-      }
-
-      callback(null, JSON.parse(row.data) as Session);
+      [row] = db.select().from(sessions).where(eq(sessions.sid, sessionId)).limit(1).all();
     } catch (error) {
-      // A row we cannot parse is worse than no row: drop it so the player just
-      // gets a fresh session instead of a hard 500 on every request.
-      db.delete(sessions).where(eq(sessions.sid, sessionId)).run();
       callback(asError(error), null);
+      return;
+    }
+
+    if (!row) {
+      callback(null, null);
+      return;
+    }
+
+    if (row.expiresAt <= Date.now()) {
+      this.forget(sessionId);
+      callback(null, null);
+      return;
+    }
+
+    try {
+      callback(null, JSON.parse(row.data) as Session);
+    } catch {
+      // Unreadable, so it may as well not exist: drop it and let the caller
+      // start a new one.
+      this.forget(sessionId);
+      callback(null, null);
+    }
+  }
+
+  /**
+   * Deletes a row, swallowing a failure to do so.
+   *
+   * Used on the paths that have already decided to answer "no session". If the
+   * delete cannot happen the answer is unchanged and the row will age out on the
+   * sweep, so letting the error escape would only turn a recovered request into a
+   * failed one.
+   */
+  private forget(sessionId: string): void {
+    try {
+      db.delete(sessions).where(eq(sessions.sid, sessionId)).run();
+    } catch {
+      // See above.
     }
   }
 

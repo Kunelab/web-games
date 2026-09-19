@@ -1060,3 +1060,34 @@
   font-size: var(--text-xl);
   font-weight: 700;
 }
+
+/*
+ * The two ways to run the evening, side by side in the lobby.
+ *
+ * Laid out as a pair rather than as a checkbox because neither is the default:
+ * the same laptop is a television under a projector and a player on a kitchen
+ * table, and a toggle with an "off" state would quietly make one of them the
+ * normal answer. Wraps, because on a phone in portrait two buttons do not fit.
+ */
+.host-seat-pick {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/*
+ * The reveal's "this is wrong" affordance.
+ *
+ * Deliberately quiet and deliberately below the answer. It is a correction the
+ * room makes occasionally, not part of reading the answer out, and putting it
+ * anywhere it competes with the answer itself would have somebody press it by
+ * reflex on the way to "next".
+ */
+.host-flag {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}

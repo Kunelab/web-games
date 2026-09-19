@@ -386,6 +386,84 @@ describe("mafia engine", () => {
   });
 
   /**
+   * The examiner's finding is a shortlist, and now it says so.
+   *
+   * The line on its own ("carries strange herbs") is only information to
+   * somebody who has memorised which of sixty-three roles wear each smell, which
+   * made the power a reading test rather than a lead. Nothing here is a secret:
+   * the answer sheet is the same at every table and the roster is on the wall, so
+   * the note hands the examiner what two screens already entitled them to work
+   * out.
+   */
+  it("tells the examiner which roles the smell could be", () => {
+    const state = table([
+      "investigator",
+      "consort",
+      "citizen",
+      "godfather",
+      "doctor",
+      "escort",
+    ]);
+    // The published roster, which is what the shortlist is read against. In a
+    // real game the deal comes from this list; the fixture seats roles directly,
+    // so it has to say what the room would have been shown.
+    state.config.setup = {
+      mode: "custom",
+      slots: ["investigator", "consort", "citizen", "godfather", "doctor", "escort"],
+    };
+    advanceMafia(state, 0, lcg(1));
+    // The Consort spends her night on somebody, so she leaves a smell at all.
+    setNightAction(state, bySlot(state, 2).playerId, 3);
+    setNightAction(state, bySlot(state, 1).playerId, 2);
+    advanceMafia(state, 1, lcg(1));
+
+    const note = bySlot(state, 1).notifications.map(t).join(" | ");
+    assert.ok(note.includes("travaille la nuit"), note);
+    assert.ok(note.includes("Escorte de la famille"), note);
+    assert.ok(note.includes("Hôtesse"), note);
+  });
+
+  /**
+   * And the shortlist is this table's, not the whole census.
+   *
+   * That is the half that makes it worth printing: gunpowder is a shrug in the
+   * abstract and a conviction at a table whose published roster holds no
+   * Vigilante. A player reading the role list could cross the same names off.
+   */
+  it("crosses off roles this table never dealt", () => {
+    const state = table([
+      "investigator",
+      "mafioso",
+      "citizen",
+      "godfather",
+      "doctor",
+      "escort",
+    ]);
+    state.config.setup = {
+      mode: "custom",
+      slots: [
+        "investigator",
+        "mafioso",
+        "citizen",
+        "godfather",
+        "doctor",
+        "escort",
+      ],
+    };
+    advanceMafia(state, 0, lcg(1));
+    setNightAction(state, bySlot(state, 2).playerId, 3);
+    setNightAction(state, bySlot(state, 1).playerId, 2);
+    advanceMafia(state, 1, lcg(1));
+
+    const note = bySlot(state, 1).notifications.map(t).join(" | ");
+    assert.ok(note.includes("Mafioso"), note);
+    assert.ok(
+      !note.includes("Justicier"),
+      "no Vigilante on the roster, so it is not on the shortlist: " + note,
+    );
+  });
+
+  /**
    * A frame does not merely trip the needle, it aims it: the sheriff reads the
    * framer's own family, which is what makes the power worth a night.
    */

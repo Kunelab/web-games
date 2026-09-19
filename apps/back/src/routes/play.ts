@@ -26,6 +26,45 @@ const ASSET_USER_AGENT = 'KuneLabWebGames/0.3 (game asset proxy; https://github.
 /** Cap on a proxied image, so a hostile source cannot exhaust memory. */
 const MAX_ASSET_BYTES = 8 * 1024 * 1024;
 
+/**
+ * Reads a response body, giving up the moment it goes over the cap.
+ *
+ * `content-length` cannot be the cap on its own, which is what it used to be: a
+ * chunked response does not carry one, and a hostile one is free to understate
+ * it. Either way the old code went on to `arrayBuffer()` the whole body before
+ * measuring it, so the limit was enforced against bytes that were already in
+ * memory - which is the one thing it exists to prevent.
+ *
+ * Counting as the chunks arrive is what makes the number real. The stream is
+ * cancelled on the first chunk that crosses the line, so the connection closes
+ * rather than being politely drained.
+ */
+async function readCapped(body: ReadableStream<Uint8Array>, limit: number): Promise<Buffer | null> {
+  const reader = body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value === undefined) continue;
+
+      total += value.byteLength;
+      if (total > limit) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return Buffer.concat(chunks);
+}
+
 const playRoutes: FastifyPluginAsyncZod = async (app) => {
   /**
    * Starts a game from a playlist. Host-only, so this one needs a session.
@@ -177,13 +216,15 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
           throw app.httpErrors.unsupportedMediaType(`Type non autorisé : ${contentType || 'inconnu'}`);
         }
 
+        // Still read first, because a source that declares an honest length lets
+        // us refuse before opening the stream at all.
         const declaredLength = Number(upstream.headers.get('content-length') ?? '0');
         if (declaredLength > MAX_ASSET_BYTES) {
           throw app.httpErrors.payloadTooLarge('Image trop volumineuse');
         }
 
-        const body = Buffer.from(await upstream.arrayBuffer());
-        if (body.byteLength > MAX_ASSET_BYTES) {
+        const body = await readCapped(upstream.body, MAX_ASSET_BYTES);
+        if (!body) {
           throw app.httpErrors.payloadTooLarge('Image trop volumineuse');
         }
 

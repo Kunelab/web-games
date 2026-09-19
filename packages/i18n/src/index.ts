@@ -41,7 +41,20 @@ export interface Msg {
   p?: Record<string, MsgValue>;
 }
 
-export type MsgValue = string | number | Msg;
+/**
+ * A list renders as its members, joined.
+ *
+ * Added for the examiner's shortlist, which is a genuinely variable-length run
+ * of independently translated role names. The alternative was a catalogue key
+ * per length, or the engine joining pre-rendered words — and the engine picking
+ * a language is the one thing this whole design exists to prevent.
+ *
+ * Joined with a plain comma rather than with a conjunction. "a, b or c" needs to
+ * know which member is last and what the reader's language puts in front of it,
+ * which is a list formatter; the sentences that take a list here introduce it
+ * instead ("could be: ..."), where a comma is what a reader expects.
+ */
+export type MsgValue = string | number | Msg | readonly MsgValue[];
 
 /** Sugar for building one at a call site without the object noise. */
 export function msg(k: string, p?: Record<string, MsgValue>): Msg {
@@ -49,7 +62,7 @@ export function msg(k: string, p?: Record<string, MsgValue>): Msg {
 }
 
 function isMsg(value: MsgValue): value is Msg {
-  return typeof value === 'object' && value !== null && typeof value.k === 'string';
+  return typeof value === 'object' && value !== null && !isList(value) && typeof value.k === 'string';
 }
 
 export type Catalogue = Record<string, string>;
@@ -111,9 +124,28 @@ export function render(
   // Nested fragments are rendered first, in the same reader's languages.
   const flat: Record<string, string | number> = {};
   for (const [name, value] of Object.entries(message.p)) {
-    flat[name] = isMsg(value) ? render(value, primary, fallback, elide) : value;
+    flat[name] = renderValue(value, primary, fallback, elide);
   }
   return interpolate(pattern, flat, elide);
+}
+
+/**
+ * A list, for the narrowing.
+ *
+ * `Array.isArray` is declared as `arg is any[]`, which does not take a
+ * `readonly T[]` out of a union, so the else branch below would still think it
+ * might be holding one.
+ */
+function isList(value: MsgValue): value is readonly MsgValue[] {
+  return Array.isArray(value);
+}
+
+/** One interpolation value: a fragment, a list of them, or something already flat. */
+function renderValue(value: MsgValue, primary: Catalogue, fallback?: Catalogue, elide = false): string | number {
+  if (isList(value)) {
+    return value.map((item) => renderValue(item, primary, fallback, elide)).join(', ');
+  }
+  return isMsg(value) ? render(value, primary, fallback, elide) : value;
 }
 
 /**
