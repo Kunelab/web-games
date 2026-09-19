@@ -93,6 +93,15 @@ export const playEn: Catalogue = {
   "host.showAnswer": "Show the answer",
   "host.next": "Next",
   "host.skip": "Skip",
+  "host.flagWrong": "Wrong information",
+  "host.flagHint":
+    "This round was generated and kept in the shared library. If the answer is wrong, throw it out.",
+  "host.flagged": "Removed from the library.",
+  "host.seatPick": "This screen, tonight",
+  "host.seatPlaying": "I am playing here",
+  "host.seatScreen": "Screen only",
+  "host.seatHint":
+    "Playing here takes a seat at the table: the stage above, your answers below.",
   "host.playlistDone": "Playlist finished.",
   "host.backToPlaylists": "Back to the playlists",
   "host.finalStandings": "Final standings",

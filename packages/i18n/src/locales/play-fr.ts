@@ -87,6 +87,15 @@ export const playFr: Catalogue = {
   "host.showAnswer": "Montrer la réponse",
   "host.next": "Suivant",
   "host.skip": "Passer",
+  "host.flagWrong": "Info incorrecte",
+  "host.flagHint":
+    "Cette manche a \u00e9t\u00e9 g\u00e9n\u00e9r\u00e9e et gard\u00e9e dans la biblioth\u00e8que commune. Si la r\u00e9ponse est fausse, retirez-la.",
+  "host.flagged": "Retir\u00e9 de la biblioth\u00e8que.",
+  "host.seatPick": "Cet \u00e9cran, ce soir",
+  "host.seatPlaying": "Je joue ici",
+  "host.seatScreen": "\u00c9cran seulement",
+  "host.seatHint":
+    "En jouant ici, cet \u00e9cran prend une place \u00e0 la table : la sc\u00e8ne au-dessus, vos r\u00e9ponses en dessous.",
   "host.playlistDone": "Playlist finie.",
   "host.backToPlaylists": "Retour aux playlists",
   "host.finalStandings": "Classement final",

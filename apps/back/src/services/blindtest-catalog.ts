@@ -436,6 +436,45 @@ const pools = new Map<string, Pool>();
 /** In-flight fills, so ten rooms opening at once cause one fetch, not ten. */
 const filling = new Map<string, Promise<Pool>>();
 
+/**
+ * When each pool was last asked for, so a fill nobody is waiting for can stop.
+ *
+ * Interest is re-expressed continuously by everything that could want a pool and
+ * costs nothing to say: a live session asks `cachedPool` for every genre on every
+ * draw, and the setup screen's count polls every four seconds. So silence here is
+ * a real signal rather than an inference — nothing in the deployment wants this
+ * genre any more.
+ *
+ * The point is the model calls. A cold fill annotates its survivors in batches of
+ * twenty-five, one after another, and the endless blind test is what starts them:
+ * a room that quits leaves a fill running that will spend several minutes of
+ * somebody's API quota building a pool for a game that is over.
+ */
+const wantedAt = new Map<string, number>();
+
+/**
+ * How long a fill keeps going after the last time anybody asked for its pool.
+ *
+ * Comfortably longer than a round, because the ordinary rhythm of interest is one
+ * draw per round: the gap between two asks is the length of a song, not of an
+ * evening. Short enough that a fill outlives the room that wanted it by one batch
+ * or two rather than by its whole remaining length.
+ */
+const FILL_ABANDON_MS = 90_000;
+
+/** Says somebody still wants this pool. Cheap, and called from every reader. */
+function noteWanted(key: string): void {
+  wantedAt.set(key, Date.now());
+}
+
+/** Thrown by a fill that gave up because nothing was waiting for it any more. */
+class PoolAbandoned extends Error {
+  constructor(key: string) {
+    super(`pool fill abandoned: nothing has asked for "${key}" in ${FILL_ABANDON_MS}ms`);
+    this.name = 'PoolAbandoned';
+  }
+}
+
 /* ------------------------------------------------------------------ helpers */
 
 /**
@@ -639,6 +678,21 @@ async function fillPool(genre: Genre): Promise<Pool> {
   const thinSources: string[] = [];
 
   /**
+   * Stops the run if nothing has asked for this pool in a while.
+   *
+   * Throwing rather than returning what has been annotated so far, because a
+   * partial annotation is the one outcome that must not be kept: every candidate
+   * the model never reached would be dropped by `toEntry`, and the short pool
+   * that resulted would be cached as this genre's pool for the next twenty-four
+   * hours. `poolFor` turns the throw into the brief cache a failed fill gets, so
+   * the next room to ask for the genre starts a fresh, whole fill.
+   */
+  const checkpoint = (): void => {
+    const last = wantedAt.get(genre.id) ?? 0;
+    if (Date.now() - last > FILL_ABANDON_MS) throw new PoolAbandoned(genre.id);
+  };
+
+  /**
    * Searches first, because they are what keeps a genre alive.
    *
    * Each is one `search.list`, so a genre with three queries costs three hundred
@@ -691,7 +745,8 @@ async function fillPool(genre: Genre): Promise<Pool> {
   const annotations = await annotateCandidates(
     surviving.map((fact) => ({ videoId: fact.videoId, title: fact.title, channel: fact.channel })),
     genre.answerShape,
-    genre.label
+    genre.label,
+    checkpoint
   );
 
   // See toEntry: an empty result means no endpoint answered, which is a very
@@ -754,6 +809,9 @@ async function fillPool(genre: Genre): Promise<Pool> {
    */
   if (GENRES.some((other) => other.facetOf === genre.id)) {
     for (const entry of entries.slice(0, YEAR_CHECK_LIMIT)) {
+      // Eighty serialised lookups at roughly a second each: the same reason the
+      // annotation above can be cut short applies here, for the same abandoned room.
+      checkpoint();
       await enrich([entry]);
     }
   }
@@ -784,7 +842,13 @@ export function cachedPool(genreId: string): PoolEntry[] | null {
   const genre = genreById.get(genreId);
   if (!genre) return null;
 
-  const pool = pools.get(sourceGenreFor(genre).id);
+  const key = sourceGenreFor(genre).id;
+  // Asking is wanting, whatever the answer turns out to be: a draw that finds the
+  // pool missing wants it most of all, and that is the ask a running fill listens
+  // for. See `wantedAt`.
+  noteWanted(key);
+
+  const pool = pools.get(key);
   if (!pool || Date.now() - pool.fetchedAt >= POOL_TTL_MS) return null;
   return pool.entries;
 }
@@ -805,6 +869,7 @@ export async function poolFor(genreId: string): Promise<PoolEntry[]> {
 
   const source = sourceGenreFor(genre);
   const key = source.id;
+  noteWanted(key);
 
   const cached = pools.get(key);
   if (cached && Date.now() - cached.fetchedAt < POOL_TTL_MS) {

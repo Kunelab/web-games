@@ -28,8 +28,17 @@ export default function Host() {
   const { code = '' } = useParams<{ code: string }>();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  // Solo: this screen presents AND answers — no television, no second device.
-  const solo = params.get('solo') === '1';
+  /**
+   * Whether this screen is also a player.
+   *
+   * It used to be read straight off the URL and never changed, so the decision
+   * was made on the launch screen before the room existed — by somebody who did
+   * not yet know whether anybody else was coming. The query string is still where
+   * it starts, because "play alone" is a reasonable thing to click from the
+   * launcher, but it is a starting value now rather than a verdict: the lobby can
+   * flip it either way until the game begins.
+   */
+  const [solo, setSolo] = useState(() => params.get('solo') === '1');
   const { socket, connected, session, error, serverNow } = useGameSocket();
   const { t, locale } = useLocale();
 
@@ -37,6 +46,15 @@ export default function Host() {
   const [openError, setOpenError] = useState<string | null>(null);
   /** Whether the host has already asked an endless game to wind up. */
   const [stopping, setStopping] = useState(false);
+  /**
+   * The round whose library entry this screen just threw away.
+   *
+   * Kept so the button can be replaced by a word rather than by nothing: the
+   * server stops sending `libraryCode` the instant the row is gone, which would
+   * otherwise make the button vanish with no sign that pressing it did anything.
+   * Keyed by round id so it clears itself on the next one.
+   */
+  const [flagged, setFlagged] = useState('');
 
   // Re-runs on every reconnect: a fresh socket after a drop knows nothing, so
   // the television re-presents its token each time the line comes back.
@@ -225,9 +243,40 @@ export default function Host() {
                 </li>
               ))}
             </ul>
-            {/* Solo play seats this screen as a player, so the count above is
-                genuinely 1 and the button below is not disabled. */}
-            {solo && <p className="play-note">{t(msg('host.soloSeat'))}</p>}
+            {/*
+              Playing here, or only presenting.
+
+              Both are ordinary ways to run an evening and neither is the obvious
+              default: a laptop under a projector with six phones in the room is
+              a television, and the same laptop on a kitchen table with nobody
+              else there is a player. So it is asked rather than assumed, and it
+              is asked in the lobby, where the answer is actually knowable.
+
+              Taking the seat away is a kick rather than a quiet unmount. The
+              server keeps a seat through a disconnection on purpose - that is
+              what stops a locked phone losing its score - so leaving the panel
+              behind would leave this screen sitting in the player list as an
+              absent player, and the room would be waiting for it.
+            */}
+            <div className="stack-2" style={{ alignItems: 'center', textAlign: 'center' }}>
+              <p className="play-label">{t(msg('host.seatPick'))}</p>
+              <div className="host-seat-pick">
+                <Button variant={solo ? 'primary' : 'ghost'} onClick={() => setSolo(true)}>
+                  {t(msg('host.seatPlaying'))}
+                </Button>
+                <Button
+                  variant={solo ? 'ghost' : 'primary'}
+                  onClick={() => {
+                    setSolo(false);
+                    const seat = localStorage.getItem(`kune.player.${code}.id`);
+                    if (seat) socket?.emit('host:kick', { hostToken, playerId: seat });
+                  }}
+                >
+                  {t(msg('host.seatScreen'))}
+                </Button>
+              </div>
+              <p className="play-note">{t(msg(solo ? 'host.soloSeat' : 'host.seatHint'))}</p>
+            </div>
 
             <Button
               variant="primary"
@@ -326,6 +375,38 @@ export default function Host() {
                   </ul>
                 )}
                 <p className="play-note">{round.title}</p>
+                {/*
+                  The one moment a wrong generated answer can be caught.
+
+                  A round drawn by the model is kept in the shared library once it
+                  has been played, so the catalogue grows out of what rooms have
+                  actually heard. The reveal is also the only time anybody is in a
+                  position to say the answer is wrong - the room has just heard the
+                  clip and read what it was supposed to be - and before this there
+                  was nowhere to put that. The button is here and not on the phones
+                  because the catalogue is everybody's and the host is the one
+                  person in the room already arbitrating.
+
+                  It disappears once pressed, because the server drops
+                  `libraryCode` from the view the moment the entry is gone.
+                */}
+                {session.reveal?.libraryCode && (
+                  <div className="host-flag">
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setFlagged(session.reveal?.roundId ?? '');
+                        socket?.emit('host:flagRound', { hostToken });
+                      }}
+                    >
+                      {t(msg('host.flagWrong'))}
+                    </Button>
+                    <p className="play-note">{t(msg('host.flagHint'))}</p>
+                  </div>
+                )}
+                {!session.reveal?.libraryCode && flagged === session.reveal?.roundId && (
+                  <p className="play-note">{t(msg('host.flagged'))}</p>
+                )}
               </div>
             ) : (
               <div className="host-stage-content">

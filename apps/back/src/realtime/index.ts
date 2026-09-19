@@ -70,6 +70,7 @@ import { Server as SocketServer, type Socket } from 'socket.io';
 import { allowedOrigins } from '../env.js';
 import type { GameManager } from '../game/manager.js';
 import { buzz, isBuzzerRound, joinSession, revealChoices, submitAnswer, type SessionState } from '../game/session.js';
+import { purgeLibraryRound } from '../services/blindtest-library.js';
 import { careerKey, czCareerService } from '../services/cz-career-service.js';
 import { resultsService } from '../services/results-service.js';
 import type { MafiaManager } from '../mafia/manager.js';
@@ -602,6 +603,37 @@ export function registerRealtime(
       });
     });
 
+    /**
+     * The room says the reveal is wrong, and the library entry goes.
+     *
+     * Only ever acts on a generated round that is still filed: `libraryCodeOf`
+     * decides that and the screen only draws the button when it answered, but it
+     * is re-derived here rather than trusted from the payload, because a client
+     * that sent a code of its own choosing must not be able to delete an arbitrary
+     * row out of a catalogue everybody shares.
+     *
+     * The round on screen is left exactly as it is. It has been played, the points
+     * are settled, and rewriting the answers under a room in the middle of reading
+     * them would be a stranger thing to do than keeping a wrong one on screen for
+     * another twenty seconds. What changes is only what the next room will be dealt.
+     */
+    socket.on('host:flagRound', (payload) => {
+      withHost(payload?.hostToken, async (state) => {
+        const round = state.round;
+        if (!round || round.phase !== 'reveal' || round.mediaId >= 0 || round.libraryPurged) return;
+
+        const code = (round.payload as { code?: unknown } | null)?.code;
+        if (typeof code !== 'string' || !code) return;
+
+        await purgeLibraryRound(code);
+
+        // Marked whether or not a row was found: either way there is nothing left
+        // to throw away, and the button should stop offering to.
+        round.libraryPurged = true;
+        broadcast(state);
+      });
+    });
+
     socket.on('host:kick', (payload) => {
       withHost(payload?.hostToken, async (state) => {
         const playerId = typeof payload?.playerId === 'string' ? payload.playerId : '';
@@ -905,6 +937,15 @@ export function registerRealtime(
           const perks = await czCareerService.heroPerks(ledger).catch(() => []);
           const { hero } = joinHero(state, parsed.data.name, parsed.data.playerToken, perks, account ?? undefined);
           czAttach(state.code, { kind: 'player', playerId: hero.playerId });
+          /**
+           * The socket may have gone while the lookups above were out.
+           *
+           * `disconnect` fires in order, and it fired already - against a socket
+           * that was not attached to anything yet, so it found nothing to release
+           * and did nothing. Without this the seat stays lit for a phone that is not there, and the raid waits out its whole pause on somebody who left before they arrived.
+           */
+          if (!socket.connected) czHandleDisconnect(socket);
+
           const career = await czCareerService.forName(careerKey(hero)).catch(() => null);
           respond({
             ok: true,
@@ -1190,6 +1231,15 @@ export function registerRealtime(
           );
           mafiaAttach(state.code, { kind: 'player', playerId: player.playerId });
           mafia.markConnected(state.code, player.playerId, true);
+          /**
+           * The socket may have gone while the lookups above were out.
+           *
+           * `disconnect` fires in order, and it fired already - against a socket
+           * that was not attached to anything yet, so it found nothing to release
+           * and did nothing. Without this the seat is marked connected for a phone that is not there, and the table stops for it at the next phase rather than playing on.
+           */
+          if (!socket.connected) mafiaHandleDisconnect(socket);
+
           respond({
             ok: true,
             playerId: player.playerId,
@@ -1381,6 +1431,15 @@ export function registerRealtime(
           }
 
           attachQuick(outcome.lobby.code, memberId);
+          /**
+           * The socket may have gone while the lookups above were out.
+           *
+           * `disconnect` fires in order, and it fired already - against a socket
+           * that was not attached to anything yet, so it found nothing to release
+           * and did nothing. A lobby forgets a member the moment they go, so a ghost left behind here is worse than a lit seat: it holds the room above empty for ever, so the grace that closes an abandoned one never starts, and it counts against \`maxPlayers\` so the room looks full to everybody trying to get in.
+           */
+          if (!socket.connected) quickHandleDisconnect(socket);
+
           respond({
             ok: true,
             code: outcome.lobby.code,
@@ -1430,6 +1489,9 @@ export function registerRealtime(
           }
 
           attachQuick(outcome.lobby.code, memberId);
+          // Same race as `quick:join` above, same reason.
+          if (!socket.connected) quickHandleDisconnect(socket);
+
           respond({
             ok: true,
             code: outcome.lobby.code,

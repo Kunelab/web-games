@@ -55,27 +55,66 @@ export function accountKey(login: string): string {
   return `@${login}`;
 }
 
-async function readStats(name: string): Promise<CzCareerStats> {
-  const key = name.trim().toLowerCase();
-  const [row] = await db.select().from(czCareers).where(eq(czCareers.name, key)).limit(1);
-  if (!row) return emptyCareerStats();
+function parseStats(blob: string | undefined): CzCareerStats {
+  if (blob === undefined) return emptyCareerStats();
   try {
-    return { ...emptyCareerStats(), ...(JSON.parse(row.stats) as Partial<CzCareerStats>) };
+    return { ...emptyCareerStats(), ...(JSON.parse(blob) as Partial<CzCareerStats>) };
   } catch {
     return emptyCareerStats();
   }
 }
 
-async function writeStats(name: string, stats: CzCareerStats): Promise<void> {
+/**
+ * A detached copy, for the "before" and "after" a reward is the difference of.
+ *
+ * `fastestWinTurns` is copied by hand because it is the one nested object here,
+ * and a shallow spread would leave both halves of the pair sharing it — the
+ * before would silently gain the record the after just set.
+ */
+function snapshot(stats: CzCareerStats): CzCareerStats {
+  return { ...stats, fastestWinTurns: { ...stats.fastestWinTurns } };
+}
+
+async function readStats(name: string): Promise<CzCareerStats> {
   const key = name.trim().toLowerCase();
-  const payload = JSON.stringify(stats);
-  await db
-    .insert(czCareers)
-    .values({ name: key, stats: payload, updated_at: new Date().toISOString() })
-    .onConflictDoUpdate({
-      target: czCareers.name,
-      set: { stats: payload, updated_at: new Date().toISOString() }
-    });
+  const [row] = await db.select().from(czCareers).where(eq(czCareers.name, key)).limit(1);
+  return parseStats(row?.stats);
+}
+
+/**
+ * Reads a ledger, changes it and writes it back, all inside one transaction.
+ *
+ * Rations are spent from three places — two unlocks and the shop — and credited
+ * from a fourth when a raid ends. All four used to read, think, and write across
+ * separate awaits, so two of them overlapping both read the same balance and the
+ * later write won: a raid banking its rations could hand back rations the shop had
+ * just taken, and two unlocks bought at once cost the price of one.
+ *
+ * better-sqlite3 is synchronous, so the transaction is the whole of the fix: there
+ * is no await between the read and the write for anything to interleave at.
+ *
+ * `change` returns null to refuse, writing nothing — which is how a purchase the
+ * balance cannot cover declines without having to look before it leaps.
+ */
+function mutateStats<R>(name: string, change: (stats: CzCareerStats) => R | null): R | null {
+  const key = name.trim().toLowerCase();
+
+  return db.transaction((tx) => {
+    const [row] = tx.select().from(czCareers).where(eq(czCareers.name, key)).limit(1).all();
+    const stats = parseStats(row?.stats);
+
+    const result = change(stats);
+    if (result === null) return null;
+
+    const payload = JSON.stringify(stats);
+    const stamp = new Date().toISOString();
+    tx.insert(czCareers)
+      .values({ name: key, stats: payload, updated_at: stamp })
+      .onConflictDoUpdate({ target: czCareers.name, set: { stats: payload, updated_at: stamp } })
+      .run();
+
+    return result;
+  });
 }
 
 export const czCareerService = {
@@ -104,8 +143,6 @@ export const czCareerService = {
       // The account wins over the nickname when the phone is logged in: rations
       // belong to a person, not to whatever name he typed tonight.
       const ledger = careerKey(hero);
-      const before = await readStats(ledger);
-      const stats = { ...before, fastestWinTurns: { ...before.fastestWinTurns } };
       /**
        * A survivor who walked away banks what he earned and nothing more.
        *
@@ -115,64 +152,76 @@ export const czCareerService = {
        * follows him, or forfeiting would be the cheapest way to farm a victory.
        */
       const credited = won && !hero.forfeited;
-      // Rations are their own currency now, not the scoreboard — see `raidRations`
-      // for why one raid used to buy any character in the game.
-      stats.rations += raidRations({
-        turns: state.turn,
-        won: credited,
-        kills: hero.kills,
-        searches: hero.searches
+
+      // The before/after pair the reward is built from is taken inside the
+      // transaction, so it describes this raid's own credit rather than whatever
+      // the balance happened to be either side of an overlapping purchase.
+      const banked = mutateStats(ledger, (stats) => {
+        const before = snapshot(stats);
+        // Rations are their own currency now, not the scoreboard — see `raidRations`
+        // for why one raid used to buy any character in the game.
+        stats.rations += raidRations({
+          turns: state.turn,
+          won: credited,
+          kills: hero.kills,
+          searches: hero.searches
+        });
+        stats.raids += 1;
+        stats.wins += credited ? 1 : 0;
+        stats.deaths += hero.alive ? 0 : 1;
+        stats.escapes += hero.escaped ? 1 : 0;
+        stats.kills += hero.kills;
+        stats.bossKills += hero.bossKills;
+        stats.searches += hero.searches;
+        if (credited) {
+          const scenario = state.config.scenario;
+          const best = stats.fastestWinTurns[scenario];
+          stats.fastestWinTurns[scenario] = best === undefined ? state.turn : Math.min(best, state.turn);
+        }
+        return { before, after: snapshot(stats) };
       });
-      stats.raids += 1;
-      stats.wins += credited ? 1 : 0;
-      stats.deaths += hero.alive ? 0 : 1;
-      stats.escapes += hero.escaped ? 1 : 0;
-      stats.kills += hero.kills;
-      stats.bossKills += hero.bossKills;
-      stats.searches += hero.searches;
-      if (credited) {
-        const scenario = state.config.scenario;
-        const best = stats.fastestWinTurns[scenario];
-        stats.fastestWinTurns[scenario] = best === undefined ? state.turn : Math.min(best, state.turn);
-      }
-      await writeStats(ledger, stats);
 
       // What to show this player before they put the phone down.
-      rewards.push(
-        raidReward({
-          playerId: hero.playerId,
-          name: hero.name,
-          before,
-          after: stats,
-          roster: HEROES
-        })
-      );
+      if (banked) {
+        rewards.push(
+          raidReward({
+            playerId: hero.playerId,
+            name: hero.name,
+            before: banked.before,
+            after: banked.after,
+            roster: HEROES
+          })
+        );
+      }
     }
 
     if (state.config.mode === 'gm' && gmLogin) {
-      const key = accountKey(gmLogin);
-      const before = await readStats(key);
-      const stats = { ...before, fastestWinTurns: { ...before.fastestWinTurns } };
       const hordeWon = state.phase === 'lost';
-      stats.gmRaids += 1;
-      stats.gmWins += hordeWon ? 1 : 0;
       // Everything that ever stood on the board, seeds and summons included.
       const spawns = state.nextZombieId - 1;
-      stats.gmSpawns += spawns;
-      // The horde eats too: pressure applied is pressure paid.
-      stats.rations += gmRaidRations({ turns: state.turn, won: hordeWon, spawns });
-      await writeStats(key, stats);
 
-      rewards.push(
-        raidReward({
-          playerId: GM_REWARD_ID,
-          name: gmLogin,
-          before,
-          after: stats,
-          roster: GM_CLASSES,
-          gm: true
-        })
-      );
+      const banked = mutateStats(accountKey(gmLogin), (stats) => {
+        const before = snapshot(stats);
+        stats.gmRaids += 1;
+        stats.gmWins += hordeWon ? 1 : 0;
+        stats.gmSpawns += spawns;
+        // The horde eats too: pressure applied is pressure paid.
+        stats.rations += gmRaidRations({ turns: state.turn, won: hordeWon, spawns });
+        return { before, after: snapshot(stats) };
+      });
+
+      if (banked) {
+        rewards.push(
+          raidReward({
+            playerId: GM_REWARD_ID,
+            name: gmLogin,
+            before: banked.before,
+            after: banked.after,
+            roster: GM_CLASSES,
+            gm: true
+          })
+        );
+      }
     }
 
     return rewards;
@@ -181,17 +230,20 @@ export const czCareerService = {
   /** Spends rations on a survivor. Validates ownership and price server-side. */
   async unlockHero(name: string, heroId: string): Promise<{ ok: boolean; error?: string }> {
     const definition = heroDef(heroId);
-    if (!definition.cost) return { ok: true }; // Base roster: nothing to buy.
+    const cost = definition.cost;
+    if (!cost) return { ok: true }; // Base roster: nothing to buy.
 
-    const stats = await readStats(name);
-    if (stats.unlockedHeroes.includes(heroId)) return { ok: true };
-    if (stats.rations < definition.cost) {
-      return { ok: false, error: `Il faut ${definition.cost} rations (vous en avez ${stats.rations})` };
-    }
-    stats.rations -= definition.cost;
-    stats.unlockedHeroes.push(heroId);
-    await writeStats(name, stats);
-    return { ok: true };
+    const outcome = mutateStats(name, (stats) => {
+      if (stats.unlockedHeroes.includes(heroId)) return { ok: true as const, already: true };
+      if (stats.rations < cost) {
+        return { ok: false as const, error: `Il faut ${cost} rations (vous en avez ${stats.rations})` };
+      }
+      stats.rations -= cost;
+      stats.unlockedHeroes.push(heroId);
+      return { ok: true as const, already: false };
+    });
+
+    return outcome ?? { ok: false, error: 'Impossible' };
   },
 
   /** True when this nickname may play this survivor. */
@@ -205,17 +257,20 @@ export const czCareerService = {
   /** Spends the host's rations on a horde class. */
   async unlockGm(login: string, classId: string): Promise<{ ok: boolean; error?: string }> {
     const definition = gmClassDef(classId);
-    if (!definition.cost) return { ok: true };
+    const cost = definition.cost;
+    if (!cost) return { ok: true };
 
-    const stats = await readStats(accountKey(login));
-    if (stats.unlockedGm.includes(classId)) return { ok: true };
-    if (stats.rations < definition.cost) {
-      return { ok: false, error: `Il faut ${definition.cost} rations (vous en avez ${stats.rations})` };
-    }
-    stats.rations -= definition.cost;
-    stats.unlockedGm.push(classId);
-    await writeStats(accountKey(login), stats);
-    return { ok: true };
+    const outcome = mutateStats(accountKey(login), (stats) => {
+      if (stats.unlockedGm.includes(classId)) return { ok: true as const };
+      if (stats.rations < cost) {
+        return { ok: false as const, error: `Il faut ${cost} rations (vous en avez ${stats.rations})` };
+      }
+      stats.rations -= cost;
+      stats.unlockedGm.push(classId);
+      return { ok: true as const };
+    });
+
+    return outcome ?? { ok: false, error: 'Impossible' };
   },
 
   async gmClassAllowed(login: string, classId: string): Promise<boolean> {
@@ -234,12 +289,15 @@ export const czCareerService = {
    * decrement it in the same read-modify-write.
    */
   async spend(name: string, amount: number): Promise<{ ok: boolean; balance: number }> {
-    const stats = await readStats(name);
-    if (stats.rations < amount) return { ok: false, balance: stats.rations };
+    const spent = mutateStats(name, (stats) => {
+      if (stats.rations < amount) return null;
+      stats.rations -= amount;
+      return { balance: stats.rations };
+    });
 
-    stats.rations -= amount;
-    await writeStats(name, stats);
-    return { ok: true, balance: stats.rations };
+    // Refused: report the balance as it stands, which is what the caller prices
+    // its "you are short by" message from.
+    return spent ? { ok: true, balance: spent.balance } : { ok: false, balance: await this.balance(name) };
   },
 
   /** The spendable balance alone, without deriving trophies and perks for it. */

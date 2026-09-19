@@ -11,6 +11,7 @@ import {
   makeBrain,
   makePersonality,
   stanceOf,
+  staysHome,
   toPublicInfo,
   type Agenda,
   type Brain,
@@ -90,6 +91,19 @@ export interface BotMind {
    * A will is a record. Records are kept, not derived.
    */
   went: { night: number; slot: number }[];
+  /**
+   * Nights this seat spent at home spending its own power on itself.
+   *
+   * Kept apart from `went` because it is not a journey and must never be
+   * written down as one. The Veteran's alert and the Survivor's vest name no
+   * house — nobody is visited, no door is knocked on, and a Lookout watching
+   * either of them sees nothing. Filed as a trip, the only slot available to
+   * name is the seat's own, which is how a Veteran's will came to read "Night
+   * 5: Garuda is where I will be" about Garuda himself.
+   *
+   * A night, and nothing else: which power it was is on the role card.
+   */
+  stayedIn: number[];
   /**
    * The day this seat opened its defence with "I am muted." and must now keep
    * to it: a muted person does not say a second thing. See `defenceLine`.
@@ -247,6 +261,7 @@ export class BotMinds {
         mask: null,
         notes: [],
         went: [],
+        stayedIn: [],
         confided: [],
         privateTrust: new Map()
       };
@@ -337,10 +352,34 @@ export class BotMinds {
     }
   }
 
-  /** Remembers where a bot actually went, so tomorrow's answer can be checked. */
+  /**
+   * Remembers where a bot actually went, so tomorrow's answer can be checked.
+   *
+   * "Went" is meant literally, and the check below is what makes it so. Not
+   * every power is a visit: the Veteran's alert and the Survivor's vest are a
+   * night spent at home, and the only slot the engine has to hand for either is
+   * the seat's own. Recorded as a journey, that became an alibi naming
+   * yourself — a will that read "Night 5: Garuda is where I will be" over
+   * Garuda's own body, and a `wentTo` the seat would then have to defend in the
+   * square tomorrow.
+   *
+   * The simulator has always drawn this line (see `brain.wentTo` there); the
+   * live driver did not, which is why only real tables saw it.
+   */
   wentTo(state: MafiaState, playerId: string, slot: number | null): void {
     const mind = this.mind(state, playerId);
     if (!mind) return;
+
+    const player = state.players[playerId];
+    const homebound = !!player?.role && (staysHome(player.role) || slot === player.slot);
+
+    if (homebound) {
+      // Nowhere to be seen going, so there is nothing to answer for tomorrow.
+      mind.brain.wentTo = null;
+      if (slot !== null && !mind.stayedIn.includes(state.day)) mind.stayedIn.push(state.day);
+      return;
+    }
+
     mind.brain.wentTo = slot;
     // And the same journey on the permanent record, one line per night. See `went`.
     if (slot === null) return;

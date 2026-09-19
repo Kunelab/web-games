@@ -245,9 +245,31 @@ export const NOTE = {
   sheriff: (name: string, verdict: string): Msg =>
     msg(verdict === 'clear' ? 'mafia.note.sheriffClear' : `mafia.note.sheriff.${verdict}`, { name }),
   exactRole: (name: string, role: RoleId): Msg => msg('mafia.note.exactRole', { name, role: ROLE.name(role) }),
-  /** `trade` is a trade id from `RoleDef.investigated`, not a sentence. */
-  tradeLine: (name: string, trade: string): Msg =>
-    msg('mafia.note.tradeLine', { name, line: msg(`mafia.trade.${trade}`) }),
+  /**
+   * What an examine comes back with: the smell, and what wears it.
+   *
+   * `trade` is a trade id from `RoleDef.investigated`, not a sentence.
+   *
+   * The shortlist travels with the line because without it the power is a
+   * riddle rather than a lead. "Rey carries strange herbs" is only information
+   * to somebody who has memorised which of sixty-three roles sit on `herbs`,
+   * and the players who had were playing a different game from the ones who had
+   * not. It is not a secret either — the answer sheet is identical at every
+   * table and the roster is on the wall, so this hands the room something two
+   * screens already entitled it to work out, and stops the power being a
+   * reading test.
+   *
+   * Empty for the quiet line, which is the absence of a finding rather than a
+   * finding with no suspects, so it keeps the shorter sentence.
+   */
+  tradeLine: (name: string, trade: string, suspects: readonly RoleId[] = []): Msg =>
+    suspects.length > 0
+      ? msg('mafia.note.tradeLineRoles', {
+          name,
+          line: msg(`mafia.trade.${trade}`),
+          roles: suspects.map((role) => ROLE.name(role))
+        })
+      : msg('mafia.note.tradeLine', { name, line: msg(`mafia.trade.${trade}`) }),
   visitors: (name: string, names: string[]): Msg =>
     names.length > 0
       ? msg('mafia.note.visitorsSeen', { name, names: names.join(', ') })

@@ -1302,6 +1302,37 @@ export default function MafiaPlayer() {
                             {tk('mafia.ui.ally', { role: t(player.allyRole) })}
                           </span>
                         )}
+                        {/*
+                          What this ally is doing with their own night.
+
+                          The family could see each other's names and a count of
+                          knives on a house, and nothing else: who was holding any
+                          of them was invisible, and so was the whole of what the
+                          half of the family that does not kill was up to. Three
+                          people cannot plan a night in the dark if each can only
+                          see their own hands - a Blackmailer gagging the seat the
+                          Consort was about to block is two nights spent on one
+                          job, and neither of them could have known.
+
+                          "No order yet" earns its place: while the clock runs, the
+                          useful fact is usually which ally you are still waiting on.
+                        */}
+                        {player.alive && isNight && player.allyIntent && (
+                          <span className={`mz-ally-intent mz-fac--${me.role?.faction ?? 'hidden'}`}>
+                            {player.allyIntent.targetSlot === null
+                              ? tk('mafia.ui.allyWaiting', { action: t(player.allyIntent.action) })
+                              : player.allyIntent.secondSlot === null
+                                ? tk('mafia.ui.allyAims', {
+                                    action: t(player.allyIntent.action),
+                                    slot: player.allyIntent.targetSlot
+                                  })
+                                : tk('mafia.ui.allyAimsPair', {
+                                    action: t(player.allyIntent.action),
+                                    slot: player.allyIntent.targetSlot,
+                                    second: player.allyIntent.secondSlot
+                                  })}
+                          </span>
+                        )}
                         {player.alive && onTrial && ` · ${tk('mafia.ui.onStand')}`}
                         {player.alive && !onTrial && player.votedSkip && tk('mafia.ui.skipChosen')}
                         {player.alive &&

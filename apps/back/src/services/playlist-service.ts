@@ -5,7 +5,8 @@ import { db } from '../db/index.js';
 import { media, playlistItems, playlists, users, type Playlist } from '../db/schema.js';
 import { copyName } from './copy-name.js';
 import { toMediaView, type MediaView } from './media-service.js';
-import { definedOnly, hasUpdates } from './ownership.js';
+import type { SessionUser } from '../types/fastify.js';
+import { definedOnly, hasUpdates, ownerFilter } from './ownership.js';
 
 export const playlistInputSchema = z.object({
   name: z.string().min(1, 'Le nom est requis').max(200),
@@ -139,22 +140,30 @@ export const playlistService = {
     return views.filter((view) => view.items.length - view.notReadyCount > 0);
   },
 
-  /** Ownership check, separate from visibility: public does not mean editable. */
-  async isOwnedBy(id: number, userId: number): Promise<boolean> {
+  /**
+   * May this account change this playlist? Separate from visibility: public does
+   * not mean editable.
+   *
+   * `ownerFilter` rather than a bare owner test, so an admin may edit any of them.
+   * That is what makes the shared generated-rounds catalogue maintainable at all:
+   * it is written with no owner, so no member's id matches it and no member can
+   * touch it, and without the admin widening here nobody could correct it either.
+   */
+  async mayEdit(id: number, user: SessionUser): Promise<boolean> {
     const [row] = await db
       .select({ id: playlists.id })
       .from(playlists)
-      .where(and(eq(playlists.id, id), eq(playlists.user_id, userId)))
+      .where(and(eq(playlists.id, id), ownerFilter(playlists.user_id, user)))
       .limit(1);
     return Boolean(row);
   },
 
-  async create(input: PlaylistInput, userId: number): Promise<PlaylistView> {
+  async create(input: PlaylistInput, user: SessionUser): Promise<PlaylistView> {
     const created = db.transaction((tx) => {
       const [row] = tx
         .insert(playlists)
         .values({
-          user_id: userId,
+          user_id: user.id,
           name: input.name,
           type: 'default',
           public: input.public ?? false
@@ -167,37 +176,37 @@ export const playlistService = {
       }
 
       if (input.mediaIds?.length) {
-        replaceItemsSync(tx, row.id, input.mediaIds, userId);
+        replaceItemsSync(tx, row.id, input.mediaIds, user);
       }
 
       return row;
     });
 
-    const view = await this.getById(created.id, userId);
+    const view = await this.getById(created.id, user.id);
     if (!view) {
       throw new Error('playlist vanished immediately after creation');
     }
     return view;
   },
 
-  async update(id: number, input: Partial<PlaylistInput>, userId: number): Promise<PlaylistView | undefined> {
+  async update(id: number, input: Partial<PlaylistInput>, user: SessionUser): Promise<PlaylistView | undefined> {
     const patch = definedOnly({ name: input.name, public: input.public });
 
     db.transaction((tx) => {
       if (hasUpdates(patch)) {
         tx.update(playlists)
           .set({ ...patch, last_modified: new Date().toISOString() })
-          .where(and(eq(playlists.id, id), eq(playlists.user_id, userId)))
+          .where(and(eq(playlists.id, id), ownerFilter(playlists.user_id, user)))
           .run();
       }
 
       // Absent means "leave the contents alone"; an empty array clears them.
       if (input.mediaIds !== undefined) {
-        replaceItemsSync(tx, id, input.mediaIds, userId);
+        replaceItemsSync(tx, id, input.mediaIds, user);
       }
     });
 
-    return this.getById(id, userId);
+    return this.getById(id, user.id);
   },
 
   /**
@@ -212,13 +221,13 @@ export const playlistService = {
    * The copy is always private, whatever the original was. Publishing is a
    * decision, and inheriting it from something you merely copied is not one you made.
    */
-  async duplicate(id: number, userId: number): Promise<{ playlist: PlaylistView; dropped: number } | undefined> {
-    const source = await this.getById(id, userId);
+  async duplicate(id: number, user: SessionUser): Promise<{ playlist: PlaylistView; dropped: number } | undefined> {
+    const source = await this.getById(id, user.id);
     if (!source) {
       return undefined;
     }
 
-    const existing = await db.select({ name: playlists.name }).from(playlists).where(eq(playlists.user_id, userId));
+    const existing = await db.select({ name: playlists.name }).from(playlists).where(eq(playlists.user_id, user.id));
 
     const mediaIds = source.items.map((item) => item.id);
 
@@ -231,18 +240,18 @@ export const playlistService = {
         public: false,
         mediaIds
       },
-      userId
+      user
     );
 
     return { playlist, dropped: mediaIds.length - playlist.items.length };
   },
 
-  async remove(id: number, userId: number): Promise<boolean> {
+  async remove(id: number, user: SessionUser): Promise<boolean> {
     return db.transaction((tx) => {
       // PlaylistItems cascades from the foreign key.
       const result = tx
         .delete(playlists)
-        .where(and(eq(playlists.id, id), eq(playlists.user_id, userId)))
+        .where(and(eq(playlists.id, id), ownerFilter(playlists.user_id, user)))
         .run();
       return result.changes > 0;
     });
@@ -258,7 +267,7 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * another user's items into a playlist. Duplicates are dropped because the primary
  * key is (playlist_id, media_id) and a repeat would abort the insert.
  */
-function replaceItemsSync(tx: Tx, playlistId: number, mediaIds: number[], userId: number): void {
+function replaceItemsSync(tx: Tx, playlistId: number, mediaIds: number[], user: SessionUser): void {
   tx.delete(playlistItems).where(eq(playlistItems.playlist_id, playlistId)).run();
 
   if (mediaIds.length === 0) {
@@ -275,7 +284,7 @@ function replaceItemsSync(tx: Tx, playlistId: number, mediaIds: number[], userId
   const allowed = tx
     .select({ id: media.id })
     .from(media)
-    .where(and(inArray(media.id, ordered), eq(media.user_id, userId)))
+    .where(and(inArray(media.id, ordered), ownerFilter(media.user_id, user)))
     .all();
 
   const allowedIds = new Set(allowed.map((row) => row.id));

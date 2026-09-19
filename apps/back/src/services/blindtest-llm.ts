@@ -299,15 +299,27 @@ async function annotateBatch(
  * organisation, and a pool fill that trips the limit gets nothing annotated, which
  * is strictly worse than one that takes a minute longer. An empty result is a
  * normal outcome and means the caller falls back to title parsing.
+ *
+ * Serial is also what makes this the longest-running thing in the deployment, and
+ * therefore the thing most worth being able to stop: a few hundred survivors is a
+ * dozen requests of up to two minutes each, and until `checkpoint` existed nothing
+ * could interrupt them. A blind test whose players quit left the whole remaining
+ * run to finish, building a pool for a game that was over.
+ *
+ * @param checkpoint Called between batches, never during one. Throw from it to
+ * abandon the run — the tokens already spent on the batch in flight are spent
+ * either way, so the cut is made where it costs nothing.
  */
 export async function annotateCandidates(
   candidates: Candidate[],
   shape: 'artist-title' | 'work',
-  genreLabel: string
+  genreLabel: string,
+  checkpoint?: () => void
 ): Promise<Map<string, Annotation>> {
   const all = new Map<string, Annotation>();
 
   for (let offset = 0; offset < candidates.length; offset += BATCH_SIZE) {
+    checkpoint?.();
     const batch = candidates.slice(offset, offset + BATCH_SIZE);
     const annotated = await annotateBatch(batch, shape, genreLabel);
     for (const [videoId, annotation] of annotated) {

@@ -100,6 +100,8 @@ export const notesFr: Catalogue = {
   'mafia.note.sheriffClear': '{name} n’a rien de suspect.',
   'mafia.note.exactRole': '{name} est {role}.',
   'mafia.note.tradeLine': '{name} {line}.',
+  /* Le même constat, avec la liste que toute la table partage. */
+  'mafia.note.tradeLineRoles': '{name} {line}. À cette table, cela veut dire : {roles}.',
   'mafia.note.visitorsSeen': 'Chez {name} cette nuit : {names}.',
   'mafia.note.visitorsNone': 'Personne n’a rendu visite à {name} cette nuit.',
   'mafia.note.trackedTo': '{name} est sorti cette nuit : vu chez {names}.',

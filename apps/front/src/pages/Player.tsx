@@ -90,12 +90,23 @@ export default function Player() {
     void join('');
   }, [socket, connected, joined, join, tokenKey]);
 
-  // A NEW socket after a drop knows nothing: every reconnect re-presents the
-  // token and reclaims the seat, silently.
+  /**
+   * A NEW socket after a drop knows nothing: every reconnect re-presents the
+   * token and reclaims the seat, silently.
+   *
+   * Only on the edge, which is what the ref is for. The effect also runs when
+   * `joined` flips, so a successful manual join was immediately followed by a
+   * second, pointless one: another round trip, another roster broadcast to
+   * everybody, and another three-probe latency measurement fired at a phone that
+   * had just been measured. Comparing against the previous value means this fires
+   * when the line comes back and at no other time.
+   */
+  const wasConnected = useRef(connected);
   useEffect(() => {
-    if (!connected || !joined) return;
+    const reconnected = connected && !wasConnected.current;
+    wasConnected.current = connected;
+    if (!joined || !reconnected) return;
     // Same reasoning as the auto-join above: this talks to the socket.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void join('');
   }, [connected, joined, join]);
 

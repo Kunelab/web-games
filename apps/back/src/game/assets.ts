@@ -121,6 +121,18 @@ export async function loadAssetOnce(
     .then(({ contentType, body }) => {
       const entry: CachedBytes = { contentType, body, expiresAt: now + BYTES_TTL_MS };
 
+      /**
+       * Nothing is evicted to make room for something that will not be kept.
+       *
+       * The size test used to come after the eviction loop, so an asset larger
+       * than the whole cache emptied it on the way to not being stored: one
+       * oversized image and every panel in memory was gone. The route's own cap is
+       * well under this one today, which is the only reason it never happened.
+       */
+      if (body.byteLength > MAX_CACHE_BYTES) {
+        return entry;
+      }
+
       // Oldest out first, which for a game means the previous round's images.
       while (cachedBytes + body.byteLength > MAX_CACHE_BYTES && cache.size > 0) {
         const [oldest, evicted] = [...cache.entries()].reduce((least, current) =>
@@ -130,10 +142,8 @@ export async function loadAssetOnce(
         cachedBytes -= evicted.body.byteLength;
       }
 
-      if (body.byteLength <= MAX_CACHE_BYTES) {
-        cache.set(source, entry);
-        cachedBytes += body.byteLength;
-      }
+      cache.set(source, entry);
+      cachedBytes += body.byteLength;
 
       return entry;
     })

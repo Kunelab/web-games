@@ -116,6 +116,14 @@ export interface RoundState {
    * this existed has to restore mid-party rather than crash on a missing key.
    */
   buzz?: BuzzState;
+  /**
+   * Set once the room has thrown this round's library entry away.
+   *
+   * Kept on the round rather than re-queried, so the button disappears from the
+   * screen the instant it is pressed instead of on the next thing that happens to
+   * rebuild the view. Optional, so a round persisted before this existed restores.
+   */
+  libraryPurged?: boolean;
 }
 
 /**
@@ -254,6 +262,18 @@ export interface SessionState {
    * deduplicating on the id lets it come round twice in an evening.
    */
   infinite?: InfiniteState;
+  /**
+   * Server time the last seat went dark, or null while somebody is still on the line.
+   *
+   * Needed because `lastActivityAt` cannot answer this question: every transition
+   * touches it, and an auto-advancing game transitions by itself. A blind test the
+   * room walked out of therefore renewed its own idle clock once a round, for ever
+   * — the sweep's three-hour rule could never fire, the timer re-armed after every
+   * reveal, and in the endless mode each of those rounds drew another song and sent
+   * another batch of titles to a model. This is the one clock the game cannot wind
+   * on its own: only a phone being on the line clears it.
+   */
+  emptySince?: number | null;
   lastActivityAt: number;
 }
 
@@ -405,6 +425,67 @@ function uniqueName(state: SessionState, desired: string, selfId: string | null)
   }
 
   return `${trimmed} ${randomInt(1000)}`;
+}
+
+/**
+ * How long a game in progress may run to an empty room before it is ended.
+ *
+ * Long enough that it cannot end a game anybody is still playing: for the whole
+ * of it not one seat is on the line, and a seat that is not on the line cannot
+ * submit anything, so the round it would have cost them was already lost. Short
+ * enough to matter, because the thing being stopped is not the game — a blind
+ * test nobody is at is a blind test that keeps drawing songs and keeps sending
+ * batches of titles to a model, all evening, for a room that went home.
+ *
+ * Five minutes is about ten rounds. A phone that locks, a tab that sleeps, a
+ * walk to the kitchen: all of them come back well inside it, and a whole room
+ * doing it at once for five straight minutes is a room that has left.
+ */
+export const ABANDONED_ROOM_MS = 5 * 60 * 1000;
+
+/**
+ * Keeps `emptySince` honest, and says how long the room has been empty.
+ *
+ * Null covers two different "not abandoned" cases on purpose. Somebody is on the
+ * line, which is the ordinary one; or nobody has ever sat down, which is the host
+ * who opened a screen and is waiting for friends — and, in an oral game, is the
+ * normal way to play the whole evening, since the answers are spoken and no phone
+ * ever joins. Neither is a room that left.
+ */
+export function noteRoom(state: SessionState, now = Date.now()): number | null {
+  const seated = Object.values(state.players);
+
+  if (seated.length === 0 || seated.some((player) => player.connected)) {
+    state.emptySince = null;
+    return null;
+  }
+
+  state.emptySince ??= now;
+  return now - state.emptySince;
+}
+
+/**
+ * Ends a game whose room has gone, as if the host had pressed "Terminer".
+ *
+ * Finished rather than deleted, and that is the whole point of doing it this way.
+ * The standings are still there to be banked by the caller, the tokens are still
+ * paid, and a host who wandered back can reopen the ceremony for the two hours
+ * `FINISHED_GRACE_MS` allows. What stops is everything that was costing something:
+ * the phase timer is not re-armed, and `refilling` reads `finished` and draws no
+ * more rounds, which is what takes the model calls with it.
+ *
+ * Returns whether it acted, so a caller can tell an ordinary transition from this.
+ */
+export function abandonIfEmpty(state: SessionState, now = Date.now()): boolean {
+  if (state.phase !== 'playing') return false;
+
+  const emptyFor = noteRoom(state, now);
+  if (emptyFor === null || emptyFor < ABANDONED_ROOM_MS) return false;
+
+  state.phase = 'finished';
+  state.round = null;
+  state.lastActivityAt = now;
+  return true;
 }
 
 /** Media the engine needs by id. Supplied by the caller so this stays pure. */
@@ -1181,6 +1262,20 @@ export function estimationGuesses(round: RoundState): { playerId: string; value:
   return guesses;
 }
 
+/**
+ * The library entry this round belongs to, if the room may throw it away.
+ *
+ * Three conditions, and each one excludes a round it would be wrong to offer a
+ * delete button for. A positive media id is somebody's own library item, which
+ * the reveal screen has no business deleting from under them. A round with no
+ * video code is not a blind test. And one already purged is gone.
+ */
+function libraryCodeOf(round: RoundState): string | undefined {
+  if (round.libraryPurged || round.mediaId >= 0 || round.kind !== 'blindtest') return undefined;
+  const code = (round.payload as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && code.length > 0 ? code : undefined;
+}
+
 export function toRevealView(state: SessionState): RevealView | null {
   const round = state.round;
   if (!round || round.phase !== 'reveal' || !round.scored) {
@@ -1210,6 +1305,7 @@ export function toRevealView(state: SessionState): RevealView | null {
     answers: round.answers.map((field) => ({ key: field.key, label: field.label, value: field.value })),
     explanation: explanation || undefined,
     guesses,
+    libraryCode: libraryCodeOf(round),
     roundScores: Object.entries(round.scored)
       .map(([playerId, points]) => ({
         playerId,

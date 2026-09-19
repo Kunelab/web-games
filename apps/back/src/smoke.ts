@@ -21,6 +21,12 @@ import { buildApp } from './app.js';
 import { mentions, selfClaim } from './mafia/asks.js';
 import { measureBudget } from './mafia/budget.js';
 import { quizCareerService } from './services/quiz-career-service.js';
+import {
+  EVERYTHING_PLAYLIST_NAME,
+  listLibrary,
+  purgeLibraryRound,
+  rememberPlayedRound
+} from './services/blindtest-library.js';
 import { closeDb } from './db/index.js';
 import { clearAssets, resolveAsset } from './game/assets.js';
 import {
@@ -1374,6 +1380,85 @@ section('quick match');
 const quickCards = app.quick.cards();
 check('the quick manager is mounted', Array.isArray(quickCards), typeof quickCards);
 check('no rooms exist before anyone asks', quickCards.length === 0, quickCards);
+
+/* --------------------- the generated-rounds library ----------------------- */
+section('the generated-rounds library');
+
+/** A round as the endless mode mints one: negative id, nobody's library item. */
+function generated(code: string, title: string): MediaView {
+  const payload = { code, startGuess: 0, endGuess: 20, startReveal: 0, endReveal: 30, volume: 100 };
+  const answers = [answerFieldSchema.parse({ key: 'title', label: 'field.title', value: title })];
+  return {
+    id: -999,
+    user_id: null,
+    kind: 'blindtest',
+    title,
+    category: 'smoke',
+    date: null,
+    answers,
+    payload,
+    timing: null,
+    effectiveTiming: resolveTiming({ kind: 'blindtest', timing: null, payload }),
+    readiness: { ready: true, missing: [] },
+    created_at: null,
+    last_modified: null
+  };
+}
+
+const kept = await rememberPlayedRound(generated('smokecode11', 'Une chanson'));
+check('a played round is kept', kept !== null && kept.id > 0, kept?.id);
+check('and it belongs to nobody', kept?.user_id === null, kept?.user_id);
+
+/**
+ * The same recording drawn again in another session is the same library entry.
+ * Every session mints its own negative id for it, so anything keyed on that
+ * would file one song once per evening.
+ */
+const again = await rememberPlayedRound(generated('smokecode11', 'Une chanson (autre upload)'));
+check('the same recording is kept once', again?.id === kept?.id, { first: kept?.id, second: again?.id });
+
+const libraryRows = await listLibrary();
+check(
+  'it lands in the shared playlist',
+  libraryRows.filter((item) => (item.payload as { code?: string }).code === 'smokecode11').length === 1,
+  libraryRows.length
+);
+
+/** Public, so anybody can play it; ownerless, so no member can edit it. */
+const shelf = await app.inject({ method: 'GET', url: '/api/playlists', headers });
+const shelved = (JSON.parse(shelf.body) as { name: string | null; public: boolean | null; user_id: number | null }[]) //
+  .find((row) => row.name === EVERYTHING_PLAYLIST_NAME);
+check('the catalogue is visible to a member', shelved !== undefined, shelf.statusCode);
+check('it is public', shelved?.public === true, shelved?.public);
+check('and owned by nobody', shelved?.user_id === null, shelved?.user_id);
+
+/**
+ * The ownership model in one check. A member's own filter is `user_id = me`,
+ * which no number ever matches against null, so the rows are invisible in their
+ * library and unreachable by their editor.
+ */
+const mineOnly = await app.inject({ method: 'GET', url: '/api/media', headers });
+const mineRows = JSON.parse(mineOnly.body) as { id: number }[];
+check(
+  'a member does not see library rows among their own media',
+  !mineRows.some((row) => row.id === kept?.id),
+  mineRows.length
+);
+
+const memberEdit = await app.inject({
+  method: 'PATCH',
+  url: `/api/media/${kept?.id ?? 0}`,
+  headers,
+  payload: { kind: 'blindtest', title: 'détourné', answers: [], payload: blindtest.defaultPayload, timing: null }
+});
+check('and cannot edit one', memberEdit.statusCode === 404, memberEdit.statusCode);
+
+check('a round nobody kept purges to nothing', (await purgeLibraryRound('never-seen')) === false);
+check('and a kept one is thrown away', (await purgeLibraryRound('smokecode11')) === true);
+check(
+  'which takes it out of the playlist too',
+  (await listLibrary()).every((item) => (item.payload as { code?: string }).code !== 'smokecode11')
+);
 
 section('cleanup');
 

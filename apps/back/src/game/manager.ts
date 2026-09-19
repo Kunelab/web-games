@@ -4,11 +4,13 @@ import { defaultSessionConfig, sessionConfigSchema, type SessionConfig } from 'g
 
 import { db } from '../db/index.js';
 import { gameSessions } from '../db/schema.js';
+import { rememberPlayedRound } from '../services/blindtest-library.js';
 import { drawRounds, reserveEphemeralIdsBelow, type DrawHistory } from '../services/blindtest-draw.js';
 import { mediaService, type MediaView } from '../services/media-service.js';
 import { resultsService } from '../services/results-service.js';
 import { assetUrlFor, sweepAssets } from './assets.js';
 import {
+  abandonIfEmpty,
   advance,
   closeAnswers,
   createSession,
@@ -120,6 +122,23 @@ export class GameManager {
 
       try {
         const state = JSON.parse(row.state) as SessionState;
+
+        /**
+         * Every socket in the world is gone, so no seat is connected.
+         *
+         * The flags were persisted as they stood when the process died, which
+         * would have this session come back believing a roomful of phones was on
+         * the line. Two things read that and both would be wrong: the "in
+         * progress" banner counts connected seats to tell a game from a room
+         * everybody left, and `abandonIfEmpty` would never start its clock on a
+         * game nobody ever comes back to. A phone that does come back clears this
+         * with its first `session:join`, which is a second or two away.
+         */
+        for (const player of Object.values(state.players)) {
+          player.connected = false;
+        }
+        state.emptySince = null;
+
         this.sessions.set(state.code, state);
 
         /**
@@ -186,6 +205,23 @@ export class GameManager {
     const cutoff = now - IDLE_TIMEOUT_MS;
 
     for (const [code, state] of this.sessions) {
+      /**
+       * The other half of the abandoned-room rule.
+       *
+       * `afterTransition` catches a game that is still moving, which is the one
+       * that costs something. This catches the one that is not: a session parked
+       * on a reveal waiting for a host who left transitions never again, so
+       * nothing else would ever look at it until the three-hour rule, and that
+       * rule reads a clock this sweep is the only thing still winding.
+       *
+       * It is ended rather than dropped, so the ceremony survives for its grace
+       * and the standings are banked on the way through `afterTransition`.
+       */
+      if (abandonIfEmpty(state, now)) {
+        await this.afterTransition(state);
+        continue;
+      }
+
       if (!this.isSpent(state, now)) continue;
 
       /**
@@ -449,14 +485,21 @@ export class GameManager {
          * window, so the decision is re-read here rather than only at the top: an
          * in-flight top-up landing afterwards would quietly undo the stop by
          * appending the very rounds it just removed.
+         *
+         * Tested before the empty case, not after it. `drop` clears this session's
+         * entry from `emptyDrawAt`, so a draw that came back empty after the drop
+         * used to put the entry straight back, for a code nothing would ever ask
+         * about again - one stale key per abandoned endless game, for the life of
+         * the process.
          */
+        if (!this.sessions.has(state.code)) return;
+
         if (items.length === 0) {
           // Nothing found. Leave it a moment before asking again, so a dry set
           // of settings does not draw once per transition. See `EMPTY_DRAW_BACKOFF_MS`.
           this.emptyDrawAt.set(state.code, Date.now());
           return;
         }
-        if (!this.sessions.has(state.code)) return;
         if (!this.refilling(state)) return;
         this.emptyDrawAt.delete(state.code);
 
@@ -573,6 +616,21 @@ export class GameManager {
   /** Persists, notifies listeners, and arms the timer for the next transition. */
   async afterTransition(state: SessionState): Promise<void> {
     /**
+     * Before anything else: a game the room walked out of stops here.
+     *
+     * This is the check that makes the rule cheap. An auto-advancing session comes
+     * through here every phase change — a few times a round — so a blind test whose
+     * players all quit is noticed within a round of the grace elapsing rather than
+     * at the next quarter-hourly sweep, which is the difference between ending it
+     * and letting it draw another ten songs first.
+     *
+     * Placed above the `finished` test on purpose, so the game this just ended is
+     * banked by the very next line: the standings and the tokens are the room's
+     * whether they stayed for the ceremony or not.
+     */
+    abandonIfEmpty(state);
+
+    /**
      * A game that just *finished* leaves its permanent trace now, before anything
      * else: the live session row is deleted the moment the host presses
      * "Terminer", and this is the last transition at which the full standings
@@ -611,6 +669,38 @@ export class GameManager {
     if (this.refilling(state)) {
       void this.topUp(state);
     }
+
+    this.keepGeneratedRound(state);
+  }
+
+  /**
+   * Files a generated round in the shared library, once it has actually been played.
+   *
+   * The reveal is the moment it becomes worth keeping: the room has heard it, the
+   * answers have been on a screen, and somebody is in a position to say whether
+   * they were right. Before that it is a candidate, and the pools are full of
+   * those.
+   *
+   * Only rounds the session generated - a negative id is how those are spelled -
+   * because a round drawn from a host's own playlist is already saved, by them,
+   * and copying it into a public catalogue is not a thing they asked for.
+   *
+   * Not awaited, and its failures are warnings. The room is between a reveal and
+   * the next round, and nothing about keeping a souvenir is worth making them
+   * wait for or worth ending their game over. `rememberPlayedRound` deduplicates,
+   * so the several transitions a reveal can see cost one lookup each and write
+   * nothing.
+   */
+  private keepGeneratedRound(state: SessionState): void {
+    const round = state.round;
+    if (!round || round.phase !== 'reveal' || round.mediaId >= 0) return;
+
+    const item = this.mediaBySession.get(state.code)?.get(round.mediaId);
+    if (!item) return;
+
+    void rememberPlayedRound(item).catch((error: unknown) => {
+      this.log.warn({ err: error, code: state.code }, 'could not keep a generated round');
+    });
   }
 
   /**
@@ -689,9 +779,21 @@ export class GameManager {
     }
 
     const delay = Math.max(0, deadline.at - Date.now());
+
+    /**
+     * The phase is read now, not when the timer fires.
+     *
+     * `round` is the live object, so reading `round.phase` inside the callback
+     * handed `runScheduledTransition` whatever the phase had become by then - and
+     * it compares that against the same object's phase, so the staleness test it
+     * exists for could never fail. Snapshotting it here is what gives the guard
+     * something to actually compare against: the phase this timer was armed for.
+     */
+    const armedFor = round.phase;
+
     const timer = setTimeout(() => {
       this.timers.delete(state.code);
-      void this.runScheduledTransition(state.code, round.id, round.phase, deadline.kind);
+      void this.runScheduledTransition(state.code, round.id, armedFor, deadline.kind);
     }, delay);
 
     timer.unref();

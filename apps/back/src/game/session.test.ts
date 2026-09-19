@@ -5,7 +5,9 @@ import { answerFieldSchema, sessionConfigSchema, type AnswerField, type SessionC
 
 import type { MediaView } from '../services/media-service.js';
 import {
+  ABANDONED_ROOM_MS,
   BUZZ_ARBITRATION_MS,
+  abandonIfEmpty,
   advance,
   buzz,
   closeAnswers,
@@ -290,5 +292,104 @@ describe('the buzzer', () => {
     assert.equal(hers?.spent, false);
     assert.equal(his?.holderId, ana, 'the room can see who took it');
     assert.equal(his?.spent, false);
+  });
+});
+
+/**
+ * The room that walked out.
+ *
+ * The rule exists because of what an abandoned game *does* rather than because of
+ * what it holds: an auto-advancing blind test plays on to nobody, and in the
+ * endless mode every one of those rounds draws another song and sends another
+ * batch of titles to a model. So these cases are mostly about the two ways a
+ * session can look empty without being abandoned, either of which would end a
+ * game somebody was still playing.
+ */
+describe('a game the room left', () => {
+  /** Everybody's phone goes. `advance` seats the round at t=1000. */
+  function emptied(names = ['Ana', 'Bo'], overrides: Partial<SessionConfig> = {}) {
+    const { state, ids } = playing(names, overrides);
+    for (const id of ids) {
+      const player = state.players[id];
+      assert.ok(player);
+      player.connected = false;
+    }
+    return { state, ids };
+  }
+
+  it('keeps playing while one seat is still on the line', () => {
+    const { state, ids } = emptied();
+    const stillHere = state.players[ids[0] ?? ''];
+    assert.ok(stillHere);
+    stillHere.connected = true;
+
+    assert.equal(abandonIfEmpty(state, 1_000 + ABANDONED_ROOM_MS * 10), false);
+    assert.equal(state.phase, 'playing');
+  });
+
+  it('keeps playing for the whole of the grace', () => {
+    const { state } = emptied();
+
+    // The clock starts the first time anybody looks, not when the phones went.
+    assert.equal(abandonIfEmpty(state, 2_000), false);
+    assert.equal(state.emptySince, 2_000);
+
+    assert.equal(abandonIfEmpty(state, 2_000 + ABANDONED_ROOM_MS - 1), false);
+    assert.equal(state.phase, 'playing');
+  });
+
+  it('ends the game once the grace has run out', () => {
+    const { state } = emptied();
+    abandonIfEmpty(state, 2_000);
+
+    assert.equal(abandonIfEmpty(state, 2_000 + ABANDONED_ROOM_MS), true);
+    assert.equal(state.phase, 'finished');
+    assert.equal(state.round, null);
+  });
+
+  it('and does not end it twice', () => {
+    const { state } = emptied();
+    abandonIfEmpty(state, 2_000);
+    abandonIfEmpty(state, 2_000 + ABANDONED_ROOM_MS);
+
+    assert.equal(abandonIfEmpty(state, 2_000 + ABANDONED_ROOM_MS * 2), false);
+  });
+
+  it('starts the clock again when a phone comes back', () => {
+    const { state, ids } = emptied();
+    abandonIfEmpty(state, 2_000);
+
+    const returning = state.players[ids[0] ?? ''];
+    assert.ok(returning);
+    returning.connected = true;
+    assert.equal(abandonIfEmpty(state, 3_000), false);
+    assert.equal(state.emptySince, null, 'a seat on the line clears the clock');
+
+    // And going again re-dates the absence rather than resuming the old one.
+    returning.connected = false;
+    assert.equal(abandonIfEmpty(state, 4_000), false);
+    assert.equal(state.emptySince, 4_000);
+    assert.equal(abandonIfEmpty(state, 4_000 + ABANDONED_ROOM_MS - 1), false);
+  });
+
+  /**
+   * The case that would break the oral format outright: answers are spoken, so no
+   * phone ever joins, and a session with no seats at all is the normal way to play
+   * the whole evening rather than a room that left.
+   */
+  it('never ends a game nobody ever sat down in', () => {
+    const { state } = playing([]);
+    assert.equal(Object.keys(state.players).length, 0);
+
+    assert.equal(abandonIfEmpty(state, 1_000 + ABANDONED_ROOM_MS * 10), false);
+    assert.equal(state.phase, 'playing');
+    assert.equal(state.emptySince, null);
+  });
+
+  it('leaves a finished game alone', () => {
+    const { state } = emptied();
+    state.phase = 'finished';
+
+    assert.equal(abandonIfEmpty(state, 1_000 + ABANDONED_ROOM_MS * 10), false);
   });
 });

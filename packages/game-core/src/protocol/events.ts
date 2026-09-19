@@ -109,6 +109,15 @@ export interface ClientToServerEvents {
    * player because that was the device with the browser on it.
    */
   'host:setTv': (payload: { hostToken: string; playerId: string | null }) => void;
+  /**
+   * The room saying the reveal is wrong, so the library entry goes.
+   *
+   * Host-only, and that is a judgement rather than an oversight. The catalogue is
+   * shared and public, so letting any phone delete from it would put it at the
+   * mercy of whoever is losing; the host has the screen with the answer on it and
+   * is the one person in the room already arbitrating the round.
+   */
+  'host:flagRound': (payload: z.infer<typeof hostActionSchema>) => void;
 }
 
 /** Server to client. */
