@@ -851,7 +851,9 @@ export const ROLES: Record<RoleId, RoleDef> = {
     suspicious: true,
     unique: true,
     soloKiller: true,
-    description: 'Massacre une maison et tous ceux qui s’y trouvent cette nuit-là. Gagne seul.',
+    // Une nuit sur deux, comme la Secte : le carnage se paie. Voir `cooldownUntilDay`.
+    description:
+      'Une nuit sur deux, massacre une maison et tous ceux qui s’y trouvent. Gagne seul.',
     investigated: L.blade
   }),
   arsonist: def({

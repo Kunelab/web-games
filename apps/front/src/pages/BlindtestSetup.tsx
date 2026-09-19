@@ -213,6 +213,29 @@ export default function BlindtestSetup() {
   const available: Availability = fresh?.perGenre ?? {};
   const failure = countError?.key === settingsKey ? countError.message : null;
 
+  /**
+   * Which genres are still being built, by name.
+   *
+   * "3 genre(s) en cours de chargement…" is a number, and a number does not say
+   * whether the wait is nearly over or has not started. Building one pool is
+   * several searches, every playlist behind it and a model pass over what
+   * survives, so it is the slowest thing on this screen by a wide margin and the
+   * only one worth narrating. Naming them turns a spinner into progress: the
+   * list shortens, and the host can see which choice is the expensive one.
+   *
+   * Capped at three names so a host who ticked everything gets a sentence rather
+   * than a paragraph; the count carries the rest.
+   */
+  const loading = (catalog?.genres ?? [])
+    .filter((genre) => selected.has(genre.id) && available[genre.id] === null)
+    .map((genre) => genre.label);
+  const loadingLabel =
+    loading.length === 0
+      ? ''
+      : loading.length <= 3
+        ? loading.join(', ')
+        : `${loading.slice(0, 3).join(', ')} +${loading.length - 3}`;
+
   const toggle = useCallback((id: string) => {
     setSelected((current) => {
       const next = new Set(current);
@@ -312,7 +335,7 @@ export default function BlindtestSetup() {
               <strong>{total}</strong>
               <span className="bt-count-hint">
                 {pending > 0
-                  ? `extraits, ${pending} genre(s) en cours de chargement…`
+                  ? `extraits · préparation de ${loadingLabel}…`
                   : `extraits jouables en ${region}`}
               </span>
             </>

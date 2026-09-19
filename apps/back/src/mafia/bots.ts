@@ -932,14 +932,32 @@ const OWN_SIDE: RegExp[] = [
   ),
   /\b(?:my|our)\s+(?:cult|mafia|triad|famiglia)\s+(?:is|are|was|were|will|wants|needs)\b/i,
   /\b(?:i|we)\s+(?:was|were|am|are)\b[^.!?]{0,40}\b(?:whispering|talking|speaking|meeting|plotting|conspiring)\s+(?:to|with|in|for)\s+(?:the\s+)?(?:cult|mafia|triad|coven|famiglia)\b/i,
-  // "not doing cult stuff" convicts; "the mafia stuff is getting obvious" is the room talking.
-  /\b(?:doing|did|do|done|on|at|in|back\s+from)\s+(?:the\s+|my\s+|our\s+)?(?:cult|mafia|triad)\s+(?:stuff|business|work|things|meeting|chat|room)\b/i,
+  /**
+   * "not doing cult stuff" convicts; "they are all in mafia chat" does not.
+   *
+   * The subject is elided in the line this was written for, so it cannot be
+   * required outright. Two narrowings do the same work. The bare prepositions
+   * are gone — `in`, `on` and `at` in front of a faction are where somebody
+   * *is*, and a room speculating about where everybody else is says "they are
+   * all in mafia chat" all afternoon — which leaves the verbs, where an elided
+   * subject can only be the speaker. And a third person that *is* named gets
+   * out of the way, so "he was doing cult stuff" stays an accusation rather
+   * than becoming a confession by the person making it.
+   */
+  /(?<!\b(?:he|she|they|it|you|who|nobody|somebody|someone|everyone)\s(?:is|are|was|were|'s|'re)\s)\b(?:doing|did|do|done|back\s+from)\s+(?:the\s+|my\s+|our\s+)?(?:cult|mafia|triad)\s+(?:stuff|business|work|things|meeting|chat|room)\b/i,
   // "j'ai fait partie de la triade" and "j'étais dans la secte" are the same
   // admission as "je suis de la secte"; the accented forms too, since
   // `straighten` fixes apostrophes and leaves every other diacritic alone.
   /\b(?:je|j'?)\s*(?:suis|[ée]tais|ai\s+fait\s+partie|fais\s+partie|faisais\s+partie)\s+(?:de\s+|dans\s+)?(?:la\s+|le\s+|du\s+)?(?:secte|mafia|triade)\b/i,
   /\b(?:ma|notre)\s+(?:secte|mafia|triade)\b/i,
-  /\b(?:trucs?|affaires?|reunions?|histoires?)\s+de\s+(?:la\s+)?(?:secte|mafia|triade)\b/i
+  /**
+   * Et la même prudence en français : il faut un premier personne quelque part.
+   *
+   * Sans elle ce motif attrapait la salle en train de parler du jeu — "les
+   * affaires de la mafia deviennent evidentes" est une observation, pas un
+   * aveu, et c'est la phrase la plus banale d'un après-midi de débat.
+   */
+  /(?:\b(?:mes|nos|mon|notre)\s+|\b(?:je|j'|nous|on)\b[^.!?]{0,20}\b)(?:trucs?|affaires?|reunions?|histoires?)\s+de\s+(?:la\s+)?(?:secte|mafia|triade)\b/i
 ];
 
 export function confesses(text: string, fallback: string): boolean {
@@ -4587,7 +4605,23 @@ export class MafiaBotDriver {
       const t = say(spokenLocale(state));
       const salt = botId + ':whisper:' + String(toSlot);
       const text = t(vary('mafia.bot.whisper.role', 4, salt, { role: ROLE.name(role) }));
-      this.hooks.whisper(code, botId, toSlot, text);
+      const sent = this.hooks.whisper(code, botId, toSlot, text);
+      /**
+       * A gesture that did not happen is not one to remember having made.
+       *
+       * `worthWhispering` writes the listener down the moment it decides, which
+       * is right — the decision is the policy's and it must not be taken twice
+       * in one afternoon — but it is written before anything is delivered. A
+       * refusal here therefore burned the one chance this seat had: the square
+       * had shut, or the room was between stages, and the bot spent the rest of
+       * the game believing it had already leaned in. Handing the slot back is
+       * the smallest thing that makes the two agree.
+       */
+      if (!sent.ok) {
+        const mind = this.minds.mind(state, botId);
+        const at = mind?.brain.whispered.indexOf(toSlot) ?? -1;
+        if (mind && at >= 0) mind.brain.whispered.splice(at, 1);
+      }
     }
 
     if (task === 'day' || task === 'react') {

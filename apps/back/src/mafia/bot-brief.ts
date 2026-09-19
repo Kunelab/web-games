@@ -2,7 +2,6 @@ import {
   ACTION,
   FACTION,
   SLOT,
-  claimerWeight,
   contradicted,
   deductions,
   provenLiar,
@@ -596,8 +595,15 @@ function stamps(chat: MafiaView['chat']): Map<number, string> {
      * over. The legend goes in the transcript header, which is paid once per
      * request instead of once per line.
      */
-    if (key === 'mafia.day.header') label = `D${message.msg?.p?.day ?? '?'}`;
-    else if (key === 'mafia.night.fall') label = `N${message.msg?.p?.day ?? '?'}`;
+    /**
+     * A `MsgValue` is a string, a number, or another `Msg`, and only the first
+     * two have a spelling. Interpolating the union put `[object Object]` one
+     * bad parameter away from the transcript header every bot reads.
+     */
+    const day = message.msg?.p?.day;
+    const which = typeof day === 'string' || typeof day === 'number' ? String(day) : '?';
+    if (key === 'mafia.day.header') label = `D${which}`;
+    else if (key === 'mafia.night.fall') label = `N${which}`;
     else at.set(message.id, label);
   }
   return at;

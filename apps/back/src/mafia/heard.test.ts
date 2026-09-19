@@ -132,6 +132,37 @@ describe('what the ear files', () => {
     assert.equal(filed.length, 1, `wrongly dropped: ${JSON.stringify(dropped)}`);
   });
 
+  /**
+   * And the other half of the same mistake, which cost the room an accusation.
+   *
+   * A second pass used to read a comma-separated run after one night marker as
+   * more nights, with nothing to stop it, so it swallowed whatever number came
+   * next in the sentence. "night 3, 7 was out" and "night 3 and 7 is the killer"
+   * both filed 7 as a night and the claim about house 7 was refused. The room
+   * said it out loud and the board never heard it.
+   */
+  it('keeps the house in "night 3, 7 was out"', () => {
+    const state = table();
+    const self = Object.values(state.players).find((player) => !player.isBot)!;
+    for (const said of [
+      'night 3, 7 was out',
+      'night 3 and 7 is the killer',
+      'nuit 4, 7 a visité quelqu’un',
+      'n3, 7 visited me'
+    ]) {
+      const dropped: DroppedClaim[] = [];
+      const filed = readHeard(
+        state,
+        { claims: [{ speaker: self.slot, kind: 'sighting', about: 7 }] },
+        roles(state),
+        new Set(),
+        dropped,
+        said
+      );
+      assert.equal(filed.length, 1, `"${said}" lost house 7: ${JSON.stringify(dropped)}`);
+    }
+  });
+
   /** And with no transcript to check against, nothing changes. */
   it('files a sighting as before when it is given no transcript', () => {
     const state = table();

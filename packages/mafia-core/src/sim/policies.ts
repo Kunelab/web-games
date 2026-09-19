@@ -4817,7 +4817,7 @@ export function decideNightTarget(
      * family's own knife does when the board is blank. See `pickRanked`.
      */
     const unranked = fresh.filter((slot) => !loudList.includes(slot));
-    const drawn = unranked.length > 0 ? [unranked[Math.floor(rng() * unranked.length)]!] : [];
+    const drawn = unranked.length > 0 ? [unranked[Math.floor(rng() * unranked.length)]] : [];
     return pickRanked([...loudList, ...drawn], rng, 0.35);
   }
 

@@ -446,12 +446,21 @@ let ROLE_NAMES: { name: string; role: RoleId }[] | null = null;
 export function roleFromName(said: string): RoleId | null {
   const folded = fold(said).trim();
   if (!folded) return null;
-  if (folded in ROLES) return folded as RoleId;
+  /**
+   * `Object.hasOwn`, not `in`, because `in` walks the prototype.
+   *
+   * `ROLES` is an object literal, so `'constructor' in ROLES` is true and this
+   * function handed back `"constructor"` typed as a `RoleId`. Today the only
+   * caller re-checks the answer against the roles this table was dealt and
+   * throws it away, which is the only reason nothing has blown up. The next
+   * caller to pass the result straight to `roleDef` gets `undefined.faction`.
+   */
+  if (Object.hasOwn(ROLES, folded)) return folded as RoleId;
   // `\s`, not `s`: the first spelling of this replaced the letter and turned
   // "mason leader" into "ma-on leader". It only ever looked like it worked
   // because `roleNames` separately registers every id with its hyphens spaced.
   const hyphenated = folded.replace(/\s+/g, '-');
-  if (hyphenated in ROLES) return hyphenated as RoleId;
+  if (Object.hasOwn(ROLES, hyphenated)) return hyphenated as RoleId;
   return roleNames().find((entry) => entry.name === folded)?.role ?? null;
 }
 

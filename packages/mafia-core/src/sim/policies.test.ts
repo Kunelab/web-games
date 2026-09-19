@@ -849,7 +849,7 @@ describe('a style, chosen once', () => {
     const board = toPublicInfo(state, [], []);
 
     // The room has the mafioso's badge on him; the jester votes to spare him.
-    const caught: PublicInfo = { ...board, provenRoles: new Map([[3, 'mafioso' as RoleId]]) };
+    const caught: PublicInfo = { ...board, provenRoles: new Map([[3, 'mafioso']]) };
     assert.equal(decideBallot(jester, brain, caught, 3, new Set(), always(0.5)), 'innocent');
 
     // Nothing on the citizen at all; the jester votes to hang him.

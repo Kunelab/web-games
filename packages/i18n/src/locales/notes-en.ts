@@ -78,6 +78,7 @@ export const notesEn: Catalogue = {
   'mafia.note.cellarSpent': 'You can still take somebody tonight, but you have nothing left to end them with.',
   'mafia.note.cellarKill': 'You did not let {name} out.',
   'mafia.note.cellarDry': 'You have no executions left; {name} walks out at dawn.',
+  'mafia.note.resting': 'Last night took everything you had. You are staying in tonight.',
   'mafia.note.survived': 'You were attacked tonight, and you held.',
   'mafia.note.guarded': 'Somebody died for you tonight.',
   'mafia.note.bodyguardRepelled': 'A bodyguard drove you off.',

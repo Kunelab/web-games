@@ -15,8 +15,21 @@ import { countAvailable, drawRounds, emptyHistory } from '../services/blindtest-
  * somebody's carefully kept collection.
  */
 
-/** The opening buffer. Enough to start on while the refill loop gets going. */
-const INITIAL_ROUNDS = 3;
+/**
+ * The opening buffer: one song, and the rest found while that one is playing.
+ *
+ * Three meant the host waited for three draws before the lobby even opened, and
+ * a draw is only cheap once its genre pool is warm — so the first game of the
+ * day on a fresh set of genres spent that wait three times over, in front of a
+ * room that had not been let in yet. Drawing during the lobby is the wrong place
+ * for it: nothing is on screen, nobody is listening, and the session cannot be
+ * joined until it exists.
+ *
+ * One is enough to open the room. `GameManager.LOOKAHEAD` keeps it one ahead
+ * from then on, and every one of those draws happens inside a round that is
+ * already playing, which is the whole design.
+ */
+const INITIAL_ROUNDS = 1;
 
 const settingsSchema = z.object({
   genreIds: z.array(z.string().min(1).max(40)).min(1).max(40),

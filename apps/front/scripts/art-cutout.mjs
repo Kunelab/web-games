@@ -341,7 +341,6 @@ function shrink(image, max) {
 }
 
 /* ---------------------------------- the CLI -------------------------------- */
-/* eslint-disable no-console */
 
 function convert(from, to, max) {
   const done = shrink(crop(key(readPng(from))), max);

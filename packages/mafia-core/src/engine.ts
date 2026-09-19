@@ -235,6 +235,45 @@ interface Announcement {
 /* ------------------------------- lobby ---------------------------------- */
 
 /**
+ * Role names that are also just words, which people are allowed to be called.
+ *
+ * The rule below is worth having and was worth narrowing. Sixty-three role names
+ * across two languages catch a great many ordinary handles on their way past,
+ * and "you cannot be called that" is a bad first thing to say to somebody who
+ * typed Diva into a box. The ones here are words before they are badges: a table
+ * reading "Judge was found dead" reaches for the person, not the role, because
+ * nobody announces a role claim by being called Judge.
+ *
+ * Hand-kept on purpose, and deliberately short. The test for adding one is
+ * whether the word survives being said in the square about a *person* — "Mafia,
+ * where were you last night" fails it and "Lover, where were you last night"
+ * does not. Anything that is only ever a badge (Sheriff, Mafioso, Godfather,
+ * Serial Killer, Médecin) stays blocked, because those are the ones that turn
+ * every sentence in the chat into a lie the chat itself tells.
+ *
+ * Folded the same way the names are, and listed in both languages independently:
+ * "judge" and "juge" are two words somebody might pick, not one role with two
+ * spellings.
+ */
+const ORDINARY_WORDS = new Set([
+  "agent",
+  "amoureux",
+  "bouffon",
+  "diva",
+  "indicateur",
+  "jester",
+  "judge",
+  "juge",
+  "liaison",
+  "lover",
+  "informant",
+  "souche",
+  "stump",
+  "survivant",
+  "survivor",
+]);
+
+/**
  * A name that is really a claim.
  *
  * "Mafia", "Shérif", "Town", "Médecin": a seat called one of these turns every
@@ -244,7 +283,8 @@ interface Announcement {
  * this game, model and deterministic alike, resolves role words against the
  * roster, so a person wearing one of them poisons all of them at once.
  *
- * Both languages and both halves: the factions, and the sixty-three role names.
+ * Both languages and both halves: the factions, and the sixty-three role names,
+ * less the handful that are ordinary words first. See `ORDINARY_WORDS`.
  * Folded the way `asks.ts` folds them, because "sherif" and "Shérif" are the
  * same claim and only one of them is hard to type. Digits are kept, so
  * "Mafioso2" is a name somebody chose and "Mafioso" is a claim they are making.
@@ -271,6 +311,7 @@ function soundsLikeARole(name: string): boolean {
     "famiglia",
   ];
   if (factions.includes(folded)) return true;
+  if (ORDINARY_WORDS.has(folded)) return false;
 
   /**
    * Both languages, without reaching for the catalogue.
@@ -1688,6 +1729,21 @@ function beginNight(state: MafiaState, now: number): void {
       notify(player, NOTE.powerSpent());
     if (def.optionalCharges === true && player.charges <= 0)
       notify(player, NOTE.cellarSpent());
+    /**
+     * And the night a cooldown is sitting on, which looks exactly like nothing.
+     *
+     * A power that is merely resting offers no targets, and a role with no
+     * `charges` gets neither of the notices above, so the Mass Murderer woke to
+     * an empty screen with no way to tell a cooldown from a broken game. The
+     * Cultist has always had the same silence and at least says "une nuit sur
+     * deux" on its card; this says it on the night it matters, to both.
+     */
+    if (
+      def.nightAction &&
+      player.cooldownUntilDay !== null &&
+      state.day < player.cooldownUntilDay
+    )
+      notify(player, NOTE.resting());
   }
 
   const jailed = state.jailedId ? state.players[state.jailedId] : null;
@@ -3879,7 +3935,7 @@ function takesTheStandoff(killers: readonly MafiaPlayer[]): MafiaPlayer {
     (left, right) =>
       standoffRank(left) - standoffRank(right) ||
       (left.role! < right.role! ? -1 : 1),
-  )[0]!;
+  )[0];
 }
 
 /**
@@ -4047,7 +4103,7 @@ function ruleTheClock(state: MafiaState, now: number): void {
     alive.some((player) => playerFamily(player) === familyId),
   );
   if (standing.length === 1) {
-    const familyId = standing[0]!;
+    const familyId = standing[0];
     const win = FAMILY_WIN[familyId];
     for (const player of Object.values(state.players)) {
       if (player.role && familyOf(player.role) === familyId) {
@@ -4268,7 +4324,7 @@ export function checkVictory(
     soloKillers.length > 0 &&
     civilians.length === 0
   ) {
-    const familyId = familiesAlive[0]!;
+    const familyId = familiesAlive[0];
     const familySeats = byFamily.get(familyId) ?? [];
     const soloWins = beyondSaving(state, soloKillers, familySeats);
     const familyWins = beyondSaving(state, familySeats, soloKillers);

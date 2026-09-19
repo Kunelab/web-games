@@ -332,14 +332,49 @@ function toMediaView(entry: PoolEntry, difficultyTarget: number): MediaView {
 export async function drawRounds(settings: DrawSettings, history: DrawHistory, count: number): Promise<MediaView[]> {
   const drawn: MediaView[] = [];
 
-  // Pools are loaded once per draw rather than per round: several rounds in one
-  // top-up would otherwise re-filter the same few hundred entries each time.
+  /**
+   * Whatever is already in memory, and nothing waited for that is not.
+   *
+   * This used to `await poolFor` once per selected genre, which made a draw as
+   * slow as the slowest pool it touched. Building one pool is several YouTube
+   * searches, every configured playlist, a facts lookup over up to twelve
+   * hundred ids and one model call to annotate the survivors — so a host who
+   * ticked a dozen genres and pressed start was made to sit through a dozen of
+   * those before the first song existed, with the room watching a spinner.
+   *
+   * The pools are shared, cached for a day and already warmed by the count the
+   * setup screen asks for, so by the time anybody presses start most of them
+   * are usually here. The ones that are not get asked for without being waited
+   * on and join the next draw instead, which is the point: a genre arriving two
+   * rounds late costs the room nothing, and a genre arriving before the first
+   * round costs it a minute of silence.
+   *
+   * Only when nothing at all is ready does this wait, and then for exactly one
+   * pool rather than all of them, because a session with no first round is not
+   * a session.
+   */
   const buckets: { genre: Genre; entries: PoolEntry[] }[] = [];
+  const cold: Genre[] = [];
   for (const genreId of settings.genreIds) {
     const genre = genreById.get(genreId);
     if (!genre) continue;
-    const entries = await poolFor(genreId).catch(() => [] as PoolEntry[]);
+    const entries = cachedPool(genreId);
+    if (entries === null) {
+      cold.push(genre);
+      warmPool(genreId);
+      continue;
+    }
     buckets.push({ genre, entries });
+  }
+
+  if (buckets.length === 0) {
+    for (const genre of cold) {
+      const entries = await poolFor(genre.id).catch(() => [] as PoolEntry[]);
+      if (entries.length > 0) {
+        buckets.push({ genre, entries });
+        break;
+      }
+    }
   }
 
   for (let round = 0; round < count; round++) {

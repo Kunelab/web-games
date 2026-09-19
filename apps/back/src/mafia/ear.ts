@@ -409,14 +409,28 @@ function numbersSpoken(said: string): { nights: Set<number>; houses: Set<number>
   for (const found of text.matchAll(/\b(?:n|nights?|nuits?)\s*[°º]?\s*(\d{1,2})\b/g)) {
     nights.add(Number(found[1]));
   }
-  // A run like "n3, n4 & n6" names the marker once and the rest by comma.
-  for (const run of text.matchAll(/\b(?:n|nights?|nuits?)\s*[°º]?\s*\d{1,2}((?:\s*(?:,|&|and|et|\/)\s*\d{1,2})+)/g)) {
-    for (const more of run[1].matchAll(/\d{1,2}/g)) nights.add(Number(more[0]));
-  }
+  /**
+   * Every night carries its own marker, and a bare number after one is a house.
+   *
+   * There was a second pass here that read a comma-separated run as more nights,
+   * so one marker covered everything after it: "n3, n4 & n6" was the case it was
+   * written for. But that example needs no help — each of those numbers has its
+   * own `n` and the loop above already has all three — and the run had no
+   * stopping condition, so it swallowed the next house in the sentence and kept
+   * going. "night 3, 7 was out" and "night 3 and 7 is the killer" both filed 7 as
+   * a night, and the claim about house 7 was then refused as `that number was a
+   * night`. An accusation the room made out loud never reached the board.
+   *
+   * What it costs is "night 3, 4 and 6", one marker and three nights, which now
+   * reads 4 and 6 as houses. That is the safer half of the trade: the numbers a
+   * line names without marking them are houses far more often than they are
+   * nights, and the whole point of this function is that an invented entry on the
+   * board is worth more damage than a missing one.
+   */
   for (const found of text.matchAll(/\d{1,2}/g)) {
     const at = found.index ?? 0;
     const before = text.slice(Math.max(0, at - 24), at);
-    if (!/\b(?:n|nights?|nuits?)\s*[°º]?\s*(?:\d{1,2}\s*(?:,|&|and|et|\/)\s*)*$/.test(before)) {
+    if (!/\b(?:n|nights?|nuits?)\s*[°º]?\s*$/.test(before)) {
       houses.add(Number(found[0]));
     }
   }

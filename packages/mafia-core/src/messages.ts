@@ -187,6 +187,8 @@ export const NOTE = {
   cellarSpent: (): Msg => msg('mafia.note.cellarSpent'),
   cellarKill: (name: string): Msg => msg('mafia.note.cellarKill', { name }),
   cellarDry: (name: string): Msg => msg('mafia.note.cellarDry', { name }),
+  /** A power that is not spent, only resting: the Cult's night off, the Mass Murderer's. */
+  resting: (): Msg => msg('mafia.note.resting'),
   auditDone: (name: string): Msg => msg('mafia.note.auditDone', { name }),
   auditFailed: (name: string): Msg => msg('mafia.note.auditFailed', { name }),
   executedInnocent: (): Msg => msg('mafia.note.executedInnocent'),
