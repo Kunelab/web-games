@@ -10,6 +10,9 @@ import {
   abandonIfEmpty,
   advance,
   buzz,
+  correctAnswers,
+  correctClip,
+  holdRound,
   closeAnswers,
   createSession,
   expireBuzzWindow,
@@ -50,7 +53,10 @@ function media(overrides: Partial<MediaView> = {}): MediaView {
     title: 'Item',
     category: null,
     date: null,
-    answers: FIELDS,
+    // Copied, not shared. `FIELDS` is module state and a round holds its answers
+    // by reference, so a case that corrects one would otherwise correct every
+    // round built after it.
+    answers: FIELDS.map((field) => ({ ...field })),
     payload: { question: 'Quel film ?' },
     timing: null,
     effectiveTiming: { answerMs: 30_000, revealMs: 5_000 },
@@ -391,5 +397,131 @@ describe('a game the room left', () => {
     state.phase = 'finished';
 
     assert.equal(abandonIfEmpty(state, 1_000 + ABANDONED_ROOM_MS * 10), false);
+  });
+});
+
+/**
+ * The clock off the room.
+ *
+ * A pause cannot just blank the deadline, because everything this engine times
+ * is a difference against `phaseStartAt`: a round held for two minutes and
+ * released would come back with its whole answering window already spent, and
+ * every answer after it clamped to the same instant — which is the ordering the
+ * scoring is built on. So the start moves with the pause, and these cases are
+ * mostly about proving that it does.
+ */
+describe('holding a round', () => {
+  it('stops the clock and says so', () => {
+    const { state } = playing(['Ana'], { buzzer: false });
+    const round = state.round;
+    assert.ok(round);
+    const endsAt = round.phaseEndsAt;
+    assert.ok(endsAt !== null);
+
+    assert.equal(holdRound(state, true, 5_000), true);
+    assert.equal(round.phaseEndsAt, null, 'no deadline while held');
+    assert.equal(round.heldMs, endsAt - 5_000, 'what was left of it is kept');
+    assert.equal(toRoundView(state, null, CONTEXT)?.held, true);
+  });
+
+  it('refuses an answer while it is held', () => {
+    const { state, ids } = playing(['Ana'], { buzzer: false });
+    holdRound(state, true, 5_000);
+
+    const result = answer(state, ids[0] ?? '', 'title', 'Dune', 6_000);
+    assert.equal(result.ok, false);
+    assert.equal(state.round?.submissions.length, 0);
+  });
+
+  it('gives back the phase it took, not a new one', () => {
+    const { state } = playing(['Ana'], { buzzer: false });
+    const round = state.round;
+    assert.ok(round);
+    const startedAt = round.phaseStartAt;
+    const endsAt = round.phaseEndsAt;
+    assert.ok(endsAt !== null);
+
+    // Held five seconds in, released a minute later.
+    holdRound(state, true, 6_000);
+    assert.equal(holdRound(state, false, 66_000), true);
+
+    assert.equal(round.phaseStartAt, startedAt + 60_000, 'the start moved with the pause');
+    assert.equal(round.phaseEndsAt, 66_000 + (endsAt - 6_000), 'and what was left is what is left');
+    assert.equal(round.heldAt, null);
+    assert.equal(toRoundView(state, null, CONTEXT)?.held, false);
+  });
+
+  /**
+   * The point of moving the start: an answer given a second after the room comes
+   * back is judged as a second in, not as a minute and a second in.
+   */
+  it('so an answer after it is timed from where the phase really is', () => {
+    const { state, ids } = playing(['Ana'], { buzzer: false });
+    holdRound(state, true, 6_000);
+    holdRound(state, false, 66_000);
+
+    const result = answer(state, ids[0] ?? '', 'title', 'Dune', 67_000);
+    assert.equal(result.ok, true);
+
+    const submission = state.round?.submissions[0];
+    assert.ok(submission);
+    const into = submission.answeredAt - (state.round?.phaseStartAt ?? 0);
+    assert.ok(into >= 0 && into <= 7_000, `answered ${into}ms into the phase`);
+  });
+
+  it('arms no deadline at all while held', () => {
+    const { state, ids } = playing(['Ana', 'Bo']);
+    pressAndSettle(state, ids[0] ?? '', 1_500);
+    assert.ok(nextDeadline(state), 'the buzzer window is a deadline');
+
+    holdRound(state, true, 2_000);
+    assert.equal(nextDeadline(state), null, 'the buzzer’s deadlines stop too');
+  });
+
+  it('does not hold twice, or release what was never held', () => {
+    const { state } = playing(['Ana'], { buzzer: false });
+    assert.equal(holdRound(state, false, 1_000), false);
+    assert.equal(holdRound(state, true, 2_000), true);
+    assert.equal(holdRound(state, true, 3_000), false);
+  });
+});
+
+/**
+ * Correcting what the answer is, mid-game.
+ *
+ * Deliberately does not re-score: the points are on the board and the players
+ * have read them. What changes is the answer on screen and the copy the shared
+ * catalogue keeps.
+ */
+describe('correcting a round', () => {
+  it('changes the value the room is looking at', () => {
+    const { state } = playing(['Ana'], { buzzer: false });
+    assert.equal(correctAnswers(state, [{ key: 'title', value: 'Dune (1984)' }]), true);
+    assert.equal(state.round?.answers.find((field) => field.key === 'title')?.value, 'Dune (1984)');
+  });
+
+  it('ignores a field this round does not have', () => {
+    const { state } = playing(['Ana'], { buzzer: false });
+    assert.equal(correctAnswers(state, [{ key: 'invented', value: 'x' }]), false);
+    assert.equal(state.round?.answers.length, 2, 'and does not grow the round');
+  });
+
+  it('ignores a blank, so a cleared box is not a correction', () => {
+    const { state } = playing(['Ana'], { buzzer: false });
+    assert.equal(correctAnswers(state, [{ key: 'title', value: '   ' }]), false);
+    assert.equal(state.round?.answers.find((field) => field.key === 'title')?.value, 'Dune');
+  });
+
+  /** The clip window goes through the kind's own schema, so bad values bounce. */
+  it('refuses a clip the kind would not accept', () => {
+    const item = media({
+      kind: 'blindtest',
+      payload: { code: 'abcdefghijk', startGuess: 0, endGuess: 20, startReveal: 20, endReveal: 40, volume: 100 }
+    });
+    const { state } = playing(['Ana'], { buzzer: false }, item);
+
+    assert.equal(correctClip(state, { startGuess: -5 }), false, 'negative is not a second');
+    assert.equal(correctClip(state, { startGuess: 12 }), true);
+    assert.equal((state.round?.payload as { startGuess: number }).startGuess, 12);
   });
 });

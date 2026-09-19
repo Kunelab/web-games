@@ -4,7 +4,7 @@ import { defaultSessionConfig, sessionConfigSchema, type SessionConfig } from 'g
 
 import { db } from '../db/index.js';
 import { gameSessions } from '../db/schema.js';
-import { rememberPlayedRound } from '../services/blindtest-library.js';
+import { rememberPlayedRound, replayFromLibrary } from '../services/blindtest-library.js';
 import { drawRounds, reserveEphemeralIdsBelow, type DrawHistory } from '../services/blindtest-draw.js';
 import { mediaService, type MediaView } from '../services/media-service.js';
 import { resultsService } from '../services/results-service.js';
@@ -416,6 +416,69 @@ export class GameManager {
   /** Top-ups in flight, so several transitions cannot start the same draw twice. */
   private readonly topUps = new Map<string, Promise<void>>();
 
+  /**
+   * How often the next round comes out of the shared catalogue rather than a
+   * fresh search.
+   *
+   * Every round the endless mode invents costs a YouTube query, a facts lookup,
+   * a chorus lookup and a share of a model call. The catalogue is what all of
+   * that has already been spent on, and unlike a fresh draw every row in it was
+   * played in front of a room and may since have been corrected by hand. Half
+   * and half is the trade: the quota lasts twice as long, the evening still
+   * turns up things nobody has heard, and the library earns its keep instead of
+   * only accumulating.
+   *
+   * Not a fallback. A replay is tried first on the rounds it wins the toss for,
+   * and a draw happens when it finds nothing — an empty catalogue, or a room
+   * whose genres it holds nothing for — so a new deployment behaves exactly as
+   * it did before, and fills up as it goes.
+   *
+   * The default only. Each room sets its own; see `InfiniteState.replayShare`.
+   */
+  static readonly REPLAY_SHARE = 0.5;
+
+  /**
+   * The next rounds, from the catalogue or from a search.
+   *
+   * The coin is tossed per top-up rather than per round, which at a lookahead of
+   * one is the same thing and stays honest if the lookahead ever grows.
+   */
+  private async nextRounds(state: SessionState, history: DrawHistory, wanted: number): Promise<MediaView[]> {
+    const infinite = state.infinite;
+    if (!infinite) return [];
+
+    const share = infinite.replayShare ?? GameManager.REPLAY_SHARE;
+
+    if (share > 0 && Math.random() < share) {
+      /**
+       * Every media id this session has already dealt, so nothing comes round twice.
+       *
+       * The track key would very nearly do it — both sources share one — but
+       * "nearly" is not the promise. An admin correcting a row's artist between
+       * two rounds changes its key, and the session holding the old one would be
+       * free to play the same song again. The id cannot drift, so it is what the
+       * guarantee is made of; the key still does the rest of the work, which is
+       * keeping a *pool* draw off a song the catalogue already supplied.
+       */
+      const dealt = new Set(state.order);
+      const replayed = await replayFromLibrary(infinite.genreIds, history, wanted, dealt).catch(
+        () => [] as MediaView[]
+      );
+      if (replayed.length > 0) return replayed;
+    }
+
+    return drawRounds(
+      {
+        genreIds: infinite.genreIds,
+        difficultyMin: infinite.difficultyMin,
+        difficultyMax: infinite.difficultyMax,
+        region: infinite.region
+      },
+      history,
+      wanted
+    );
+  }
+
   /** Whether this session should keep generating rounds. */
   private refilling(state: SessionState): boolean {
     const infinite = state.infinite;
@@ -468,16 +531,7 @@ export class GameManager {
       recentArtists: [...infinite.recentArtists]
     };
 
-    const promise = drawRounds(
-      {
-        genreIds: infinite.genreIds,
-        difficultyMin: infinite.difficultyMin,
-        difficultyMax: infinite.difficultyMax,
-        region: infinite.region
-      },
-      history,
-      wanted
-    )
+    const promise = this.nextRounds(state, history, wanted)
       .then((items) => {
         /**
          * The session may have ended, or been told to wind up, while the draw was

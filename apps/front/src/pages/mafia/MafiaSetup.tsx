@@ -89,6 +89,17 @@ export default function MafiaSetup() {
   const [created, setCreated] = useState<{ code: string; hostToken: string } | null>(null);
 
   const mine = useAsync(() => api.mafiaMine(), []);
+  /**
+   * The table this screen is asking about closing, if any.
+   *
+   * Two steps rather than a confirm dialog, the same affordance the in-game
+   * panel uses: the second press is the answer. A table nobody ever started is
+   * the commonest one to want gone, and until now there was no way to get rid of
+   * one at all — it was listed as resumable until the sweeper took it hours
+   * later, and the only close button in the game was inside a table you had to
+   * walk back into to reach.
+   */
+  const [closing, setClosing] = useState<string | null>(null);
   const templates = useAsync(() => api.mafiaTemplates(), []);
 
   async function create() {
@@ -155,13 +166,36 @@ export default function MafiaSetup() {
       {mine.data && mine.data.length > 0 && !created && (
         <section className="mz-mine">
           {mine.data.map((table) => (
-            <Button key={table.code} variant="ghost" onClick={() => reattach(table.code, table.hostToken)}>
-              {tk('mafia.setup.resume', {
-                code: table.code,
-                players: table.players,
-                phase: tk(`mafia.ui.phaseName.${table.phase}`)
-              })}
-            </Button>
+            <div key={table.code} className="mz-mine-row">
+              <Button variant="ghost" onClick={() => reattach(table.code, table.hostToken)}>
+                {tk('mafia.setup.resume', {
+                  code: table.code,
+                  players: table.players,
+                  phase: tk(`mafia.ui.phaseName.${table.phase}`)
+                })}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  if (closing !== table.code) {
+                    setClosing(table.code);
+                    return;
+                  }
+                  void api
+                    .mafiaEnd(table.code)
+                    .then(() => {
+                      setClosing(null);
+                      mine.reload();
+                    })
+                    // Left asking, so the row still offers the way out rather
+                    // than quietly going back to looking untouched.
+                    .catch(() => setClosing(null));
+                }}
+              >
+                {closing === table.code ? `⚠️ ${tk('mafia.ui.closeTableSure')}` : `🚪 ${tk('mafia.ui.closeTable')}`}
+              </Button>
+            </div>
           ))}
         </section>
       )}

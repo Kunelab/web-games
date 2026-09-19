@@ -98,6 +98,8 @@ export const atelierFr: Catalogue = {
   "field.answer": "Réponse",
   "field.title": "Titre",
   "field.artist": "Artiste",
+  /* Voir la note en anglais : l’œuvre d’où vient la musique, pas la musique. */
+  "field.work": "Film, série ou jeu",
   "field.volume": "Volume",
   "field.volumeHelp":
     "Pour aligner cet extrait sur le reste de la playlist. 100 = plein volume, à baisser seulement pour un extrait masterisé plus fort que ses voisins.",

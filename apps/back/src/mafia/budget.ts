@@ -190,6 +190,37 @@ const SCENARIOS: Scenario[] = [
  * has leaked onto a sheet that is supposed to carry none: no roster, no roles,
  * no claims, only what this seat already decided and the words it is answering.
  */
+/**
+ * The same mouth, on the stand, carrying the seat's own will.
+ *
+ * Measured separately because it is a different price and a rare one: a trial
+ * is one seat for three rounds, where the ordinary line above is every seat all
+ * game. Folding the two together would either have the common case paying for
+ * the rare one or the rare one going unmeasured, and the second is how the
+ * defence came to be improvised in the first place.
+ */
+function standTurn(): string {
+  const intent: Intent = {
+    act: 'you are on the stand and the room is about to vote on hanging you. Answer the case against you in your own words, in one or two sentences. Be concrete, but only from your own record below: name the night and the house exactly as you already wrote them. Do not repeat yourself and do not beg.',
+    because: 'house 3 says they watched you leave on night 3, and two seats have moved their votes onto you since',
+    mood: 'cornered and sarcastic',
+    fallback: 'I kept Arthur Morgan in on night 6, the night Garuda died.',
+    record: [
+      'I am the Jailor. Night 1: I held Daffy Duck at home. Jorah died that night. Armin was with me all of night 2. Alphonse died. Night 3: I held Fujin at home. Casper died that night. Blade was with me all of night 4. Xavier died. Ragnar was with me all of night 5. John Wick died. I kept Arthur Morgan in on night 6, the night Garuda died. Daffy Duck was kept in on night 7. Night 8: I held Amaterasu at home. Nyame died that night. Day 4: Rey. My read and my vote. Everything I had is above.'
+    ],
+    answering: [
+      { who: 'Daffy Duck', text: 'Viracocha, Van Helsing is your shadow or what?' },
+      { who: 'Arthur Morgan', text: 'you saw me? what did I actually do?' }
+    ]
+  };
+  const recent = [
+    { slot: 3, name: 'Daffy Duck', text: 'guilty, and here is why: on night 3, Van Helsing watched them go to someone House' },
+    { slot: 20, name: 'Blade', text: 'bring me something checkable and I will change my mind' }
+  ];
+  return `${mouthRules('en')}
+${mouthPrompt({ name: 'Viracocha', slot: 11 }, intent, recent)}`;
+}
+
 function mouthTurn(): string {
   const intent: Intent = {
     act: 'accuse house 11 (Loki) and vote for them',
@@ -214,6 +245,7 @@ export function measureBudget(): BudgetRow[] {
   });
 
   const mouth = mouthTurn();
+  const stand = standTurn();
   return [
     ...deciding,
     {
@@ -258,6 +290,25 @@ export function measureBudget(): BudgetRow[] {
        */
       ceiling: 800,
       sections: [{ head: 'rules + intent + four lines', tokens: tokens(mouth), lines: mouth.split('\n').length }]
+    },
+    {
+      scenario: 'a seat defending itself, holding its own will',
+      players: 15,
+      humans: 2,
+      prompt: tokens(stand),
+      /**
+       * The will is the whole of the difference, and it is capped at
+       * `WILL_MAX_CHARS` (1400) by the engine, so this ceiling is the ordinary
+       * mouth plus the worst a will can be, with room to spare.
+       *
+       * It passes the test the number above sets out: a seat's own will is not
+       * a board, a roster or a role, and it is not something the seat has not
+       * been told — it wrote it. What it buys is a defence that tells one story
+       * instead of four, which is worth more than every other line this file
+       * measures.
+       */
+      ceiling: 1300,
+      sections: [{ head: 'rules + intent + will + two lines', tokens: tokens(stand), lines: stand.split('\n').length }]
     }
   ];
 }

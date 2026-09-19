@@ -52,6 +52,17 @@ export interface RoundView {
   /** Server time this phase ends, or null when it waits on the host. */
   phaseEndsAt: number | null;
   /**
+   * The host has stopped the clock on this round.
+   *
+   * Sent as well as the null deadline because the two mean different things to
+   * a screen. A round with no deadline is ordinary — an oral game has none, and
+   * neither does a reveal waiting on the host — and drawing "paused" over every
+   * one of those would be wrong. This says the clock was taken off the room
+   * deliberately, which is worth a phone saying out loud: a player whose answer
+   * box has gone quiet deserves to know it is not their connection.
+   */
+  held: boolean;
+  /**
    * How long the answer phase is meant to last, in ms.
    *
    * Sent as well as the deadline because a progressive presentation needs a duration
@@ -149,6 +160,17 @@ export interface HostRoundView {
   kind: string;
   title: string;
   phase: RoundPhase;
+  /** The host has stopped the clock. See `RoundView.held`. */
+  held: boolean;
+  /**
+   * The recording this round is filed under in the shared catalogue, if it is.
+   *
+   * The same value the reveal carries, on the host's own round so the controls
+   * can offer a correction at any point in the round rather than only once the
+   * answers are up. Absent for a round that came from somebody's own library,
+   * which is theirs to edit in the editor and not from here.
+   */
+  libraryCode?: string;
   phaseStartAt: number;
   phaseEndsAt: number | null;
   answerMs: number;

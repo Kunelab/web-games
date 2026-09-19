@@ -2406,6 +2406,129 @@ describe('the cult', () => {
     );
   });
 
+  /**
+   * The badges a town builds a game around are not for sale.
+   *
+   * A cult that can simply take the Jailor has ended the game on a coin flip
+   * rather than won it, and the same goes for the sash and for the lodge. The
+   * cult still spends the night finding out, which is the price the information
+   * should have: the button is offered, the knock is refused.
+   */
+  for (const badge of ['jailor', 'marshall', 'mason-leader'] as RoleId[]) {
+    it(`cannot take the ${badge}`, () => {
+      const state = table(['cultist', badge, 'citizen', 'citizen', 'godfather'], 3);
+      const cultist = bySlot(state, 1);
+      const power = bySlot(state, 2);
+
+      advanceMafia(state, 1_000, lcg(1));
+      setNightAction(state, cultist.playerId, power.slot);
+      advanceMafia(state, 2_000, lcg(1));
+
+      assert.equal(power.role, badge, 'the badge is unchanged');
+    });
+  }
+
+  /**
+   * An unrevealed Mayor is still an ordinary townsman to the cult's *button*,
+   * and no longer one to its outcome.
+   *
+   * The reveal gate stays where it is on `keepsRole`, because that rule leaked
+   * the Mayor's name to the cult on night one when it was ungated. This is a
+   * second, separate rule about what a power badge is worth, and it needs no
+   * gate: the refusal says "not this house", never which kind of house.
+   */
+  it('cannot take an unrevealed mayor either', () => {
+    const state = table(['cultist', 'mayor', 'citizen', 'citizen', 'godfather'], 3);
+    const cultist = bySlot(state, 1);
+    const mayor = bySlot(state, 2);
+    assert.equal(mayor.revealed, false);
+
+    advanceMafia(state, 1_000, lcg(1));
+    setNightAction(state, cultist.playerId, mayor.slot);
+    advanceMafia(state, 2_000, lcg(1));
+
+    assert.equal(mayor.role, 'mayor');
+  });
+
+  /**
+   * One rule about what the night can do to a house, not two.
+   *
+   * A seat that cannot be killed in the dark cannot be carried off in it either.
+   * The Stump is the only town badge this catches, and it is exactly the seat
+   * the rule is for: nothing else the night can do touches it.
+   */
+  it('cannot take a seat the night cannot kill', () => {
+    const state = table(['cultist', 'stump', 'citizen', 'citizen', 'godfather'], 3);
+    const cultist = bySlot(state, 1);
+    const stump = bySlot(state, 2);
+
+    advanceMafia(state, 1_000, lcg(1));
+    setNightAction(state, cultist.playerId, stump.slot);
+    advanceMafia(state, 2_000, lcg(1));
+
+    assert.equal(stump.role, 'stump');
+  });
+
+  /**
+   * A door that did not open is remembered, so the next night is not spent on it.
+   *
+   * Both recruiting powers used to pick uniformly from every living seat, so the
+   * same wasted knock came round again and again — and with the badges above now
+   * refusing outright there is more to waste a night on than there was.
+   */
+  it('remembers the door that refused the cult', () => {
+    const state = table(['cultist', 'jailor', 'citizen', 'citizen', 'godfather'], 3);
+    const cultist = bySlot(state, 1);
+    const jailor = bySlot(state, 2);
+
+    advanceMafia(state, 1_000, lcg(1));
+    setNightAction(state, cultist.playerId, jailor.slot);
+    advanceMafia(state, 2_000, lcg(1));
+
+    assert.deepEqual(cultist.refused, [jailor.slot]);
+  });
+
+  it('remembers the door that refused the lodge', () => {
+    const state = table(['mason-leader', 'doctor', 'citizen', 'citizen', 'godfather'], 3);
+    const leader = bySlot(state, 1);
+    const doctor = bySlot(state, 2);
+
+    advanceMafia(state, 1_000, lcg(1));
+    setNightAction(state, leader.playerId, doctor.slot);
+    advanceMafia(state, 2_000, lcg(1));
+
+    assert.equal(doctor.role, 'doctor', 'only a citizen can be initiated');
+    assert.deepEqual(leader.refused, [doctor.slot]);
+  });
+
+  /** What the cult learned is the cult's; a second cultist pays for it again. */
+  it('does not share a refusal between two cultists', () => {
+    const state = table(['cultist', 'cultist', 'jailor', 'citizen', 'godfather'], 3);
+    const first = bySlot(state, 1);
+    const second = bySlot(state, 2);
+    const jailor = bySlot(state, 3);
+
+    advanceMafia(state, 1_000, lcg(1));
+    setNightAction(state, first.playerId, jailor.slot);
+    advanceMafia(state, 2_000, lcg(1));
+
+    assert.deepEqual(first.refused, [jailor.slot]);
+    assert.equal(second.refused, undefined);
+  });
+
+  /** And an ordinary townsman still goes, or none of the above means anything. */
+  it('still takes a plain citizen', () => {
+    const state = table(['cultist', 'jailor', 'citizen', 'citizen', 'godfather'], 3);
+    const cultist = bySlot(state, 1);
+    const citizen = bySlot(state, 3);
+
+    advanceMafia(state, 1_000, lcg(1));
+    setNightAction(state, cultist.playerId, citizen.slot);
+    advanceMafia(state, 2_000, lcg(1));
+
+    assert.equal(citizen.role, 'cultist');
+  });
+
   /** A sash is not a soul to be bought. See `keepsRole`. */
   it('cannot take a revealed mayor, and the auditor cannot strip one', () => {
     const state = table(['cultist', 'mayor', 'citizen', 'citizen', 'godfather'], 3);

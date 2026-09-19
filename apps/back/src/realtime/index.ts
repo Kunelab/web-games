@@ -56,7 +56,7 @@ import {
 } from 'lobby-core';
 import type { KickRefusal } from 'presence-core';
 
-import { accountOf } from './account.js';
+import { accountOf, sessionUserOf } from './account.js';
 import {
   answerPayloadSchema,
   buzzPayloadSchema,
@@ -69,8 +69,19 @@ import { Server as SocketServer, type Socket } from 'socket.io';
 
 import { allowedOrigins } from '../env.js';
 import type { GameManager } from '../game/manager.js';
-import { buzz, isBuzzerRound, joinSession, revealChoices, submitAnswer, type SessionState } from '../game/session.js';
-import { purgeLibraryRound } from '../services/blindtest-library.js';
+import {
+  buzz,
+  correctAnswers,
+  correctClip,
+  holdRound,
+  isBuzzerRound,
+  joinSession,
+  revealChoices,
+  submitAnswer,
+  type SessionState
+} from '../game/session.js';
+import { isAdmin } from '../services/ownership.js';
+import { correctLibraryRound, purgeLibraryRound } from '../services/blindtest-library.js';
 import { careerKey, czCareerService } from '../services/cz-career-service.js';
 import { resultsService } from '../services/results-service.js';
 import type { MafiaManager } from '../mafia/manager.js';
@@ -632,6 +643,102 @@ export function registerRealtime(
         round.libraryPurged = true;
         broadcast(state);
       });
+    });
+
+    /**
+     * The clock off the room, and back on.
+     *
+     * The host's to press, not an admin's: stopping a game you are running to
+     * explain an answer or settle an argument is what running it *is*, and it
+     * changes nothing outside the room. Correcting the catalogue below is the
+     * one that writes something everybody shares, and that is where the account
+     * check lives.
+     */
+    socket.on('host:holdRound', (payload) => {
+      withHost(payload?.hostToken, async (state) => {
+        if (!holdRound(state, payload?.hold !== false)) return;
+        await games.afterTransition(state);
+      });
+    });
+
+    /**
+     * What the answer actually is.
+     *
+     * Admin only, and deliberately not "host only". A host is whoever opened a
+     * game — any signed-in account, and on a shared box that is everybody — and
+     * what this writes is not their game's business but the shared catalogue's:
+     * one correction here is the answer every future room is dealt. So the seat
+     * at the console is not enough, and the account behind the socket has to be
+     * one that may edit the library at all. That is the same rule the media
+     * routes enforce, arrived at from the other side.
+     *
+     * The round on screen is corrected too, not only the stored copy. The room
+     * is looking at the wrong answer while it is being told it is wrong, and
+     * leaving it there until the next game would be a strange way to agree.
+     */
+    socket.on('host:correctRound', (payload) => {
+      const code = socket.data.code;
+      const state = code ? games.get(code) : undefined;
+      if (!state || !payload?.hostToken || payload.hostToken !== state.hostToken) {
+        socket.emit('session:error', { message: "Action réservée à l'hôte" });
+        return;
+      }
+
+      const fields = Array.isArray(payload.fields)
+        ? payload.fields
+            .filter(
+              (field): field is { key: string; value: string } =>
+                !!field && typeof field.key === 'string' && typeof field.value === 'string'
+            )
+            .slice(0, 8)
+            .map((field) => ({ key: field.key, value: field.value.slice(0, 200) }))
+        : [];
+      /**
+       * The clip window, read defensively.
+       *
+       * Only the four keys the payload has, only finite numbers, and the engine
+       * runs the result through the kind's schema anyway — so a client sending
+       * a fifth key, a string or a negative gets nothing rather than something
+       * partly applied.
+       */
+      const clip: Record<string, number | undefined> = {};
+      const sent = (payload as { clip?: Record<string, unknown> }).clip;
+      if (sent && typeof sent === 'object') {
+        for (const key of ['startGuess', 'endGuess', 'startReveal', 'endReveal'] as const) {
+          const value = sent[key];
+          if (typeof value === 'number' && Number.isFinite(value)) clip[key] = value;
+        }
+      }
+
+      if (fields.length === 0 && Object.keys(clip).length === 0) return;
+
+      void (async () => {
+        const user = await sessionUserOf(app, socket).catch(() => null);
+        if (!user || !isAdmin(user)) {
+          socket.emit('session:error', { message: 'Correction réservée à un administrateur' });
+          return;
+        }
+
+        const round = state.round;
+        const libraryCode =
+          round && round.mediaId < 0 ? (round.payload as { code?: unknown } | null)?.code : undefined;
+
+        // Either may land on its own: an answer that was right with a window
+        // that was not is the commonest correction of the two.
+        const fixedAnswers = correctAnswers(state, fields);
+        const fixedClip = correctClip(state, clip);
+        if (!fixedAnswers && !fixedClip) return;
+
+        // The shared copy second: a correction that cannot be stored has still
+        // fixed the screen the room is arguing in front of.
+        if (typeof libraryCode === 'string' && libraryCode) {
+          await correctLibraryRound(libraryCode, fields, clip).catch((error: unknown) => {
+            app.log.warn({ err: error, code: state.code }, 'could not store a round correction');
+          });
+        }
+
+        await games.afterTransition(state);
+      })();
     });
 
     socket.on('host:kick', (payload) => {

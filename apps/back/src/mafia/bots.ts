@@ -5409,6 +5409,36 @@ export class MafiaBotDriver {
       const against = onTrial ? this.caseAgainst(state, view, board, me.slot, botId) : null;
       const heard = onTrial ? this.answering(state, botId, 'day') : [];
 
+      /**
+       * The will, handed to the mouth as the thing to defend from.
+       *
+       * A seat rewrites this every dawn out of the record it is actually
+       * holding — real for the town, invented once and kept for a liar — so by
+       * the time the room drags it to the stand it is carrying the most
+       * complete and most consistent account of itself it will ever have. It
+       * was not being used. The model was told to "be specific: name nights and
+       * houses" with none of it in front of it, and did exactly that: it made
+       * specifics up, one fresh contradiction per round, in front of a room
+       * already voting.
+       *
+       * Only on the stand. Everywhere else a seat is chatting, and a paragraph
+       * of its own nights in the prompt would have it reciting its diary at
+       * people who asked it nothing.
+       */
+      const willed = onTrial ? state.players[botId]?.lastWill : null;
+
+      /**
+       * A recited record goes out as written.
+       *
+       * No `intent` means no model, which is the whole point: these sentences
+       * were built from structured entries and already agree with each other.
+       * Handing them to a mouth told to put things "in your own voice" is how a
+       * consistent record becomes four stories.
+       */
+      if (plea.verbatim) {
+        return { ...EMPTY, revealMayor: sash, say: plea.text, claim: plea.claim };
+      }
+
       return {
         ...EMPTY,
         revealMayor: sash,
@@ -5416,11 +5446,12 @@ export class MafiaBotDriver {
         claim: plea.claim,
         intent: {
           act: onTrial
-            ? 'you are on the stand and the room is about to vote on hanging you. Answer the case against you in your own words, in one or two sentences. Be specific: name nights, houses and what you did. Do not repeat yourself and do not beg.'
+            ? 'you are on the stand and the room is about to vote on hanging you. Answer the case against you in your own words, in one or two sentences. Be concrete, but only from your own record below: name the night and the house exactly as you already wrote them. Do not repeat yourself and do not beg.'
             : 'mutter something from the benches while somebody else is on trial',
           ...(against ? { because: against } : {}),
           mood: moodOf(mind.brain.personality),
           fallback: plea.text,
+          ...(willed ? { record: [willed] } : {}),
           ...(heard.length > 0 ? { answering: heard } : {})
         }
       };
@@ -8038,6 +8069,12 @@ export class MafiaBotDriver {
             })
           )
         : t(vary('mafia.bot.will.role', 3, botId + ':will', { role: ROLE.name(signed) }));
+    /**
+     * Kept for the stand, which is the one place this record is worth more
+     * alive than dead. See `BotMind.willNights`.
+     */
+    mind.willNights = [...nights, ...going];
+
     const draft = (offset: number): string =>
       fitWill({
         role: roleLine,
@@ -8101,7 +8138,7 @@ export class MafiaBotDriver {
     botId: string,
     onTrial: boolean,
     round = 1
-  ): { text: string; claim: Decision['claim'] } | null {
+  ): { text: string; claim: Decision['claim']; verbatim?: boolean } | null {
     const t = say(spokenLocale(state));
     if (!onTrial) return { text: t(msg('mafia.bot.watch.' + (1 + (hashCode(botId) % 9)))), claim: null };
 
@@ -8110,7 +8147,7 @@ export class MafiaBotDriver {
     const mind = this.minds.mind(state, botId);
     const me = view.me;
     const self = state.players[botId];
-    const plead = (): { text: string; claim: Decision['claim'] } => ({
+    const plead = (): { text: string; claim: Decision['claim']; verbatim?: boolean } => ({
       text: t(msg('mafia.bot.plead.' + (1 + (hashCode(botId) % 9)))),
       claim: null
     });
@@ -8240,7 +8277,45 @@ export class MafiaBotDriver {
       };
     }
 
-    /* -------- round three: whoever is pushing, and the closing line. --------- */
+    /* ---- round three: the record itself, in the seat's own written words. --- */
+    /**
+     * The will, read out while it can still do the seat some good.
+     *
+     * A bot rewrites its will every dawn out of everything it holds, and by the
+     * time the room drags it to the stand that is the most complete and most
+     * consistent account of itself it will ever have — and it was going
+     * unspoken, because a will is private until its author is dead. So the
+     * closing round reads it out. It is what a person does on a stand: they
+     * paste their will.
+     *
+     * Deliberately `verbatim`, which takes the model out of the loop entirely.
+     * These sentences were written by the phrasebook out of structured entries,
+     * they already agree with each other, and every one of them has a night and
+     * a house in it. There is nothing a model can add to that and one thing it
+     * can do to it, which is exactly what it did: asked to "be specific" with
+     * none of this in front of it, it invented specifics instead.
+     *
+     * Trimmed to the chat's own limit rather than the will's: a will may run to
+     * 1400 characters and a line in the square may not. Oldest first, because a
+     * record is read from night one, and the cut falls at the end — a room that
+     * wants the rest can ask.
+     */
+    const recital = mind.willNights;
+    if (recital.length > 0) {
+      const RECITAL_MAX = 380;
+      const said: string[] = [];
+      let spent = 0;
+      for (const line of recital) {
+        if (spent + line.length + 1 > RECITAL_MAX) break;
+        said.push(line);
+        spent += line.length + 1;
+      }
+      // One night that does not fit is a line worth truncating; none at all is
+      // not worth saying.
+      if (said.length === 0) said.push(recital[0].slice(0, RECITAL_MAX));
+      return { text: said.join(' '), claim: null, verbatim: true };
+    }
+
     const pusher = [...board.votes.entries()].find(
       ([voter, target]) => target === me.slot && claimerWeight(voter, board) === 0
     );

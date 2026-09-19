@@ -5160,7 +5160,26 @@ export function decideNightTarget(
     return random();
   }
 
-  if (actionType === 'convert' || actionType === 'recruit') return random();
+  /**
+   * Preaching and initiating: anywhere but the doors that have already shut.
+   *
+   * Both powers can spend a whole night learning that a house was never going
+   * to open — the cult on a Jailor or a Mayor, the lodge on anything that is
+   * not a plain citizen — and both used to pick uniformly from every living
+   * seat, so the same wasted knock came round again and again. On a thinning
+   * town that is most of a cult's remaining nights.
+   *
+   * Deprioritised rather than struck off. A badge can change under an Auditor,
+   * and a seat that refused on night two is a seat worth one more try when
+   * there is nothing else left — which is exactly what falling through to the
+   * full list gives it.
+   */
+  if (actionType === 'convert' || actionType === 'recruit') {
+    const shut = new Set(self.refused ?? []);
+    const open = legalTargets.filter((slot) => !shut.has(slot));
+    if (open.length > 0) return open[Math.floor(rng() * open.length)] ?? null;
+    return random();
+  }
 
   if (actionType === 'bond') {
     // The heart wants what it wants, on night one, at random.

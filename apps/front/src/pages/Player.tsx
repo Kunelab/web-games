@@ -337,6 +337,15 @@ export function RoundPanel({
   const t = useLocale().t;
   const round = session.round;
   const remaining = useCountdown(round?.phaseEndsAt ?? null, serverNow);
+  /**
+   * A paused round, said out loud on the phone.
+   *
+   * Without it the only symptom is an answer box that stops accepting anything
+   * and a countdown that is not there — which reads as a dropped connection,
+   * and the player spends the pause reloading rather than listening to whoever
+   * asked for it.
+   */
+  const held = round?.held === true;
   const [feedback, setFeedback] = useState<{ field: string; text: string; good: boolean } | null>(null);
 
   if (!round) return null;
@@ -351,6 +360,17 @@ export function RoundPanel({
   const progress = session.infinite ? `${round.index + 1} · ∞` : `${round.index + 1} / ${round.total}`;
 
   const reveal = session.reveal;
+
+  /*
+    The host has stopped the clock, said on the phone.
+
+    Without it the only symptoms are an answer box that refuses everything and a
+    countdown that is not there, which reads exactly like a dropped connection -
+    so the player spends the pause reloading instead of listening to whoever
+    asked for it. Drawn above everything else and in every phase, because the
+    question it answers ("is it me?") is the first one they will have.
+  */
+  const heldNote = held ? <p className="play-held">⏸ {t(msg('host.heldPlayer'))}</p> : null;
 
   if (round.phase === 'reveal' && reveal) {
     // By player id, not "the first entry that scored something", which showed a
@@ -411,7 +431,8 @@ export function RoundPanel({
       <div className="jeu-center" style={{ flex: 1 }}>
         <div className="stack-4" style={{ textAlign: 'center' }}>
           <p className="play-label">{t(msg('play.memorise'))}</p>
-          <p className="host-timer tabular">{remaining}</p>
+          {heldNote}
+          {!held && <p className="host-timer tabular">{remaining}</p>}
           {!hidePresentation && <Presentation round={round} serverNow={serverNow} />}
         </div>
       </div>
@@ -425,9 +446,11 @@ export function RoundPanel({
     return (
       <div className="player-round">
         <div className="player-round-head">
-          <span className="player-timer tabular">{remaining}</span>
+          <span className="player-timer tabular">{held ? '⏸' : remaining}</span>
           <span className="play-note">{progress}</span>
         </div>
+
+        {heldNote}
 
         {!hidePresentation && <Presentation round={round} serverNow={serverNow} />}
 
@@ -448,9 +471,11 @@ export function RoundPanel({
   return (
     <div className="player-round">
       <div className="player-round-head">
-        <span className="player-timer tabular">{remaining}</span>
+        <span className="player-timer tabular">{held ? '⏸' : remaining}</span>
         <span className="play-note">{progress}</span>
       </div>
+
+      {heldNote}
 
       {!hidePresentation && <Presentation round={round} serverNow={serverNow} />}
 

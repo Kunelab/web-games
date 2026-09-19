@@ -25,8 +25,12 @@ import {
   EVERYTHING_PLAYLIST_NAME,
   listLibrary,
   purgeLibraryRound,
-  rememberPlayedRound
+  libraryVideoCodes,
+  rememberPlayedRound,
+  replayFromLibrary,
+  trackKeyOf
 } from './services/blindtest-library.js';
+import { emptyHistory } from './services/blindtest-draw.js';
 import { closeDb } from './db/index.js';
 import { clearAssets, resolveAsset } from './game/assets.js';
 import {
@@ -1385,15 +1389,18 @@ check('no rooms exist before anyone asks', quickCards.length === 0, quickCards);
 section('the generated-rounds library');
 
 /** A round as the endless mode mints one: negative id, nobody's library item. */
-function generated(code: string, title: string): MediaView {
+function generated(code: string, title: string, artist = 'Un groupe', genre = 'smoke'): MediaView {
   const payload = { code, startGuess: 0, endGuess: 20, startReveal: 0, endReveal: 30, volume: 100 };
-  const answers = [answerFieldSchema.parse({ key: 'title', label: 'field.title', value: title })];
+  const answers = [
+    answerFieldSchema.parse({ key: 'title', label: 'field.title', value: title }),
+    answerFieldSchema.parse({ key: 'artist', label: 'field.artist', value: artist })
+  ];
   return {
     id: -999,
     user_id: null,
     kind: 'blindtest',
     title,
-    category: 'smoke',
+    category: genre,
     date: null,
     answers,
     payload,
@@ -1452,6 +1459,67 @@ const memberEdit = await app.inject({
   payload: { kind: 'blindtest', title: 'détourné', answers: [], payload: blindtest.defaultPayload, timing: null }
 });
 check('and cannot edit one', memberEdit.statusCode === 404, memberEdit.statusCode);
+
+/**
+ * The same song under a different upload is the same song.
+ *
+ * A Topic upload and a music video are two YouTube ids for one recording, and
+ * matching on the id alone let both into the catalogue with identical answers.
+ */
+const otherUpload = await rememberPlayedRound(generated('otherupload', 'Une chanson', 'Un groupe'));
+check('a second upload of one song is not kept twice', otherUpload?.id === kept?.id, {
+  first: kept?.id,
+  second: otherUpload?.id
+});
+check(
+  'so the playlist still holds it once',
+  (await listLibrary()).filter((item) => trackKeyOf(item) === trackKeyOf(kept!)).length === 1
+);
+
+/* --------------------- replaying what the room already heard -------------- */
+
+/**
+ * Half the endless mode's rounds come from here rather than from a search, so
+ * what it hands back has to be an ordinary, playable library item.
+ */
+const replayHistory = emptyHistory();
+const replayed = await replayFromLibrary(['smoke'], replayHistory, 1);
+check('the catalogue can supply a round', replayed.length === 1, replayed.length);
+check('with a real library id, so nothing re-saves it', (replayed[0]?.id ?? -1) > 0, replayed[0]?.id);
+const replayedRound = replayed[0];
+check(
+  'and it is recorded as played',
+  replayedRound !== undefined && replayHistory.playedTracks.has(trackKeyOf(replayedRound))
+);
+check('so the same song is not handed out twice', (await replayFromLibrary(['smoke'], replayHistory, 1)).length === 0);
+check(
+  'and a genre the catalogue has nothing for yields nothing',
+  (await replayFromLibrary(['none'], emptyHistory(), 1)).length === 0
+);
+
+/**
+ * The id guard, which is the hard half of "never the same song twice tonight".
+ *
+ * The track key spans both sources and does most of the work, but it is derived
+ * from answers an admin may edit between two rounds. An id cannot drift.
+ */
+const dealt = new Set<number>([kept?.id ?? 0]);
+check(
+  'a round already dealt this evening is not replayed',
+  (await replayFromLibrary(['smoke'], emptyHistory(), 1, dealt)).length === 0
+);
+
+/**
+ * And a *search* never returns what the catalogue already holds.
+ *
+ * A fresh draw is the expensive half of the endless mode and its whole job is
+ * to find something nobody has heard. A pool knows what this session played and
+ * nothing about the catalogue, so without this it would spend a search on a
+ * track sitting there for free.
+ */
+const catalogued = await libraryVideoCodes();
+check('the catalogue can list its video ids', catalogued.has('smokecode11'), [...catalogued].slice(0, 5));
+check('and does not list one it never kept', !catalogued.has('never-seen'));
 
 check('a round nobody kept purges to nothing', (await purgeLibraryRound('never-seen')) === false);
 check('and a kept one is thrown away', (await purgeLibraryRound('smokecode11')) === true);
