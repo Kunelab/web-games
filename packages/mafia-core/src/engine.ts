@@ -531,6 +531,60 @@ export function setLastWill(
 
 /* ----------------------------- day actions ------------------------------ */
 
+/**
+ * Opens the stand on a name the room has already carried over the line.
+ *
+ * Extracted so the two things that can cross that line share it. Casting a vote
+ * is the obvious one. The other is the sash: a Mayor who reveals turns his own
+ * standing vote from one into three and the table's total from N into N+2, so
+ * the tally moves by two and the bar by one, and a wagon that was one short is
+ * suddenly over. Nothing re-read the board when that happened, because the only
+ * check lived inside `castVote` — so the room sat looking at eight votes on a
+ * seat that the rules said should already be on the stand, and nothing happened
+ * until somebody happened to vote again.
+ */
+function openTrial(state: MafiaState, target: MafiaPlayer, now: number): void {
+  state.trial = { accusedId: target.playerId, ballots: {} };
+  state.votes = {};
+  state.trialsToday += 1;
+  if (marshallActive(state)) {
+    // The marshall's day: straight to the verdict.
+    state.stage = "judgement";
+    state.phaseEndsAt = now + state.config.judgementMs;
+    announce(state, M.trialNoDefence(target.name), now);
+  } else {
+    state.stage = "defense";
+    state.phaseEndsAt = now + state.config.defenseMs;
+    announce(state, M.trialDragged(target.name), now);
+    // A gagged mouth gets its one sentence said for it; see `trialMuted`.
+    if (target.silencedDay === state.day)
+      announce(state, M.trialMuted(target.name), now);
+  }
+}
+
+/**
+ * Re-reads the standing votes after something changed what they are worth.
+ *
+ * Only the weights move here, never the votes themselves, so this asks the same
+ * question `castVote` asks and does the same thing with the answer.
+ */
+function callTrialIfReady(state: MafiaState, now: number): void {
+  if (state.phase !== "day" || state.stage !== "discussion" || state.trial)
+    return;
+  const needed = voteThreshold(state);
+  if (votesOn(state, SKIP_VOTE) >= needed) {
+    announce(state, M.voteSkipped(), now);
+    beginNight(state, now);
+    return;
+  }
+  for (const player of alivePlayers(state)) {
+    if (votesOn(state, player.playerId) >= needed) {
+      openTrial(state, player, now);
+      return;
+    }
+  }
+}
+
 export function revealMayor(
   state: MafiaState,
   playerId: string,
@@ -555,6 +609,12 @@ export function revealMayor(
       : M.marshallReveal(player.name),
     now,
   );
+  /**
+   * The sash is worth three votes from this moment, including the one already
+   * cast. See `callTrialIfReady`: nothing else re-reads the tally, so a wagon
+   * pushed over the line by the reveal itself used to sit there untouched.
+   */
+  callTrialIfReady(state, now);
   return { ok: true };
 }
 
@@ -745,24 +805,7 @@ export function castVote(
    * costing anything; only the moment that actually changes the game — the
    * threshold falling — is worth a line in the square.
    */
-  if (against >= needed) {
-    state.trial = { accusedId: target.playerId, ballots: {} };
-    state.votes = {};
-    state.trialsToday += 1;
-    if (marshallActive(state)) {
-      // The marshall's day: straight to the verdict.
-      state.stage = "judgement";
-      state.phaseEndsAt = now + state.config.judgementMs;
-      announce(state, M.trialNoDefence(target.name), now);
-    } else {
-      state.stage = "defense";
-      state.phaseEndsAt = now + state.config.defenseMs;
-      announce(state, M.trialDragged(target.name), now);
-      // A gagged mouth gets its one sentence said for it; see `trialMuted`.
-      if (target.silencedDay === state.day)
-        announce(state, M.trialMuted(target.name), now);
-    }
-  }
+  if (against >= needed) openTrial(state, target, now);
   return { ok: true };
 }
 
@@ -884,10 +927,21 @@ export function legalNightAction(
         charges: uses,
       };
     }
+    case "rampage":
+      // The night after a massacre he stays in. See `cooldownUntilDay` below.
+      if (
+        player.cooldownUntilDay !== null &&
+        state.day < player.cooldownUntilDay
+      )
+        return null;
+      return {
+        type: def.nightAction,
+        targets: slots(outsiders),
+        charges: uses,
+      };
     case "frame":
     case "silence":
     case "charm":
-    case "rampage":
     case "poison":
     case "kidnap":
     case "audit":
@@ -2733,6 +2787,23 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     diedTonight.add(target.playerId);
     note("killed");
     kill(state, target, "night", CAUSE.killedBy(attack.source), attack.source);
+    /**
+     * A massacre buys the night after it off.
+     *
+     * The Mass Murderer takes a house and everyone standing in it, which on a
+     * busy night is three or four seats at once, and he was free to do it again
+     * the very next night. Nothing else in the game kills by the handful with no
+     * cost at all: the families share one knife, the Serial Killer takes one seat,
+     * the Arsonist spends nights dousing before it gets a fire. So the rampage is
+     * paid for the way the cult pays for a conversion.
+     *
+     * Only when it actually landed. Healed, blocked or standing in an empty house
+     * he has spent his night for nothing already, and charging him a second one
+     * for being unlucky is a different rule from this one.
+     */
+    if (attack.source === "massMurderer" && attacker) {
+      attacker.cooldownUntilDay = state.day + 2;
+    }
     if (isPoison) target.poisonedNight = null;
     if (attacker && attacker.playerId !== target.playerId) {
       addPoints(state, attacker.playerId, "kill");
@@ -3060,6 +3131,21 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     }
   }
 
+  /**
+   * One soul a night, for the whole cult.
+   *
+   * The cooldown is written on the cultist who spends it, which rate-limits one
+   * cultist and not the cult: with two off cooldown, two people are taken the
+   * same night, and every one taken is another pair of hands to take the next.
+   * A congregation that grows faster the bigger it is has no brake in it at all.
+   * Seen on a real table: one Cultist dealt, lynched on day two, and the cult
+   * still took six seats by day ten, two of them in a single night.
+   *
+   * So the night is the budget, not the cultist. Whoever reaches the door first
+   * is the one who opens it, and the rest keep their cooldown for tomorrow.
+   */
+  let convertedTonight = false;
+
   // Conversions, initiations and paperwork — after the blood has dried.
   for (const player of players) {
     if (!player.alive || blocked.has(player.playerId)) continue;
@@ -3086,7 +3172,8 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     if (
       action.type === "convert" &&
       player.role === "cultist" &&
-      target.alive
+      target.alive &&
+      !convertedTonight
     ) {
       visit(player.playerId, target.playerId);
       // A sash is not a soul to be bought. See `keepsRole`.
@@ -3100,6 +3187,16 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         target.role = converted;
         target.charges = roleDef(converted).charges ?? 0;
         player.cooldownUntilDay = state.day + 2;
+        /**
+         * And the newest member does not get to recruit on their first night.
+         *
+         * A convert arrives with nobody's cooldown on them, so the cult could
+         * hand the job straight to the person it had just taken and carry on at
+         * one a night however many it lost. They wait the same two days as the
+         * one who brought them in.
+         */
+        target.cooldownUntilDay = state.day + 2;
+        convertedTonight = true;
         notify(target, NOTE.converted());
         notify(player, NOTE.convertDone(target.name));
         announcements.push({ line: M.cultChant(), reveals: true });

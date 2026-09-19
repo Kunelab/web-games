@@ -2245,3 +2245,151 @@ describe("restoring a table from an older snapshot", () => {
     assert.equal(state.config.dayMs, 999_000);
   });
 });
+
+/**
+ * How fast a congregation may grow.
+ *
+ * The cooldown is written on the cultist who spends it, which limits one cultist
+ * and not the cult. Two off cooldown took two people the same night, and every
+ * one taken was another pair of hands for the next: a table dealt a single
+ * Cultist, who was lynched on day two, still lost six seats to the cult by day
+ * ten. The night is the budget now, not the cultist.
+ */
+describe('the cult', () => {
+  it('takes one soul a night however many are asking', () => {
+    const state = table(['cultist', 'cultist', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+    const first = bySlot(state, 1);
+    const second = bySlot(state, 2);
+    const townA = bySlot(state, 3);
+    const townB = bySlot(state, 4);
+
+    advanceMafia(state, 1_000, lcg(1));
+    assert.equal(state.phase, 'night');
+    assert.equal(setNightAction(state, first.playerId, townA.slot).ok, true);
+    assert.equal(setNightAction(state, second.playerId, townB.slot).ok, true);
+    advanceMafia(state, 2_000, lcg(1));
+
+    const taken = [townA, townB].filter((seat) => seat.role === 'cultist').length;
+    assert.equal(taken, 1, 'two cultists, one night, one convert');
+  });
+
+  it('does not let the newest member recruit the same night it arrived', () => {
+    const state = table(['cultist', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+    const leader = bySlot(state, 1);
+    const taken = bySlot(state, 2);
+
+    advanceMafia(state, 1_000, lcg(1));
+    assert.equal(setNightAction(state, leader.playerId, taken.slot).ok, true);
+    advanceMafia(state, 2_000, lcg(1));
+    assert.equal(taken.role, 'cultist', 'the first convert lands');
+    assert.ok(
+      taken.cooldownUntilDay !== null && taken.cooldownUntilDay > state.day,
+      'and arrives on the same cooldown as the one who brought them in'
+    );
+  });
+
+  /** A sash is not a soul to be bought. See `keepsRole`. */
+  it('cannot take a revealed mayor, and the auditor cannot strip one', () => {
+    const state = table(['cultist', 'mayor', 'citizen', 'citizen', 'godfather'], 3);
+    const cultist = bySlot(state, 1);
+    const mayor = bySlot(state, 2);
+    mayor.revealed = true;
+
+    advanceMafia(state, 1_000, lcg(1));
+    setNightAction(state, cultist.playerId, mayor.slot);
+    advanceMafia(state, 2_000, lcg(1));
+    assert.equal(mayor.role, 'mayor', 'the mayor keeps his role');
+  });
+});
+
+/**
+ * What a massacre costs.
+ *
+ * The Mass Murderer takes a house and everyone standing in it, which on a busy
+ * night is several seats at once, and he could do it again the next night for
+ * nothing. Nothing else in the game kills by the handful with no cost: the
+ * families share one knife, the Serial Killer takes one seat, the Arsonist
+ * spends nights dousing before it gets a fire.
+ */
+describe('the mass murderer', () => {
+  it('stays in the night after a massacre lands', () => {
+    const state = table(['mass-murderer', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+    const killer = bySlot(state, 1);
+    const first = bySlot(state, 2);
+    const second = bySlot(state, 3);
+
+    advanceMafia(state, 1_000, lcg(1));
+    assert.equal(state.phase, 'night');
+    assert.equal(setNightAction(state, killer.playerId, first.slot).ok, true);
+    advanceMafia(state, 2_000, lcg(1));
+    assert.equal(first.alive, false, 'the massacre lands');
+
+    // Next night: the rampage is not on offer at all.
+    advanceMafia(state, 3_000, lcg(1));
+    assert.equal(state.phase, 'night');
+    assert.equal(setNightAction(state, killer.playerId, second.slot).ok, false, 'locked in for one night');
+    advanceMafia(state, 4_000, lcg(1));
+    assert.equal(second.alive, true, 'and nobody dies to him');
+
+    // The night after that, he is out again.
+    advanceMafia(state, 5_000, lcg(1));
+    assert.equal(state.phase, 'night');
+    assert.equal(setNightAction(state, killer.playerId, second.slot).ok, true, 'one night only');
+  });
+
+  /** Spending the night for nothing is already the price of being unlucky. */
+  it('is not locked when the massacre killed nobody', () => {
+    const state = table(['mass-murderer', 'serial-killer', 'citizen', 'citizen', 'godfather'], 3);
+    const killer = bySlot(state, 1);
+    // A seat the rampage cannot touch, and nobody visiting it to be caught in the house.
+    const immune = bySlot(state, 2);
+
+    advanceMafia(state, 1_000, lcg(1));
+    setNightAction(state, killer.playerId, immune.slot);
+    advanceMafia(state, 2_000, lcg(1));
+    assert.equal(immune.alive, true, 'night immunity holds');
+
+    advanceMafia(state, 3_000, lcg(1));
+    assert.equal(state.phase, 'night');
+    assert.equal(setNightAction(state, killer.playerId, bySlot(state, 3).slot).ok, true, 'a wasted night costs him nothing extra');
+  });
+});
+
+/**
+ * The sash changes the arithmetic, so the arithmetic is re-read.
+ *
+ * Revealing turns the Mayor's own standing vote from one into three and the
+ * table's total from N into N+2: the tally moves by two and the bar by one, so a
+ * wagon one short of the line is suddenly over it. The only check lived inside
+ * `castVote`, so the room sat looking at a tally past the threshold with nobody
+ * on the stand, until somebody happened to vote again.
+ */
+describe('the sash and the standing votes', () => {
+  it('opens the stand when the reveal itself carries the wagon over', () => {
+    const state = table(['mayor', 'citizen', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+    state.voteOpensAt = null;
+    const mayor = bySlot(state, 1);
+    const accused = bySlot(state, 6);
+
+    // Two of six behind it, plus the mayor: three of six, and the bar is four.
+    assert.equal(castVote(state, mayor.playerId, accused.slot, 1_000).ok, true);
+    assert.equal(castVote(state, bySlot(state, 2).playerId, accused.slot, 1_100).ok, true);
+    assert.equal(castVote(state, bySlot(state, 3).playerId, accused.slot, 1_200).ok, true);
+    assert.equal(state.trial === null, true, 'three of six is not a majority');
+
+    // The sash: his vote is now three, so the wagon is five of eight and the bar five.
+    assert.equal(revealMayor(state, mayor.playerId, 1_300).ok, true);
+    assert.equal(state.trial?.accusedId, accused.playerId, 'the reveal carried it');
+  });
+
+  it('leaves the day alone when the reveal changes nothing', () => {
+    const state = table(['mayor', 'citizen', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+    state.voteOpensAt = null;
+    const mayor = bySlot(state, 1);
+
+    assert.equal(castVote(state, bySlot(state, 2).playerId, bySlot(state, 6).slot, 1_000).ok, true);
+    assert.equal(revealMayor(state, mayor.playerId, 1_100).ok, true);
+    assert.equal(state.trial === null, true, 'one vote is still one vote');
+    assert.equal(state.stage, 'discussion');
+  });
+});

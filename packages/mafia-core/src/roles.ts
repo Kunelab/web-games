@@ -871,6 +871,23 @@ export const FAMILIES = {
 export type FamilyId = keyof typeof FAMILIES | 'cult';
 
 /** The family a role belongs to, or null for town and neutrals. */
+/**
+ * Does this role spend its nights at home?
+ *
+ * A Veteran sits on his porch with a rifle and a Survivor puts on a vest; a role
+ * with no night action at all does not get up either. Nobody wearing one of these
+ * badges can honestly say they were at somebody else's door, which matters most
+ * to the seats that are lying: a Witch bluffing Veteran answered "where were
+ * you" with the truth — it had been out controlling somebody — and told the room
+ * it had been turning a house over while claiming the one role that never leaves
+ * its own. A bluff has to be consistent with itself or it is not a bluff, it is
+ * a confession with extra steps.
+ */
+export function staysHome(role: RoleId): boolean {
+  const action = roleDef(role).nightAction;
+  return action === null || action === 'alert' || action === 'vest';
+}
+
 export function familyOf(role: RoleId): FamilyId | null {
   const faction = ROLES[role].faction;
   return faction === 'mafia' || faction === 'triad' || faction === 'cult' ? faction : null;
