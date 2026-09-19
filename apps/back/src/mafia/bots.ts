@@ -82,7 +82,7 @@ import {
 } from './ear.js';
 import { JURY_FORMAT, JURY_RULES, juryPrompt, readJury, type JuryLean } from './jury.js';
 import { screen } from './guard.js';
-import { MOUTH_FORMAT, mouthPrompt, mouthRules, readLine, type Intent } from './mouth.js';
+import { MOUTH_FORMAT, mouthPrompt, mouthRules, readLine, SAY_CHARS, type Intent } from './mouth.js';
 import { readSquare, utterance, type SquareClaim } from './square.js';
 import { fumble, protectedWords } from './typos.js';
 
@@ -807,6 +807,24 @@ function leaks(text: string, state: MafiaState): boolean {
  */
 const GOING_TO = String.raw`\bi\s*(?:'ll|will|'?m\s+(?:going\s+to|gonna)|am\s+going\s+to|going\s+to|gonna)\s+`;
 
+/**
+ * Every apostrophe a model writes, turned into the one these rules are written in.
+ *
+ * The same trap as the space-before-apostrophe bug above, one layer along, and it
+ * defeated the fix for it. `GOING_TO` and the French rules spell the apostrophe
+ * `'`, while the typo generator in `typos.ts` writes `’` throughout — so
+ * "I’ll kill 7 tonight" and "je t’ai tué" walked straight through a guard that
+ * reads as though it were watching for them, exactly as "i 'll" used to.
+ *
+ * Normalising the input rather than widening six character classes, because this
+ * is the third time a rule has been written with one spelling of a punctuation
+ * mark and the fourth rule somebody adds will be written the same way. Here it
+ * cannot be forgotten: every pattern matches against the straightened text.
+ */
+function straighten(text: string): string {
+  return text.replace(/[‘’ʼʹ´`]/g, "'");
+}
+
 const OWN_DEED: RegExp[] = [
   // English: I burned / I doused / I set fire to / I torched
   /\b(?:i|i've|ive)\s+(?:have\s+)?(?:just\s+)?(?:burn(?:ed|t)?|dous(?:ed)?|ignit(?:ed)?|torch(?:ed)?|set\s+fire)\b/i,
@@ -845,38 +863,29 @@ const OWN_DEED: RegExp[] = [
  * or a badge the decision never held is an invention, and an invention that
  * convicts its own speaker is the most expensive kind.
  */
-function confesses(text: string, fallback: string): boolean {
+export function confesses(text: string, fallback: string): boolean {
+  const plain = straighten(text);
+  const plainFallback = straighten(fallback);
+
   // Said in the line the bot decided on: it is a choice, not a slip.
-  const decided = selfClaim(fallback);
-  const said = selfClaim(text);
+  const decided = selfClaim(plainFallback);
+  const said = selfClaim(plain);
   if (said && said !== decided) return true;
-  return OWN_DEED.some((pattern) => pattern.test(text)) && !OWN_DEED.some((pattern) => pattern.test(fallback));
+  return OWN_DEED.some((pattern) => pattern.test(plain)) && !OWN_DEED.some((pattern) => pattern.test(plainFallback));
 }
 
 const EMPTY: Decision = { say: null, targetSlot: null, verdict: null, claim: null };
 
 /**
- * The most one spoken line may carry, in characters.
- *
- * Two reasons are better than one right up until both of them are long, and
- * then they are one breath too many: the rulebook every bot is handed says one
- * short line and never two sentences where one will do. Past this the second
- * reason is dropped and the strongest one stands alone, which is the same trade
- * a person makes when they decide what is worth saying out loud.
- */
-const CASE_CHARS = 150;
-
-/**
  * The hard ceiling on anything that reaches the square, scripted or written.
  *
- * It lived as a bare 140 at the one place that applies it, while `CASE_CHARS`
- * above is 150 — so a case built right up to its own budget was cut by a clamp
- * it had never been told about, mid-word, with an ellipsis: "Tu as déjà voté…"
- * on a real table. A phrasebook line has no business being truncated at all.
- * The clamp is for a model that rambles; `caseLine` measures itself against
- * this and drops a whole reason rather than half a sentence.
+ * Imported rather than declared, and there is no second number beside it any
+ * more. `caseLine` composes against exactly the figure the clamp applies and
+ * the mouth refuses past, so two reasons are dropped to one before anything is
+ * ever cut — which is the same trade a person makes deciding what is worth
+ * saying out loud, rather than a sentence ending in an ellipsis.
  */
-const SAY_CHARS = 140;
+const CASE_CHARS = SAY_CHARS;
 
 /**
  * Several reasons, joined the way somebody speaking would join them.
@@ -1974,9 +1983,7 @@ export class MafiaBotDriver {
        * anything one of them knows, the rest can act on without weighing it.
        */
       for (const room of ['mafia', 'triad', 'cult', 'mason'] as const) {
-        const kin = bots.filter((bot) =>
-          room === 'mason' ? isMason(bot) : playerFamily(bot) === room
-        );
+        const kin = bots.filter((bot) => (room === 'mason' ? isMason(bot) : playerFamily(bot) === room));
         if (kin.length === 0) continue;
 
         const leader =
@@ -3734,7 +3741,6 @@ export class MafiaBotDriver {
     intent: Intent,
     self: MafiaPlayer
   ): Promise<Decision> {
-
     const tongue = spokenLocale(state);
     /**
      * The last few things said, with people first.
@@ -3801,7 +3807,9 @@ export class MafiaBotDriver {
      * ear and the brain report it exactly as the mouth does.
      */
     const seats = new Set(Object.values(state.players).map((player) => player.name.toLowerCase()));
-    const spoken = answer ? readLine(answer, intent, { name: self.name, slot: self.slot }, seats) : intent.fallback;
+    const spoken = answer
+      ? readLine(answer, intent, { name: self.name, slot: self.slot }, seats, state.day)
+      : intent.fallback;
     // In a hushed family room the phrasebook line is the ceiling as well as the floor. See `Intent.hushed`.
     const hushedLeak = intent.hushed === true && spoken !== null && leaks(spoken, state);
     /**
@@ -3915,9 +3923,7 @@ export class MafiaBotDriver {
     const state = this.hooks.get(code);
     if (!state) return;
     const seats =
-      botId === null
-        ? Object.values(state.players).filter((player) => player.isBot)
-        : [state.players[botId]];
+      botId === null ? Object.values(state.players).filter((player) => player.isBot) : [state.players[botId]];
     for (const seat of seats) {
       if (seat && seat.botBrain !== brain) seat.botBrain = brain;
     }
@@ -4009,7 +4015,8 @@ export class MafiaBotDriver {
     for (let round = 0; round < chain.length; round++) {
       const rung = this.nextRung(round === 0 ? start : 0, errand, EMPTY_RUNGS, deadline - Date.now());
       if (rung === null) {
-        if (forCode) trace('mafia', forCode).event('chain', { ...context, errand, rung: 'scripted', reason: 'no rung up' });
+        if (forCode)
+          trace('mafia', forCode).event('chain', { ...context, errand, rung: 'scripted', reason: 'no rung up' });
         if (forCode && forBot) this.noteBrain(forCode, forBot, 'scripted');
         return null;
       }
@@ -4350,8 +4357,20 @@ export class MafiaBotDriver {
     if (task === 'revote') {
       // The second look carries a ballot and nothing else: no line, no claim,
       // no day power. Everything it might have said, it said hours ago.
-      if (decision.skipVote) this.hooks.vote(code, botId, 'skip');
-      else if (decision.targetSlot !== null) this.hooks.vote(code, botId, decision.targetSlot);
+      if (decision.skipVote) {
+        /**
+         * And it waits on an open question exactly as the first look does.
+         *
+         * This was the one skip on the board cast without the check — `castOnce`
+         * has it and the `day`/`react` branch has it — so a room that had just
+         * asked for clues could have the afternoon closed under it by the revote
+         * wave, inside the fifteen seconds it was waiting for an answer. See
+         * `holdingForClues`: nothing is lost by waiting, and a skip that never
+         * lands leaves the clock to run, which is the same night one argument
+         * later.
+         */
+        if (!this.holdingForClues(state)) this.hooks.vote(code, botId, 'skip');
+      } else if (decision.targetSlot !== null) this.hooks.vote(code, botId, decision.targetSlot);
     }
 
     /**
@@ -4664,9 +4683,7 @@ export class MafiaBotDriver {
        * check, and which is what a town crier is actually for.
        */
       const news = this.crierNews(state, board);
-      const line = news
-        ? t(news)
-        : t(vary('mafia.bot.crier.joke', 9, botId + ':crier:' + state.day));
+      const line = news ? t(news) : t(vary('mafia.bot.crier.joke', 9, botId + ':crier:' + state.day));
 
       return {
         ...EMPTY,
@@ -5239,8 +5256,7 @@ export class MafiaBotDriver {
     if (mine !== undefined && struck !== null && struck !== undefined && struck !== me.slot) {
       const lastNight = Math.max(1, state.day - 1);
       const body = board.deaths.find(
-        (death) =>
-          death.slot === struck && death.phase === 'night' && death.day === lastNight && death.source === mine
+        (death) => death.slot === struck && death.phase === 'night' && death.day === lastNight && death.source === mine
       );
       const already = board.claims.some(
         (claim) => claim.kind === 'kill-claim' && claim.claimerSlot === me.slot && claim.targetSlot === struck
@@ -5720,9 +5736,7 @@ export class MafiaBotDriver {
      * rope worth two and handed the crier a number a listener can check and
      * find wrong, which is worse than not saying it.
      */
-    const hanged = state.deaths.filter(
-      (death) => death.phase === 'day' && death.cause.k === 'mafia.cause.lynched'
-    );
+    const hanged = state.deaths.filter((death) => death.phase === 'day' && death.cause.k === 'mafia.cause.lynched');
     /**
      * Off the public graveyard, never off the seat's own role.
      *
@@ -5757,9 +5771,7 @@ export class MafiaBotDriver {
     // And a seat that has not said one word, which `why.silent` already checks
     // the same way and which the room stops noticing after day three.
     if (board.day >= 3) {
-      const mute = board.aliveSlots.filter(
-        (slot) => !board.claims.some((claim) => claim.claimerSlot === slot)
-      );
+      const mute = board.aliveSlots.filter((slot) => !board.claims.some((claim) => claim.claimerSlot === slot));
       const one = mute[Math.floor(hashCode(salt) % Math.max(1, mute.length))];
       if (one !== undefined) return vary('mafia.bot.crier.news.silent', 2, salt, { who: nameOf(one) });
     }
@@ -6189,8 +6201,7 @@ export class MafiaBotDriver {
          * comes off. See `spokeSince` in `why`.
          */
         const pushed = board.claims.find(
-          (claim) =>
-            claim.kind === 'accuse' && claim.claimerSlot === reason.slot && claim.targetSlot === targetSlot
+          (claim) => claim.kind === 'accuse' && claim.claimerSlot === reason.slot && claim.targetSlot === targetSlot
         );
         const answered =
           pushed !== undefined &&
@@ -6430,8 +6441,7 @@ export class MafiaBotDriver {
      * rather than beaten by one.
      */
     const unsaid = caseFor(targetSlot, board, 8).find(
-      (reason) =>
-        reason.code === 'confessed' || reason.code === 'badge-unchallenged' || reason.code === 'saved-killers'
+      (reason) => reason.code === 'confessed' || reason.code === 'badge-unchallenged' || reason.code === 'saved-killers'
     );
     if (unsaid) {
       const spoken = this.aloud(unsaid, botId, targetSlot);
@@ -7032,13 +7042,9 @@ export class MafiaBotDriver {
 
     const holders = Object.values(state.players).filter(
       (player) =>
-        player.alive &&
-        playerFamily(player) === family &&
-        legalNightAction(state, player.playerId)?.type === 'kill'
+        player.alive && playerFamily(player) === family && legalNightAction(state, player.playerId)?.type === 'kill'
     );
-    const ordered = holders.sort((left, right) =>
-      left.playerId === botId ? -1 : right.playerId === botId ? 1 : 0
-    );
+    const ordered = holders.sort((left, right) => (left.playerId === botId ? -1 : right.playerId === botId ? 1 : 0));
 
     for (const holder of ordered) {
       const committed = state.nightActions[holder.playerId]?.targetId;
@@ -9036,9 +9042,7 @@ function readClaim(
        * corrected, because guessing which house it meant would be inventing an
        * alibi on its behalf.
        */
-      return slot === null || !visitable.has(slot)
-        ? null
-        : { kind: 'account', slot, role: null, account: 'visited' };
+      return slot === null || !visitable.has(slot) ? null : { kind: 'account', slot, role: null, account: 'visited' };
     case 'role-claim':
       // A role this table cannot contain is not a claim, it is a tell. Dropped
       // rather than filed: the board would otherwise carry a fact no player

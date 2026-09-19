@@ -4,6 +4,7 @@ import { defaultSessionConfig, sessionConfigSchema, type SessionConfig } from 'g
 
 import { db } from '../db/index.js';
 import { gameSessions } from '../db/schema.js';
+import { drawRounds, reserveEphemeralIdsBelow, type DrawHistory } from '../services/blindtest-draw.js';
 import { mediaService, type MediaView } from '../services/media-service.js';
 import { resultsService } from '../services/results-service.js';
 import { assetUrlFor, sweepAssets } from './assets.js';
@@ -16,6 +17,7 @@ import {
   openAnswers,
   resolveBuzzRace,
   toSessionView,
+  type InfiniteState,
   type SessionState,
   type ViewContext
 } from './session.js';
@@ -64,6 +66,33 @@ const FINISHED_GRACE_MS = 2 * 60 * 60 * 1000;
 
 export type TransitionListener = (state: SessionState) => void;
 
+/**
+ * Trims the generated-item snapshot on its way to disk.
+ *
+ * An infinite session writes its whole state on every phase change, a few times a
+ * minute, for as long as the evening lasts. `ephemeralItems` grows by one every
+ * round, so persisting it whole means a blob that gets steadily larger and is
+ * rewritten constantly — on a machine whose SSD is already a known weak point.
+ *
+ * Only the recent tail can ever be needed, because a restore resumes from where
+ * the session is rather than replaying it. Rounds already played are in the
+ * history row if the game banks, and are of no use to a resumed session either
+ * way.
+ *
+ * Written as a replacer rather than by mutating the state, because the live
+ * session keeps its full list: `mediaBySession` is what actually serves rounds,
+ * and trimming the object itself would throw away items the engine might still
+ * be asked for.
+ */
+function snapshotReplacer(state: SessionState): (key: string, value: unknown) => unknown {
+  const keep = new Set(state.order.slice(-GameManager.PERSIST_WINDOW_SIZE));
+
+  return (key, value) => {
+    if (key !== 'ephemeralItems' || !Array.isArray(value)) return value;
+    return (value as MediaView[]).filter((item) => keep.has(item.id));
+  };
+}
+
 export class GameManager {
   private readonly sessions = new Map<string, SessionState>();
   /** Media snapshot per session, so a round is unaffected by later library edits. */
@@ -93,10 +122,35 @@ export class GameManager {
         const state = JSON.parse(row.state) as SessionState;
         this.sessions.set(state.code, state);
 
-        // Reload the media this session referenced. A round already in flight keeps
-        // the answers embedded in its own state, so this only matters for later ones.
-        const items = await mediaService.getManyByIds(state.order);
-        this.mediaBySession.set(state.code, new Map(items.map((item) => [item.id, item])));
+        /**
+         * Reload the media this session referenced. A round already in flight
+         * keeps the answers embedded in its own state, so this only matters for
+         * later ones.
+         *
+         * Generated rounds are not in the library and never will be, so they come
+         * back from the snapshot the state carries. Both sources are merged
+         * rather than chosen between, because a session may legitimately mix the
+         * two, and the library is consulted only for the ids that could be in it.
+         */
+        const lookup = new Map<number, MediaView>();
+
+        for (const item of state.ephemeralItems ?? []) {
+          lookup.set(item.id, item);
+        }
+
+        const libraryIds = state.order.filter((id) => id > 0);
+        if (libraryIds.length > 0) {
+          for (const item of await mediaService.getManyByIds(libraryIds)) {
+            lookup.set(item.id, item);
+          }
+        }
+
+        // Keep newly generated ids clear of the ones this session already uses.
+        for (const id of state.order) {
+          if (id < 0) reserveEphemeralIdsBelow(id);
+        }
+
+        this.mediaBySession.set(state.code, lookup);
         restored += 1;
 
         // No timer is armed. Rather than resuming a countdown whose deadline may
@@ -216,12 +270,20 @@ export class GameManager {
   }
 
   async create(options: {
-    playlistId: number;
+    /** Null when the rounds came from nowhere: a generated session owns no playlist. */
+    playlistId: number | null;
     playlistName: string;
     /** Null for a hostless quick match: nobody opened this one. */
     hostUserId: number | null;
     items: MediaView[];
     config?: unknown;
+    /**
+     * Makes this a self-refilling session.
+     *
+     * Its `items` are then only the opening buffer; everything after comes from
+     * `topUp`, drawn while the previous round plays.
+     */
+    infinite?: InfiniteState;
     /**
      * Stop after this many rounds.
      *
@@ -247,11 +309,174 @@ export class GameManager {
       state.order = state.order.slice(0, options.maxRounds);
     }
 
+    if (options.infinite) {
+      state.infinite = options.infinite;
+      // The generated items exist nowhere else, so they travel with the state.
+      state.ephemeralItems = options.items;
+    }
+
     this.sessions.set(state.code, state);
     this.mediaBySession.set(state.code, new Map(options.items.map((item) => [item.id, item])));
     await this.persist(state);
 
     return state;
+  }
+
+  /* ------------------------------------------------------------- infinite mode */
+
+  /**
+   * How many rounds are kept ready ahead of the one playing.
+   *
+   * Your instinct was one, prepared while the current round runs, and the timing
+   * works: a round is about thirty seconds and a draw is about one. The reason it
+   * is three is failure, not speed. A draw can legitimately come back empty —
+   * every remaining candidate region-blocked, or the same artist as two rounds
+   * ago — and with a lookahead of one that single miss stalls the game in front
+   * of the room. With three, a miss is invisible and the next top-up fixes it.
+   */
+  private static readonly LOOKAHEAD = 3;
+
+  /**
+   * Rounds kept in the persisted snapshot.
+   *
+   * An infinite session plays for hours and rewrites its row on every phase
+   * change. Keeping every item it ever generated would mean a JSON blob that
+   * grows all evening, rewritten a few times a minute. Only the recent tail is
+   * needed, because that is all a restore has to be able to resume from.
+   */
+  static readonly PERSIST_WINDOW_SIZE = 25;
+
+  /** Top-ups in flight, so several transitions cannot start the same draw twice. */
+  private readonly topUps = new Map<string, Promise<void>>();
+
+  /** Whether this session should keep generating rounds. */
+  private refilling(state: SessionState): boolean {
+    const infinite = state.infinite;
+    if (!infinite || infinite.stopping) return false;
+    /**
+     * A finished game does not want more rounds.
+     *
+     * `afterTransition` runs on every transition including the one *into*
+     * `finished`, so without this the last thing an ended game did was spend
+     * quota drawing rounds nobody would hear and append them to the order of a
+     * game already on its podium. Worse, that left `order.length` ahead of
+     * `currentRoundIndex`, so a stray advance would walk a finished session back
+     * into playing after its results had been banked.
+     */
+    if (state.phase === 'finished') return false;
+    if (infinite.maxRounds !== null && state.order.length >= infinite.maxRounds) return false;
+    return true;
+  }
+
+  /**
+   * Draws more rounds if the buffer is running low.
+   *
+   * Never awaited by the transition that triggers it: the point of the whole
+   * design is that the search for the next clip happens during the current one,
+   * so making a phase change wait on it would defeat it exactly.
+   */
+  private topUp(state: SessionState): Promise<void> {
+    const existing = this.topUps.get(state.code);
+    if (existing) return existing;
+    if (!this.refilling(state)) return Promise.resolve();
+
+    const remaining = state.order.length - state.currentRoundIndex - 1;
+    if (remaining >= GameManager.LOOKAHEAD) return Promise.resolve();
+
+    const infinite = state.infinite;
+    if (!infinite) return Promise.resolve();
+
+    let wanted = GameManager.LOOKAHEAD - remaining;
+    if (infinite.maxRounds !== null) {
+      wanted = Math.min(wanted, infinite.maxRounds - state.order.length);
+    }
+    if (wanted <= 0) return Promise.resolve();
+
+    const history: DrawHistory = {
+      playedTracks: new Set(infinite.playedTracks),
+      recentArtists: [...infinite.recentArtists]
+    };
+
+    const promise = drawRounds(
+      {
+        genreIds: infinite.genreIds,
+        difficultyMin: infinite.difficultyMin,
+        difficultyMax: infinite.difficultyMax,
+        region: infinite.region
+      },
+      history,
+      wanted
+    )
+      .then((items) => {
+        /**
+         * The session may have ended, or been told to wind up, while the draw was
+         * out. A draw takes seconds and the host can press "finish" inside that
+         * window, so the decision is re-read here rather than only at the top: an
+         * in-flight top-up landing afterwards would quietly undo the stop by
+         * appending the very rounds it just removed.
+         */
+        if (!this.sessions.has(state.code) || items.length === 0) return;
+        if (!this.refilling(state)) return;
+
+        const lookup = this.mediaBySession.get(state.code);
+        for (const item of items) {
+          lookup?.set(item.id, item);
+          state.order.push(item.id);
+        }
+
+        state.ephemeralItems = [...(state.ephemeralItems ?? []), ...items];
+        infinite.playedTracks = [...history.playedTracks];
+        infinite.recentArtists = history.recentArtists;
+      })
+      .catch((error: unknown) => {
+        // A failed draw is a slower buffer, never a broken game.
+        this.log.warn({ err: error, code: state.code }, 'blind test top-up failed');
+      })
+      .finally(() => {
+        this.topUps.delete(state.code);
+      });
+
+    this.topUps.set(state.code, promise);
+    return promise;
+  }
+
+  /**
+   * The host asking for the run to finish.
+   *
+   * Stops the refill instead of ending the session, so the round on screen plays
+   * out and the ceremony follows it naturally when `advance` runs off the end of
+   * the order. Ending on the spot would cut off a round people are mid-answer on.
+   */
+  stopRefilling(code: string): boolean {
+    const state = this.sessions.get(code);
+    if (!state?.infinite) return false;
+    state.infinite.stopping = true;
+
+    /**
+     * The buffer goes too, or the button is a lie.
+     *
+     * Three rounds are always held ready ahead of the one playing, so merely
+     * stopping the refill leaves those three to play out: "Terminer après cette
+     * manche" would run for four more. Cutting the order back to the current
+     * round is what makes the label true, and it is safe because those rounds
+     * have not been presented to anybody — they exist only as a lookahead.
+     *
+     * `currentRoundIndex + 1` rather than the index itself: the order is sliced
+     * to a length, and the round on screen has to remain in it.
+     */
+    state.order = state.order.slice(0, Math.max(1, state.currentRoundIndex + 1));
+
+    /**
+     * Written out now rather than left to the next transition.
+     *
+     * A phase change would persist it within a round, but a restart in that gap
+     * would restore a session still set to refill and quietly hand the room an
+     * endless game it had already asked to end.
+     */
+    void this.persist(state).catch((error: unknown) => {
+      this.log.warn({ err: error, code }, 'could not persist the stop request');
+    });
+    return true;
   }
 
   private lookupFor(code: string) {
@@ -263,6 +488,20 @@ export class GameManager {
   async advanceSession(code: string): Promise<SessionState | undefined> {
     const state = this.sessions.get(code);
     if (!state) return undefined;
+
+    /**
+     * The one place a top-up is waited for.
+     *
+     * Only when the buffer is actually empty, which with a lookahead of three
+     * means something went wrong earlier: a draw failed, or the room exhausted
+     * what its settings allow. Waiting briefly here turns "the game ended without
+     * warning" into "the next round took a moment", and if the draw still comes
+     * back with nothing then `advance` finds an empty order and finishes the game
+     * properly, with its ceremony.
+     */
+    if (this.refilling(state) && state.order.length - state.currentRoundIndex - 1 <= 0) {
+      await this.topUp(state);
+    }
 
     advance(state, this.lookupFor(code));
     await this.afterTransition(state);
@@ -315,6 +554,19 @@ export class GameManager {
     await this.persist(state);
     this.listener?.(state);
     this.scheduleNext(state);
+
+    /**
+     * And here is the loop: every transition looks at the buffer, and a round
+     * starting is a transition. So the search for round N+1 begins the moment
+     * round N goes on screen and has the whole of it to finish in.
+     *
+     * Deliberately not awaited. `void` rather than a floating promise so the
+     * intent is stated: nothing here is allowed to delay the phase change that
+     * the room is waiting on.
+     */
+    if (this.refilling(state)) {
+      void this.topUp(state);
+    }
   }
 
   /**
@@ -456,7 +708,7 @@ export class GameManager {
       host_token: state.hostToken,
       phase: state.phase,
       config: JSON.stringify(state.config),
-      state: JSON.stringify(state),
+      state: JSON.stringify(state, snapshotReplacer(state)),
       last_activity_at: state.lastActivityAt
     };
 
@@ -482,6 +734,9 @@ export class GameManager {
     }
     this.sessions.delete(code);
     this.mediaBySession.delete(code);
+    // A top-up still in flight resolves into a session that no longer exists; it
+    // checks for that, so this only stops the map holding the entry forever.
+    this.topUps.delete(code);
   }
 
   /**

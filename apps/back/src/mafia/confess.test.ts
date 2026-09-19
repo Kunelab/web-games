@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { selfClaim } from './asks.js';
+import { confesses } from './bots.js';
 
 /**
  * The sentences a table says about itself, and the two ways of reading them
@@ -59,5 +60,46 @@ describe('a denial is not a confession', () => {
     // The comma is what ends a "not"; without one it reaches the role as before.
     assert.equal(selfClaim("I'm the sheriff, I'm not the doctor"), 'sheriff');
     assert.equal(selfClaim('trust me guys im not the doctor'), null);
+  });
+});
+
+/**
+ * The same trap as the space-before-apostrophe bug, one layer along.
+ *
+ * `OWN_DEED` spells its apostrophes `'`, and `typos.ts` writes `’` throughout,
+ * so a model line that went through the typo generator carried a punctuation
+ * mark none of these rules could match. "I’ll kill 7 tonight" walked past a
+ * guard whose entire job is that sentence, and a confession that reaches the
+ * square gets its speaker hanged the same afternoon.
+ */
+describe('a confession is caught whichever apostrophe it is written with', () => {
+  /** Nothing decided, so anything owned in the line is an invention. */
+  const nothing = '7, say something';
+
+  it('catches the straight apostrophe it always caught', () => {
+    assert.equal(confesses("I'll kill 7 tonight", nothing), true);
+    assert.equal(confesses("I'm gonna burn him", nothing), true);
+  });
+
+  it('catches the typographic one it used to miss', () => {
+    assert.equal(confesses('I’ll kill 7 tonight', nothing), true);
+    assert.equal(confesses('I’m gonna burn him', nothing), true);
+  });
+
+  it('catches both in French too', () => {
+    assert.equal(confesses("je t'ai tue hier soir", nothing), true);
+    assert.equal(confesses('je t’ai tue hier soir', nothing), true);
+    assert.equal(confesses('j’ai brule sa maison', nothing), true);
+  });
+
+  it('still lets an ordinary line through', () => {
+    assert.equal(confesses('7, you’re wasting everybody’s time', nothing), false);
+    assert.equal(confesses('I’ll vote 7 today', nothing), false);
+  });
+
+  it('still treats a deed the bot decided on as a choice, not a slip', () => {
+    // The whole point of measuring against the fallback: a seat that meant to
+    // say it is not inventing it, whichever apostrophe the model reached for.
+    assert.equal(confesses('I’ll kill 7 tonight', "I'll kill 7 tonight"), false);
   });
 });

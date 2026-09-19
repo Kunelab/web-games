@@ -18,6 +18,13 @@ const TILES: MenuTile[] = [
     primary: true
   },
   {
+    to: '/quiz/infini',
+    label: 'site.tile.endless',
+    hint: 'site.tile.endless.hint',
+    emoji: '♾️',
+    requiresAccount: true
+  },
+  {
     to: '/quiz/creer',
     label: 'site.tile.createRoom',
     hint: 'site.tile.createRoom.hint',
@@ -81,11 +88,5 @@ const TILES: MenuTile[] = [
 ];
 
 export default function QuizMenu() {
-  return (
-    <GameMenu
-      game={gameEntry('quiz')}
-      lede="site.menu.quiz.lede"
-      tiles={TILES}
-    />
-  );
+  return <GameMenu game={gameEntry('quiz')} lede="site.menu.quiz.lede" tiles={TILES} />;
 }

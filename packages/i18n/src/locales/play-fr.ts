@@ -62,6 +62,7 @@ export const playFr: Catalogue = {
   "host.myPlaylists": "Mes playlists",
   "host.openFailed": "Impossible d’ouvrir cette partie.",
   "host.connectingToGame": "Connexion à la partie…",
+  "host.stopAfterRound": "Terminer après cette manche",
   "host.end": "Terminer",
   "host.oral": "À l’oral",
   "host.oralPrompt": "Personne n’a besoin de téléphone.",

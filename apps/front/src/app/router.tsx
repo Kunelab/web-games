@@ -27,6 +27,7 @@ const MafiaTv = lazy(() => import('../pages/mafia/MafiaTv'));
 const QuizMenu = lazy(() => import('../pages/menu/QuizMenu'));
 const QuizGuide = lazy(() => import('../pages/menu/QuizGuide'));
 const QuizCreate = lazy(() => import('../pages/menu/QuizCreate'));
+const BlindtestSetup = lazy(() => import('../pages/BlindtestSetup'));
 const CzMenu = lazy(() => import('../pages/menu/CzMenu'));
 const CzGuide = lazy(() => import('../pages/menu/CzGuide'));
 const MafiaMenu = lazy(() => import('../pages/menu/MafiaMenu'));
@@ -151,6 +152,14 @@ const router = createBrowserRouter([
        */
       { path: '/quiz', element: <QuizMenu /> },
       { path: '/quiz/regles', element: <QuizGuide /> },
+      {
+        path: '/quiz/infini',
+        element: (
+          <RequireAuth>
+            <BlindtestSetup />
+          </RequireAuth>
+        )
+      },
       {
         path: '/quiz/creer',
         element: (

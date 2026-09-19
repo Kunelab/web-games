@@ -123,6 +123,37 @@ export interface MafiaConfig {
    * doing its job rather than a stalled game.
    */
   quietDaysBeforeEnd: number;
+  /**
+   * The same rule, for a board that has merely gone quiet rather than seized.
+   *
+   * Two days of silence means two different things. On a frozen board — the
+   * Escort and the last killer, neither able to reach the other — it is the
+   * whole game, already decided, and the sooner it is said the better. On a
+   * board where the losing side still holds the votes to hang the winning one,
+   * it is a town that has skipped twice, and ending there handed a nine-against-
+   * one afternoon to the one. Both are worth ending; they are not worth ending
+   * on the same morning.
+   *
+   * So a board somebody can still move gets a longer leash, and past `maxDays`
+   * the clock rules whatever it looks like.
+   *
+   * Five, off a sweep of six hundred benched games at twelve, fifteen, twenty
+   * and twenty-four seats:
+   *
+   *     leash   town     longest game   reached maxDays
+   *       2     48.8%        15                0        (the flat rule)
+   *       3     51.2%        17                0
+   *       5     52.3%        19                0
+   *       8     53.0%        20                1
+   *
+   * The town gains three and a half points, and that is the bug being paid
+   * back rather than a thumb on the scale: every one of those games is one it
+   * held the votes to win and was ruled against on its second quiet morning.
+   * Five is the longest leash that still never reaches the `maxDays` backstop,
+   * which is the property worth having — past it the curve is flat and all the
+   * extra days buy is a longer game.
+   */
+  quietDaysIfMoveable: number;
   /** The day this rule may first fire. Before it, quiet is just a good night. */
   quietFrom: number;
   /**
@@ -202,6 +233,7 @@ export const DEFAULT_CONFIG: MafiaConfig = {
   trialsPerDay: 3,
   maxDays: 20,
   quietDaysBeforeEnd: 2,
+  quietDaysIfMoveable: 5,
   quietFrom: 7,
   revealOnDeath: 'role',
   locale: 'en',

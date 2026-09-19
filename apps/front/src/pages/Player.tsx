@@ -330,6 +330,15 @@ export function RoundPanel({
 
   if (!round) return null;
 
+  /**
+   * An endless game has no denominator.
+   *
+   * `total` is the length of the order, and in that mode the order grows by one
+   * every time the buffer tops up, so a fraction counts "3 / 7" then "4 / 8":
+   * a progress indicator whose target moves away as you play.
+   */
+  const progress = session.infinite ? `${round.index + 1} · ∞` : `${round.index + 1} / ${round.total}`;
+
   const reveal = session.reveal;
 
   if (round.phase === 'reveal' && reveal) {
@@ -406,9 +415,7 @@ export function RoundPanel({
       <div className="player-round">
         <div className="player-round-head">
           <span className="player-timer tabular">{remaining}</span>
-          <span className="play-note">
-            {round.index + 1} / {round.total}
-          </span>
+          <span className="play-note">{progress}</span>
         </div>
 
         {!hidePresentation && <Presentation round={round} serverNow={serverNow} />}
@@ -431,9 +438,7 @@ export function RoundPanel({
     <div className="player-round">
       <div className="player-round-head">
         <span className="player-timer tabular">{remaining}</span>
-        <span className="play-note">
-          {round.index + 1} / {round.total}
-        </span>
+        <span className="play-note">{progress}</span>
       </div>
 
       {!hidePresentation && <Presentation round={round} serverNow={serverNow} />}

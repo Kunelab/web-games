@@ -1,0 +1,303 @@
+/*
+ * The generated blind test's setup screen.
+ *
+ * Built on the same custom properties the rest of the app uses, so it follows the
+ * theme rather than declaring its own colours.
+ */
+
+.bt-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.bt-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.bt-head h1 {
+  margin: 0 0 0.35rem;
+}
+
+.bt-lede {
+  margin: 0;
+  max-width: 42rem;
+  opacity: 0.8;
+}
+
+/*
+ * The count is the point of the screen, so it is the biggest thing on it.
+ * `tabular-nums` stops the number jittering as it updates while a slider moves.
+ */
+.bt-count {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 11rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border, rgb(255 255 255 / 15%));
+  border-radius: 0.75rem;
+  background: var(--surface-2, rgb(255 255 255 / 4%));
+}
+
+.bt-count strong {
+  font-size: 2rem;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.bt-count.is-empty strong {
+  color: var(--danger, #e2696b);
+}
+
+.bt-count-hint {
+  font-size: 0.85rem;
+  opacity: 0.7;
+  text-align: right;
+}
+
+.bt-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.bt-section-head h2 {
+  margin: 0;
+}
+
+.bt-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  font: inherit;
+  opacity: 0.85;
+}
+
+.bt-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 1rem;
+}
+
+.bt-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border, rgb(255 255 255 / 12%));
+  border-radius: 0.75rem;
+}
+
+.bt-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+/* The tri-state box: empty, dash for some, tick for all. */
+.bt-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 1px solid currentColor;
+  border-radius: 0.3rem;
+  font-size: 0.8rem;
+  opacity: 0.6;
+}
+
+.bt-section-title.is-part .bt-check,
+.bt-section-title.is-full .bt-check {
+  opacity: 1;
+  background: var(--accent, #6c8cff);
+  border-color: transparent;
+  color: #fff;
+}
+
+.bt-genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.bt-genre {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border, rgb(255 255 255 / 18%));
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.bt-genre:hover {
+  border-color: var(--accent, #6c8cff);
+}
+
+.bt-genre.is-on {
+  background: var(--accent, #6c8cff);
+  border-color: transparent;
+  color: #fff;
+}
+
+.bt-tag {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.65;
+}
+
+.bt-genre-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 25%);
+}
+
+/* A pool this small will run dry within one evening; worth flagging in place. */
+.bt-genre-count.is-thin {
+  background: var(--danger, #e2696b);
+}
+
+.bt-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.bt-control label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+.bt-control-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 1rem;
+}
+
+.bt-range {
+  font-weight: 400;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.bt-hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  opacity: 0.7;
+  max-width: 40rem;
+}
+
+.bt-input {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border, rgb(255 255 255 / 18%));
+  background: var(--surface-2, rgb(255 255 255 / 5%));
+  color: inherit;
+  font: inherit;
+}
+
+/*
+ * Two stacked range inputs sharing one track.
+ *
+ * The inputs are transparent and positioned over the drawn track; only their
+ * thumbs are visible, which is what makes a two-handle slider out of two
+ * ordinary, keyboard-operable controls. `pointer-events` is turned off on the
+ * input and back on for the thumb, so a click anywhere between the handles does
+ * not yank whichever one owns the higher stacking order.
+ */
+.bt-slider {
+  position: relative;
+  height: 2rem;
+}
+
+.bt-slider-track,
+.bt-slider input {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  transform: translateY(-50%);
+}
+
+.bt-slider-track {
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--surface-3, rgb(255 255 255 / 12%));
+}
+
+.bt-slider-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--accent, #6c8cff);
+  border-radius: 999px;
+}
+
+.bt-slider input {
+  width: 100%;
+  margin: 0;
+  background: none;
+  appearance: none;
+  pointer-events: none;
+  height: 2rem;
+}
+
+.bt-slider input::-webkit-slider-thumb {
+  appearance: none;
+  pointer-events: auto;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent, #6c8cff);
+  cursor: grab;
+}
+
+.bt-slider input::-moz-range-thumb {
+  pointer-events: auto;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent, #6c8cff);
+  cursor: grab;
+}
+
+.bt-error {
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.6rem;
+  background: rgb(226 105 107 / 15%);
+  border: 1px solid var(--danger, #e2696b);
+}
