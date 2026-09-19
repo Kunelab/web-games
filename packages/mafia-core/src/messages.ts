@@ -106,6 +106,7 @@ export const NO = {
   alreadyStarted: (): Msg => msg('mafia.refuse.alreadyStarted'),
   nameRequired: (): Msg => msg('mafia.refuse.nameRequired'),
   nameTaken: (): Msg => msg('mafia.refuse.nameTaken'),
+  nameIsARole: (): Msg => msg('mafia.refuse.nameIsARole'),
   tableFull: (): Msg => msg('mafia.refuse.tableFull'),
   alreadyRunning: (): Msg => msg('mafia.refuse.alreadyRunning'),
   needPlayers: (count: number): Msg => msg('mafia.refuse.needPlayers', { count }),

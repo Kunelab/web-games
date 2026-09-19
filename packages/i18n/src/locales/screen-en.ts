@@ -46,6 +46,7 @@ export const screenEn: Catalogue = {
   'mafia.refuse.alreadyStarted': 'The game has already started',
   'mafia.refuse.nameRequired': 'A name is required',
   'mafia.refuse.nameTaken': 'That name is taken',
+  'mafia.refuse.nameIsARole': 'That is a role or a faction. Pick a name of your own.',
   'mafia.refuse.tableFull': 'The table is full',
   'mafia.refuse.alreadyRunning': 'Already under way',
   'mafia.refuse.needPlayers': 'At least {count} players are needed',
