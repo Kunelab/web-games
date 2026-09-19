@@ -50,5 +50,26 @@ export default tseslint.config(
     files: ['eslint.config.js', 'vite.config.ts'],
     ...tseslint.configs.disableTypeChecked
   },
+  {
+    /**
+     * The build-time scripts, which are Node and are in no tsconfig.
+     *
+     * `recommendedTypeChecked` is applied to everything above, and a type-aware
+     * rule reaching a file no project owns does not report a lint error: it
+     * throws, and takes the whole run down with it. `eslint .` on this package
+     * has been exiting 2 on `scripts/art-cutout.mjs` since the script was added,
+     * which is only invisible because a package earlier in `pnpm -r lint` was
+     * failing first and stopping the run.
+     *
+     * They are plain Node modules, so they get Node globals and the untyped
+     * rule set, the same trade `vite.config.ts` already takes above.
+     */
+    files: ['scripts/**/*.{js,mjs,cjs}'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: globals.node
+    }
+  },
   prettier
 );

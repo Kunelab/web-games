@@ -198,7 +198,7 @@ export function deductions(slot: number, info: PublicInfo): Deduction[] {
           other.claimerSlot === claim.relayedFrom &&
           other.kind === 'counter-claim' &&
           other.targetSlot === slot &&
-          info.aliveSlots.includes(claim.relayedFrom!)
+          info.aliveSlots.includes(claim.relayedFrom)
       );
       if (denied) found.push({ kind: 'relay-denied', otherSlot: claim.relayedFrom });
     }

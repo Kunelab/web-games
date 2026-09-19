@@ -152,7 +152,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.serial-killer.desc':
     'Tue chaque nuit, sans relâche. Une lame ordinaire : un gilet, une garde ou une veille l’arrêtent. Gagne seul, quand plus personne ne peut l’arrêter.',
   'mafia.role.mass-murderer.name': 'Tueur de masse',
-  'mafia.role.mass-murderer.desc': 'Massacre une maison et tous ceux qui s’y trouvent cette nuit-là. Gagne seul.',
+  'mafia.role.mass-murderer.desc': 'Une nuit sur deux, massacre une maison et tous ceux qui s’y trouvent. Gagne seul.',
   'mafia.role.arsonist.name': 'Incendiaire',
   'mafia.role.arsonist.desc':
     'Arrose une maison d’essence chaque nuit — ou craque l’allumette chez lui et tout ce qui est imbibé s’embrase. Rien n’arrête le feu. Gagne seul.',

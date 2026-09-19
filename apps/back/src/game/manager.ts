@@ -329,12 +329,43 @@ export class GameManager {
    *
    * Your instinct was one, prepared while the current round runs, and the timing
    * works: a round is about thirty seconds and a draw is about one. The reason it
-   * is three is failure, not speed. A draw can legitimately come back empty —
+   * was three is failure, not speed. A draw can legitimately come back empty —
    * every remaining candidate region-blocked, or the same artist as two rounds
    * ago — and with a lookahead of one that single miss stalls the game in front
-   * of the room. With three, a miss is invisible and the next top-up fixes it.
+   * of the room.
+   *
+   * It is one now, and the miss is covered somewhere better: `advanceFor` waits
+   * for a top-up when the buffer is actually empty, so an empty draw costs the
+   * room the moment it takes to find one more song rather than nothing at all.
+   * Three rounds of lookahead meant three songs were searched for, annotated and
+   * held before anybody needed them, and a session that ends after four rounds
+   * threw two of them away — paid for in API quota that the endless mode spends
+   * all evening.
    */
-  private static readonly LOOKAHEAD = 3;
+  private static readonly LOOKAHEAD = 1;
+
+  /**
+   * How long to leave it after a draw that found nothing.
+   *
+   * A lookahead of one means the top-up fires only when the buffer is empty, so
+   * on the happy path there is exactly one draw per round and no timer is needed
+   * to space them out — the round itself does that. The bad path is the one that
+   * needs a brake. A draw that comes back with nothing leaves the buffer empty,
+   * and a blind test transitions several times per round — playing, answers
+   * closing, the reveal, the next round — so every one of those fired another
+   * draw, and each of those is a chorus lookup with a pool build possibly behind
+   * it. A genre selection that has genuinely run dry hammered the API for the
+   * rest of the evening.
+   *
+   * So the wait is charged only for coming back empty, and a draw that produced
+   * a song imposes no delay on the next one at all. `advanceFor` passes `urgent`
+   * and ignores this regardless, because that call is the room standing in
+   * silence rather than a guess about the future.
+   */
+  private static readonly EMPTY_DRAW_BACKOFF_MS = 10_000;
+
+  /** When each room last drew nothing. See `EMPTY_DRAW_BACKOFF_MS`. */
+  private readonly emptyDrawAt = new Map<string, number>();
 
   /**
    * Rounds kept in the persisted snapshot.
@@ -375,13 +406,17 @@ export class GameManager {
    * design is that the search for the next clip happens during the current one,
    * so making a phase change wait on it would defeat it exactly.
    */
-  private topUp(state: SessionState): Promise<void> {
+  private topUp(state: SessionState, urgent = false): Promise<void> {
     const existing = this.topUps.get(state.code);
     if (existing) return existing;
     if (!this.refilling(state)) return Promise.resolve();
 
     const remaining = state.order.length - state.currentRoundIndex - 1;
     if (remaining >= GameManager.LOOKAHEAD) return Promise.resolve();
+
+    // Only after a miss, and never when the room is waiting. See `EMPTY_DRAW_BACKOFF_MS`.
+    const sinceEmpty = Date.now() - (this.emptyDrawAt.get(state.code) ?? 0);
+    if (!urgent && sinceEmpty < GameManager.EMPTY_DRAW_BACKOFF_MS) return Promise.resolve();
 
     const infinite = state.infinite;
     if (!infinite) return Promise.resolve();
@@ -415,8 +450,15 @@ export class GameManager {
          * in-flight top-up landing afterwards would quietly undo the stop by
          * appending the very rounds it just removed.
          */
-        if (!this.sessions.has(state.code) || items.length === 0) return;
+        if (items.length === 0) {
+          // Nothing found. Leave it a moment before asking again, so a dry set
+          // of settings does not draw once per transition. See `EMPTY_DRAW_BACKOFF_MS`.
+          this.emptyDrawAt.set(state.code, Date.now());
+          return;
+        }
+        if (!this.sessions.has(state.code)) return;
         if (!this.refilling(state)) return;
+        this.emptyDrawAt.delete(state.code);
 
         const lookup = this.mediaBySession.get(state.code);
         for (const item of items) {
@@ -500,7 +542,9 @@ export class GameManager {
      * properly, with its ceremony.
      */
     if (this.refilling(state) && state.order.length - state.currentRoundIndex - 1 <= 0) {
-      await this.topUp(state);
+      // Urgent: the room is between rounds with nothing to play, so the spacing
+      // in `MIN_DRAW_GAP_MS` does not apply. See `topUp`.
+      await this.topUp(state, true);
     }
 
     advance(state, this.lookupFor(code));
@@ -737,6 +781,7 @@ export class GameManager {
     // A top-up still in flight resolves into a session that no longer exists; it
     // checks for that, so this only stops the map holding the entry forever.
     this.topUps.delete(code);
+    this.emptyDrawAt.delete(code);
   }
 
   /**

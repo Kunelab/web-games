@@ -159,7 +159,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.serial-killer.desc':
     'Kills every night, without pause. An ordinary blade: a vest, a guard or a night of alert all stop it. Wins alone, when nobody is left to stop them.',
   'mafia.role.mass-murderer.name': 'Mass Murderer',
-  'mafia.role.mass-murderer.desc': 'Butchers a house and everyone inside it that night. Wins alone.',
+  'mafia.role.mass-murderer.desc': 'Every other night, butchers a house and everyone inside it. Wins alone.',
   'mafia.role.arsonist.name': 'Arsonist',
   'mafia.role.arsonist.desc':
     'Douses a house in petrol every night — or strikes the match at home, and everything soaked goes up. Nothing stops fire. Wins alone.',

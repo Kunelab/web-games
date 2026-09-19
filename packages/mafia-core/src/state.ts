@@ -1177,8 +1177,24 @@ export function assignRoles(state: MafiaState, rng: () => number): void {
   ensureCarrier(players, 'mafia', 'mafioso');
   ensureCarrier(players, 'triad', 'enforcer');
 
-  // A body reader needs somebody hiding bodies. See `retireIdleCoroner`.
-  retireIdleCoroner(players);
+  /**
+   * A body reader needs somebody hiding bodies, unless the host asked for one.
+   *
+   * See `retireIdleCoroner` for why an idle Coroner is worth replacing. What it
+   * must not do is overrule a host who typed the word: a custom list is the one
+   * place on this screen where every seat is a decision somebody made, and
+   * silently handing back an Investigator is the roster arguing with its author.
+   *
+   * Literally typed, not merely custom. A custom list is written in slot tokens
+   * and a category slot rolls its own role, so a `town-investigative` seat that
+   * happens to come up Coroner was nobody's choice and is repaired like any
+   * other. Presets are generated rosters too: they are a shape the host picked,
+   * not a seat.
+   */
+  const setup = state.config.setup;
+  const askedFor =
+    setup?.mode === 'custom' && setup.slots.includes('coroner');
+  if (!askedFor) retireIdleCoroner(players);
 
   // The executioner needs someone to destroy: a town player, never himself.
   for (const player of players) {
