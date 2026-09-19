@@ -1,5 +1,11 @@
-import { post, systemPost, visibleTo, type ChatMessage, type PostRefusal } from 'chat-core';
-import type { Msg } from 'i18n';
+import {
+  post,
+  systemPost,
+  visibleTo,
+  type ChatMessage,
+  type PostRefusal,
+} from "chat-core";
+import type { Msg } from "i18n";
 import {
   castKickBallot,
   isPaused,
@@ -14,10 +20,19 @@ import {
   restoreDeadline,
   tickPresence,
   type KickRefusal,
-  type PresenceTick
-} from 'presence-core';
+  type PresenceTick,
+} from "presence-core";
 
-import { BODY, CAUSE, M, MafiaError, NO, NOTE, ROLE, type DeathSource } from './messages.js';
+import {
+  BODY,
+  CAUSE,
+  M,
+  MafiaError,
+  NO,
+  NOTE,
+  ROLE,
+  type DeathSource,
+} from "./messages.js";
 
 import {
   BYSTANDER_ROLES,
@@ -29,10 +44,11 @@ import {
   type Faction,
   type FamilyId,
   type NightActionType,
-  type RoleId
-} from './roles.js';
+  type RoleId,
+} from "./roles.js";
 import {
   ANONYMOUS,
+  DEFAULT_CONFIG,
   alivePlayers,
   assignRoles,
   chatRules,
@@ -54,8 +70,8 @@ import {
   type MafiaState,
   type NightOutcome,
   type NightAction,
-  type PointEntry
-} from './state.js';
+  type PointEntry,
+} from "./state.js";
 
 /**
  * All mutation of a Mafia table. Every function validates against the state it
@@ -90,25 +106,33 @@ export interface ActionOutcome {
  */
 const PAUSED_REFUSAL: ActionOutcome = { ok: false, error: NO.paused() };
 
-const POINTS: Record<PointEntry['reason'], number> = {
+const POINTS: Record<PointEntry["reason"], number> = {
   win: 5,
-  'solo-win': 5,
+  "solo-win": 5,
   survive: 2,
   kill: 1,
   save: 2,
-  'lynch-evil': 1,
-  'execute-evil': 2,
+  "lynch-evil": 1,
+  "execute-evil": 2,
   // Paid on top of `solo-win`, and only where winning meant dying. See `PointEntry`.
   martyr: 3,
-  participation: 1
+  participation: 1,
 };
 
-function addPoints(state: MafiaState, playerId: string, reason: PointEntry['reason']): void {
+function addPoints(
+  state: MafiaState,
+  playerId: string,
+  reason: PointEntry["reason"],
+): void {
   state.points.push({ playerId, reason, amount: POINTS[reason] });
 }
 
 /** Files one protector against the house they are standing in front of tonight. */
-function addProtector(byHouse: Map<string, string[]>, houseId: string, protectorId: string): void {
+function addProtector(
+  byHouse: Map<string, string[]>,
+  houseId: string,
+  protectorId: string,
+): void {
   byHouse.set(houseId, [...(byHouse.get(houseId) ?? []), protectorId]);
 }
 
@@ -123,13 +147,21 @@ function addProtector(byHouse: Map<string, string[]>, houseId: string, protector
  * The latest rescue wins. A seat saved on two different nights says so about
  * the second one, which is the one still worth acting on.
  */
-function rescued(player: MafiaPlayer, night: number, by: 'doctor' | 'bodyguard' | 'self'): void {
+function rescued(
+  player: MafiaPlayer,
+  night: number,
+  by: "doctor" | "bodyguard" | "self",
+): void {
   player.rescuedNight = night;
   player.rescuedBy = by;
 }
 
 /** Records that somebody got in this seat's way tonight; see `disturbedNight`. */
-function disturbed(player: MafiaPlayer, night: number, by: 'block' | 'control' | 'swap' | 'jail'): void {
+function disturbed(
+  player: MafiaPlayer,
+  night: number,
+  by: "block" | "control" | "swap" | "jail",
+): void {
   player.disturbedNight = night;
   player.disturbedBy = by;
 }
@@ -179,7 +211,7 @@ function echoNotes(state: MafiaState, now: number): void {
 }
 
 function announce(state: MafiaState, line: Msg, now: number): ChatMessage {
-  return systemPost(state.chat, 'day', line, now);
+  return systemPost(state.chat, "day", line, now);
 }
 
 /**
@@ -190,7 +222,7 @@ function announce(state: MafiaState, line: Msg, now: number): ChatMessage {
  * "this line is a reveal", for surfaces that more than one person is looking at.
  */
 function announceReveal(state: MafiaState, line: Msg, now: number): void {
-  systemPost(state.chat, 'day', line, now, { reveals: true });
+  systemPost(state.chat, "day", line, now, { reveals: true });
 }
 
 /** A line of the dawn report, and whether it gives an identity away. */
@@ -207,11 +239,13 @@ export function joinMafia(
   token: string,
   playerId: string,
   presetToken?: string,
-  account?: string
+  account?: string,
 ): { player: MafiaPlayer; rejoined: boolean } {
   // A returning phone proves its seat with the token it stored.
   if (presetToken) {
-    const seated = Object.values(state.players).find((player) => player.token === presetToken);
+    const seated = Object.values(state.players).find(
+      (player) => player.token === presetToken,
+    );
     if (seated) {
       /**
        * A seat the room voted out cannot be reclaimed by the token that held it.
@@ -221,7 +255,10 @@ export function joinMafia(
        * the table is back where it started with no way to say so.
        */
       if (tablePresence(state).kicked.includes(seated.playerId)) {
-        throw new MafiaError(NO.tableMovedOn(), 'La table a continué sans vous');
+        throw new MafiaError(
+          NO.tableMovedOn(),
+          "La table a continué sans vous",
+        );
       }
       seated.connected = true;
       // Reclaiming a seat proves somebody is at it; the beat contract starts
@@ -231,18 +268,31 @@ export function joinMafia(
     }
   }
 
-  if (state.phase !== 'lobby') throw new MafiaError(NO.alreadyStarted(), 'La partie a déjà commencé');
+  if (state.phase !== "lobby")
+    throw new MafiaError(NO.alreadyStarted(), "La partie a déjà commencé");
 
   const trimmed = name.trim().slice(0, 20);
-  if (!trimmed) throw new MafiaError(NO.nameRequired(), 'Il faut un nom');
-  if (Object.values(state.players).some((player) => player.name.toLowerCase() === trimmed.toLowerCase())) {
-    throw new MafiaError(NO.nameTaken(), 'Ce nom est déjà pris');
+  if (!trimmed) throw new MafiaError(NO.nameRequired(), "Il faut un nom");
+  if (
+    Object.values(state.players).some(
+      (player) => player.name.toLowerCase() === trimmed.toLowerCase(),
+    )
+  ) {
+    throw new MafiaError(NO.nameTaken(), "Ce nom est déjà pris");
   }
 
   const slot = nextFreeSlot(state);
-  if (slot === null) throw new MafiaError(NO.tableFull(), 'La table est pleine');
+  if (slot === null)
+    throw new MafiaError(NO.tableFull(), "La table est pleine");
 
-  const player = seatPlayer({ playerId, token, name: trimmed, slot, isBot: false, account });
+  const player = seatPlayer({
+    playerId,
+    token,
+    name: trimmed,
+    slot,
+    isBot: false,
+    account,
+  });
   state.players[playerId] = player;
   return { player, rejoined: false };
 }
@@ -252,30 +302,43 @@ export function addMafiaBot(
   state: MafiaState,
   token: string,
   playerId: string,
-  randomInt: (maxExclusive: number) => number
+  randomInt: (maxExclusive: number) => number,
 ): MafiaPlayer {
-  if (state.phase !== 'lobby') throw new MafiaError(NO.alreadyStarted(), 'La partie a déjà commencé');
+  if (state.phase !== "lobby")
+    throw new MafiaError(NO.alreadyStarted(), "La partie a déjà commencé");
   const slot = nextFreeSlot(state);
-  if (slot === null) throw new MafiaError(NO.tableFull(), 'La table est pleine');
+  if (slot === null)
+    throw new MafiaError(NO.tableFull(), "La table est pleine");
 
-  const player = seatPlayer({ playerId, token, name: nextBotName(state, randomInt), slot, isBot: true });
+  const player = seatPlayer({
+    playerId,
+    token,
+    name: nextBotName(state, randomInt),
+    slot,
+    isBot: true,
+  });
   state.players[playerId] = player;
   return player;
 }
 
 export function removeMafiaBot(state: MafiaState, playerId: string): void {
   const player = state.players[playerId];
-  if (state.phase === 'lobby' && player?.isBot) {
+  if (state.phase === "lobby" && player?.isBot) {
     delete state.players[playerId];
   }
 }
 
-export function startMafia(state: MafiaState, now: number, rng: () => number): void {
-  if (state.phase !== 'lobby') throw new MafiaError(NO.alreadyRunning(), 'Déjà en cours');
+export function startMafia(
+  state: MafiaState,
+  now: number,
+  rng: () => number,
+): void {
+  if (state.phase !== "lobby")
+    throw new MafiaError(NO.alreadyRunning(), "Déjà en cours");
   if (Object.keys(state.players).length < state.config.minPlayers) {
     throw new MafiaError(
       NO.needPlayers(state.config.minPlayers),
-      `Il faut au moins ${state.config.minPlayers} joueurs`
+      `Il faut au moins ${state.config.minPlayers} joueurs`,
     );
   }
 
@@ -312,7 +375,8 @@ function startPresenceFresh(state: MafiaState, now: number): void {
   const presence = tablePresence(state);
   resetPresence(presence);
   for (const player of Object.values(state.players)) {
-    if (!player.isBot && !player.connected) markAway(presence, player.playerId, now);
+    if (!player.isBot && !player.connected)
+      markAway(presence, player.playerId, now);
   }
 }
 
@@ -323,7 +387,7 @@ export function sayInChat(
   playerId: string,
   channel: string,
   text: string,
-  now: number
+  now: number,
 ): { ok: true; message: ChatMessage } | { ok: false; error: Msg } {
   const player = state.players[playerId];
   if (!player) return { ok: false, error: NO.notAtTable() };
@@ -343,10 +407,16 @@ export function sayInChat(
    * its first night. Stripped at the source, so no projection and no live push
    * can forget to.
    */
-  const result = post(state.chat, { channel, authorId: playerId, authorName: player.name, text, at: now });
+  const result = post(state.chat, {
+    channel,
+    authorId: playerId,
+    authorName: player.name,
+    text,
+    at: now,
+  });
   if (!result.ok) return { ok: false, error: CHAT_NO[result.reason]() };
 
-  if (channel === 'day' && state.phase === 'night') {
+  if (channel === "day" && state.phase === "night") {
     /**
      * Stripped after posting rather than posted anonymous, because the log's
      * flood control keys on the author: a crier has to be rate-limited as the
@@ -364,7 +434,7 @@ export function sayInChat(
 const CHAT_NO: Record<PostRefusal, () => Msg> = {
   empty: NO.emptyMessage,
   tooLong: NO.messageTooLong,
-  flood: NO.slowDown
+  flood: NO.slowDown,
 };
 
 /**
@@ -381,17 +451,27 @@ const CHAT_NO: Record<PostRefusal, () => Msg> = {
  * travels in, and the log has no notion of a translatable author. A symbol says
  * "somebody, and you do not get to know who" in every language.
  */
-export function chatLineFor(state: MafiaState, playerId: string, message: ChatMessage): ChatMessage {
+export function chatLineFor(
+  state: MafiaState,
+  playerId: string,
+  message: ChatMessage,
+): ChatMessage {
   // At the whistle the masks come off, transcript included.
-  if (state.phase === 'ended') return message;
+  if (state.phase === "ended") return message;
   const reader = state.players[playerId];
-  if (reader?.role !== 'spy' || !message.authorId) return message;
-  if (message.channel !== 'mafia' && message.channel !== 'triad') return message;
+  if (reader?.role !== "spy" || !message.authorId) return message;
+  if (message.channel !== "mafia" && message.channel !== "triad")
+    return message;
   return { ...message, authorId: null, authorName: ANONYMOUS };
 }
 
-export function chatVisibleTo(state: MafiaState, playerId: string): ChatMessage[] {
-  return visibleTo(state.chat, playerId, state, chatRules()).map((message) => chatLineFor(state, playerId, message));
+export function chatVisibleTo(
+  state: MafiaState,
+  playerId: string,
+): ChatMessage[] {
+  return visibleTo(state.chat, playerId, state, chatRules()).map((message) =>
+    chatLineFor(state, playerId, message),
+  );
 }
 
 /**
@@ -404,8 +484,10 @@ export function whisperTo(
   fromId: string,
   targetSlot: number,
   text: string,
-  now: number
-): { ok: true; message: ChatMessage; gossip: ChatMessage } | { ok: false; error: Msg } {
+  now: number,
+):
+  | { ok: true; message: ChatMessage; gossip: ChatMessage }
+  | { ok: false; error: Msg } {
   const from = state.players[fromId];
   const target = playerBySlot(state, targetSlot);
   if (!from || !target) return { ok: false, error: NO.noRecipient() };
@@ -417,16 +499,30 @@ export function whisperTo(
     return { ok: false, error: NO.whisperNotNow() };
   }
 
-  const result = post(state.chat, { channel, authorId: fromId, authorName: from.name, text, at: now });
+  const result = post(state.chat, {
+    channel,
+    authorId: fromId,
+    authorName: from.name,
+    text,
+    at: now,
+  });
   if (!result.ok) return { ok: false, error: CHAT_NO[result.reason]() };
 
   // Both messages are handed back rather than left for the caller to fish out of
   // the tail of the log: the square's notice is a second delivery to a second
   // audience, and which position it lands in is the chat's business, not ours.
-  return { ok: true, message: result.message, gossip: announce(state, M.whisperSeen(from.name, target.name), now) };
+  return {
+    ok: true,
+    message: result.message,
+    gossip: announce(state, M.whisperSeen(from.name, target.name), now),
+  };
 }
 
-export function setLastWill(state: MafiaState, playerId: string, text: string): ActionOutcome {
+export function setLastWill(
+  state: MafiaState,
+  playerId: string,
+  text: string,
+): ActionOutcome {
   const player = state.players[playerId];
   if (!player || !player.alive) return { ok: false, error: NO.tooLate() };
   player.lastWill = text.slice(0, WILL_MAX_CHARS);
@@ -435,23 +531,38 @@ export function setLastWill(state: MafiaState, playerId: string, text: string): 
 
 /* ----------------------------- day actions ------------------------------ */
 
-export function revealMayor(state: MafiaState, playerId: string, now: number): ActionOutcome {
+export function revealMayor(
+  state: MafiaState,
+  playerId: string,
+  now: number,
+): ActionOutcome {
   if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const player = state.players[playerId];
-  if (!player?.alive || (player.role !== 'mayor' && player.role !== 'marshall')) {
+  if (
+    !player?.alive ||
+    (player.role !== "mayor" && player.role !== "marshall")
+  ) {
     return { ok: false, error: NO.impossible() };
   }
-  if (state.phase !== 'day') return { ok: false, error: NO.waitForDay() };
+  if (state.phase !== "day") return { ok: false, error: NO.waitForDay() };
   if (player.revealed) return { ok: false, error: NO.alreadyRevealed() };
 
   player.revealed = true;
-  announce(state, player.role === 'mayor' ? M.mayorReveal(player.name) : M.marshallReveal(player.name), now);
+  announce(
+    state,
+    player.role === "mayor"
+      ? M.mayorReveal(player.name)
+      : M.marshallReveal(player.name),
+    now,
+  );
   return { ok: true };
 }
 
 /** A revealed, living marshall turns the day into an assembly line of justice. */
 function marshallActive(state: MafiaState): boolean {
-  return Object.values(state.players).some((player) => player.alive && player.role === 'marshall' && player.revealed);
+  return Object.values(state.players).some(
+    (player) => player.alive && player.role === "marshall" && player.revealed,
+  );
 }
 
 /**
@@ -459,12 +570,17 @@ function marshallActive(state: MafiaState): boolean {
  * judgement — no accusation threshold, no defense — and the judge's secret
  * ballot counts triple. Once per game, and nobody knows who called it.
  */
-export function callCourt(state: MafiaState, playerId: string, now: number): ActionOutcome {
+export function callCourt(
+  state: MafiaState,
+  playerId: string,
+  now: number,
+): ActionOutcome {
   if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const judge = state.players[playerId];
-  if (!judge?.alive || judge.role !== 'judge') return { ok: false, error: NO.impossible() };
+  if (!judge?.alive || judge.role !== "judge")
+    return { ok: false, error: NO.impossible() };
   if (judge.charges <= 0) return { ok: false, error: NO.courtSpent() };
-  if (state.phase !== 'day' || state.stage !== 'discussion' || state.day <= 1) {
+  if (state.phase !== "day" || state.stage !== "discussion" || state.day <= 1) {
     return { ok: false, error: NO.notNow() };
   }
 
@@ -485,7 +601,8 @@ export function callCourt(state: MafiaState, playerId: string, now: number): Act
   const counts = new Map<string, number>();
   for (const voter of alivePlayers(state)) {
     const targetId = state.votes[voter.playerId];
-    if (!targetId || targetId === SKIP_VOTE || !state.players[targetId]?.alive) continue;
+    if (!targetId || targetId === SKIP_VOTE || !state.players[targetId]?.alive)
+      continue;
     counts.set(targetId, (counts.get(targetId) ?? 0) + voteWeight(voter));
   }
 
@@ -506,7 +623,7 @@ export function callCourt(state: MafiaState, playerId: string, now: number): Act
 
   judge.charges -= 1;
   state.trial = { accusedId, ballots: {}, court: true };
-  state.stage = 'judgement';
+  state.stage = "judgement";
   state.votes = {};
   state.trialsToday += 1;
   state.phaseEndsAt = now + state.config.judgementMs;
@@ -516,25 +633,36 @@ export function callCourt(state: MafiaState, playerId: string, now: number): Act
 }
 
 /** The jailor picks his prisoner in daylight; the cell locks at dusk. */
-export function jailTarget(state: MafiaState, playerId: string, targetSlot: number | null): ActionOutcome {
+export function jailTarget(
+  state: MafiaState,
+  playerId: string,
+  targetSlot: number | null,
+): ActionOutcome {
   if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const player = state.players[playerId];
-  if (!player?.alive || player.role !== 'jailor') return { ok: false, error: NO.impossible() };
-  if (state.phase !== 'day') return { ok: false, error: NO.dayOnly() };
+  if (!player?.alive || player.role !== "jailor")
+    return { ok: false, error: NO.impossible() };
+  if (state.phase !== "day") return { ok: false, error: NO.dayOnly() };
 
   if (targetSlot === null) {
     state.jailedId = null;
     return { ok: true };
   }
   const target = playerBySlot(state, targetSlot);
-  if (!target?.alive || target.playerId === playerId) return { ok: false, error: NO.badTarget() };
+  if (!target?.alive || target.playerId === playerId)
+    return { ok: false, error: NO.badTarget() };
   state.jailedId = target.playerId;
   return { ok: true };
 }
 
 /** The weighted majority of the living: what it takes to move the day. */
 export function voteThreshold(state: MafiaState): number {
-  return Math.floor(alivePlayers(state).reduce((sum, player) => sum + voteWeight(player), 0) / 2) + 1;
+  return (
+    Math.floor(
+      alivePlayers(state).reduce((sum, player) => sum + voteWeight(player), 0) /
+        2,
+    ) + 1
+  );
 }
 
 /** Weighted votes currently sitting on one target id (a player, or `SKIP_VOTE`). */
@@ -556,13 +684,14 @@ function votesOn(state: MafiaState, targetId: string): number {
 export function castVote(
   state: MafiaState,
   voterId: string,
-  targetSlot: number | 'skip' | null,
-  now: number
+  targetSlot: number | "skip" | null,
+  now: number,
 ): ActionOutcome {
   if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const voter = state.players[voterId];
   if (!voter?.alive) return { ok: false, error: NO.deadNoVote() };
-  if (state.phase !== 'day' || state.stage !== 'discussion') return { ok: false, error: NO.notNow() };
+  if (state.phase !== "day" || state.stage !== "discussion")
+    return { ok: false, error: NO.notNow() };
   if (state.day <= 1) return { ok: false, error: NO.firstDay() };
   /**
    * Withdrawing is always allowed; committing waits for the floor.
@@ -570,7 +699,11 @@ export function castVote(
    * A seat that has changed its mind must be able to take its name off a wagon
    * at any moment — the lock is on ending the day early, not on thinking again.
    */
-  if (targetSlot !== null && state.voteOpensAt != null && now < state.voteOpensAt) {
+  if (
+    targetSlot !== null &&
+    state.voteOpensAt != null &&
+    now < state.voteOpensAt
+  ) {
     return { ok: false, error: NO.stillTalking() };
   }
 
@@ -580,7 +713,7 @@ export function castVote(
     return { ok: true };
   }
 
-  if (targetSlot === 'skip') {
+  if (targetSlot === "skip") {
     state.votes[voterId] = SKIP_VOTE;
     noteVote(state, voter.slot, null, true);
     if (votesOn(state, SKIP_VOTE) >= voteThreshold(state)) {
@@ -592,7 +725,8 @@ export function castVote(
 
   const target = playerBySlot(state, targetSlot);
   if (!target?.alive) return { ok: false, error: NO.badTarget() };
-  if (target.playerId === voterId) return { ok: false, error: NO.notYourself() };
+  if (target.playerId === voterId)
+    return { ok: false, error: NO.notYourself() };
 
   state.votes[voterId] = target.playerId;
   noteVote(state, voter.slot, target.slot, false);
@@ -617,15 +751,16 @@ export function castVote(
     state.trialsToday += 1;
     if (marshallActive(state)) {
       // The marshall's day: straight to the verdict.
-      state.stage = 'judgement';
+      state.stage = "judgement";
       state.phaseEndsAt = now + state.config.judgementMs;
       announce(state, M.trialNoDefence(target.name), now);
     } else {
-      state.stage = 'defense';
+      state.stage = "defense";
       state.phaseEndsAt = now + state.config.defenseMs;
       announce(state, M.trialDragged(target.name), now);
       // A gagged mouth gets its one sentence said for it; see `trialMuted`.
-      if (target.silencedDay === state.day) announce(state, M.trialMuted(target.name), now);
+      if (target.silencedDay === state.day)
+        announce(state, M.trialMuted(target.name), now);
     }
   }
   return { ok: true };
@@ -643,29 +778,38 @@ export function castVote(
  * same vote should not write a second line, and neither should a bot that
  * reaffirms one.
  */
-function noteVote(state: MafiaState, voterSlot: number, targetSlot: number | null, skip: boolean): void {
+function noteVote(
+  state: MafiaState,
+  voterSlot: number,
+  targetSlot: number | null,
+  skip: boolean,
+): void {
   state.voteLog ??= [];
-  const last = [...state.voteLog].reverse().find((note) => note.voterSlot === voterSlot && note.day === state.day);
+  const last = [...state.voteLog]
+    .reverse()
+    .find((note) => note.voterSlot === voterSlot && note.day === state.day);
   if (last && last.targetSlot === targetSlot && last.skip === skip) return;
 
   state.voteLog.push({ day: state.day, voterSlot, targetSlot, skip });
-  if (state.voteLog.length > 600) state.voteLog.splice(0, state.voteLog.length - 600);
+  if (state.voteLog.length > 600)
+    state.voteLog.splice(0, state.voteLog.length - 600);
 }
 
 export function castBallot(
   state: MafiaState,
   voterId: string,
-  verdict: 'guilty' | 'innocent' | 'abstain'
+  verdict: "guilty" | "innocent" | "abstain",
 ): ActionOutcome {
   if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const voter = state.players[voterId];
   if (!voter?.alive) return { ok: false, error: NO.deadNoVote() };
-  if (state.phase !== 'day' || state.stage !== 'judgement' || !state.trial) {
+  if (state.phase !== "day" || state.stage !== "judgement" || !state.trial) {
     return { ok: false, error: NO.notNow() };
   }
-  if (state.trial.accusedId === voterId) return { ok: false, error: NO.accusedSilent() };
+  if (state.trial.accusedId === voterId)
+    return { ok: false, error: NO.accusedSilent() };
 
-  if (verdict === 'abstain') delete state.trial.ballots[voterId];
+  if (verdict === "abstain") delete state.trial.ballots[voterId];
   else state.trial.ballots[voterId] = verdict;
   return { ok: true };
 }
@@ -691,12 +835,15 @@ export interface LegalAction {
 
 /** The powers that are only half an order until a second house is named. */
 export function needsSecondTarget(type: NightActionType): boolean {
-  return type === 'control' || type === 'swap';
+  return type === "control" || type === "swap";
 }
 
-export function legalNightAction(state: MafiaState, playerId: string): LegalAction | null {
+export function legalNightAction(
+  state: MafiaState,
+  playerId: string,
+): LegalAction | null {
   const player = state.players[playerId];
-  if (!player?.alive || state.phase !== 'night' || !player.role) return null;
+  if (!player?.alive || state.phase !== "night" || !player.role) return null;
   if (state.jailedId === playerId) return null;
 
   const def = roleDef(player.role);
@@ -704,50 +851,76 @@ export function legalNightAction(state: MafiaState, playerId: string): LegalActi
   if (def.charges !== undefined && player.charges <= 0) return null;
 
   const family = playerFamily(player);
-  const others = alivePlayers(state).filter((other) => other.playerId !== playerId);
-  const outsiders = others.filter((other) => family === null || playerFamily(other) !== family);
+  const others = alivePlayers(state).filter(
+    (other) => other.playerId !== playerId,
+  );
+  const outsiders = others.filter(
+    (other) => family === null || playerFamily(other) !== family,
+  );
   const slots = (list: MafiaPlayer[]) => list.map((entry) => entry.slot);
   const uses = def.charges !== undefined ? player.charges : null;
 
   switch (def.nightAction) {
-    case 'alert':
-    case 'vest':
+    case "alert":
+    case "vest":
       return { type: def.nightAction, targets: [], charges: player.charges };
-    case 'jail-execute': {
+    case "jail-execute": {
       if (!state.jailedId) return null;
       const jailed = state.players[state.jailedId];
-      return jailed?.alive ? { type: 'jail-execute', targets: [jailed.slot], charges: player.charges } : null;
+      return jailed?.alive
+        ? {
+            type: "jail-execute",
+            targets: [jailed.slot],
+            charges: player.charges,
+          }
+        : null;
     }
-    case 'kill': {
+    case "kill": {
       // The vigilante holds fire the first night; the town has met nobody yet.
-      if (player.role === 'vigilante' && state.day <= 1) return null;
-      return { type: 'kill', targets: slots(family ? outsiders : others), charges: uses };
+      if (player.role === "vigilante" && state.day <= 1) return null;
+      return {
+        type: "kill",
+        targets: slots(family ? outsiders : others),
+        charges: uses,
+      };
     }
-    case 'frame':
-    case 'silence':
-    case 'charm':
-    case 'rampage':
-    case 'poison':
-    case 'kidnap':
-    case 'audit':
-      return { type: def.nightAction, targets: slots(outsiders), charges: uses };
-    case 'clean':
+    case "frame":
+    case "silence":
+    case "charm":
+    case "rampage":
+    case "poison":
+    case "kidnap":
+    case "audit":
+      return {
+        type: def.nightAction,
+        targets: slots(outsiders),
+        charges: uses,
+      };
+    case "clean":
       // You only clean bodies the family made; anybody outside is fair prep.
-      return { type: 'clean', targets: slots(outsiders), charges: uses };
-    case 'douse':
-    case 'charge':
+      return { type: "clean", targets: slots(outsiders), charges: uses };
+    case "douse":
+    case "charge":
       // Any house can be prepared; his own house means pulling the trigger.
-      return { type: def.nightAction, targets: [...slots(others), player.slot], charges: null };
-    case 'swap':
+      return {
+        type: def.nightAction,
+        targets: [...slots(others), player.slot],
+        charges: null,
+      };
+    case "swap":
       // Two houses trade fates; the driver may ride his own bus.
       return {
-        type: 'swap',
+        type: "swap",
         targets: [...slots(others), player.slot],
         secondTargets: [...slots(others), player.slot],
-        charges: null
+        charges: null,
       };
-    case 'convert': {
-      if (player.cooldownUntilDay !== null && state.day < player.cooldownUntilDay) return null;
+    case "convert": {
+      if (
+        player.cooldownUntilDay !== null &&
+        state.day < player.cooldownUntilDay
+      )
+        return null;
       /**
        * Only the townsfolk can be preached to, which the picker did not say.
        *
@@ -759,14 +932,17 @@ export function legalNightAction(state: MafiaState, playerId: string): LegalActi
        * action stayed selectable and could never succeed again. That is the
        * "stopped converting for many turns" report.
        */
-      const flock = outsiders.filter((entry) => entry.role !== null && roleDef(entry.role).faction === 'town');
+      const flock = outsiders.filter(
+        (entry) =>
+          entry.role !== null && roleDef(entry.role).faction === "town",
+      );
       if (flock.length === 0) return null;
-      return { type: 'convert', targets: slots(flock), charges: null };
+      return { type: "convert", targets: slots(flock), charges: null };
     }
-    case 'bond':
+    case "bond":
       if (player.bondPartnerId !== null) return null;
-      return { type: 'bond', targets: slots(others), charges: uses };
-    case 'control':
+      return { type: "bond", targets: slots(others), charges: uses };
+    case "control":
       /**
        * Whose hand, and then which door.
        *
@@ -777,15 +953,17 @@ export function legalNightAction(state: MafiaState, playerId: string): LegalActi
        * only known once the first half is picked.
        */
       return {
-        type: 'control',
+        type: "control",
         targets: slots(others),
         secondTargets: alivePlayers(state).map((entry) => entry.slot),
-        charges: null
+        charges: null,
       };
-    case 'remember':
-    case 'autopsy': {
+    case "remember":
+    case "autopsy": {
       const dead = Object.values(state.players).filter((entry) => !entry.alive);
-      return dead.length > 0 ? { type: def.nightAction, targets: slots(dead), charges: uses } : null;
+      return dead.length > 0
+        ? { type: def.nightAction, targets: slots(dead), charges: uses }
+        : null;
     }
     default:
       return { type: def.nightAction, targets: slots(others), charges: null };
@@ -796,7 +974,7 @@ export function setNightAction(
   state: MafiaState,
   playerId: string,
   targetSlot: number | null,
-  secondTargetSlot?: number | null
+  secondTargetSlot?: number | null,
 ): ActionOutcome {
   if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const legal = legalNightAction(state, playerId);
@@ -810,7 +988,8 @@ export function setNightAction(
   let targetId: string | null = null;
   if (legal.targets.length > 0) {
     const target = playerBySlot(state, targetSlot);
-    if (!target || !legal.targets.includes(target.slot)) return { ok: false, error: NO.badTarget() };
+    if (!target || !legal.targets.includes(target.slot))
+      return { ok: false, error: NO.badTarget() };
     targetId = target.playerId;
   }
 
@@ -830,12 +1009,17 @@ export function setNightAction(
    */
   let secondTargetId: string | null = null;
   if (needsSecondTarget(legal.type)) {
-    if (secondTargetSlot == null) return { ok: false, error: NO.needsSecondTarget() };
+    if (secondTargetSlot == null)
+      return { ok: false, error: NO.needsSecondTarget() };
     const destination = playerBySlot(state, secondTargetSlot);
-    if (!destination?.alive || !(legal.secondTargets ?? []).includes(destination.slot)) {
+    if (
+      !destination?.alive ||
+      !(legal.secondTargets ?? []).includes(destination.slot)
+    ) {
       return { ok: false, error: NO.badTarget() };
     }
-    if (destination.slot === targetSlot) return { ok: false, error: NO.sameTwice() };
+    if (destination.slot === targetSlot)
+      return { ok: false, error: NO.sameTwice() };
     secondTargetId = destination.playerId;
   }
 
@@ -851,12 +1035,20 @@ export function setNightAction(
  * Returns true only when this beat was news — a seat coming back from the dead —
  * so the caller broadcasts once per return rather than once per heartbeat.
  */
-export function noteSeatAlive(state: MafiaState, playerId: string, now: number): boolean {
+export function noteSeatAlive(
+  state: MafiaState,
+  playerId: string,
+  now: number,
+): boolean {
   return noteBeat(tablePresence(state), playerId, now);
 }
 
 /** A socket that dropped, or a phone that has stopped beating. */
-export function noteSeatSilent(state: MafiaState, playerId: string, now: number): boolean {
+export function noteSeatSilent(
+  state: MafiaState,
+  playerId: string,
+  now: number,
+): boolean {
   return markAway(tablePresence(state), playerId, now);
 }
 
@@ -884,6 +1076,25 @@ const RESTORE_CLOCK_MS = 30_000;
  * frozen until the idle sweep noticed it hours later.
  */
 export function restoreMafiaTable(state: MafiaState, now: number): void {
+  /**
+   * Settings this build knows about but the snapshot predates.
+   *
+   * A table's config is written into its state when the table is created, so a
+   * game that was in flight across a deploy comes back carrying yesterday's
+   * shape. Every field added since is `undefined`, and TypeScript cannot see it
+   * because the parse is an unchecked `as MafiaState` at the caller.
+   *
+   * The failure that mode produces is silent arithmetic rather than a crash.
+   * `quietDaysIfMoveable` arrived this way: `state.day - lastDeathDay(state) >=
+   * undefined` is always false, so the quiet clock simply stopped firing on any
+   * moveable board and those tables ran until somebody gave up. Nothing logged.
+   *
+   * Filled here rather than at the manager, because this function is already the
+   * one place that turns a snapshot into a table this build can run, and a
+   * defaults merge at one of two call sites is how the next field gets missed.
+   */
+  state.config = { ...DEFAULT_CONFIG, ...state.config };
+
   const presence = tablePresence(state);
   const running = state.phaseEndsAt !== null || presence.parkedMs !== null;
 
@@ -915,7 +1126,7 @@ export function restoreMafiaTable(state: MafiaState, now: number): void {
   }
   // A lobby and a finished game wait for nobody, and an absence recorded there
   // would only be a stale entry nothing ever clears.
-  if (state.phase !== 'lobby' && state.phase !== 'ended') {
+  if (state.phase !== "lobby" && state.phase !== "ended") {
     for (const seatId of waitedOnSeats(state)) {
       // Not the ones already voted out: the room stopped waiting for those.
       if (!presence.kicked.includes(seatId)) markAway(presence, seatId, now);
@@ -936,7 +1147,10 @@ export function restoreMafiaTable(state: MafiaState, now: number): void {
  * Called from the server ticker, from every heartbeat and from every phase
  * change; it is idempotent, so calling it more often only makes it more prompt.
  */
-export function tickMafiaPresence(state: MafiaState, now: number): PresenceTick {
+export function tickMafiaPresence(
+  state: MafiaState,
+  now: number,
+): PresenceTick {
   const presence = tablePresence(state);
   const waiting = waitedOnSeats(state);
   const tick = tickPresence(presence, waiting, now);
@@ -946,7 +1160,11 @@ export function tickMafiaPresence(state: MafiaState, now: number): PresenceTick 
     state.phaseEndsAt = null;
     // The square is told, because the square has to be able to resolve it: a
     // frozen clock with no explanation reads as the server having died.
-    announce(state, M.paused(namesOf(state, missing(presence, waiting, now))), now);
+    announce(
+      state,
+      M.paused(namesOf(state, missing(presence, waiting, now))),
+      now,
+    );
   }
   if (tick.resumed) {
     state.phaseEndsAt = restoreDeadline(presence.parkedMs, now);
@@ -954,15 +1172,21 @@ export function tickMafiaPresence(state: MafiaState, now: number): PresenceTick 
     if (tick.abandoned.length === 0) announce(state, M.resumed(), now);
   }
   if (tick.voteClosed && tick.voteTargetId !== null) {
-    const name = state.players[tick.voteTargetId]?.name ?? '?';
-    announce(state, tick.kicked === null ? M.kickFailed(name) : M.kickCarried(name), now);
+    const name = state.players[tick.voteTargetId]?.name ?? "?";
+    announce(
+      state,
+      tick.kicked === null ? M.kickFailed(name) : M.kickCarried(name),
+      now,
+    );
   }
   return tick;
 }
 
 /** A readable list of seats, for an announcement that names several people. */
 function namesOf(state: MafiaState, playerIds: string[]): string {
-  return playerIds.map((playerId) => state.players[playerId]?.name ?? '?').join(', ');
+  return playerIds
+    .map((playerId) => state.players[playerId]?.name ?? "?")
+    .join(", ");
 }
 
 /** True while the table is stopped: no clock, no bots, no game actions. */
@@ -981,11 +1205,17 @@ export function proposeMafiaKick(
   state: MafiaState,
   playerId: string,
   targetSlot: number,
-  now: number
+  now: number,
 ): { ok: true } | { ok: false; reason: KickRefusal } {
   const target = playerBySlot(state, targetSlot);
-  if (!target) return { ok: false, reason: 'target-not-seated' };
-  const opened = openKickVote(tablePresence(state), playerId, target.playerId, waitedOnSeats(state), now);
+  if (!target) return { ok: false, reason: "target-not-seated" };
+  const opened = openKickVote(
+    tablePresence(state),
+    playerId,
+    target.playerId,
+    waitedOnSeats(state),
+    now,
+  );
   // Announced without naming the proposer: who wanted somebody gone is exactly
   // the sort of thing a deduction game would turn into evidence about the
   // network rather than about the wolves.
@@ -996,9 +1226,14 @@ export function proposeMafiaKick(
 export function voteMafiaKick(
   state: MafiaState,
   playerId: string,
-  yes: boolean
+  yes: boolean,
 ): { ok: true } | { ok: false; reason: KickRefusal } {
-  return castKickBallot(tablePresence(state), playerId, yes, waitedOnSeats(state));
+  return castKickBallot(
+    tablePresence(state),
+    playerId,
+    yes,
+    waitedOnSeats(state),
+  );
 }
 
 /**
@@ -1009,29 +1244,40 @@ export function voteMafiaKick(
  * public, because a table that has to keep guessing about somebody who is not
  * there any more is not playing the game it sat down to play.
  */
-export function dropMafiaSeat(state: MafiaState, playerId: string, now: number): void {
+export function dropMafiaSeat(
+  state: MafiaState,
+  playerId: string,
+  now: number,
+): void {
   const player = state.players[playerId];
   if (!player?.alive) return;
-  kill(state, player, state.phase === 'night' ? 'night' : 'day', CAUSE.left());
+  kill(state, player, state.phase === "night" ? "night" : "day", CAUSE.left());
   announceReveal(state, M.seatLeft(player.name, bodyReads(state, player)), now);
   for (const line of cascadeBonds(state)) announceReveal(state, line, now);
 }
 
 /** The pause, the wait and any vote, in this table's own vocabulary of slots. */
-export function mafiaPresenceView(state: MafiaState, now: number, viewerId: string | null): MafiaPresenceView {
+export function mafiaPresenceView(
+  state: MafiaState,
+  now: number,
+  viewerId: string | null,
+): MafiaPresenceView {
   const presence = tablePresence(state);
   const view = presenceView(presence, waitedOnSeats(state), now, viewerId);
   const slotOf = (id: string): number => state.players[id]?.slot ?? 0;
-  const nameOf = (id: string): string => state.players[id]?.name ?? '?';
+  const nameOf = (id: string): string => state.players[id]?.name ?? "?";
 
   return {
     paused: view.paused,
     waitingFor: view.waitingFor.map((seat) => ({
       slot: slotOf(seat.seatId),
       name: nameOf(seat.seatId),
-      awayMs: seat.awayMs
+      awayMs: seat.awayMs,
     })),
-    recovering: view.recovering.map((seat) => ({ slot: slotOf(seat.seatId), name: nameOf(seat.seatId) })),
+    recovering: view.recovering.map((seat) => ({
+      slot: slotOf(seat.seatId),
+      name: nameOf(seat.seatId),
+    })),
     pauseExpiresAt: view.pauseExpiresAt,
     resumesAt: view.resumesAt,
     kickableSlots: view.kickableSeatIds.map(slotOf),
@@ -1043,9 +1289,9 @@ export function mafiaPresenceView(state: MafiaState, now: number, viewerId: stri
           yes: view.vote.yes,
           no: view.vote.no,
           needed: view.vote.needed,
-          mine: view.vote.mine
+          mine: view.vote.mine,
         }
-      : null
+      : null,
   };
 }
 
@@ -1095,21 +1341,27 @@ export interface MafiaPresenceView {
  */
 function promoteCarriers(state: MafiaState): void {
   for (const [faction, knife] of [
-    ['mafia', 'mafioso'],
-    ['triad', 'enforcer']
+    ["mafia", "mafioso"],
+    ["triad", "enforcer"],
   ] as const) {
     const members = Object.values(state.players).filter(
-      (player) => player.alive && player.role !== null && roleDef(player.role).faction === faction
+      (player) =>
+        player.alive &&
+        player.role !== null &&
+        roleDef(player.role).faction === faction,
     );
     if (members.length === 0) continue;
     const armed = members.some((member) => {
       const rank = roleDef(member.role!).familyRank;
-      return rank === 'leader' || rank === 'executor';
+      return rank === "leader" || rank === "executor";
     });
     if (armed) continue;
 
     const heir =
-      members.find((member) => member.role === 'consigliere' || member.role === 'administrator') ?? members[0];
+      members.find(
+        (member) =>
+          member.role === "consigliere" || member.role === "administrator",
+      ) ?? members[0];
     heir.role = knife;
     heir.charges = roleDef(knife).charges ?? 0;
     notify(heir, NOTE.promoted(knife));
@@ -1145,22 +1397,30 @@ function promoteCarriers(state: MafiaState): void {
    * at random, because it has to be the same on every screen and in every replay
    * of the game, and because "the eldest brother" is a sentence a table accepts.
    */
-  const lodge = Object.values(state.players).filter((player) => player.alive && isMason(player));
-  if (lodge.length > 0 && !lodge.some((brother) => brother.role === 'mason-leader')) {
+  const lodge = Object.values(state.players).filter(
+    (player) => player.alive && isMason(player),
+  );
+  if (
+    lodge.length > 0 &&
+    !lodge.some((brother) => brother.role === "mason-leader")
+  ) {
     const master = lodge.sort((left, right) => left.slot - right.slot)[0];
-    master.role = 'mason-leader';
-    master.charges = roleDef('mason-leader').charges ?? 0;
-    notify(master, NOTE.promoted('mason-leader'));
+    master.role = "mason-leader";
+    master.charges = roleDef("mason-leader").charges ?? 0;
+    notify(master, NOTE.promoted("mason-leader"));
   }
 
   const flock = Object.values(state.players).filter(
-    (player) => player.alive && player.role !== null && roleDef(player.role).faction === 'cult'
+    (player) =>
+      player.alive &&
+      player.role !== null &&
+      roleDef(player.role).faction === "cult",
   );
-  if (flock.length > 0 && !flock.some((member) => member.role === 'cultist')) {
+  if (flock.length > 0 && !flock.some((member) => member.role === "cultist")) {
     const heir = flock[0];
-    heir.role = 'cultist';
-    heir.charges = roleDef('cultist').charges ?? 0;
-    notify(heir, NOTE.promoted('cultist'));
+    heir.role = "cultist";
+    heir.charges = roleDef("cultist").charges ?? 0;
+    notify(heir, NOTE.promoted("cultist"));
   }
 }
 
@@ -1178,18 +1438,26 @@ function ballotLock(state: MafiaState, windowMs: number): number {
   return Math.min(state.config.voteLockMs ?? 15_000, Math.floor(windowMs / 4));
 }
 
-function beginDay(state: MafiaState, now: number, announcements: Announcement[]): void {
+function beginDay(
+  state: MafiaState,
+  now: number,
+  announcements: Announcement[],
+): void {
   echoNotes(state, now);
   state.day += 1;
-  state.phase = 'day';
-  state.stage = 'discussion';
+  state.phase = "day";
+  state.stage = "discussion";
   state.trial = null;
   state.trialsToday = 0;
   state.votes = {};
   state.nightActions = {};
   // Day one has no corpse to argue about and no rope to pull, so it runs on its
   // own much shorter clock. Older persisted tables predate the field.
-  state.phaseEndsAt = now + (state.day === 1 ? (state.config.firstDayMs ?? 35_000) : state.config.dayMs);
+  state.phaseEndsAt =
+    now +
+    (state.day === 1
+      ? (state.config.firstDayMs ?? 35_000)
+      : state.config.dayMs);
   state.phaseStartedAt = now;
   /**
    * The ballot opens a little after the day does.
@@ -1209,7 +1477,8 @@ function beginDay(state: MafiaState, now: number, announcements: Announcement[])
    * became zero, and the town went from winning 45% to winning none. The unit
    * tests all passed, because none of them plays a game to the end.
    */
-  const day = state.day === 1 ? (state.config.firstDayMs ?? 35_000) : state.config.dayMs;
+  const day =
+    state.day === 1 ? (state.config.firstDayMs ?? 35_000) : state.config.dayMs;
   state.voteOpensAt = state.day === 1 ? null : now + ballotLock(state, day);
 
   announce(state, M.dayHeader(state.day), now);
@@ -1224,7 +1493,7 @@ function beginDay(state: MafiaState, now: number, announcements: Announcement[])
 function beginNight(state: MafiaState, now: number): void {
   echoNotes(state, now);
   promoteCarriers(state);
-  state.phase = 'night';
+  state.phase = "night";
   state.stage = null;
   state.trial = null;
   state.votes = {};
@@ -1245,14 +1514,22 @@ function beginNight(state: MafiaState, now: number): void {
   for (const player of Object.values(state.players)) {
     if (!player.alive || !player.role) continue;
     const def = roleDef(player.role);
-    if (def.nightAction && def.charges !== undefined && player.charges <= 0) notify(player, NOTE.powerSpent());
+    if (def.nightAction && def.charges !== undefined && player.charges <= 0)
+      notify(player, NOTE.powerSpent());
   }
 
   const jailed = state.jailedId ? state.players[state.jailedId] : null;
-  const jailor = Object.values(state.players).find((player) => player.role === 'jailor' && player.alive);
+  const jailor = Object.values(state.players).find(
+    (player) => player.role === "jailor" && player.alive,
+  );
   if (jailed?.alive && jailor?.alive) {
     notify(jailed, NOTE.jailedNight());
-    systemPost(state.chat, jailChannel(state.day), M.jailLocked(jailed.name), now);
+    systemPost(
+      state.chat,
+      jailChannel(state.day),
+      M.jailLocked(jailed.name),
+      now,
+    );
   } else {
     state.jailedId = null;
   }
@@ -1265,24 +1542,28 @@ function beginNight(state: MafiaState, now: number): void {
  * arm a timer during a pause, so this is the second lock on the same door: a
  * stale timer that fires as the pause begins must not push the town into night.
  */
-export function advanceMafia(state: MafiaState, now: number, rng: () => number): void {
+export function advanceMafia(
+  state: MafiaState,
+  now: number,
+  rng: () => number,
+): void {
   if (mafiaPaused(state)) return;
-  if (state.phase === 'day' && state.stage === 'discussion') {
+  if (state.phase === "day" && state.stage === "discussion") {
     beginNight(state, now);
     return;
   }
-  if (state.phase === 'day' && state.stage === 'defense') {
-    state.stage = 'judgement';
+  if (state.phase === "day" && state.stage === "defense") {
+    state.stage = "judgement";
     state.phaseEndsAt = now + state.config.judgementMs;
     const accused = state.trial ? state.players[state.trial.accusedId] : null;
     if (accused) announce(state, M.trialJudging(accused.name), now);
     return;
   }
-  if (state.phase === 'day' && state.stage === 'judgement') {
+  if (state.phase === "day" && state.stage === "judgement") {
     concludeTrial(state, now);
     return;
   }
-  if (state.phase === 'night') {
+  if (state.phase === "night") {
     const announcements = resolveNight(state, rng);
     /**
      * The dawn report goes out even when there is no morning after it.
@@ -1309,7 +1590,7 @@ function concludeTrial(state: MafiaState, now: number): void {
   const trial = state.trial;
   const accused = trial ? state.players[trial.accusedId] : null;
   state.trial = null;
-  state.stage = 'discussion';
+  state.stage = "discussion";
 
   if (!trial || !accused?.alive) {
     beginNight(state, now);
@@ -1322,8 +1603,9 @@ function concludeTrial(state: MafiaState, now: number): void {
     const voter = state.players[voterId];
     if (!voter?.alive) continue;
     // In the judge's exceptional court, his own gavel weighs triple.
-    const weight = trial.court && voter.role === 'judge' ? 3 : voteWeight(voter);
-    if (verdict === 'guilty') guilty += weight;
+    const weight =
+      trial.court && voter.role === "judge" ? 3 : voteWeight(voter);
+    if (verdict === "guilty") guilty += weight;
     else innocent += weight;
   }
 
@@ -1331,19 +1613,21 @@ function concludeTrial(state: MafiaState, now: number): void {
 
   // The ballots go public with the verdict: the town sees who wanted the rope
   // and who wanted mercy. Saving a mafioso in public is how trust dies.
-  const votersWho = (verdict: 'guilty' | 'innocent'): string[] =>
+  const votersWho = (verdict: "guilty" | "innocent"): string[] =>
     Object.entries(trial.ballots)
-      .filter(([voterId, cast]) => cast === verdict && state.players[voterId]?.alive)
+      .filter(
+        ([voterId, cast]) => cast === verdict && state.players[voterId]?.alive,
+      )
       .map(([voterId]) => voterId);
-  const guiltyIds = votersWho('guilty');
-  const innocentIds = votersWho('innocent');
+  const guiltyIds = votersWho("guilty");
+  const innocentIds = votersWho("innocent");
   // Recorded either way: the end-of-game replay shows every hand that was raised.
   (state.trialLog ??= []).push({
     day: state.day,
     accusedId: accused.playerId,
     lynched: guilty > innocent,
     guiltyIds,
-    innocentIds
+    innocentIds,
   });
 
   /**
@@ -1367,7 +1651,7 @@ function concludeTrial(state: MafiaState, now: number): void {
       const listed = ids
         .map((id) => state.players[id]?.name)
         .filter(Boolean)
-        .join(', ');
+        .join(", ");
       // "nobody" is a word, so it travels as a fragment rather than a literal.
       return listed || M.nobody();
     };
@@ -1421,10 +1705,10 @@ function evilRole(role: RoleId): boolean {
 function bodyReads(state: MafiaState, player: MafiaPlayer): Msg {
   const role = player.role;
   if (!role) return BODY.unknown();
-  switch (state.config.revealOnDeath ?? 'role') {
-    case 'none':
+  switch (state.config.revealOnDeath ?? "role") {
+    case "none":
       return BODY.none();
-    case 'faction':
+    case "faction":
       return BODY.faction(roleDef(role).faction);
     default:
       return BODY.role(role);
@@ -1434,26 +1718,32 @@ function bodyReads(state: MafiaState, player: MafiaPlayer): Msg {
 function lynch(
   state: MafiaState,
   accused: MafiaPlayer,
-  trial: { ballots: Record<string, 'guilty' | 'innocent'> },
-  now: number
+  trial: { ballots: Record<string, "guilty" | "innocent"> },
+  now: number,
 ): void {
   const role = accused.role!;
-  kill(state, accused, 'day', CAUSE.lynched());
+  kill(state, accused, "day", CAUSE.lynched());
   announceReveal(state, M.hanged(accused.name, bodyReads(state, accused)), now);
-  if (accused.lastWill) announceReveal(state, M.lastWill(accused.name, accused.lastWill), now);
+  if (accused.lastWill)
+    announceReveal(state, M.lastWill(accused.name, accused.lastWill), now);
 
   if (evilRole(role)) {
     for (const [voterId, verdict] of Object.entries(trial.ballots)) {
       const voter = state.players[voterId];
-      if (verdict === 'guilty' && voter?.alive) addPoints(state, voterId, 'lynch-evil');
+      if (verdict === "guilty" && voter?.alive)
+        addPoints(state, voterId, "lynch-evil");
     }
   }
 
-  if (role === 'jester') {
-    state.winners.push({ playerId: accused.playerId, reason: M.winReason('jester'), kind: 'jester' });
-    addPoints(state, accused.playerId, 'solo-win');
+  if (role === "jester") {
+    state.winners.push({
+      playerId: accused.playerId,
+      reason: M.winReason("jester"),
+      kind: "jester",
+    });
+    addPoints(state, accused.playerId, "solo-win");
     // The rope was the plan, so the seat can never be paid for surviving it.
-    addPoints(state, accused.playerId, 'martyr');
+    addPoints(state, accused.playerId, "martyr");
     notify(accused, NOTE.jesterWon());
     announce(state, M.winJester(), now);
     /**
@@ -1471,15 +1761,26 @@ function lynch(
      * can see who is at risk before the night falls.
      */
     const pulled = Object.entries(trial.ballots)
-      .filter(([voterId, verdict]) => verdict === 'guilty' && state.players[voterId]?.alive)
+      .filter(
+        ([voterId, verdict]) =>
+          verdict === "guilty" && state.players[voterId]?.alive,
+      )
       .map(([voterId]) => voterId);
     if (pulled.length > 0) state.jesterHaunt = pulled;
   }
 
   for (const player of Object.values(state.players)) {
-    if (player.role === 'executioner' && player.alive && player.obsessionId === accused.playerId) {
-      state.winners.push({ playerId: player.playerId, reason: M.winReason('executioner'), kind: 'executioner' });
-      addPoints(state, player.playerId, 'solo-win');
+    if (
+      player.role === "executioner" &&
+      player.alive &&
+      player.obsessionId === accused.playerId
+    ) {
+      state.winners.push({
+        playerId: player.playerId,
+        reason: M.winReason("executioner"),
+        kind: "executioner",
+      });
+      addPoints(state, player.playerId, "solo-win");
       notify(player, NOTE.execWon());
     }
   }
@@ -1490,14 +1791,32 @@ function lynch(
   }
 }
 
-function kill(state: MafiaState, victim: MafiaPlayer, phase: 'day' | 'night', cause: Msg, source?: DeathSource): void {
+function kill(
+  state: MafiaState,
+  victim: MafiaPlayer,
+  phase: "day" | "night",
+  cause: Msg,
+  source?: DeathSource,
+): void {
   victim.alive = false;
   victim.death = { day: state.day, phase, cause };
-  state.deaths.push({ playerId: victim.playerId, day: state.day, phase, cause, source, role: victim.role! });
+  state.deaths.push({
+    playerId: victim.playerId,
+    day: state.day,
+    phase,
+    cause,
+    source,
+    role: victim.role!,
+  });
 
   // A dead jailor frees his prisoner; a dead prisoner empties the cell.
-  const jailor = Object.values(state.players).find((player) => player.role === 'jailor');
-  if (victim.playerId === state.jailedId || victim.playerId === jailor?.playerId) {
+  const jailor = Object.values(state.players).find(
+    (player) => player.role === "jailor",
+  );
+  if (
+    victim.playerId === state.jailedId ||
+    victim.playerId === jailor?.playerId
+  ) {
     state.jailedId = null;
   }
 }
@@ -1516,7 +1835,12 @@ function cascadeBonds(state: MafiaState): Msg[] {
       if (!player.alive || !player.bondPartnerId) continue;
       const partner = state.players[player.bondPartnerId];
       if (partner && !partner.alive) {
-        kill(state, player, state.phase === 'day' ? 'day' : 'night', CAUSE.grief());
+        kill(
+          state,
+          player,
+          state.phase === "day" ? "day" : "night",
+          CAUSE.grief(),
+        );
         lines.push(M.grief(player.name, bodyReads(state, player)));
         changed = true;
       }
@@ -1550,14 +1874,22 @@ interface Attack {
  * that puts these visitors on the street, and the results pass that tells them
  * what they saw. They disagreed before, and that was the bug.
  */
-const INVESTIGATIVE: NightActionType[] = ['investigate', 'examine', 'watch', 'track', 'shadow', 'autopsy'];
+const INVESTIGATIVE: NightActionType[] = [
+  "investigate",
+  "examine",
+  "watch",
+  "track",
+  "shadow",
+  "autopsy",
+];
 
 function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   const acts = state.nightActions;
   const jailedId = state.jailedId;
   const announcements: Announcement[] = [];
 
-  const actionOf = (player: MafiaPlayer): NightAction | undefined => acts[player.playerId];
+  const actionOf = (player: MafiaPlayer): NightAction | undefined =>
+    acts[player.playerId];
   const players = Object.values(state.players);
   const living = (id: string | null | undefined): MafiaPlayer | null => {
     if (!id) return null;
@@ -1577,15 +1909,17 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     blocked.add(jailedId);
     const prisoner = state.players[jailedId];
     if (prisoner) {
-      disturbed(prisoner, state.day, 'jail');
+      disturbed(prisoner, state.day, "jail");
       // And the jailor remembers its own night. See the `jailed` intel kind.
-      const keeper = players.find((player) => player.alive && player.role === 'jailor');
+      const keeper = players.find(
+        (player) => player.alive && player.role === "jailor",
+      );
       if (keeper && keeper.playerId !== prisoner.playerId) {
         keeper.intel.push({
           night: state.day,
-          kind: 'jailed',
+          kind: "jailed",
           targetSlot: prisoner.slot,
-          value: acts[prisoner.playerId] ? 'tried' : 'quiet'
+          value: acts[prisoner.playerId] ? "tried" : "quiet",
         });
       }
     }
@@ -1603,44 +1937,63 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   // The witch weaves before anyone leaves home: her victim's hand is guided to
   // another door. Acting first is her roleblock immunity.
   for (const player of players) {
-    if (!player.alive || blocked.has(player.playerId) || player.role !== 'witch') continue;
+    if (
+      !player.alive ||
+      blocked.has(player.playerId) ||
+      player.role !== "witch"
+    )
+      continue;
     const action = actionOf(player);
-    if (action?.type !== 'control') continue;
+    if (action?.type !== "control") continue;
     const victim = living(action.targetId);
     if (!victim) continue;
     visit(player.playerId, victim.playerId);
 
     const victimAction = acts[victim.playerId];
-    if (victimAction && victimAction.targetId && victimAction.targetId !== victim.playerId) {
+    if (
+      victimAction &&
+      victimAction.targetId &&
+      victimAction.targetId !== victim.playerId
+    ) {
       // No destination, no redirection. `setNightAction` refuses a control without
       // one, so this only catches a destination who died before the night resolved.
       const destination = living(action.secondTargetId);
       if (destination) {
         victimAction.targetId = destination.playerId;
         notify(victim, NOTE.controlled());
-        disturbed(victim, state.day, 'control');
+        disturbed(victim, state.day, "control");
         notify(player, NOTE.controlDone(victim.name, destination.name));
         // The experiment, written down. See the `controlled` intel kind.
         player.intel.push({
           night: state.day,
-          kind: 'controlled',
+          kind: "controlled",
           targetSlot: victim.slot,
-          value: 'sent',
-          slots: [destination.slot]
+          value: "sent",
+          slots: [destination.slot],
         });
       }
     } else {
       notify(player, NOTE.controlIdle(victim.name));
-      player.intel.push({ night: state.day, kind: 'controlled', targetSlot: victim.slot, value: 'idle' });
+      player.intel.push({
+        night: state.day,
+        kind: "controlled",
+        targetSlot: victim.slot,
+        value: "idle",
+      });
     }
   }
 
   // The bus rolls next: two houses trade fates, and everything aimed at one
   // arrives at the other. The driver is on the road before the roadblocks.
   for (const player of players) {
-    if (!player.alive || blocked.has(player.playerId) || player.role !== 'bus-driver') continue;
+    if (
+      !player.alive ||
+      blocked.has(player.playerId) ||
+      player.role !== "bus-driver"
+    )
+      continue;
     const action = actionOf(player);
-    if (action?.type !== 'swap') continue;
+    if (action?.type !== "swap") continue;
     const first = living(action.targetId);
     // Both houses or no bus: the driver names the pair, the engine never guesses.
     const second = living(action.secondTargetId);
@@ -1653,19 +2006,20 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       // Self-aimed deeds (the match, the lever) stay home; journeys reroute.
       if (other.targetId === actorId) continue;
       if (other.targetId === first.playerId) other.targetId = second.playerId;
-      else if (other.targetId === second.playerId) other.targetId = first.playerId;
+      else if (other.targetId === second.playerId)
+        other.targetId = first.playerId;
     }
     notify(first, NOTE.bussed());
     notify(second, NOTE.bussed());
-    disturbed(first, state.day, 'swap');
-    disturbed(second, state.day, 'swap');
+    disturbed(first, state.day, "swap");
+    disturbed(second, state.day, "swap");
     notify(player, NOTE.busDone(first.name, second.name));
     player.intel.push({
       night: state.day,
-      kind: 'swapped',
+      kind: "swapped",
       targetSlot: first.slot,
       value: `${first.slot},${second.slot}`,
-      slots: [first.slot, second.slot]
+      slots: [first.slot, second.slot],
     });
   }
 
@@ -1674,7 +2028,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   for (const player of players) {
     if (!player.alive || blocked.has(player.playerId)) continue;
     const action = actionOf(player);
-    if (action?.type !== 'kidnap') continue;
+    if (action?.type !== "kidnap") continue;
     const target = living(action.targetId);
     if (!target) continue;
     visit(player.playerId, target.playerId);
@@ -1686,7 +2040,12 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     // pressed the button and observed nothing, which is exactly how it was
     // reported — "the kidnapper does not seem to work".
     notify(player, NOTE.kidnapDone(target.name));
-    player.intel.push({ night: state.day, kind: 'blocked', targetSlot: target.slot, value: 'kidnapped' });
+    player.intel.push({
+      night: state.day,
+      kind: "blocked",
+      targetSlot: target.slot,
+      value: "kidnapped",
+    });
   }
 
   /**
@@ -1708,12 +2067,12 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   for (const player of players) {
     if (!player.alive || blocked.has(player.playerId)) continue;
     const action = actionOf(player);
-    if (action?.type === 'alert' && player.charges > 0) {
+    if (action?.type === "alert" && player.charges > 0) {
       player.charges -= 1;
       alerted.add(player.playerId);
       notify(player, NOTE.onAlert());
     }
-    if (action?.type === 'vest' && player.charges > 0) {
+    if (action?.type === "vest" && player.charges > 0) {
       player.charges -= 1;
       vested.add(player.playerId);
       notify(player, NOTE.vestOn());
@@ -1724,16 +2083,21 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   for (const player of players) {
     if (!player.alive || blocked.has(player.playerId)) continue;
     const action = actionOf(player);
-    if (action?.type !== 'block') continue;
+    if (action?.type !== "block") continue;
     const target = living(action.targetId);
     if (!target) continue;
     visit(player.playerId, target.playerId);
     if (!alerted.has(target.playerId)) {
       blocked.add(target.playerId);
       notify(target, NOTE.blocked());
-      disturbed(target, state.day, 'block');
+      disturbed(target, state.day, "block");
       // The blocker knows whom they kept busy — a quiet night says a lot.
-      player.intel.push({ night: state.day, kind: 'blocked', targetSlot: target.slot, value: 'blocked' });
+      player.intel.push({
+        night: state.day,
+        kind: "blocked",
+        targetSlot: target.slot,
+        value: "blocked",
+      });
       notify(player, NOTE.blockDone(target.name));
     } else {
       /**
@@ -1763,79 +2127,89 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     if (!target) continue;
 
     switch (action.type) {
-      case 'frame':
+      case "frame":
         // Whose frame it is decides what the sheriff reads: a Forger's target
         // reads Triad, a Framer's reads Mafia. That is the point of the power.
         framed.set(target.playerId, roleDef(player.role!).faction);
         visit(player.playerId, target.playerId);
         break;
-      case 'heal':
+      case "heal":
         addProtector(healers, target.playerId, player.playerId);
         visit(player.playerId, target.playerId);
         break;
-      case 'guard':
+      case "guard":
         addProtector(guards, target.playerId, player.playerId);
         visit(player.playerId, target.playerId);
         break;
-      case 'silence':
+      case "silence":
         target.silencedDay = state.day + 1;
         visit(player.playerId, target.playerId);
         notify(target, NOTE.silenced());
         notify(player, NOTE.silenceDone(target.name));
         break;
-      case 'douse':
+      case "douse":
         if (target.playerId !== player.playerId) {
           target.doused = true;
           visit(player.playerId, target.playerId);
           notify(target, NOTE.doused());
           notify(player, NOTE.douseDone(target.name));
-          player.intel.push({ night: state.day, kind: 'doused', targetSlot: target.slot, value: 'doused' });
+          player.intel.push({
+            night: state.day,
+            kind: "doused",
+            targetSlot: target.slot,
+            value: "doused",
+          });
         }
         break;
-      case 'charge':
+      case "charge":
         if (target.playerId !== player.playerId) {
           target.charged = true;
           visit(player.playerId, target.playerId);
           notify(player, NOTE.chargeDone(target.name));
-          player.intel.push({ night: state.day, kind: 'doused', targetSlot: target.slot, value: 'charged' });
+          player.intel.push({
+            night: state.day,
+            kind: "doused",
+            targetSlot: target.slot,
+            value: "charged",
+          });
         }
         break;
-      case 'poison':
+      case "poison":
         target.poisonedNight = state.day;
         visit(player.playerId, target.playerId);
         notify(target, NOTE.poisoned());
         notify(player, NOTE.poisonDone(target.name));
         break;
-      case 'imitate':
+      case "imitate":
         player.disguiseRole = target.role;
         visit(player.playerId, target.playerId);
         notify(player, NOTE.disguised(target.role!));
         break;
-      case 'hide':
+      case "hide":
         hideHosts.set(player.playerId, target.playerId);
         visit(player.playerId, target.playerId);
         notify(player, NOTE.hiding(target.name));
         break;
-      case 'charm':
+      case "charm":
         target.bondPartnerId = player.playerId;
-        target.bondKind = 'charm';
+        target.bondKind = "charm";
         visit(player.playerId, target.playerId);
         notify(target, NOTE.charmed());
         notify(player, NOTE.charmDone(target.name));
         break;
-      case 'bond':
+      case "bond":
         if (player.charges > 0 && player.bondPartnerId === null) {
           player.charges -= 1;
           player.bondPartnerId = target.playerId;
-          player.bondKind = 'lover';
+          player.bondKind = "lover";
           target.bondPartnerId = player.playerId;
-          target.bondKind = 'lover';
+          target.bondKind = "lover";
           visit(player.playerId, target.playerId);
           notify(player, NOTE.bondDone(target.name));
           notify(target, NOTE.bonded(player.name));
         }
         break;
-      case 'clean':
+      case "clean":
         cleanTargets.set(player.playerId, target.playerId);
         visit(player.playerId, target.playerId);
         break;
@@ -1864,7 +2238,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     const action = actionOf(player);
     if (!action?.targetId || !INVESTIGATIVE.includes(action.type)) continue;
     // An autopsy is performed on a slab, not on a doorstep: nobody goes out.
-    if (action.type === 'autopsy') continue;
+    if (action.type === "autopsy") continue;
     if (!state.players[action.targetId]) continue;
     visit(player.playerId, action.targetId);
   }
@@ -1889,9 +2263,15 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
    * detector for the one role whose entire threat is that nobody knows the map of
    * it. The maniac's own visit is exempt, for the obvious reason.
    */
-  const maniac = players.find((entry) => entry.alive && entry.role === 'electromaniac') ?? null;
+  const maniac =
+    players.find((entry) => entry.alive && entry.role === "electromaniac") ??
+    null;
   if (maniac) {
-    const liveWires = new Set(players.filter((entry) => entry.alive && entry.charged).map((entry) => entry.playerId));
+    const liveWires = new Set(
+      players
+        .filter((entry) => entry.alive && entry.charged)
+        .map((entry) => entry.playerId),
+    );
     for (const { visitorId, targetId } of visits) {
       if (!liveWires.has(targetId) || visitorId === maniac.playerId) continue;
       const visitor = state.players[visitorId];
@@ -1906,12 +2286,14 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   for (const player of players) {
     if (!player.alive || player.poisonedNight === null) continue;
     if (player.poisonedNight <= state.day - 1) {
-      const poisoner = players.find((entry) => entry.alive && entry.role === 'poisoner');
+      const poisoner = players.find(
+        (entry) => entry.alive && entry.role === "poisoner",
+      );
       attacks.push({
         attackerId: poisoner?.playerId ?? player.playerId,
         targetId: player.playerId,
         power: 2,
-        source: 'poison'
+        source: "poison",
       });
     }
   }
@@ -1919,12 +2301,27 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   // The match drops: everything soaked burns. Fire is power 3 — no doctor, no
   // bodyguard, no vest argues with it. Only a jail cell is stone enough.
   for (const player of players) {
-    if (!player.alive || blocked.has(player.playerId) || player.role !== 'arsonist') continue;
+    if (
+      !player.alive ||
+      blocked.has(player.playerId) ||
+      player.role !== "arsonist"
+    )
+      continue;
     const action = actionOf(player);
-    if (action?.type !== 'douse' || action.targetId !== player.playerId) continue;
+    if (action?.type !== "douse" || action.targetId !== player.playerId)
+      continue;
     for (const soaked of players) {
-      if (soaked.alive && soaked.doused && soaked.playerId !== player.playerId) {
-        attacks.push({ attackerId: player.playerId, targetId: soaked.playerId, power: 3, source: 'arsonist' });
+      if (
+        soaked.alive &&
+        soaked.doused &&
+        soaked.playerId !== player.playerId
+      ) {
+        attacks.push({
+          attackerId: player.playerId,
+          targetId: soaked.playerId,
+          power: 3,
+          source: "arsonist",
+        });
       }
     }
   }
@@ -1944,12 +2341,23 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
    * own footpaths. Only a jail cell stops either.
    */
   for (const player of players) {
-    if (!player.alive || blocked.has(player.playerId) || player.role !== 'electromaniac') continue;
+    if (
+      !player.alive ||
+      blocked.has(player.playerId) ||
+      player.role !== "electromaniac"
+    )
+      continue;
     const action = actionOf(player);
-    if (action?.type !== 'charge' || action.targetId !== player.playerId) continue;
+    if (action?.type !== "charge" || action.targetId !== player.playerId)
+      continue;
     for (const wired of players) {
       if (wired.alive && wired.charged && wired.playerId !== player.playerId) {
-        attacks.push({ attackerId: player.playerId, targetId: wired.playerId, power: 3, source: 'electromaniac' });
+        attacks.push({
+          attackerId: player.playerId,
+          targetId: wired.playerId,
+          power: 3,
+          source: "electromaniac",
+        });
       }
     }
   }
@@ -1957,20 +2365,36 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   // The family kills: each family's leader orders, an executor carries.
   const familyKillTargets = new Map<keyof typeof FAMILIES, string>();
   for (const familyId of Object.keys(FAMILIES) as (keyof typeof FAMILIES)[]) {
-    const members = players.filter((entry) => entry.alive && playerFamily(entry) === familyId);
+    const members = players.filter(
+      (entry) => entry.alive && playerFamily(entry) === familyId,
+    );
     if (members.length === 0) continue;
-    const leader = members.find((entry) => roleDef(entry.role!).familyRank === 'leader');
-    const executors = members.filter((entry) => roleDef(entry.role!).familyRank === 'executor');
+    const leader = members.find(
+      (entry) => roleDef(entry.role!).familyRank === "leader",
+    );
+    const executors = members.filter(
+      (entry) => roleDef(entry.role!).familyRank === "executor",
+    );
 
     const leaderOrder = leader ? actionOf(leader) : undefined;
-    const executorOrder = executors.map((entry) => actionOf(entry)).find((order) => order?.type === 'kill');
-    const targetId = (leaderOrder?.type === 'kill' ? leaderOrder.targetId : null) ?? executorOrder?.targetId ?? null;
+    const executorOrder = executors
+      .map((entry) => actionOf(entry))
+      .find((order) => order?.type === "kill");
+    const targetId =
+      (leaderOrder?.type === "kill" ? leaderOrder.targetId : null) ??
+      executorOrder?.targetId ??
+      null;
     const target = living(targetId);
     const carrier =
       executors.find((entry) => !blocked.has(entry.playerId)) ??
       (leader && !blocked.has(leader.playerId) ? leader : null);
     if (target && carrier) {
-      attacks.push({ attackerId: carrier.playerId, targetId: target.playerId, power: 1, source: familyId });
+      attacks.push({
+        attackerId: carrier.playerId,
+        targetId: target.playerId,
+        power: 1,
+        source: familyId,
+      });
       visit(carrier.playerId, target.playerId);
       familyKillTargets.set(familyId, target.playerId);
     }
@@ -1985,14 +2409,19 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     const target = living(action.targetId);
     if (!target) continue;
 
-    if (action.type === 'kill' && playerFamily(player) === null) {
-      if (player.role === 'vigilante') {
+    if (action.type === "kill" && playerFamily(player) === null) {
+      if (player.role === "vigilante") {
         if (player.charges <= 0) continue;
         player.charges -= 1;
-        attacks.push({ attackerId: player.playerId, targetId: target.playerId, power: 1, source: 'vigilante' });
+        attacks.push({
+          attackerId: player.playerId,
+          targetId: target.playerId,
+          power: 1,
+          source: "vigilante",
+        });
         visit(player.playerId, target.playerId);
       }
-      if (player.role === 'serial-killer') {
+      if (player.role === "serial-killer") {
         // Power 2: the blade goes through night immunity and vests — the
         // Godfather's predator (a 1v1 of untouchables was 84% of all draws).
         /*
@@ -2010,15 +2439,25 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
          * armour it cannot beat is the armour somebody had to spend something to
          * have — a charge, a role, a night of not doing anything else.
          */
-        attacks.push({ attackerId: player.playerId, targetId: target.playerId, power: 1, source: 'serialKiller' });
+        attacks.push({
+          attackerId: player.playerId,
+          targetId: target.playerId,
+          power: 1,
+          source: "serialKiller",
+        });
         visit(player.playerId, target.playerId);
       }
     }
 
     // The massacre: the house, and everyone unlucky enough to be in it. Who was
     // in it is settled below, once every journey has been declared.
-    if (action.type === 'rampage' && player.role === 'mass-murderer') {
-      attacks.push({ attackerId: player.playerId, targetId: target.playerId, power: 1, source: 'massMurderer' });
+    if (action.type === "rampage" && player.role === "mass-murderer") {
+      attacks.push({
+        attackerId: player.playerId,
+        targetId: target.playerId,
+        power: 1,
+        source: "massMurderer",
+      });
       visit(player.playerId, target.playerId);
       rampages.push({ attackerId: player.playerId, houseId: target.playerId });
     }
@@ -2035,16 +2474,24 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   for (const { attackerId, houseId } of rampages) {
     const caught = new Set(
       visits
-        .filter((entry) => entry.targetId === houseId && entry.visitorId !== attackerId)
-        .map((entry) => entry.visitorId)
+        .filter(
+          (entry) =>
+            entry.targetId === houseId && entry.visitorId !== attackerId,
+        )
+        .map((entry) => entry.visitorId),
     );
     for (const visitorId of caught) {
-      attacks.push({ attackerId, targetId: visitorId, power: 1, source: 'massMurderer' });
+      attacks.push({
+        attackerId,
+        targetId: visitorId,
+        power: 1,
+        source: "massMurderer",
+      });
     }
   }
 
   // The jailor's execution: inside the cell, no protection reaches it.
-  const jailor = players.find((p) => p.alive && p.role === 'jailor');
+  const jailor = players.find((p) => p.alive && p.role === "jailor");
   const jailed = living(jailedId);
   // A jailor who has been kidnapped or roleblocked pulls no lever: every other
   // kill in this file checks `blocked` and this one did not, so the single most
@@ -2053,17 +2500,27 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     jailor &&
     jailed &&
     !blocked.has(jailor.playerId) &&
-    actionOf(jailor)?.type === 'jail-execute' &&
+    actionOf(jailor)?.type === "jail-execute" &&
     jailor.charges > 0
   ) {
     jailor.charges -= 1;
-    attacks.push({ attackerId: jailor.playerId, targetId: jailed.playerId, power: 3, source: 'jailor' });
+    attacks.push({
+      attackerId: jailor.playerId,
+      targetId: jailed.playerId,
+      power: 3,
+      source: "jailor",
+    });
   }
 
   // The veteran shoots everything that moves on his porch.
   for (const { visitorId, targetId } of visits) {
     if (alerted.has(targetId) && visitorId !== targetId) {
-      attacks.push({ attackerId: targetId, targetId: visitorId, power: 2, source: 'veteran' });
+      attacks.push({
+        attackerId: targetId,
+        targetId: visitorId,
+        power: 2,
+        source: "veteran",
+      });
     }
   }
 
@@ -2084,12 +2541,20 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     if (!traveller || !house) continue;
     if (
       traveller.intel.some(
-        (entry) => entry.night === state.day && entry.kind === 'went' && entry.targetSlot === house.slot
+        (entry) =>
+          entry.night === state.day &&
+          entry.kind === "went" &&
+          entry.targetSlot === house.slot,
       )
     ) {
       continue;
     }
-    traveller.intel.push({ night: state.day, kind: 'went', targetSlot: house.slot, value: 'went' });
+    traveller.intel.push({
+      night: state.day,
+      kind: "went",
+      targetSlot: house.slot,
+      value: "went",
+    });
   }
 
   /**
@@ -2114,29 +2579,30 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   for (const attack of attacks) {
     // A hidden coward hands his fate to his host.
     const hiddenAt = hideHosts.get(attack.targetId);
-    const finalTargetId = hiddenAt && state.players[hiddenAt]?.alive ? hiddenAt : attack.targetId;
+    const finalTargetId =
+      hiddenAt && state.players[hiddenAt]?.alive ? hiddenAt : attack.targetId;
     const target = state.players[finalTargetId];
     const attacker = state.players[attack.attackerId];
     if (!target) continue;
     const already = diedTonight.has(target.playerId);
     // A seat that died in daylight, or one already accounted for. Not tonight's business.
     if (!target.alive && !already) continue;
-    const note = (outcome: NightOutcome['outcome']): void => {
+    const note = (outcome: NightOutcome["outcome"]): void => {
       outcomes.push({
         attackerSlot: attacker?.slot ?? null,
         targetSlot: target.slot,
         source: attack.source,
-        outcome
+        outcome,
       });
     };
 
-    const fromJailor = attack.source === 'jailor';
-    const isPoison = attack.source === 'poison';
+    const fromJailor = attack.source === "jailor";
+    const isPoison = attack.source === "poison";
 
     // The cell protects its prisoner from the outside world, never from its keeper.
     if (target.playerId === jailedId && !fromJailor && !isPoison) {
       if (attacker) notify(attacker, NOTE.targetMissing());
-      note('jailed');
+      note("jailed");
       continue;
     }
     /**
@@ -2149,12 +2615,13 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
      */
     if (sheltered.has(target.playerId) && !fromJailor && !isPoison) {
       if (attacker) notify(attacker, NOTE.targetMissing());
-      note('sheltered');
+      note("sheltered");
       continue;
     }
 
     let defense = 0;
-    if (target.role && roleDef(target.role).nightImmune) defense = Math.max(defense, 1);
+    if (target.role && roleDef(target.role).nightImmune)
+      defense = Math.max(defense, 1);
     if (vested.has(target.playerId)) defense = Math.max(defense, 1);
     if (alerted.has(target.playerId)) defense = Math.max(defense, 2);
     if (isPoison) defense = 0; // the poison is already inside; armour is irrelevant
@@ -2171,12 +2638,19 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       // One reading for both the note and the record: a seat that is alerted
       // *and* vested was told "immune" and written down as "vested", which is
       // two answers to one question in the one place kept for answering it.
-      const armour = !alerted.has(target.playerId) && vested.has(target.playerId) ? 'vested' : 'immune';
+      const armour =
+        !alerted.has(target.playerId) && vested.has(target.playerId)
+          ? "vested"
+          : "immune";
       if (!already) {
         notify(target, NOTE.survived());
-        rescued(target, state.day, 'self');
+        rescued(target, state.day, "self");
       }
-      if (attacker) notify(attacker, armour === 'vested' ? NOTE.attackVested() : NOTE.attackImmune());
+      if (attacker)
+        notify(
+          attacker,
+          armour === "vested" ? NOTE.attackVested() : NOTE.attackImmune(),
+        );
       note(armour);
       continue;
     }
@@ -2194,26 +2668,29 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       const struck = alsoStruck.get(target.playerId) ?? [];
       struck.push(attack.source);
       alsoStruck.set(target.playerId, struck);
-      note('too-late');
+      note("too-late");
       continue;
     }
 
     // A bodyguard steps in front of anything short of an execution or a fire.
-    const guardList = (guards.get(target.playerId) ?? []).map((id) => state.players[id]).filter((g) => g?.alive);
+    const guardList = (guards.get(target.playerId) ?? [])
+      .map((id) => state.players[id])
+      .filter((g) => g?.alive);
     if (!fromJailor && !isPoison && attack.power <= 2 && guardList.length > 0) {
       const guard = guardList[0];
       if (guard) {
         diedTonight.add(guard.playerId);
-        kill(state, guard, 'night', CAUSE.guard(target.name));
-        addPoints(state, guard.playerId, 'save');
+        kill(state, guard, "night", CAUSE.guard(target.name));
+        addPoints(state, guard.playerId, "save");
         notify(target, NOTE.guarded());
-        rescued(target, state.day, 'bodyguard');
-        note('guarded');
+        rescued(target, state.day, "bodyguard");
+        note("guarded");
         if (attacker && attacker.playerId !== guard.playerId) {
-          const counterDefense = attacker.role && roleDef(attacker.role).nightImmune ? 1 : 0;
+          const counterDefense =
+            attacker.role && roleDef(attacker.role).nightImmune ? 1 : 0;
           if (2 > counterDefense && !diedTonight.has(attacker.playerId)) {
             diedTonight.add(attacker.playerId);
-            kill(state, attacker, 'night', CAUSE.bodyguard());
+            kill(state, attacker, "night", CAUSE.bodyguard());
           } else {
             notify(attacker, NOTE.bodyguardRepelled());
           }
@@ -2223,7 +2700,9 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     }
 
     // The doctor saves anything short of an execution or a fire — and purges poison.
-    const healerList = (healers.get(target.playerId) ?? []).map((id) => state.players[id]).filter((h) => h?.alive);
+    const healerList = (healers.get(target.playerId) ?? [])
+      .map((id) => state.players[id])
+      .filter((h) => h?.alive);
     if (!fromJailor && attack.power <= 2 && healerList.length > 0) {
       if (isPoison) {
         target.poisonedNight = null;
@@ -2233,28 +2712,33 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       }
       // The hand that was stopped, told that it was stopped and by what.
       if (attacker) notify(attacker, NOTE.attackHealed());
-      note('healed');
+      note("healed");
       // Either way a doctor spent its night here, and the seat knows it.
-      rescued(target, state.day, 'doctor');
+      rescued(target, state.day, "doctor");
       for (const healer of healerList) {
         if (healer) {
           notify(healer, NOTE.healSaved());
-          healer.intel.push({ night: state.day, kind: 'saved', targetSlot: target.slot, value: 'saved' });
-          addPoints(state, healer.playerId, 'save');
+          healer.intel.push({
+            night: state.day,
+            kind: "saved",
+            targetSlot: target.slot,
+            value: "saved",
+          });
+          addPoints(state, healer.playerId, "save");
         }
       }
       continue;
     }
 
     diedTonight.add(target.playerId);
-    note('killed');
-    kill(state, target, 'night', CAUSE.killedBy(attack.source), attack.source);
+    note("killed");
+    kill(state, target, "night", CAUSE.killedBy(attack.source), attack.source);
     if (isPoison) target.poisonedNight = null;
     if (attacker && attacker.playerId !== target.playerId) {
-      addPoints(state, attacker.playerId, 'kill');
+      addPoints(state, attacker.playerId, "kill");
       if (fromJailor) {
         if (target.role && evilRole(target.role)) {
-          addPoints(state, attacker.playerId, 'execute-evil');
+          addPoints(state, attacker.playerId, "execute-evil");
         } else {
           attacker.charges = 0;
           notify(attacker, NOTE.executedInnocent());
@@ -2265,7 +2749,10 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
 
   // Spent or cured poison clears; a fresh dose keeps ticking toward tomorrow.
   for (const player of players) {
-    if (player.poisonedNight !== null && player.poisonedNight <= state.day - 1) {
+    if (
+      player.poisonedNight !== null &&
+      player.poisonedNight <= state.day - 1
+    ) {
       player.poisonedNight = null;
     }
   }
@@ -2281,14 +2768,16 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
    * family happened to kill the same night does not spend the Jester's revenge
    * on an empty chair. See `jesterHaunt`.
    */
-  const haunted = (state.jesterHaunt ?? []).filter((voterId) => living(voterId));
+  const haunted = (state.jesterHaunt ?? []).filter((voterId) =>
+    living(voterId),
+  );
   state.jesterHaunt = undefined;
   if (haunted.length > 0) {
     const chosen = haunted[Math.floor(rng() * haunted.length)];
     const mourner = chosen ? state.players[chosen] : undefined;
     if (mourner?.alive) {
       diedTonight.add(mourner.playerId);
-      kill(state, mourner, 'night', CAUSE.remorse(), 'remorse');
+      kill(state, mourner, "night", CAUSE.remorse(), "remorse");
     }
   }
 
@@ -2306,7 +2795,9 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
    * arrived, and the morning reads "killed by the Mafia and the Serial Killer".
    */
   for (const [victimId, extra] of alsoStruck) {
-    const record = state.deaths.find((death) => death.playerId === victimId && death.day === state.day);
+    const record = state.deaths.find(
+      (death) => death.playerId === victimId && death.day === state.day,
+    );
     if (!record?.source) continue;
     const all = [record.source, ...extra];
     record.sources = all;
@@ -2322,27 +2813,42 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   for (const [cleanerId, targetId] of cleanTargets) {
     const cleaner = state.players[cleanerId];
     const target = state.players[targetId];
-    if (!cleaner?.alive || cleaner.charges <= 0 || !target || target.alive) continue;
-    const record = state.deaths.find((death) => death.playerId === targetId && death.day === state.day);
+    if (!cleaner?.alive || cleaner.charges <= 0 || !target || target.alive)
+      continue;
+    const record = state.deaths.find(
+      (death) => death.playerId === targetId && death.day === state.day,
+    );
     if (!record) continue;
     record.hidden = true;
     cleaner.charges -= 1;
-    cleaner.intel.push({ night: state.day, kind: 'role', targetSlot: target.slot, value: target.role! });
+    cleaner.intel.push({
+      night: state.day,
+      kind: "role",
+      targetSlot: target.slot,
+      value: target.role!,
+    });
     notify(cleaner, NOTE.cleaned(target.name, target.role!));
   }
 
   // Dawn report.
   for (const player of players) {
     if (diedTonight.has(player.playerId)) {
-      const record = state.deaths.find((death) => death.playerId === player.playerId);
-      const roleLine = record?.hidden ? BODY.cleaned() : bodyReads(state, player);
+      const record = state.deaths.find(
+        (death) => death.playerId === player.playerId,
+      );
+      const roleLine = record?.hidden
+        ? BODY.cleaned()
+        : bodyReads(state, player);
       announcements.push({
         line: M.found(player.name, record?.cause ?? CAUSE.unknown(), roleLine),
-        reveals: true
+        reveals: true,
       });
       if (player.lastWill && !record?.hidden) {
         // A will is a claim about roles; on a shared screen it is a reveal too.
-        announcements.push({ line: M.lastWill(player.name, player.lastWill), reveals: true });
+        announcements.push({
+          line: M.lastWill(player.name, player.lastWill),
+          reveals: true,
+        });
       }
     }
   }
@@ -2353,12 +2859,12 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   // A widowed executioner grieves into motley.
   for (const player of players) {
     if (
-      player.role === 'executioner' &&
+      player.role === "executioner" &&
       player.alive &&
       player.obsessionId &&
       !state.players[player.obsessionId]?.alive
     ) {
-      player.role = 'jester';
+      player.role = "jester";
       player.obsessionId = null;
       notify(player, NOTE.griefMad());
     }
@@ -2366,14 +2872,20 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
 
   // The spy's ear: which doors the families chose tonight.
   for (const player of players) {
-    if (!player.alive || blocked.has(player.playerId) || player.role !== 'spy') continue;
+    if (!player.alive || blocked.has(player.playerId) || player.role !== "spy")
+      continue;
     for (const [familyId, targetId] of familyKillTargets) {
       const target = state.players[targetId];
       if (!target) continue;
       // The family's own name as a camp key, so the Cult never reports as the
       // Triad the day it can kill.
       notify(player, NOTE.familyAimed(familyId, target.slot));
-      player.intel.push({ night: state.day, kind: 'spied', targetSlot: target.slot, value: familyId });
+      player.intel.push({
+        night: state.day,
+        kind: "spied",
+        targetSlot: target.slot,
+        value: familyId,
+      });
     }
   }
 
@@ -2388,7 +2900,12 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
    * report what he found.
    */
   const investigators = players.filter((player) => {
-    if (!player.alive || blocked.has(player.playerId) || diedTonight.has(player.playerId)) return false;
+    if (
+      !player.alive ||
+      blocked.has(player.playerId) ||
+      diedTonight.has(player.playerId)
+    )
+      return false;
     const action = actionOf(player);
     if (!action?.targetId || !state.players[action.targetId]) return false;
     return INVESTIGATIVE.includes(action.type);
@@ -2401,7 +2918,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     const shownRole = target.disguiseRole ?? target.role!;
     const shown = roleDef(shownRole);
 
-    if (action.type === 'investigate') {
+    if (action.type === "investigate") {
       /**
        * Not "suspicious", but suspicious *of what*.
        *
@@ -2418,27 +2935,37 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       const framedAs = framed.get(target.playerId);
       const family = familyOf(shownRole);
       const verdict: SheriffVerdict = framedAs
-        ? framedAs === 'triad'
-          ? 'triad'
-          : framedAs === 'cult'
-            ? 'cult'
-            : 'mafia'
+        ? framedAs === "triad"
+          ? "triad"
+          : framedAs === "cult"
+            ? "cult"
+            : "mafia"
         : shown.detectionImmune
-          ? 'clear'
+          ? "clear"
           : family !== null
             ? family
             : shown.soloKiller
               ? (shownRole as SheriffVerdict)
               : shown.suspicious
-                ? 'suspect'
-                : 'clear';
+                ? "suspect"
+                : "clear";
       notify(player, NOTE.sheriff(target.name, verdict));
-      player.intel.push({ night: state.day, kind: 'sheriff', targetSlot: target.slot, value: verdict });
+      player.intel.push({
+        night: state.day,
+        kind: "sheriff",
+        targetSlot: target.slot,
+        value: verdict,
+      });
     }
-    if (action.type === 'examine') {
-      if (player.role === 'consigliere' || player.role === 'administrator') {
+    if (action.type === "examine") {
+      if (player.role === "consigliere" || player.role === "administrator") {
         notify(player, NOTE.exactRole(target.name, shown.id));
-        player.intel.push({ night: state.day, kind: 'role', targetSlot: target.slot, value: shownRole });
+        player.intel.push({
+          night: state.day,
+          kind: "role",
+          targetSlot: target.slot,
+          value: shownRole,
+        });
       } else {
         /**
          * No crime committed, no crime detected.
@@ -2454,67 +2981,82 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
          * you learn nothing, and the town cannot treat a quiet result as a
          * clean one. See `tradeVerdict`, which refuses to read it as clean.
          */
-        const acted = !!acts[target.playerId]?.targetId && !blocked.has(target.playerId);
+        const acted =
+          !!acts[target.playerId]?.targetId && !blocked.has(target.playerId);
         const line = framed.has(target.playerId)
-          ? roleDef('framer').investigated
+          ? roleDef("framer").investigated
           : acted
             ? shown.investigated
             : QUIET_TRADE;
         notify(player, NOTE.tradeLine(target.name, line));
-        player.intel.push({ night: state.day, kind: 'trade', targetSlot: target.slot, value: line });
+        player.intel.push({
+          night: state.day,
+          kind: "trade",
+          targetSlot: target.slot,
+          value: line,
+        });
       }
     }
-    if (action.type === 'watch' || action.type === 'shadow') {
+    if (action.type === "watch" || action.type === "shadow") {
       const seenPlayers = [
         ...new Set(
           visits
-            .filter((entry) => entry.targetId === target.playerId && entry.visitorId !== player.playerId)
+            .filter(
+              (entry) =>
+                entry.targetId === target.playerId &&
+                entry.visitorId !== player.playerId,
+            )
             .map((entry) => state.players[entry.visitorId])
-            .filter((visitor): visitor is MafiaPlayer => !!visitor)
-        )
+            .filter((visitor): visitor is MafiaPlayer => !!visitor),
+        ),
       ];
       notify(
         player,
         NOTE.visitors(
           target.name,
-          seenPlayers.map((visitor) => visitor.name)
-        )
+          seenPlayers.map((visitor) => visitor.name),
+        ),
       );
       player.intel.push({
         night: state.day,
-        kind: 'visitors',
+        kind: "visitors",
         targetSlot: target.slot,
-        value: seenPlayers.map((v) => String(v.slot)).join(','),
-        slots: seenPlayers.map((v) => v.slot)
+        value: seenPlayers.map((v) => String(v.slot)).join(","),
+        slots: seenPlayers.map((v) => v.slot),
       });
     }
-    if (action.type === 'track' || action.type === 'shadow') {
+    if (action.type === "track" || action.type === "shadow") {
       const wentTo = [
         ...new Set(
           visits
             .filter((entry) => entry.visitorId === target.playerId)
             .map((entry) => state.players[entry.targetId])
-            .filter((house): house is MafiaPlayer => !!house)
-        )
+            .filter((house): house is MafiaPlayer => !!house),
+        ),
       ];
       notify(
         player,
         NOTE.tracked(
           target.name,
-          wentTo.map((house) => house.name)
-        )
+          wentTo.map((house) => house.name),
+        ),
       );
       player.intel.push({
         night: state.day,
-        kind: 'tracked',
+        kind: "tracked",
         targetSlot: target.slot,
-        value: wentTo.map((v) => String(v.slot)).join(','),
-        slots: wentTo.map((v) => v.slot)
+        value: wentTo.map((v) => String(v.slot)).join(","),
+        slots: wentTo.map((v) => v.slot),
       });
     }
-    if (action.type === 'autopsy' && !target.alive) {
+    if (action.type === "autopsy" && !target.alive) {
       notify(player, NOTE.autopsy(target.name, target.role!));
-      player.intel.push({ night: state.day, kind: 'role', targetSlot: target.slot, value: target.role! });
+      player.intel.push({
+        night: state.day,
+        kind: "role",
+        targetSlot: target.slot,
+        value: target.role!,
+      });
     }
   }
 
@@ -2526,10 +3068,14 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     const target = state.players[action.targetId];
     if (!target) continue;
 
-    if (action.type === 'recruit' && player.role === 'mason-leader' && target.alive) {
+    if (
+      action.type === "recruit" &&
+      player.role === "mason-leader" &&
+      target.alive
+    ) {
       visit(player.playerId, target.playerId);
-      if (target.role === 'citizen') {
-        target.role = 'mason';
+      if (target.role === "citizen") {
+        target.role = "mason";
         notify(target, NOTE.initiated());
         notify(player, NOTE.initiateDone(target.name));
       } else {
@@ -2537,10 +3083,15 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       }
     }
 
-    if (action.type === 'convert' && player.role === 'cultist' && target.alive) {
+    if (
+      action.type === "convert" &&
+      player.role === "cultist" &&
+      target.alive
+    ) {
       visit(player.playerId, target.playerId);
-      if (target.role && roleDef(target.role).faction === 'town') {
-        const converted: RoleId = target.role === 'doctor' ? 'witch-doctor' : 'cultist';
+      if (target.role && roleDef(target.role).faction === "town") {
+        const converted: RoleId =
+          target.role === "doctor" ? "witch-doctor" : "cultist";
         target.role = converted;
         target.charges = roleDef(converted).charges ?? 0;
         player.cooldownUntilDay = state.day + 2;
@@ -2552,32 +3103,55 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       }
     }
 
-    if (action.type === 'remember' && player.role === 'amnesiac' && !target.alive && target.role) {
+    if (
+      action.type === "remember" &&
+      player.role === "amnesiac" &&
+      !target.alive &&
+      target.role
+    ) {
       const remembered = target.role;
       player.role = remembered;
       player.charges = roleDef(remembered).charges ?? 0;
       notify(player, NOTE.remembered(remembered));
       announcements.push({
         line: M.amnesiacRemembered(roleDef(remembered).name, target.name),
-        reveals: true
+        reveals: true,
       });
     }
 
-    if (action.type === 'audit' && player.role === 'auditor' && target.alive && player.charges > 0) {
+    if (
+      action.type === "audit" &&
+      player.role === "auditor" &&
+      target.alive &&
+      player.charges > 0
+    ) {
       visit(player.playerId, target.playerId);
       const targetDef = roleDef(target.role!);
       let audited: RoleId | null = null;
-      if (targetDef.faction === 'town') audited = 'citizen';
-      else if (targetDef.faction === 'mafia' && targetDef.familyRank !== 'leader') audited = 'mafioso';
-      else if (targetDef.faction === 'triad' && targetDef.familyRank !== 'leader') audited = 'enforcer';
-      else if (targetDef.faction === 'neutral' && !targetDef.soloKiller && target.role !== 'auditor')
-        audited = 'scumbag';
+      if (targetDef.faction === "town") audited = "citizen";
+      else if (
+        targetDef.faction === "mafia" &&
+        targetDef.familyRank !== "leader"
+      )
+        audited = "mafioso";
+      else if (
+        targetDef.faction === "triad" &&
+        targetDef.familyRank !== "leader"
+      )
+        audited = "enforcer";
+      else if (
+        targetDef.faction === "neutral" &&
+        !targetDef.soloKiller &&
+        target.role !== "auditor"
+      )
+        audited = "scumbag";
       if (audited && audited !== target.role) {
         player.charges -= 1;
         // Kept so the will can say what happened rather than sign a badge its
         // own contents contradict. See `MafiaPlayer.roleBefore`. Only the first
         // audit writes it: a seat audited twice was still dealt one role.
-        if (target.roleBefore === undefined || target.roleBefore === null) target.roleBefore = target.role;
+        if (target.roleBefore === undefined || target.roleBefore === null)
+          target.roleBefore = target.role;
         target.role = audited;
         target.charges = roleDef(audited).charges ?? 0;
         notify(target, NOTE.audited(audited));
@@ -2596,23 +3170,32 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
 /* ------------------------------- endings -------------------------------- */
 
 const FAMILY_WIN: Record<FamilyId, { reason: Msg; headline: Msg }> = {
-  mafia: { reason: M.winReason('mafia'), headline: M.winFamily('mafia') },
-  triad: { reason: M.winReason('triad'), headline: M.winFamily('triad') },
-  cult: { reason: M.winReason('cult'), headline: M.winFamily('cult') }
+  mafia: { reason: M.winReason("mafia"), headline: M.winFamily("mafia") },
+  triad: { reason: M.winReason("triad"), headline: M.winFamily("triad") },
+  cult: { reason: M.winReason("cult"), headline: M.winFamily("cult") },
 };
 
 const SOLO_WIN: Partial<Record<RoleId, { reason: Msg; headline: Msg }>> = {
-  'serial-killer': {
-    reason: M.winReason('serial-killer'),
-    headline: M.winSolo('serial-killer')
+  "serial-killer": {
+    reason: M.winReason("serial-killer"),
+    headline: M.winSolo("serial-killer"),
   },
-  arsonist: { reason: M.winReason('arsonist'), headline: M.winSolo('arsonist') },
-  'mass-murderer': { reason: M.winReason('mass-murderer'), headline: M.winSolo('mass-murderer') },
+  arsonist: {
+    reason: M.winReason("arsonist"),
+    headline: M.winSolo("arsonist"),
+  },
+  "mass-murderer": {
+    reason: M.winReason("mass-murderer"),
+    headline: M.winSolo("mass-murderer"),
+  },
   poisoner: {
-    reason: M.winReason('poisoner'),
-    headline: M.winSolo('poisoner')
+    reason: M.winReason("poisoner"),
+    headline: M.winSolo("poisoner"),
   },
-  electromaniac: { reason: M.winReason('electromaniac'), headline: M.winSolo('electromaniac') }
+  electromaniac: {
+    reason: M.winReason("electromaniac"),
+    headline: M.winSolo("electromaniac"),
+  },
 };
 
 /**
@@ -2621,7 +3204,12 @@ const SOLO_WIN: Partial<Record<RoleId, { reason: Msg; headline: Msg }>> = {
  * Read by the payout below and by `witchDuel`, which needs the same list for the opposite reason: two of these
  * alone at the table are not in a duel, they have both already won.
  */
-const PARASITE_ROLES: ReadonlySet<RoleId | null> = new Set<RoleId>(['witch', 'scumbag', 'judge', 'auditor']);
+const PARASITE_ROLES: ReadonlySet<RoleId | null> = new Set<RoleId>([
+  "witch",
+  "scumbag",
+  "judge",
+  "auditor",
+]);
 
 /**
  * How the evening ended.
@@ -2636,54 +3224,77 @@ const PARASITE_ROLES: ReadonlySet<RoleId | null> = new Set<RoleId>(['witch', 'sc
  * once the town's entries had been pushed: a caller that crowned after ending
  * would silently pay out the parasites. Stated by the caller, it cannot.
  */
-type Ending = 'town' | 'family' | 'solo-killer' | 'witch' | 'draw';
+type Ending = "town" | "family" | "solo-killer" | "witch" | "draw";
 
-function endGame(state: MafiaState, now: number, headline: Msg, ending: Ending): void {
-  state.phase = 'ended';
+function endGame(
+  state: MafiaState,
+  now: number,
+  headline: Msg,
+  ending: Ending,
+): void {
+  state.phase = "ended";
   state.stage = null;
   state.trial = null;
   state.phaseEndsAt = null;
 
-  const townWon = ending === 'town';
+  const townWon = ending === "town";
   const lovers = new Set<string>();
   for (const player of Object.values(state.players)) {
-    if (player.alive) addPoints(state, player.playerId, 'survive');
-    if (player.alive && player.role === 'survivor') {
-      state.winners.push({ playerId: player.playerId, reason: M.winReason('survivor'), kind: 'survivor' });
-      addPoints(state, player.playerId, 'solo-win');
+    if (player.alive) addPoints(state, player.playerId, "survive");
+    if (player.alive && player.role === "survivor") {
+      state.winners.push({
+        playerId: player.playerId,
+        reason: M.winReason("survivor"),
+        kind: "survivor",
+      });
+      addPoints(state, player.playerId, "solo-win");
     }
     // Misfortune's parasites: alive while the town failed is a win.
-    if (
-      player.alive &&
-      PARASITE_ROLES.has(player.role) &&
-      !townWon
-    ) {
-      state.winners.push({ playerId: player.playerId, reason: M.winReason('parasite'), kind: 'parasite' });
-      addPoints(state, player.playerId, 'solo-win');
+    if (player.alive && PARASITE_ROLES.has(player.role) && !townWon) {
+      state.winners.push({
+        playerId: player.playerId,
+        reason: M.winReason("parasite"),
+        kind: "parasite",
+      });
+      addPoints(state, player.playerId, "solo-win");
     }
     // Lovers win together, whoever else won.
     if (
       player.alive &&
-      player.bondKind === 'lover' &&
+      player.bondKind === "lover" &&
       player.bondPartnerId &&
       state.players[player.bondPartnerId]?.alive &&
       !lovers.has(player.playerId)
     ) {
       lovers.add(player.playerId);
       lovers.add(player.bondPartnerId);
-      state.winners.push({ playerId: player.playerId, reason: M.winReason('lovers'), kind: 'lovers' });
-      state.winners.push({ playerId: player.bondPartnerId, reason: M.winReason('lovers'), kind: 'lovers' });
-      addPoints(state, player.playerId, 'solo-win');
-      addPoints(state, player.bondPartnerId, 'solo-win');
+      state.winners.push({
+        playerId: player.playerId,
+        reason: M.winReason("lovers"),
+        kind: "lovers",
+      });
+      state.winners.push({
+        playerId: player.bondPartnerId,
+        reason: M.winReason("lovers"),
+        kind: "lovers",
+      });
+      addPoints(state, player.playerId, "solo-win");
+      addPoints(state, player.bondPartnerId, "solo-win");
     }
-    if (!player.isBot) addPoints(state, player.playerId, 'participation');
+    if (!player.isBot) addPoints(state, player.playerId, "participation");
   }
 
   announce(state, headline, now);
   announceReveal(state, M.unmasked(), now);
-  for (const player of Object.values(state.players).sort((left, right) => left.slot - right.slot)) {
+  for (const player of Object.values(state.players).sort(
+    (left, right) => left.slot - right.slot,
+  )) {
     if (!player.role) continue;
-    announceReveal(state, M.unmaskedRow(player.slot, player.name, ROLE.name(player.role)), now);
+    announceReveal(
+      state,
+      M.unmaskedRow(player.slot, player.name, ROLE.name(player.role)),
+      now,
+    );
   }
 }
 
@@ -2697,11 +3308,11 @@ function endGame(state: MafiaState, now: number, headline: Msg, ending: Ending):
  * thing said in the only language this function speaks.
  */
 const BLADE: Partial<Record<RoleId, number>> = {
-  'serial-killer': 1,
-  'mass-murderer': 1,
+  "serial-killer": 1,
+  "mass-murderer": 1,
   arsonist: 3,
   poisoner: 3,
-  electromaniac: 3
+  electromaniac: 3,
 };
 
 /**
@@ -2713,14 +3324,14 @@ const BLADE: Partial<Record<RoleId, number>> = {
  * pointed at its own owner.
  */
 const INTERFERES: ReadonlySet<NightActionType> = new Set<NightActionType>([
-  'block',
-  'control',
-  'swap',
-  'kidnap',
-  'jail-execute',
-  'heal',
-  'guard',
-  'remember'
+  "block",
+  "control",
+  "swap",
+  "kidnap",
+  "jail-execute",
+  "heal",
+  "guard",
+  "remember",
 ]);
 
 /**
@@ -2741,7 +3352,11 @@ const INTERFERES: ReadonlySet<NightActionType> = new Set<NightActionType>([
  * and neither moves the majority a rope needs — with two seats alive the survivor still cannot reach it, so the badge
  * changes nothing about this particular morning.
  */
-function beyondSaving(state: MafiaState, killers: readonly MafiaPlayer[], rest: readonly MafiaPlayer[]): boolean {
+function beyondSaving(
+  state: MafiaState,
+  killers: readonly MafiaPlayer[],
+  rest: readonly MafiaPlayer[],
+): boolean {
   if (rest.length === 0) return true;
 
   /**
@@ -2752,12 +3367,22 @@ function beyondSaving(state: MafiaState, killers: readonly MafiaPlayer[], rest: 
    * seat still holding a lynch. The threshold moves with him, so both sides of the comparison are recomputed as
    * though the badge were already out.
    */
-  const standing = rest.some((player) => player.role === 'mayor' && !player.revealed) ? 2 : 0;
-  const table = alivePlayers(state).reduce((sum, player) => sum + voteWeight(player), 0) + standing;
-  const theirs = rest.reduce((sum, player) => sum + voteWeight(player), 0) + standing;
+  const standing = rest.some(
+    (player) => player.role === "mayor" && !player.revealed,
+  )
+    ? 2
+    : 0;
+  const table =
+    alivePlayers(state).reduce((sum, player) => sum + voteWeight(player), 0) +
+    standing;
+  const theirs =
+    rest.reduce((sum, player) => sum + voteWeight(player), 0) + standing;
   if (theirs >= Math.floor(table / 2) + 1) return false;
 
-  const blade = Math.max(0, ...killers.map((player) => BLADE[player.role!] ?? 1));
+  const blade = Math.max(
+    0,
+    ...killers.map((player) => BLADE[player.role!] ?? 1),
+  );
   const killerIds = new Set(killers.map((player) => player.playerId));
 
   for (const player of rest) {
@@ -2775,10 +3400,15 @@ function beyondSaving(state: MafiaState, killers: readonly MafiaPlayer[], rest: 
      * sleeps behind night immunity, so the gun in the last townie's drawer is a rescue only against a killer who can
      * actually be shot.
      */
-    if (player.charges > 0 && def.nightAction === 'alert') return false;
-    if (player.charges > 0 && def.nightAction === 'vest' && blade <= 1) return false;
-    if (player.charges > 0 && def.nightAction === 'jail-execute') return false;
-    if (player.charges > 0 && def.nightAction === 'kill' && killers.some((k) => !roleDef(k.role!).nightImmune)) {
+    if (player.charges > 0 && def.nightAction === "alert") return false;
+    if (player.charges > 0 && def.nightAction === "vest" && blade <= 1)
+      return false;
+    if (player.charges > 0 && def.nightAction === "jail-execute") return false;
+    if (
+      player.charges > 0 &&
+      def.nightAction === "kill" &&
+      killers.some((k) => !roleDef(k.role!).nightImmune)
+    ) {
       return false;
     }
 
@@ -2789,13 +3419,15 @@ function beyondSaving(state: MafiaState, killers: readonly MafiaPlayer[], rest: 
      * alive is a doctor who dies, and they count only while there is somebody else on that side to stand in front of.
      */
     if (def.nightAction !== null && INTERFERES.has(def.nightAction)) {
-      const selfless = def.nightAction === 'heal' || def.nightAction === 'guard';
+      const selfless =
+        def.nightAction === "heal" || def.nightAction === "guard";
       if (!selfless || rest.length > 1) return false;
     }
 
     // A killer who cannot cut the last rope without hanging himself: grief takes
     // the partner of anybody who dies, lovers included.
-    if (player.bondPartnerId !== null && killerIds.has(player.bondPartnerId)) return false;
+    if (player.bondPartnerId !== null && killerIds.has(player.bondPartnerId))
+      return false;
   }
 
   return true;
@@ -2814,27 +3446,49 @@ function beyondSaving(state: MafiaState, killers: readonly MafiaPlayer[], rest: 
  * timed-out games were exactly that pair. Neither side is winning and neither ever will, and the engine used to sit
  * through twenty days of it before calling a draw.
  */
-function canRemove(state: MafiaState, side: readonly MafiaPlayer[], targets: readonly MafiaPlayer[]): boolean {
+function canRemove(
+  state: MafiaState,
+  side: readonly MafiaPlayer[],
+  targets: readonly MafiaPlayer[],
+): boolean {
   // A Mayor who has not stood up yet still counts for three: revealing is a free action he can take this very
   // afternoon, and a rule that ignored it would freeze a game on the one seat still holding a lynch.
-  const standing = side.some((player) => player.role === 'mayor' && !player.revealed) ? 2 : 0;
-  const table = alivePlayers(state).reduce((sum, player) => sum + voteWeight(player), 0) + standing;
-  const mine = side.reduce((sum, player) => sum + voteWeight(player), 0) + standing;
+  const standing = side.some(
+    (player) => player.role === "mayor" && !player.revealed,
+  )
+    ? 2
+    : 0;
+  const table =
+    alivePlayers(state).reduce((sum, player) => sum + voteWeight(player), 0) +
+    standing;
+  const mine =
+    side.reduce((sum, player) => sum + voteWeight(player), 0) + standing;
   if (mine >= Math.floor(table / 2) + 1) return true;
 
-  const armour = Math.max(0, ...targets.map((player) => (roleDef(player.role!).nightImmune ? 1 : 0)));
+  const armour = Math.max(
+    0,
+    ...targets.map((player) => (roleDef(player.role!).nightImmune ? 1 : 0)),
+  );
   return side.some((player) => {
     const def = roleDef(player.role!);
     // A charged power is spent; a family's knife and a lone killer's never run out.
     const spent =
-      (def.nightAction === 'kill' || def.nightAction === 'jail-execute' || def.nightAction === 'alert') &&
+      (def.nightAction === "kill" ||
+        def.nightAction === "jail-execute" ||
+        def.nightAction === "alert") &&
       player.charges === 0 &&
       familyOf(player.role!) === null &&
       !isSoloKiller(player.role!);
     if (spent) return false;
     const blade =
       BLADE[player.role!] ??
-      (def.nightAction === 'jail-execute' ? 3 : def.nightAction === 'alert' ? 2 : def.nightAction === 'kill' ? 1 : 0);
+      (def.nightAction === "jail-execute"
+        ? 3
+        : def.nightAction === "alert"
+          ? 2
+          : def.nightAction === "kill"
+            ? 1
+            : 0);
     return blade > armour;
   });
 }
@@ -2856,7 +3510,13 @@ function canRemove(state: MafiaState, side: readonly MafiaPlayer[], targets: rea
  * which decides nothing important and decides it the same way every time — a coin flip here would mean two identical
  * boards ending differently, which is the one property an endgame rule must not have.
  */
-const STANDOFF_ORDER: readonly RoleId[] = ['arsonist', 'poisoner', 'electromaniac', 'serial-killer', 'mass-murderer'];
+const STANDOFF_ORDER: readonly RoleId[] = [
+  "arsonist",
+  "poisoner",
+  "electromaniac",
+  "serial-killer",
+  "mass-murderer",
+];
 
 function standoffRank(player: MafiaPlayer): number {
   const at = STANDOFF_ORDER.indexOf(player.role!);
@@ -2866,7 +3526,9 @@ function standoffRank(player: MafiaPlayer): number {
 /** The lone killer a frozen board belongs to. See `STANDOFF_ORDER`. */
 function takesTheStandoff(killers: readonly MafiaPlayer[]): MafiaPlayer {
   return [...killers].sort(
-    (left, right) => standoffRank(left) - standoffRank(right) || (left.role! < right.role! ? -1 : 1)
+    (left, right) =>
+      standoffRank(left) - standoffRank(right) ||
+      (left.role! < right.role! ? -1 : 1),
   )[0]!;
 }
 
@@ -2879,32 +3541,88 @@ function takesTheStandoff(killers: readonly MafiaPlayer[]): MafiaPlayer {
  * seat it names, and any other seat of the same role, since two of a kind were never rivals in the first place and
  * `kinds.size === 1` has always let them share.
  */
-function crownStandoff(state: MafiaState, now: number, soloKillers: readonly MafiaPlayer[]): void {
+function crownStandoff(
+  state: MafiaState,
+  now: number,
+  soloKillers: readonly MafiaPlayer[],
+): void {
   const taker = takesTheStandoff(soloKillers);
-  const win = SOLO_WIN[taker.role!] ?? SOLO_WIN['serial-killer']!;
+  const win = SOLO_WIN[taker.role!] ?? SOLO_WIN["serial-killer"]!;
   for (const player of soloKillers) {
     if (player.role !== taker.role) continue;
-    state.winners.push({ playerId: player.playerId, reason: win.reason, kind: 'solo-killer' });
-    addPoints(state, player.playerId, 'solo-win');
+    state.winners.push({
+      playerId: player.playerId,
+      reason: win.reason,
+      kind: "solo-killer",
+    });
+    addPoints(state, player.playerId, "solo-win");
   }
-  endGame(state, now, win.headline, 'solo-killer');
+  endGame(state, now, win.headline, "solo-killer");
+}
+
+/**
+ * Who `ruleTheClock` would hand the board to if it ruled right now, or nobody.
+ *
+ * Same precedence, read out rather than acted on, so the stall test below can ask what its own verdict would be
+ * before it delivers one.
+ */
+function clockWinners(state: MafiaState): MafiaPlayer[] {
+  const alive = alivePlayers(state);
+  const soloKillers = alive.filter(
+    (player) => player.role !== null && isSoloKiller(player.role),
+  );
+  if (soloKillers.length > 0) return soloKillers;
+
+  const families: FamilyId[] = ["mafia", "triad", "cult"];
+  const standing = families.filter((familyId) =>
+    alive.some((player) => playerFamily(player) === familyId),
+  );
+  if (standing.length !== 1) return [];
+  return alive.filter((player) => playerFamily(player) === standing[0]);
+}
+
+/**
+ * How long this board has to stay quiet before the clock calls it.
+ *
+ * Two lengths, because two days of silence means two different things. On a board the losing side can still move —
+ * enough weight between them to carry a rope, or a blade that still has a use — quiet is a town that has skipped
+ * twice, and `quietDaysBeforeEnd` on its own handed a nine-against-one afternoon to the one. On a board nobody can
+ * move it is the whole game, already over, and waiting is just more of it.
+ *
+ * `ruleTheClock`'s answer to a town that would not use its majority — that it had the votes and twenty days and did
+ * not use them — is an argument about twenty days. It is not an argument about two. This is where the two numbers
+ * part company, and `maxDays` is still the backstop behind both.
+ */
+function quietDaysNeeded(state: MafiaState): number {
+  const config = state.config;
+  const winners = clockWinners(state);
+  // A draw hands nobody anything, so there is nothing to be too quick about.
+  if (winners.length === 0) return config.quietDaysBeforeEnd;
+  const rest = alivePlayers(state).filter(
+    (player) => !winners.includes(player),
+  );
+  return canRemove(state, rest, winners)
+    ? config.quietDaysIfMoveable
+    : config.quietDaysBeforeEnd;
 }
 
 /**
  * Has the board stopped moving?
  *
- * Nobody has died for `quietDaysBeforeEnd` days running, and it is late enough that quiet means stuck rather than
- * lucky. Taken from how Town of Salem calls a timeout, and it is the better test: a game is over when nothing is
+ * Nobody has died for long enough that quiet means stuck rather than lucky, and it is late enough to tell the
+ * difference. How long "long enough" is depends on whether anybody can still move the board: see `quietDaysNeeded`.
+ *
+ * Taken from how Town of Salem calls a timeout, and it is the better test: a game is over when nothing is
  * happening, and how many days that took is beside the point.
  *
  * Measured before adopting it. Of the boards that used to grind all the way to day twenty, ten of eleven had an
  * Escort on them holding the last killer at home every single night — no corpse, so no evidence, so the suspicion the
- * town votes on never changes, so no rope, so no corpse. The loop is visible the day it starts.
+ * town votes on never changes, so no rope, so no corpse. The loop is visible the day it starts, and it is still
+ * called on the same morning it always was.
  */
 function hasStalled(state: MafiaState): boolean {
-  const config = state.config;
-  if (state.day < config.quietFrom) return false;
-  return state.day - lastDeathDay(state) >= config.quietDaysBeforeEnd;
+  if (state.day < state.config.quietFrom) return false;
+  return state.day - lastDeathDay(state) >= quietDaysNeeded(state);
 }
 
 /**
@@ -2919,7 +3637,10 @@ function hasStalled(state: MafiaState): boolean {
  * does happen is a state somebody built by hand, and a rule that ends those on sight is a rule that ends tests.
  */
 function lastDeathDay(state: MafiaState): number {
-  return state.deaths.reduce((latest, death) => Math.max(latest, death.day), state.deaths.length > 0 ? 0 : state.day);
+  return state.deaths.reduce(
+    (latest, death) => Math.max(latest, death.day),
+    state.deaths.length > 0 ? 0 : state.day,
+  );
 }
 
 /**
@@ -2939,8 +3660,12 @@ function warnIfStalling(state: MafiaState, now: number): void {
    * morning *after a body*, which is how a table got the corpse and "Nobody has died in days" in the same breath, and
    * then no warning at all on the day that was actually its last. Equal to the limit here is the morning the game
    * ends on if nothing changes, which is the only morning worth saying so.
+   *
+   * And the same length `hasStalled` is using, which is not always the same number: a board somebody can still move
+   * gets the longer leash, and warning on the shorter one is a threat the clock will not carry out.
    */
-  if (state.day - lastDeathDay(state) === config.quietDaysBeforeEnd) announce(state, M.lastQuietDay(), now);
+  if (state.day - lastDeathDay(state) === quietDaysNeeded(state))
+    announce(state, M.lastQuietDay(), now);
 }
 
 /**
@@ -2959,24 +3684,32 @@ function warnIfStalling(state: MafiaState, now: number): void {
  */
 function ruleTheClock(state: MafiaState, now: number): void {
   const alive = alivePlayers(state);
-  const soloKillers = alive.filter((player) => player.role !== null && isSoloKiller(player.role));
+  const soloKillers = alive.filter(
+    (player) => player.role !== null && isSoloKiller(player.role),
+  );
   if (soloKillers.length > 0) {
     crownStandoff(state, now, soloKillers);
     return;
   }
 
-  const families: FamilyId[] = ['mafia', 'triad', 'cult'];
-  const standing = families.filter((familyId) => alive.some((player) => playerFamily(player) === familyId));
+  const families: FamilyId[] = ["mafia", "triad", "cult"];
+  const standing = families.filter((familyId) =>
+    alive.some((player) => playerFamily(player) === familyId),
+  );
   if (standing.length === 1) {
     const familyId = standing[0]!;
     const win = FAMILY_WIN[familyId];
     for (const player of Object.values(state.players)) {
       if (player.role && familyOf(player.role) === familyId) {
-        state.winners.push({ playerId: player.playerId, reason: win.reason, kind: familyId });
-        addPoints(state, player.playerId, 'win');
+        state.winners.push({
+          playerId: player.playerId,
+          reason: win.reason,
+          kind: familyId,
+        });
+        addPoints(state, player.playerId, "win");
       }
     }
-    endGame(state, now, win.headline, 'family');
+    endGame(state, now, win.headline, "family");
     return;
   }
 
@@ -2984,8 +3717,8 @@ function ruleTheClock(state: MafiaState, now: number): void {
    * And with nothing hostile left standing, the clock ran out on a town that had already won and not noticed — or on
    * two families that never met. Neither is anybody's victory, so this is the one draw the clock can still produce.
    */
-  state.drawReason = 'clock';
-  endGame(state, now, M.winDraw(), 'draw');
+  state.drawReason = "clock";
+  endGame(state, now, M.winDraw(), "draw");
 }
 
 /**
@@ -3019,20 +3752,24 @@ function ruleTheClock(state: MafiaState, now: number): void {
  * And one that beats her for the opposite reason: a **Veteran** on alert kills everybody who comes to his door, and
  * controlling somebody means going to it. Her power is a visit, and that is the one door a visit does not survive.
  */
-function witchDuel(state: MafiaState, now: number, report: () => void): boolean {
+function witchDuel(
+  state: MafiaState,
+  now: number,
+  report: () => void,
+): boolean {
   const alive = alivePlayers(state);
   if (alive.length !== 2) return false;
-  const witch = alive.find((player) => player.role === 'witch');
+  const witch = alive.find((player) => player.role === "witch");
   const other = alive.find((player) => player !== witch);
   if (!witch || !other) return false;
 
   const role = other.role;
   const beatsHer =
     // Neither of these is spent by using it: the mayor's sash and the marshall's reveal last as long as he does.
-    role === 'mayor' ||
-    role === 'marshall' ||
+    role === "mayor" ||
+    role === "marshall" ||
     // These two are, and a spent one is just another seat she steers.
-    ((role === 'jailor' || role === 'veteran') && other.charges > 0) ||
+    ((role === "jailor" || role === "veteran") && other.charges > 0) ||
     // Not a duel: he already has what she wants, and the ordinary payout pays them both.
     PARASITE_ROLES.has(role);
   if (beatsHer) return false;
@@ -3043,19 +3780,28 @@ function witchDuel(state: MafiaState, now: number, report: () => void): boolean 
    * "witch:parasite witch:parasite" and is exactly the kind of thing a scoreboard quietly gets wrong for a month.
    */
   report();
-  endGame(state, now, M.winWitch(), 'witch');
+  endGame(state, now, M.winWitch(), "witch");
   return true;
 }
 
 /** True when the game just ended; the caller stops scheduling. */
-export function checkVictory(state: MafiaState, now: number, pending: Announcement[] = []): boolean {
-  if (state.phase === 'ended') return true;
+export function checkVictory(
+  state: MafiaState,
+  now: number,
+  pending: Announcement[] = [],
+): boolean {
+  if (state.phase === "ended") return true;
   const alive = alivePlayers(state);
-  const families: FamilyId[] = ['mafia', 'triad', 'cult'];
+  const families: FamilyId[] = ["mafia", "triad", "cult"];
   const byFamily = new Map<FamilyId, MafiaPlayer[]>(
-    families.map((familyId) => [familyId, alive.filter((player) => playerFamily(player) === familyId)])
+    families.map((familyId) => [
+      familyId,
+      alive.filter((player) => playerFamily(player) === familyId),
+    ]),
   );
-  const soloKillers = alive.filter((player) => player.role !== null && isSoloKiller(player.role));
+  const soloKillers = alive.filter(
+    (player) => player.role !== null && isSoloKiller(player.role),
+  );
 
   /**
    * The last night's report, said before the last word about the game.
@@ -3076,12 +3822,16 @@ export function checkVictory(state: MafiaState, now: number, pending: Announceme
     const win = FAMILY_WIN[familyId];
     for (const player of Object.values(state.players)) {
       if (player.role && familyOf(player.role) === familyId) {
-        state.winners.push({ playerId: player.playerId, reason: win.reason, kind: familyId });
-        addPoints(state, player.playerId, 'win');
+        state.winners.push({
+          playerId: player.playerId,
+          reason: win.reason,
+          kind: familyId,
+        });
+        addPoints(state, player.playerId, "win");
       }
     }
     report();
-    endGame(state, now, win.headline, 'family');
+    endGame(state, now, win.headline, "family");
   };
 
   /*
@@ -3091,7 +3841,9 @@ export function checkVictory(state: MafiaState, now: number, pending: Announceme
    */
   if (witchDuel(state, now, report)) return true;
 
-  const familiesAlive = families.filter((familyId) => (byFamily.get(familyId)?.length ?? 0) > 0);
+  const familiesAlive = families.filter(
+    (familyId) => (byFamily.get(familyId)?.length ?? 0) > 0,
+  );
 
   // The town wins when every family and every lone killer is in the ground.
   if (familiesAlive.length === 0 && soloKillers.length === 0) {
@@ -3107,21 +3859,27 @@ export function checkVictory(state: MafiaState, now: number, pending: Announceme
      * town's failure are paid by `endGame` as they should be. Reported from a
      * real table.
      */
-    const townStanding = alive.some((player) => player.role && roleDef(player.role).faction === 'town');
+    const townStanding = alive.some(
+      (player) => player.role && roleDef(player.role).faction === "town",
+    );
     if (!townStanding) {
-      state.drawReason = 'hollow';
+      state.drawReason = "hollow";
       report();
-      endGame(state, now, M.winHollow(), 'draw');
+      endGame(state, now, M.winHollow(), "draw");
       return true;
     }
     for (const player of Object.values(state.players)) {
-      if (player.role && roleDef(player.role).faction === 'town') {
-        state.winners.push({ playerId: player.playerId, reason: M.winReason('town'), kind: 'town' });
-        addPoints(state, player.playerId, 'win');
+      if (player.role && roleDef(player.role).faction === "town") {
+        state.winners.push({
+          playerId: player.playerId,
+          reason: M.winReason("town"),
+          kind: "town",
+        });
+        addPoints(state, player.playerId, "win");
       }
     }
     report();
-    endGame(state, now, M.winTown(), 'town');
+    endGame(state, now, M.winTown(), "town");
     return true;
   }
 
@@ -3152,8 +3910,14 @@ export function checkVictory(state: MafiaState, now: number, pending: Announceme
    * That case became ordinary the day the Serial Killer's blade went to one — a Serial Killer and a Godfather are now
    * immune to each other — so it is settled here rather than left to run.
    */
-  const civilians = alive.filter((player) => !soloKillers.includes(player) && playerFamily(player) === null);
-  if (familiesAlive.length === 1 && soloKillers.length > 0 && civilians.length === 0) {
+  const civilians = alive.filter(
+    (player) => !soloKillers.includes(player) && playerFamily(player) === null,
+  );
+  if (
+    familiesAlive.length === 1 &&
+    soloKillers.length > 0 &&
+    civilians.length === 0
+  ) {
     const familyId = familiesAlive[0]!;
     const familySeats = byFamily.get(familyId) ?? [];
     const soloWins = beyondSaving(state, soloKillers, familySeats);
@@ -3187,8 +3951,12 @@ export function checkVictory(state: MafiaState, now: number, pending: Announceme
      * separately: three seats where one side holds two is a majority and a real game, and the clause above
      * deliberately leaves that running.
      */
-    const threshold = Math.floor(alive.reduce((sum, player) => sum + voteWeight(player), 0) / 2) + 1;
-    const weigh = (side: readonly MafiaPlayer[]): number => side.reduce((sum, player) => sum + voteWeight(player), 0);
+    const threshold =
+      Math.floor(
+        alive.reduce((sum, player) => sum + voteWeight(player), 0) / 2,
+      ) + 1;
+    const weigh = (side: readonly MafiaPlayer[]): number =>
+      side.reduce((sum, player) => sum + voteWeight(player), 0);
     if (weigh(soloKillers) < threshold && weigh(familySeats) < threshold) {
       report();
       crownStandoff(state, now, soloKillers);
@@ -3224,7 +3992,8 @@ export function checkVictory(state: MafiaState, now: number, pending: Announceme
      */
     const bonded = rest.some(
       (player) =>
-        player.bondPartnerId !== null && soloKillers.some((killer) => killer.playerId === player.bondPartnerId)
+        player.bondPartnerId !== null &&
+        soloKillers.some((killer) => killer.playerId === player.bondPartnerId),
     );
     const stuck = !bonded && !canRemove(state, rest, soloKillers);
 
@@ -3241,7 +4010,9 @@ export function checkVictory(state: MafiaState, now: number, pending: Announceme
     const rivalsFrozen =
       kinds.size > 1 &&
       soloKillers.every((killer) =>
-        soloKillers.every((other) => other === killer || !canRemove(state, [killer], [other]))
+        soloKillers.every(
+          (other) => other === killer || !canRemove(state, [killer], [other]),
+        ),
       );
 
     if (

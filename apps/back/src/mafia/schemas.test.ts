@@ -7,7 +7,7 @@ import { describe, it } from 'node:test';
 import { DECIDE_FORMAT } from './bots.js';
 import { HEARD_FORMAT, ROOM_FORMAT } from './ear.js';
 import { JURY_FORMAT } from './jury.js';
-import { MOUTH_FORMAT, readLine } from './mouth.js';
+import { MOUTH_FORMAT, readLine, SAY_CHARS } from './mouth.js';
 
 /**
  * Every question the chain asks, and the shape it asks for.
@@ -116,6 +116,58 @@ describe('the shapes the chain asks for', () => {
      */
     assert.equal(said('— Moi ? J’etais chez moi.'), 'Moi? J’etais chez moi.');
     assert.equal(said('– Casper ment.'), 'Casper ment.');
+  });
+
+  /**
+   * The calendar the game does not have.
+   *
+   * Both of these are real lines out of a benched game, said at a table on day 3.
+   * They read as alibis and refer to nothing: there is no Saturday in Mafia and
+   * there had been three nights, not twelve. A room cannot check either one, so
+   * they are worse than saying nothing — they look like evidence.
+   */
+  it('refuses a weekday and a night that has not happened', () => {
+    const intent = { act: 'defend', mood: 'blunt', fallback: 'FALLBACK' };
+    const self = { name: 'Totoro', slot: 13 };
+    const seats = new Set<string>();
+    const said = (line: string, day = 3) => readLine({ line }, intent, self, seats, day);
+
+    assert.equal(said("J'étais chez 6 samedi, personne ne m'a rien demandé."), 'FALLBACK');
+    assert.equal(said('Nuit 12, maison 9, en plein bricolage.'), 'FALLBACK');
+    assert.equal(said('I was home on Tuesday, ask anyone.'), 'FALLBACK');
+    assert.equal(said('Rien fait du week-end.'), 'FALLBACK');
+  });
+
+  /** A night that *has* happened is the whole point of asking where somebody was. */
+  it('still lets a seat account for a night it actually lived', () => {
+    const intent = { act: 'defend', mood: 'blunt', fallback: 'FALLBACK' };
+    const self = { name: 'Totoro', slot: 13 };
+    const seats = new Set<string>();
+    const said = (line: string, day = 5) => readLine({ line }, intent, self, seats, day);
+
+    assert.equal(said('Nuit 2 je suis resté chez moi.'), 'Nuit 2 je suis resté chez moi.');
+    assert.equal(said('I watched 6 on night 5.'), 'I watched 6 on night 5.');
+    // No day given at all is the old behaviour: nothing to check against.
+    assert.equal(readLine({ line: 'Nuit 12, maison 9.' }, intent, self, seats), 'Nuit 12, maison 9.');
+  });
+
+  /**
+   * One budget, not three.
+   *
+   * The mouth accepted 180 characters and the square clamped at 140, so a line in
+   * between passed every check and was posted cut off mid-word with an ellipsis.
+   * A line over budget is refused here, where there is still a phrasebook line to
+   * fall back to; downstream there is only a knife.
+   */
+  it('refuses a line it would only have to cut', () => {
+    const intent = { act: 'accuse', mood: 'blunt', fallback: 'FALLBACK' };
+    const self = { name: 'Totoro', slot: 13 };
+    const long = `${'mot '.repeat(40)}fin`;
+    assert.ok(long.length > SAY_CHARS);
+    assert.equal(readLine({ line: long }, intent, self), 'FALLBACK');
+
+    const fits = 'a'.repeat(SAY_CHARS);
+    assert.equal(readLine({ line: fits }, intent, self), fits);
   });
 
   it('lets the mouth answer with nothing at all', () => {

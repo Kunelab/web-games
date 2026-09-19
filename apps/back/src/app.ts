@@ -21,6 +21,7 @@ import { registerRealtime } from './realtime/index.js';
 import lobbyRoutes from './routes/lobbies.js';
 import lockerRoutes from './routes/locker.js';
 import mafiaRoutes from './routes/mafia.js';
+import blindtestRoutes from './routes/blindtest.js';
 import mediaRoutes from './routes/media.js';
 import playRoutes from './routes/play.js';
 import playlistRoutes from './routes/playlists.js';
@@ -148,6 +149,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     async (api) => {
       await api.register(userRoutes);
       await api.register(mediaRoutes);
+      await api.register(blindtestRoutes);
       await api.register(playlistRoutes);
       await api.register(playRoutes);
       await api.register(zombieRoutes);

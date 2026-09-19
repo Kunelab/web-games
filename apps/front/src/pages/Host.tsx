@@ -35,6 +35,8 @@ export default function Host() {
 
   const [hostToken] = useState(() => sessionStorage.getItem(`kune.host.${code}`) ?? '');
   const [openError, setOpenError] = useState<string | null>(null);
+  /** Whether the host has already asked an endless game to wind up. */
+  const [stopping, setStopping] = useState(false);
 
   // Re-runs on every reconnect: a fresh socket after a drop knows nothing, so
   // the television re-presents its token each time the line comes back.
@@ -118,9 +120,40 @@ export default function Host() {
         <span className="host-code">{code}</span>
         <span className="host-progress tabular">
           {round
-            ? `${round.index + 1} / ${round.total}`
+            ? /**
+               * An endless game has no denominator.
+               *
+               * `total` is the length of the order, which in this mode grows by one
+               * every time the buffer tops up. Printed as a fraction it counts
+               * "3 / 7" then "4 / 8": a progress bar that never progresses, because
+               * the thing it measures against is being extended as you play.
+               */
+              session.infinite
+              ? `${round.index + 1} · ∞`
+              : `${round.index + 1} / ${round.total}`
             : t(msg('play.playerCount', { count: session.players.length }))}
         </span>
+        {/**
+         * The only graceful way out of an endless game.
+         *
+         * "Terminer" destroys the session, which banks the scores but skips
+         * straight past the podium. This stops the refill instead, so the round on
+         * screen finishes, the order runs out, and the ceremony happens the way it
+         * does in every other game. Hidden once pressed, because it is not
+         * reversible and a second press would say nothing new.
+         */}
+        {session.infinite && session.phase === 'playing' && !stopping && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setStopping(true);
+              void api.blindtestStop(code).catch(() => setStopping(false));
+            }}
+          >
+            {t(msg('host.stopAfterRound'))}
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"
@@ -247,7 +280,23 @@ export default function Host() {
                 television being somebody's phone, playing the clip here as well
                 would put the same song in the room twice, a second apart. */}
             {blindtestCode && isStage && (
-              <BlindtestAudio code={blindtestCode} payload={round.payload} phase={round.phase} />
+              <BlindtestAudio
+                code={blindtestCode}
+                payload={round.payload}
+                phase={round.phase}
+                /**
+                 * A clip that cannot play is not a round, so move on.
+                 *
+                 * Only the host does this, and only while guessing: the host owns
+                 * the clock, and letting every player screen advance on its own
+                 * error would race several skips against each other. On the
+                 * reveal the answer is already up, so there is nothing to rescue
+                 * and cutting it short would only look like a glitch.
+                 */
+                onUnplayable={() => {
+                  if (round.phase !== 'reveal') socket?.emit('host:advance', { hostToken });
+                }}
+              />
             )}
 
             {round.phase === 'reveal' ? (

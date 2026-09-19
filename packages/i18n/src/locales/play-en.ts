@@ -67,6 +67,7 @@ export const playEn: Catalogue = {
   "host.myPlaylists": "My playlists",
   "host.openFailed": "Could not open this game.",
   "host.connectingToGame": "Connecting to the game…",
+  "host.stopAfterRound": "Finish after this round",
   "host.end": "End",
   "host.oral": "Out loud",
   "host.oralPrompt": "Nobody needs a phone.",

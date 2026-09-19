@@ -244,6 +244,15 @@ export interface SessionView {
   code: string;
   phase: SessionPhase;
   /**
+   * True when the game generates its own rounds and has no fixed length.
+   *
+   * The screens need it because `total` is meaningless here: the order grows by
+   * one every time the buffer tops up, so "manche 3 / 7" becomes "4 / 8" and
+   * reads as a game that is getting longer as you play it, which is true and is
+   * not what a progress counter is for.
+   */
+  infinite?: boolean;
+  /**
    * True when the game is being played out loud with no phones.
    *
    * The one piece of the session config the screens genuinely need: a television

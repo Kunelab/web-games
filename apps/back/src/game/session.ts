@@ -230,7 +230,54 @@ export interface SessionState {
    * restores without it, and so a game that has not ended yet simply has none.
    */
   rewards?: GameReward[];
+  /**
+   * The media this session runs on, when it has none in the library.
+   *
+   * A generated blind test builds its rounds in memory and saves nothing, which
+   * is the whole point of the mode: nobody wants an evening of automatic rounds
+   * silting up their library. But `restore` rebuilds a session's media by looking
+   * its `order` up in the `Media` table, so after a restart a generated session
+   * came back with every round missing and skipped itself to the end in silence.
+   *
+   * So the items travel inside the state. Trimmed to a trailing window on the way
+   * to disk by `GameManager.persist`: an infinite session runs for hours and
+   * rewrites this row on every phase change, and an unbounded array here is a
+   * blob that grows all evening on a machine whose SSD is already a known
+   * weak point.
+   */
+  ephemeralItems?: MediaView[];
+  /**
+   * Settings and memory for a session that generates its own rounds.
+   *
+   * Present only for the infinite mode. `playedTracks` is keyed on the recording
+   * rather than the video, because the same song exists under several uploads and
+   * deduplicating on the id lets it come round twice in an evening.
+   */
+  infinite?: InfiniteState;
   lastActivityAt: number;
+}
+
+/** What a self-refilling session needs to keep generating rounds. */
+export interface InfiniteState {
+  genreIds: string[];
+  difficultyMin: number;
+  difficultyMax: number;
+  /** The host's country: the host screen is the stage, so its licence is the one that counts. */
+  region: string;
+  /** Recording keys already played. Serialised as an array; a Set does not survive JSON. */
+  playedTracks: string[];
+  /** Artists in play order, most recent last. Only the tail is read. */
+  recentArtists: string[];
+  /** Hard stop, or null for genuinely endless. */
+  maxRounds: number | null;
+  /**
+   * Set by the host's "stop after this round".
+   *
+   * Stops the refill rather than ending the game, so the round on screen finishes
+   * and the ceremony follows it. Ending immediately would cut off a round people
+   * are still answering.
+   */
+  stopping?: boolean;
 }
 
 export interface CreateSessionOptions {
@@ -1274,6 +1321,8 @@ export function toSessionView(
   return {
     code: state.code,
     phase: state.phase,
+    // Only when true, so every other game keeps the view it always had.
+    ...(state.infinite ? { infinite: true } : {}),
     oral: state.config.oral,
     tvOnly: television.tvOnly,
     tvPlayerId: television.tvPlayerId,

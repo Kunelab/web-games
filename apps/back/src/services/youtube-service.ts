@@ -96,27 +96,59 @@ const videoItemSchema = z.object({
       privacyStatus: z.string().optional(),
       embeddable: z.boolean().optional()
     })
-    .optional()
+    .optional(),
+  statistics: z.object({ viewCount: z.string().optional() }).optional()
 });
 
 type VideoItem = z.infer<typeof videoItemSchema>;
 
 const videoResponseSchema = z.object({ items: z.array(videoItemSchema) });
 
-/** Every part needed to answer both "what is it" and "will it play". */
-const VIDEO_PARTS = 'snippet,contentDetails,status';
+/**
+ * Every part needed to answer "what is it", "will it play" and "how famous is it".
+ *
+ * All four in one request because the quota is charged per request, not per part:
+ * asking for statistics separately would double the cost of filling a pool for
+ * information that rides along free.
+ */
+const VIDEO_PARTS = 'snippet,contentDetails,status,statistics';
 
 /** `videos.list` takes up to fifty ids per request, for one quota unit. */
 const VIDEO_BATCH = 50;
 
 /** Why a video cannot be played, as catalogue keys the caller can translate. */
 export type PlaybackBlocker =
-  | 'missing'
-  | 'notPublic'
-  | 'notProcessed'
-  | 'notEmbeddable'
-  | 'regionBlocked'
-  | 'ageRestricted';
+  'missing' | 'notPublic' | 'notProcessed' | 'notEmbeddable' | 'regionBlocked' | 'ageRestricted';
+
+/**
+ * The territory and embedding rules, kept raw.
+ *
+ * Raw is the point, and it is the central decision of the blind test catalogue. A
+ * pool of clips is shared between rooms; whether a clip is playable depends on the
+ * room's country; so a pooled entry cannot store a yes/no without becoming one
+ * pool per country. It stores the rules, and each room applies them.
+ */
+export interface RegionRules {
+  allowed?: string[];
+  blocked?: string[];
+  embeddable: boolean;
+  ageRestricted: boolean;
+  privacyStatus: string;
+  uploadStatus: string;
+}
+
+/** Everything one `videos.list` call can tell us about a video. */
+export interface VideoFacts {
+  videoId: string;
+  title: string;
+  channel: string;
+  description: string;
+  /** Publication year, which for a Topic upload is not the release year. */
+  year: number | null;
+  views: number;
+  durationSeconds: number | null;
+  restriction: RegionRules;
+}
 
 export interface VideoPlayability {
   videoId: string;
@@ -142,50 +174,69 @@ export interface VideoPlayability {
  * "everywhere" while its presence means "nowhere else". Treating a missing
  * `allowed` as an empty one would reject the entire catalogue.
  */
-export function playbackBlockers(item: VideoItem, region: string): PlaybackBlocker[] {
+export function playbackBlockers(rules: RegionRules, region: string): PlaybackBlocker[] {
   const blockers: PlaybackBlocker[] = [];
-  const status = item.status;
-  const restriction = item.contentDetails?.regionRestriction;
 
-  if (status?.uploadStatus && status.uploadStatus !== 'processed') blockers.push('notProcessed');
-  if (status?.privacyStatus && status.privacyStatus !== 'public') blockers.push('notPublic');
-  if (status?.embeddable === false) blockers.push('notEmbeddable');
+  if (rules.uploadStatus && rules.uploadStatus !== 'processed') blockers.push('notProcessed');
+  if (rules.privacyStatus && rules.privacyStatus !== 'public') blockers.push('notPublic');
+  if (!rules.embeddable) blockers.push('notEmbeddable');
 
-  if (restriction?.blocked?.includes(region)) blockers.push('regionBlocked');
-  else if (restriction?.allowed && !restriction.allowed.includes(region)) blockers.push('regionBlocked');
+  if (rules.blocked?.includes(region)) blockers.push('regionBlocked');
+  else if (rules.allowed && !rules.allowed.includes(region)) blockers.push('regionBlocked');
 
   /**
    * An age-restricted video refuses to play inside an embed for a signed-out
    * viewer, and every player in a party game is signed out.
    */
-  if (item.contentDetails?.contentRating?.ytRating === 'ytAgeRestricted') blockers.push('ageRestricted');
+  if (rules.ageRestricted) blockers.push('ageRestricted');
 
   return blockers;
 }
 
+/** True when this clip will play, in an embed, in this country. */
+export function playableIn(rules: RegionRules, region: string): boolean {
+  return playbackBlockers(rules, region).length === 0;
+}
+
+function toFacts(item: VideoItem): VideoFacts {
+  const restriction = item.contentDetails?.regionRestriction;
+  return {
+    videoId: item.id,
+    title: item.snippet.title,
+    channel: item.snippet.channelTitle ?? '',
+    description: item.snippet.description ?? '',
+    year: item.snippet.publishedAt ? Number(item.snippet.publishedAt.slice(0, 4)) : null,
+    views: Number(item.statistics?.viewCount ?? 0),
+    durationSeconds: parseIsoDuration(item.contentDetails?.duration),
+    restriction: {
+      ...(restriction?.allowed ? { allowed: restriction.allowed } : {}),
+      ...(restriction?.blocked ? { blocked: restriction.blocked } : {}),
+      // Absent means embeddable: the API omits the field rather than sending true.
+      embeddable: item.status?.embeddable !== false,
+      ageRestricted: item.contentDetails?.contentRating?.ytRating === 'ytAgeRestricted',
+      privacyStatus: item.status?.privacyStatus ?? 'public',
+      uploadStatus: item.status?.uploadStatus ?? 'processed'
+    }
+  };
+}
+
 /**
- * Whether these clips will actually play, here, in an iframe.
+ * Everything about a batch of videos, in as few requests as possible.
  *
- * The question the rest of the codebase used to ask was whether a video *exists*,
- * which `oembed` and a successful metadata fetch both answer, and which is not the
- * same question at all: a public, embeddable, perfectly healthy video whose
- * licence names twelve countries plays in none of the other one hundred and
- * eighty. There is no error until the player is already on screen, and the only
- * thing the room sees is silence.
+ * The primitive the rest of this module is built on. Fifty ids per request and one
+ * quota unit per request, so establishing the facts about an entire pool costs
+ * about as much as harvesting it did.
  *
- * Fifty ids per request and one quota unit per request, so checking a whole pool
- * costs about as much as fetching it did. Cheap enough that there is no reason
- * for an unchecked clip to reach a playlist.
+ * Ids the API does not return are simply absent from the result: they are deleted,
+ * private, or never existed, and there are no facts to report about them. Callers
+ * iterate the returned map rather than their own id list.
  */
-export async function fetchPlayability(
-  videoIds: string[],
-  region: string = env.YOUTUBE_REGION
-): Promise<Map<string, VideoPlayability>> {
+export async function fetchVideoFacts(videoIds: string[]): Promise<Map<string, VideoFacts>> {
   if (!env.GOOGLE_API_KEY) {
     throw new YoutubeError('GOOGLE_API_KEY is not configured', 503);
   }
 
-  const results = new Map<string, VideoPlayability>();
+  const results = new Map<string, VideoFacts>();
   const unique = [...new Set(videoIds.filter((id) => /^[A-Za-z0-9_-]{11}$/.test(id)))];
 
   for (let offset = 0; offset < unique.length; offset += VIDEO_BATCH) {
@@ -208,27 +259,50 @@ export async function fetchPlayability(
     }
 
     for (const item of parsed.data.items) {
-      const blockers = playbackBlockers(item, region);
-      results.set(item.id, {
-        videoId: item.id,
-        playable: blockers.length === 0,
-        blockers,
-        durationSeconds: parseIsoDuration(item.contentDetails?.duration),
-        ...(item.contentDetails?.regionRestriction?.allowed
-          ? { allowedRegions: item.contentDetails.regionRestriction.allowed }
-          : {})
-      });
+      results.set(item.id, toFacts(item));
     }
+  }
 
-    /**
-     * An id the API simply does not return is deleted or private. Recorded
-     * explicitly, because a caller iterating its own id list would otherwise
-     * find a gap and have to guess what it meant.
-     */
-    for (const id of batch) {
-      if (!results.has(id)) {
-        results.set(id, { videoId: id, playable: false, blockers: ['missing'], durationSeconds: null });
-      }
+  return results;
+}
+
+/**
+ * Whether these clips will actually play, here, in an iframe.
+ *
+ * The question the rest of the codebase used to ask was whether a video *exists*,
+ * which `oembed` and a successful metadata fetch both answer, and which is not the
+ * same question at all: a public, embeddable, perfectly healthy video whose
+ * licence names twelve countries plays in none of the other one hundred and
+ * eighty. There is no error until the player is already on screen, and the only
+ * thing the room sees is silence.
+ */
+export async function fetchPlayability(
+  videoIds: string[],
+  region: string = env.YOUTUBE_REGION
+): Promise<Map<string, VideoPlayability>> {
+  const facts = await fetchVideoFacts(videoIds);
+  const results = new Map<string, VideoPlayability>();
+
+  for (const [id, fact] of facts) {
+    const blockers = playbackBlockers(fact.restriction, region);
+    results.set(id, {
+      videoId: id,
+      playable: blockers.length === 0,
+      blockers,
+      durationSeconds: fact.durationSeconds,
+      ...(fact.restriction.allowed ? { allowedRegions: fact.restriction.allowed } : {})
+    });
+  }
+
+  /**
+   * An id the API simply does not return is deleted or private. Recorded
+   * explicitly here, because unlike `fetchVideoFacts` this function answers a
+   * question *about the caller's list*, and a silent gap would make "not playable"
+   * indistinguishable from "not asked about".
+   */
+  for (const id of new Set(videoIds.filter((value) => /^[A-Za-z0-9_-]{11}$/.test(value)))) {
+    if (!results.has(id)) {
+      results.set(id, { videoId: id, playable: false, blockers: ['missing'], durationSeconds: null });
     }
   }
 
@@ -298,8 +372,9 @@ export async function fetchVideoMetadata(videoId: string): Promise<YoutubeVideoM
   const credited = creditFromDescription(item.snippet.description ?? '');
   const { artist, title } = credited ?? splitArtistTitle(item.snippet.title);
 
-  const blockers = playbackBlockers(item, env.YOUTUBE_REGION);
-  const allowed = item.contentDetails?.regionRestriction?.allowed;
+  const { restriction } = toFacts(item);
+  const blockers = playbackBlockers(restriction, env.YOUTUBE_REGION);
+  const allowed = restriction.allowed;
 
   return {
     videoId,
@@ -361,4 +436,64 @@ export async function fetchPlaylistItems(playlistId: string): Promise<YoutubePla
   } while (pageToken && page < MAX_PAGES);
 
   return collected;
+}
+
+/* ------------------------------------------------------------------ search */
+
+const searchResponseSchema = z.object({
+  items: z.array(z.object({ id: z.object({ videoId: z.string().optional() }).optional() }))
+});
+
+/**
+ * The expensive call, and the only one that actually searches YouTube.
+ *
+ * A hundred quota units against a daily ten thousand, which is a hundred a day
+ * for the whole deployment and is why nothing in this codebase searches per
+ * round. It buys up to fifty video ids, so a pool filled from a few searches and
+ * cached for a day costs a few hundred units and serves an evening.
+ *
+ * Worth the price over a hand-curated playlist for one reason: playlists rot. A
+ * list of ids written down once goes private, gets deleted, or quietly stops
+ * being maintained, and the failure is silent — the genre simply starts coming
+ * back empty. A query is evaluated against the live catalogue every time.
+ *
+ * The three filters below are the useful part and they are applied by YouTube
+ * rather than by us, so they cost nothing and shrink what has to be checked
+ * afterwards. They are not sufficient: `videos.list` still has the final word,
+ * because `videoEmbeddable` does not account for territory licensing, which is
+ * the restriction that actually bites.
+ */
+export async function searchVideos(
+  query: string,
+  options: { region?: string; musicOnly?: boolean; limit?: number } = {}
+): Promise<string[]> {
+  if (!env.GOOGLE_API_KEY) {
+    throw new YoutubeError('GOOGLE_API_KEY is not configured', 503);
+  }
+
+  const url = new URL('https://www.googleapis.com/youtube/v3/search');
+  url.searchParams.set('part', 'snippet');
+  url.searchParams.set('type', 'video');
+  url.searchParams.set('q', query);
+  url.searchParams.set('maxResults', String(Math.min(options.limit ?? 50, 50)));
+  url.searchParams.set('regionCode', options.region ?? env.YOUTUBE_REGION);
+  url.searchParams.set('videoEmbeddable', 'true');
+  // Playable outside youtube.com, which is what an iframe on another origin is.
+  url.searchParams.set('videoSyndicated', 'true');
+  // Category 10 is Music. Keeps a query like "rock" from returning documentaries.
+  if (options.musicOnly) url.searchParams.set('videoCategoryId', '10');
+  url.searchParams.set('key', env.GOOGLE_API_KEY);
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new YoutubeError(`YouTube API responded ${response.status}: ${body.slice(0, 300)}`, 502);
+  }
+
+  const parsed = searchResponseSchema.safeParse(await response.json());
+  if (!parsed.success) {
+    throw new YoutubeError('Unexpected response shape from the YouTube search API', 502);
+  }
+
+  return parsed.data.items.map((item) => item.id?.videoId).filter((id): id is string => Boolean(id));
 }

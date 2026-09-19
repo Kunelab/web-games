@@ -222,7 +222,7 @@ export function measureBudget(): BudgetRow[] {
       humans: 2,
       prompt: tokens(mouth),
       /**
-       * Moved from 450, once, deliberately.
+       * Moved from 450, then from 650. Twice, and deliberately both times.
        *
        * The mouth was two hundred tokens when it could only be told a move and a
        * mood. It has since been given the vote to stay consistent with, the
@@ -232,10 +232,19 @@ export function measureBudget(): BudgetRow[] {
        * really guarding. The redundant half of the rulebook came out (two pairs
        * of rules saying the same thing) and what is left is 593.
        *
-       * So this is the honest ceiling for the mouth's current job, and it is
-       * still comfortably under the cheapest deciding turn.
+       * The second move is the no-calendar rule, which took it to 703. Same
+       * test as before, and it passes it: a table with numbered days and no
+       * weekdays is a fact about the game every seat already knows, not a fact
+       * about *this* game that the mouth is not allowed to be told. Nothing it
+       * adds could convict a seat.
+       *
+       * So the number moves and keeps meaning what it meant. It is worth saying
+       * what would not be allowed to move it: a board, a roster, a role, or any
+       * line that tells the mouth something the seat it speaks for has not been
+       * told. If one of those ever makes this fail, the prompt is the thing to
+       * change.
        */
-      ceiling: 650,
+      ceiling: 760,
       sections: [{ head: 'rules + intent + four lines', tokens: tokens(mouth), lines: mouth.split('\n').length }]
     }
   ];

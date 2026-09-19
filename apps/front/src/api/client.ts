@@ -410,8 +410,53 @@ export const api = {
     }),
   mafiaEnd: (code: string) => request<void>(`/mafia/sessions/${code}`, { method: 'DELETE' }),
   mafiaMine: () => request<{ code: string; hostToken: string; phase: string; players: number }[]>('/mafia/mine'),
+  /* Blind test infini */
+  blindtestCatalog: () => request<BlindtestCatalog>('/blindtest/catalog', { allowAnonymous: true }),
+  blindtestCount: (settings: BlindtestSettings) =>
+    request<{
+      region: string;
+      total: number;
+      /** Genres whose pool is still being fetched; poll again while above zero. */
+      pending: number;
+      /** null while that genre's pool has not arrived yet. */
+      perGenre: { genreId: string; available: number | null }[];
+    }>('/blindtest/count', {
+      method: 'POST',
+      body: settings
+    }),
+  blindtestCreate: (settings: BlindtestSettings & { maxRounds: number | null; config?: Partial<SessionConfig> }) =>
+    request<{ code: string; hostToken: string; total: number; infinite: boolean }>('/blindtest/sessions', {
+      method: 'POST',
+      body: settings
+    }),
+  blindtestStop: (code: string) =>
+    request<{ stoppingAfter: number }>(`/blindtest/sessions/${code}/stop`, { method: 'POST' }),
   mafiaMe: () => request<MafiaCareer>('/mafia/me')
 };
+
+/** One selectable genre. `facet` marks an era filter over another genre's pool. */
+export interface BlindtestGenre {
+  id: string;
+  label: string;
+  section: string;
+  answerShape: 'artist-title' | 'work';
+  facet: boolean;
+}
+
+export interface BlindtestCatalog {
+  /** False when the server has no YouTube key, which no retry will fix. */
+  available: boolean;
+  region: string;
+  sections: { id: string; label: string }[];
+  genres: BlindtestGenre[];
+}
+
+export interface BlindtestSettings {
+  genreIds: string[];
+  difficultyMin: number;
+  difficultyMax: number;
+  region: string;
+}
 
 /** One nickname's Mafia wallet: the points the store will spend. */
 export interface MafiaCareer {

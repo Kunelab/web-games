@@ -28,7 +28,8 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "mafia:budget": "tsx src/mafia/budget.ts",
-    "trace": "tsx src/cli/trace.ts"
+    "trace": "tsx src/cli/trace.ts",
+    "bench-games": "tsx src/cli/bench-games.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
