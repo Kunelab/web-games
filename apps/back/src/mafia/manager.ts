@@ -139,6 +139,7 @@ export class MafiaManager {
       action: (code, botId, slot, second) => this.nightAction(code, botId, slot, second),
       dayAction: (code, botId, action) => this.dayAction(code, botId, action),
       will: (code, botId, text) => this.will(code, botId, text),
+      whisper: (code, botId, slot, text) => this.whisper(code, botId, slot, text),
       get: (code) => this.sessions.get(code),
       busy: (code, busy) => this.busyListener?.(code, busy)
     });

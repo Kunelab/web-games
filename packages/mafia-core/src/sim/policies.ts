@@ -535,6 +535,8 @@ export interface Brain {
   wentTo: number | null;
   /** The way this seat plays the whole game, for the two roles that get to choose one. See `styleOf`. */
   style: Style | null;
+  /** Seats this one has already leaned into. The gesture is public; repeating it is a parade. */
+  whispered: number[];
   /**
    * A Jailor only: who was in the cell on which night, and what the morning said.
    *
@@ -620,7 +622,8 @@ export function makeBrain(slot: number, personality: Personality): Brain {
     desperation: CALM,
     wentTo: null,
     style: null,
-    cell: []
+    cell: [],
+    whispered: []
   };
 }
 
@@ -2342,6 +2345,87 @@ export interface DayDecision {
   revealMayor: boolean;
   /** Judge only: convene the exceptional court on the current top-voted. */
   callCourt: boolean;
+  /**
+   * A word said to one seat instead of to the room. See `worthWhispering`.
+   *
+   * The square sees that two people leaned together and never what was said,
+   * which is the whole trade: the content is private and the gesture is not.
+   */
+  whisper: { toSlot: number; role: RoleId } | null;
+}
+
+/**
+ * Who is worth telling something privately, and what.
+ *
+ * A table talks in one room, so everything a seat knows it either shouts or
+ * keeps. That is not how people play: the first thing a Sheriff with a result
+ * wants is to hand it to somebody who can act on it *without* standing up and
+ * painting a target on itself, and the first thing a revealed Mayor does is ask
+ * the room to tell him privately what they are.
+ *
+ * The sash is the standing invitation, so no request has to be parsed: a living
+ * revealed Mayor or Marshall is a seat the whole table knows is town and that
+ * cannot be anybody else. Telling him is the cheapest way to be believed later,
+ * and for an evil it is the cheapest way to buy the same thing with a lie.
+ *
+ * Sometimes, not always. A table where every bot whispers the sash on day two
+ * is a table doing paperwork, and the gesture is public — twelve seats leaning
+ * into the Mayor in one afternoon tells the family exactly who to kill and in
+ * what order. So it is gated on having something to say, on not having said it
+ * already, and on the seat being the sort that would.
+ */
+export function worthWhispering(
+  self: MafiaPlayer,
+  brain: Brain,
+  info: PublicInfo,
+  rng: () => number
+): { toSlot: number; role: RoleId } | null {
+  if (self.role === null) return null;
+
+  // The sash: proven town, publicly, and not by its own word.
+  const ear = [...info.provenRoles.entries()].find(
+    ([slot, role]) => (role === 'mayor' || role === 'marshall') && info.aliveSlots.includes(slot) && slot !== self.slot
+  );
+  if (!ear) return null;
+  const toSlot = ear[0];
+
+  // Once each. The gesture is public, and repeating it is a parade.
+  if (brain.whispered.includes(toSlot)) return null;
+
+  /**
+   * What this seat would say it is.
+   *
+   * Town says what it is, because that is the entire point of being asked by
+   * somebody who cannot be a wolf. An evil says whatever it has already told
+   * the room, or picks a badge to wear if it has not: a private lie told to the
+   * one seat everybody believes is worth more than the same lie shouted.
+   */
+  const mine = info.claims.filter((claim) => claim.kind === 'role-claim' && claim.claimerSlot === self.slot).pop();
+  const evil = isEvilRole(self.role);
+  const said = mine?.claimedRole ?? null;
+  /**
+   * An evil whispers the badge it is already wearing, and invents nothing here.
+   *
+   * A lie told privately to the one seat the room believes has to match the lie
+   * told publicly, or the Mayor is holding the contradiction that hangs its
+   * author. A villain with no claim yet has nothing to reinforce, so it keeps
+   * its mouth shut and picks a face in the square like everybody else.
+   */
+  const role: RoleId | null = evil ? said : self.role;
+  if (role === null) return null;
+
+  /**
+   * And only sometimes.
+   *
+   * A cautious seat is likelier to take the private route and a loud one to just
+   * say it; an evil is likelier still, because the lie costs it nothing and buys
+   * a witness. Day two at the earliest: on day one nobody has anything to tell.
+   */
+  if (info.day < 2) return null;
+  const odds = evil ? 0.5 : 0.35 + (1 - brain.personality.aggression) * 0.25;
+  if (rng() >= odds) return null;
+
+  return { toSlot, role };
 }
 
 export function decideDay(
@@ -2353,7 +2437,26 @@ export function decideDay(
   rng: () => number
 ): DayDecision {
   const role = self.role!;
-  const decision: DayDecision = { voteSlot: null, publishes: [], jailSlot: null, revealMayor: false, callCourt: false };
+  const decision: DayDecision = {
+    voteSlot: null,
+    publishes: [],
+    jailSlot: null,
+    revealMayor: false,
+    callCourt: false,
+    whisper: null
+  };
+
+  /**
+   * A word for one seat rather than the room. See `worthWhispering`.
+   *
+   * Decided before anything else this turn and remembered on the brain, so the
+   * gesture happens once per listener however many turns a seat is given.
+   */
+  const aside = worthWhispering(self, brain, info, rng);
+  if (aside) {
+    decision.whisper = aside;
+    brain.whispered.push(aside.toSlot);
+  }
   const others = info.aliveSlots.filter((slot) => slot !== self.slot);
   if (others.length === 0) return decision;
 

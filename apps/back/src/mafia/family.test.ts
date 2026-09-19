@@ -115,6 +115,7 @@ async function saidIn(room: string, hushed: boolean): Promise<string | null> {
     action: () => ({ ok: true as const }),
     dayAction: () => ({ ok: true as const }),
     will: () => ({ ok: true as const }),
+    whisper: () => ({ ok: true as const }),
     busy: () => undefined,
     get: () => state
   });

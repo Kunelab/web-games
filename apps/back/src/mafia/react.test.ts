@@ -84,6 +84,7 @@ function table(): Table {
     action: () => ({ ok: true }),
     dayAction: () => ({ ok: true }),
     will: () => ({ ok: true }),
+    whisper: () => ({ ok: true }),
     busy: () => undefined,
     get: () => state
   });
