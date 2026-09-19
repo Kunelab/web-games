@@ -2,6 +2,7 @@ import { availableMediaKinds, blindtest, validateMedia, type MediaInput } from '
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 
+import { env } from '../env.js';
 import { mediaQuerySchema, mediaService } from '../services/media-service.js';
 import {
   buildPanel,
@@ -16,7 +17,7 @@ import {
   panelThemeIds,
   type NationalityId
 } from '../services/panel-service.js';
-import { fetchPlaylistItems, fetchVideoMetadata, YoutubeError } from '../services/youtube-service.js';
+import { fetchPlayability, fetchPlaylistItems, fetchVideoMetadata, YoutubeError } from '../services/youtube-service.js';
 import { idParamSchema } from './schemas.js';
 
 /** Themes arrive as a comma-separated list, so that mixing is just several ids. */
@@ -252,6 +253,46 @@ const mediaRoutes: FastifyPluginAsyncZod = async (app) => {
       throw error;
     }
   });
+
+  /**
+   * Which of these clips will actually play here.
+   *
+   * A POST because the id list is long enough to outgrow a query string, not
+   * because anything is written: nothing is. Fifty ids per quota unit, so
+   * auditing an entire library costs a rounding error, and it is the only way to
+   * find the rounds that are already broken — a clip licensed to twelve
+   * countries looks perfect in the editor and plays nowhere.
+   */
+  app.post(
+    '/media/youtube/playable',
+    { schema: { body: z.object({ ids: z.array(z.string().min(1).max(300)).min(1).max(200) }) } },
+    async (request, reply) => {
+      const videoIds: string[] = [];
+      for (const reference of request.body.ids) {
+        const videoId = extractVideoId(reference);
+        if (videoId) videoIds.push(videoId);
+      }
+
+      if (videoIds.length === 0) {
+        return reply.code(400).send({ message: 'Aucun identifiant YouTube exploitable' });
+      }
+
+      try {
+        const found = await fetchPlayability(videoIds);
+        const results = [...found.values()];
+        return {
+          region: env.YOUTUBE_REGION,
+          playable: results.filter((entry) => entry.playable).length,
+          results
+        };
+      } catch (error) {
+        if (error instanceof YoutubeError) {
+          throw app.httpErrors.createError(error.statusCode, error.message);
+        }
+        throw error;
+      }
+    }
+  );
 
   /**
    * Bulk import a YouTube playlist as draft blind tests.

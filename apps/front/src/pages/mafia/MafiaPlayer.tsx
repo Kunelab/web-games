@@ -380,14 +380,34 @@ export default function MafiaPlayer() {
      * started for a fifteen second lock kept re-rendering the page four times a
      * second for the remaining hundred of a two minute afternoon. It clears
      * itself on the tick that passes the deadline instead.
+     *
+     * One reading per tick, used for both the state and the test, so the last
+     * tick cannot set a `now` a hair under the deadline it has just decided was
+     * passed.
      */
     const timer = setInterval(() => {
-      setNow(serverNow());
-      if (serverNow() >= opensAt) clearInterval(timer);
+      const at = serverNow();
+      setNow(at);
+      if (at >= opensAt) clearInterval(timer);
     }, 250);
     return () => clearInterval(timer);
   }, [opensAt, serverNow]);
-  const ballotOpensIn = opensAt === null ? 0 : Math.max(0, Math.ceil((opensAt - now) / 1000));
+  /**
+   * Counted from the later of the ticker and the clock, not from the ticker.
+   *
+   * `now` only advances while a ticker is running, and the effect above starts
+   * none for a deadline that has already passed. So a `voteOpensAt` that lands
+   * late — a backgrounded tab thawing across a verdict, and the ballot reopens
+   * eleven seconds after one — left `now` at whatever the *previous* lock had
+   * set it to, this above zero, and every accuse and skip button disabled for
+   * the rest of the afternoon behind a countdown that never counted.
+   *
+   * Reading the clock here as well costs nothing and cannot go stale: the
+   * ticker is what makes the number *move*, and it is no longer what makes it
+   * true.
+   */
+  const ballotOpensIn =
+    opensAt === null ? 0 : Math.max(0, Math.ceil((opensAt - Math.max(now, serverNow())) / 1000));
 
   const fail = (ack: { ok: boolean; error?: Msg }) => {
     if (!ack.ok) setActionError(ack.error ? t(ack.error) : tk('mafia.refuse.impossible'));
@@ -599,11 +619,22 @@ export default function MafiaPlayer() {
      * claiming.
      */
     const roleCamp = new Map<string, string>();
+    /**
+     * The display spelling, kept beside the lookup table rather than read back
+     * out of it: `roleCamp` is keyed lowercase so the branch below can find a
+     * faction whatever the capitals, and feeding those keys to the exact-case
+     * pattern matched "sheriff" and never "Shérif", which is every announcement
+     * this exists for.
+     */
+    const shownRoles = new Set<string>();
     for (const [id, role] of Object.entries(ROLES)) {
       const shown = tk(`mafia.role.${id}.name`).trim();
-      if (shown && shown !== `mafia.role.${id}.name`) roleCamp.set(shown.toLowerCase(), role.faction);
+      if (shown && shown !== `mafia.role.${id}.name`) {
+        roleCamp.set(shown.toLowerCase(), role.faction);
+        shownRoles.add(shown);
+      }
     }
-    if (names.length === 0 && roleCamp.size === 0) return undefined;
+    if (names.length === 0 && shownRoles.size === 0) return undefined;
 
     /**
      * Names first in the alternation, so a player who calls themselves
@@ -614,7 +645,7 @@ export default function MafiaPlayer() {
     const quote = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const words = [
       ...[...names].sort((a, b) => b.length - a.length),
-      ...[...roleCamp.keys()].sort((a, b) => b.length - a.length)
+      ...[...shownRoles].sort((a, b) => b.length - a.length)
     ].map(quote);
     const isName = new Set(names);
     /**
@@ -623,8 +654,9 @@ export default function MafiaPlayer() {
      * and fell through to the role branch, drawn as a neutral role; and every
      * ordinary "doctor" or "agent" in a spoken line lit up as if the dawn report
      * had said it. Announcements and wills write names and roles with their
-     * display capitals, which is what this requires; a player's own lowercase
-     * stays plain, which is what it did before roles were added here.
+     * display capitals, which is what this requires and what `shownRoles`
+     * above carries; a player's own lowercase stays plain, which is what it
+     * did before roles were added here.
      */
     const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(${words.join('|')})(?![\\p{L}\\p{N}])`, 'gu');
 
@@ -1597,9 +1629,14 @@ function VoteTrail({ view, t }: { view: MafiaView; t: (message: Msg) => string }
 /**
  * The bot marker, and what is behind it.
  *
- * `botBrain` is null until the seat has said something, which is a real state
- * and worth showing as such: a quiet bot on day one has not yet been through the
- * chain, so nothing is known about which end of it answered.
+ * `botBrain` is null until something has answered for the seat, which is a real
+ * state and worth showing as such: a quiet bot on day one has not yet been
+ * through the chain, so nothing is known about which end of it answered.
+ *
+ * It used to be written only when the *mouth* came back with a line, so a seat
+ * whose move a model had chosen, and a whole table whose ear was reading every
+ * word said in the square, both showed the phrasebook robot. All three rungs
+ * report now: see `noteBrain`.
  */
 function BotFlag({ brain, working }: { brain: string | null; working: 'thinking' | 'speaking' | null }) {
   const { t } = useLocale();

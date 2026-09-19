@@ -89,6 +89,24 @@ const envSchema = z.object({
   GOOGLE_API_KEY: blankIsUnset(),
 
   /**
+   * The country a blind test is played in, as an ISO 3166-1 alpha-2 code.
+   *
+   * Licensing on YouTube is per territory, and the failure it causes is silent:
+   * a video can be public, embeddable, and still refuse to play here because its
+   * `regionRestriction.allowed` list names twelve countries and none of them is
+   * this one. Nothing about the video looks wrong until the room is sitting in
+   * front of a black rectangle — which is exactly how "In Da Club" reached a
+   * playlist, passed every check that existed, and played nowhere in France.
+   *
+   * So the deployment states where it is, once, and the checks below can answer
+   * "will this play *here*" instead of the weaker "does this exist".
+   */
+  YOUTUBE_REGION: z
+    .string()
+    .regex(/^[A-Z]{2}$/, 'YOUTUBE_REGION must be a two-letter country code, e.g. FR')
+    .default('FR'),
+
+  /**
    * Brains for the Mafia bots, in the order they are tried.
    *
    * A comma-separated chain rather than one name: `openai,ollama` means "a free

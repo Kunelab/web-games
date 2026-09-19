@@ -297,7 +297,10 @@ function asTyped(line: string): string {
       .replace(/\s+([,.!?:;])/g, '$1')
       .replace(/,\s*,/g, ',')
       .replace(/\s{2,}/g, ' ')
-      .replace(/[\s,]+$/g, '')
+      // A dash opening the line is the French dialogue dash, not an aside, and
+      // the comma it just became has nothing in front of it to hang off.
+      .replace(/^[\s,]+/, '')
+      .replace(/[\s,]+$/, '')
       .trim()
   );
 }

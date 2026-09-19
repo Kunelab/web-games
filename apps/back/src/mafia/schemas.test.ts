@@ -108,6 +108,14 @@ describe('the shapes the chain asks for', () => {
      * make the model's lines the odd ones out in the other direction.
      */
     assert.equal(said('Casper’s your role model?'), 'Casper’s your role model?');
+
+    /**
+     * A dash opening the line is the French dialogue dash, not an aside. Turned
+     * into a comma like every other dash, it left the line starting on a comma
+     * with nothing in front of it: ", Moi? J’etais chez moi."
+     */
+    assert.equal(said('— Moi ? J’etais chez moi.'), 'Moi? J’etais chez moi.');
+    assert.equal(said('– Casper ment.'), 'Casper ment.');
   });
 
   it('lets the mouth answer with nothing at all', () => {
