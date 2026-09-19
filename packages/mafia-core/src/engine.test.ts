@@ -2393,3 +2393,35 @@ describe('the sash and the standing votes', () => {
     assert.equal(state.stage, 'discussion');
   });
 });
+
+/**
+ * A name that is really a claim.
+ *
+ * "Mafia", "Shérif", "Town": a seat called one of these turns every sentence in
+ * the square into a lie the chat itself tells, and every reader in this game
+ * resolves role words against the roster.
+ */
+describe('names that are roles', () => {
+  const fresh = () => createMafiaGame({ code: 'NAME1', hostToken: 'h', hostUserId: null, now: 0 });
+  const tryName = (name: string): boolean => {
+    const state = fresh();
+    try {
+      joinMafia(state, name, `tok-${name}`, `id-${name}`);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it('refuses a faction or a role, in either language, however it is typed', () => {
+    for (const taken of ['Mafia', 'town', 'Triade', 'secte', 'Sheriff', 'shérif', 'Médecin', 'doctor', 'serial killer', 'Tueur de masse', 'MAYOR']) {
+      assert.equal(tryName(taken), false, `"${taken}" should be refused`);
+    }
+  });
+
+  it('leaves ordinary names alone', () => {
+    for (const fine of ['Xavier', 'Tintin', 'Bidule', 'Lucky', 'Sheriffa', 'Docteur Maboul', 'Villeneuve', 'Mafioso2']) {
+      assert.equal(tryName(fine), true, `"${fine}" should be allowed`);
+    }
+  });
+});

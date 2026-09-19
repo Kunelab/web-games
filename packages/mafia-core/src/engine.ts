@@ -41,6 +41,7 @@ import {
   isSoloKiller,
   QUIET_TRADE,
   roleDef,
+  ROLES,
   type Faction,
   type FamilyId,
   type NightActionType,
@@ -233,6 +234,63 @@ interface Announcement {
 
 /* ------------------------------- lobby ---------------------------------- */
 
+/**
+ * A name that is really a claim.
+ *
+ * "Mafia", "Shérif", "Town", "Médecin": a seat called one of these turns every
+ * sentence in the square into a lie the chat itself tells. The dawn report says
+ * "Sheriff was found dead", a bot writes "Mafia, where were you last night",
+ * and the ear reads a role out of a line that named a person. Every reader in
+ * this game, model and deterministic alike, resolves role words against the
+ * roster, so a person wearing one of them poisons all of them at once.
+ *
+ * Both languages and both halves: the factions, and the sixty-three role names.
+ * Folded the way `asks.ts` folds them, because "sherif" and "Shérif" are the
+ * same claim and only one of them is hard to type. Digits are kept, so
+ * "Mafioso2" is a name somebody chose and "Mafioso" is a claim they are making.
+ */
+function soundsLikeARole(name: string): boolean {
+  const folded = name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  if (!folded) return false;
+
+  const factions = [
+    "mafia",
+    "town",
+    "ville",
+    "triad",
+    "triade",
+    "cult",
+    "secte",
+    "neutral",
+    "neutre",
+    "coven",
+    "famiglia",
+  ];
+  if (factions.includes(folded)) return true;
+
+  /**
+   * Both languages, without reaching for the catalogue.
+   *
+   * A role's id *is* its English name (`mayor`, `serial-killer`) and `roleDef`
+   * carries the French one, so the pair covers every word a table speaks
+   * without this module having to render anything.
+   */
+  for (const id of Object.keys(ROLES) as RoleId[]) {
+    if (folded === id.replace(/-/g, "")) return true;
+    const french = roleDef(id)
+      .name.normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+    if (french && folded === french) return true;
+  }
+  return false;
+}
+
 export function joinMafia(
   state: MafiaState,
   name: string,
@@ -279,6 +337,10 @@ export function joinMafia(
     )
   ) {
     throw new MafiaError(NO.nameTaken(), "Ce nom est déjà pris");
+  }
+  // A name that is really a claim. See `soundsLikeARole`.
+  if (soundsLikeARole(trimmed)) {
+    throw new MafiaError(NO.nameIsARole(), "Ce nom est un rôle ou un camp");
   }
 
   const slot = nextFreeSlot(state);
