@@ -177,6 +177,10 @@ export const NOTE = {
   initiateRefused: (name: string): Msg => msg('mafia.note.initiateRefused', { name }),
   convertDone: (name: string): Msg => msg('mafia.note.convertDone', { name }),
   convertRefused: (name: string): Msg => msg('mafia.note.convertRefused', { name }),
+  /** The Mason Leader knocked, and found the cult behind the door. */
+  lodgeStruck: (name: string): Msg => msg('mafia.note.lodgeStruck', { name }),
+  /** The cult knocked on the lodge, and the lodge answered. */
+  lodgeHeld: (name: string): Msg => msg('mafia.note.lodgeHeld', { name }),
   /** A cultist who reached the door after the night's one conversion was already spent. */
   convertCrowded: (name: string): Msg => msg('mafia.note.convertCrowded', { name }),
   /** The cellar still opens; there is just nothing left to close it with. */
@@ -408,6 +412,8 @@ export type DeathSource =
   /** The other cell: a captive the Kidnapper or the Interrogator never released. */
   | 'kidnapper'
   | 'veteran'
+  /** The lodge door: a Cultist who knocked on a Mason Leader, or was found by one. */
+  | 'lodge'
   | 'mafia'
   | 'triad'
   | 'cult'

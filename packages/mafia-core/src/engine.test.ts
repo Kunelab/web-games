@@ -14,6 +14,7 @@ import {
   joinMafia,
   legalNightAction,
   revealMayor,
+  voteThreshold,
   restoreMafiaTable,
   sayInChat,
   setNightAction,
@@ -2462,5 +2463,88 @@ describe('names that are roles', () => {
     for (const fine of ['Xavier', 'Tintin', 'Bidule', 'Lucky', 'Sheriffa', 'Docteur Maboul', 'Villeneuve', 'Mafioso2']) {
       assert.equal(tryName(fine), true, `"${fine}" should be allowed`);
     }
+  });
+});
+
+/**
+ * The sash is worth three votes, not three seats.
+ *
+ * It used to sit in the numerator and the denominator at once, so revealing
+ * raised the bar the Mayor was trying to carry: fourteen alive and the bar was
+ * eight, fourteen alive with the sash out and the bar was nine. Seen on a real
+ * table as "eight of fourteen and no trial".
+ */
+describe('the sash and the bar', () => {
+  it('leaves the threshold where it was', () => {
+    const state = table(['mayor', 'citizen', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+    const mayor = bySlot(state, 1);
+    assert.equal(voteThreshold(state), 4, 'six alive, four to hang');
+    assert.equal(revealMayor(state, mayor.playerId, 1_000).ok, true);
+    assert.equal(voteThreshold(state), 4, 'and still four with the sash out');
+  });
+
+  it('lets the sash carry a wagon three seats short of it', () => {
+    const state = table(['mayor', 'citizen', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+    state.voteOpensAt = null;
+    const mayor = bySlot(state, 1);
+    const accused = bySlot(state, 6);
+
+    assert.equal(revealMayor(state, mayor.playerId, 1_000).ok, true);
+    assert.equal(castVote(state, bySlot(state, 2).playerId, accused.slot, 1_100).ok, true);
+    assert.equal(state.trial === null, true, 'one seat is not four');
+    // The sash alone is worth three, so his vote is the fourth.
+    assert.equal(castVote(state, mayor.playerId, accused.slot, 1_200).ok, true);
+    assert.equal(state.trial?.accusedId, accused.playerId, 'one seat plus the sash carries it');
+  });
+});
+
+/**
+ * The lodge and the cult recruit from the same room.
+ *
+ * Only one of them walks away from meeting the other, whichever way round the
+ * knock happened. It is the only counter the town has to conversion: without it
+ * the cult grows and nothing on the board shrinks it except the rope.
+ */
+describe('the lodge and the cult', () => {
+  it('kills a cultist the mason leader knocks on', () => {
+    const state = table(['mason-leader', 'cultist', 'citizen', 'citizen', 'godfather'], 3);
+    const master = bySlot(state, 1);
+    const preacher = bySlot(state, 2);
+
+    advanceMafia(state, 1_000, lcg(1));
+    assert.equal(state.phase, 'night');
+    assert.equal(setNightAction(state, master.playerId, preacher.slot).ok, true);
+    advanceMafia(state, 2_000, lcg(1));
+
+    assert.equal(preacher.alive, false, 'the cult does not survive the lodge door');
+    assert.equal(master.alive, true);
+  });
+
+  it('kills a cultist who comes to preach at the lodge', () => {
+    const state = table(['mason-leader', 'cultist', 'citizen', 'citizen', 'godfather'], 3);
+    const master = bySlot(state, 1);
+    const preacher = bySlot(state, 2);
+
+    advanceMafia(state, 1_000, lcg(1));
+    assert.equal(setNightAction(state, preacher.playerId, master.slot).ok, true);
+    advanceMafia(state, 2_000, lcg(1));
+
+    assert.equal(preacher.alive, false, 'and the knock costs the same either way');
+    assert.equal(master.alive, true, 'the lodge does not convert');
+    assert.equal(master.role, 'mason-leader');
+  });
+
+  /** The lodge still does what it is for on anybody who is not the cult. */
+  it('still initiates an ordinary citizen', () => {
+    const state = table(['mason-leader', 'citizen', 'citizen', 'citizen', 'godfather'], 3);
+    const master = bySlot(state, 1);
+    const recruit = bySlot(state, 2);
+
+    advanceMafia(state, 1_000, lcg(1));
+    assert.equal(setNightAction(state, master.playerId, recruit.slot).ok, true);
+    advanceMafia(state, 2_000, lcg(1));
+
+    assert.equal(recruit.alive, true);
+    assert.equal(recruit.role, 'mason');
   });
 });
