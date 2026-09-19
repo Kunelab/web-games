@@ -44,7 +44,17 @@ export const SKIP_VOTE = '@skip';
  * is the one the town needs. Still a limit, because a will is read on a phone
  * by somebody with thirty seconds.
  */
-export const WILL_MAX_CHARS = 800;
+/**
+ * How long a last will may be.
+ *
+ * Eight hundred held a role line, a handful of nights and a closing line, which
+ * was the whole of a will while a bot only ever wrote about tonight. A will that
+ * records every night from the first one needs the room to do it: nine nights of
+ * "N4: visiting Lucky Luke" is most of the old budget before the seat has said
+ * anything it concluded. A corpse is the one witness that cannot be
+ * cross-examined, so the useful thing is for it to have written more, not less.
+ */
+export const WILL_MAX_CHARS = 1400;
 
 /**
  * The byline on a line whose author must not be named.
@@ -1087,6 +1097,50 @@ function ensureCarrier(players: MafiaPlayer[], faction: 'mafia' | 'triad', knife
 }
 
 /**
+ * A Coroner is only a Coroner when somebody is hiding bodies.
+ *
+ * His whole power is "the true role, cleaned or not", and the second half is
+ * the half worth a seat. With nobody on the table who can clean, the autopsy
+ * tells him what the dawn report already announced to the entire square — so
+ * the town spent one of its slots on a seat that spends every night confirming
+ * public information, and the player holding it spends the game explaining why
+ * their result is not news.
+ *
+ * So the Coroner needs a cleaner behind him, and "cleaner" is the action rather
+ * than the role name: the Janitor is the mafia's and the Incense Master is the
+ * Triad's, they do the same thing, and a rule written against `janitor` alone
+ * would deal an idle Coroner onto every Triad table.
+ *
+ * Repaired after the deal rather than inside each generator, for the reason
+ * `ensureCarrier` gives: this is the one place the automatic roster, the
+ * presets, the custom lists, chaos and census all pass through.
+ *
+ * The stand-ins are the rest of the investigative pool. A Coroner that cannot
+ * work is still a town investigative *slot* — the table was promised one and
+ * should get one — so he becomes the nearest thing nobody else is already
+ * wearing, and a Citizen only when the whole pool is taken.
+ */
+const CORONER_STAND_INS: readonly RoleId[] = ['investigator', 'detective', 'lookout', 'sheriff', 'spy'];
+
+function retireIdleCoroner(players: MafiaPlayer[]): void {
+  const coroners = players.filter((player) => player.role === 'coroner');
+  if (coroners.length === 0) return;
+
+  const cleaners = players.some(
+    (player) => player.role !== null && roleDef(player.role).nightAction === 'clean'
+  );
+  if (cleaners) return;
+
+  const taken = new Set<RoleId>(players.map((player) => player.role).filter((role): role is RoleId => role !== null));
+  for (const coroner of coroners) {
+    const role = CORONER_STAND_INS.find((candidate) => !taken.has(candidate)) ?? 'citizen';
+    coroner.role = role;
+    coroner.charges = roleDef(role).charges ?? 0;
+    taken.add(role);
+  }
+}
+
+/**
  * Deals the roles. `rng` is injectable so tests replay the same deal; the
  * server passes a crypto-backed one.
  */
@@ -1122,6 +1176,9 @@ export function assignRoles(state: MafiaState, rng: () => number): void {
    */
   ensureCarrier(players, 'mafia', 'mafioso');
   ensureCarrier(players, 'triad', 'enforcer');
+
+  // A body reader needs somebody hiding bodies. See `retireIdleCoroner`.
+  retireIdleCoroner(players);
 
   // The executioner needs someone to destroy: a town player, never himself.
   for (const player of players) {

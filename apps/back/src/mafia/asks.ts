@@ -447,7 +447,10 @@ export function roleFromName(said: string): RoleId | null {
   const folded = fold(said).trim();
   if (!folded) return null;
   if (folded in ROLES) return folded as RoleId;
-  const hyphenated = folded.replace(/s+/g, '-');
+  // `\s`, not `s`: the first spelling of this replaced the letter and turned
+  // "mason leader" into "ma-on leader". It only ever looked like it worked
+  // because `roleNames` separately registers every id with its hyphens spaced.
+  const hyphenated = folded.replace(/\s+/g, '-');
   if (hyphenated in ROLES) return hyphenated as RoleId;
   return roleNames().find((entry) => entry.name === folded)?.role ?? null;
 }

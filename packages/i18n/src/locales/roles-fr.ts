@@ -90,7 +90,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.actress.name': 'Actrice',
   'mafia.role.actress.desc': 'Joue le rôle d’un autre : les enquêteurs applaudissent sans comprendre.',
   'mafia.role.kidnapper.name': 'Ravisseur',
-  'mafia.role.kidnapper.desc': 'Enlève un joueur pour la nuit : injoignable, inoffensif, furieux.',
+  'mafia.role.kidnapper.desc': 'Enlève un joueur pour la nuit — injoignable, inoffensif, furieux — et peut l’exécuter dans sa cave. Trois fois.',
   'mafia.role.heartbreaker.name': 'Bourreau des cœurs',
   'mafia.role.heartbreaker.desc': 'Rend un joueur fou d’amour : si votre cœur s’arrête, le sien aussi.',
 
@@ -99,8 +99,8 @@ export const rolesFr: Catalogue = {
   'mafia.role.dragon-head.desc': 'Ordonne le meurtre de la nuit pour la Triade. Insoupçonnable, intouchable.',
   'mafia.role.enforcer.name': 'Exécuteur',
   'mafia.role.enforcer.desc': 'Le bras armé de la Triade.',
-  'mafia.role.vanguard.name': 'Avant-garde',
-  'mafia.role.vanguard.desc': 'Un soldat de plus pour la Triade.',
+  'mafia.role.red-thread.name': 'Fil Rouge',
+  'mafia.role.red-thread.desc': 'Noue un fil à un joueur : si votre cœur s’arrête, le sien aussi.',
   'mafia.role.administrator.name': 'Administrateur',
   'mafia.role.administrator.desc': 'Chaque nuit, découvre le rôle exact d’un joueur.',
   'mafia.role.liaison.name': 'Agente de liaison',
@@ -116,7 +116,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.deceiver.name': 'Trompeur',
   'mafia.role.deceiver.desc': 'Se cache chez quelqu’un : ce qu’on lui destinait frappe son hôte.',
   'mafia.role.interrogator.name': 'Interrogateur',
-  'mafia.role.interrogator.desc': 'Enlève un joueur pour la nuit : injoignable, inoffensif, terrifié.',
+  'mafia.role.interrogator.desc': 'Enlève un joueur pour la nuit — injoignable, inoffensif, terrifié — et peut ne pas le relâcher. Trois fois.',
   'mafia.role.diva.name': 'Diva',
   'mafia.role.diva.desc': 'Se pare du visage d’un autre : les enquêteurs n’y verront que du feu.',
 

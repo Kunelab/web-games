@@ -222,7 +222,8 @@ export function measureBudget(): BudgetRow[] {
       humans: 2,
       prompt: tokens(mouth),
       /**
-       * Moved from 450, then from 650. Twice, and deliberately both times.
+       * Moved from 450, then from 650, then from 760. Three times, deliberately
+       * each time.
        *
        * The mouth was two hundred tokens when it could only be told a move and a
        * mood. It has since been given the vote to stay consistent with, the
@@ -238,13 +239,24 @@ export function measureBudget(): BudgetRow[] {
        * about *this* game that the mouth is not allowed to be told. Nothing it
        * adds could convict a seat.
        *
+       * The third move is arithmetic rather than judgement. Two rules landed in
+       * that same pass and only one of them was counted: the no-calendar rule at
+       * 69 tokens took it to 703, and the never-name-your-own-side rule at 80
+       * took it to 783, against a ceiling raised to 760. So the check has been
+       * failing ever since it was last edited, by exactly the size of the rule
+       * whose name is missing from the paragraph above. It is allowed on the
+       * same test as the other: "do not say you are in the cult" is a rule about
+       * how to talk, not a fact about who is in one, and a townsman told it
+       * learns nothing. 800, which is the measured 783 with room for the next
+       * sentence rather than a number pinned to today's byte count.
+       *
        * So the number moves and keeps meaning what it meant. It is worth saying
        * what would not be allowed to move it: a board, a roster, a role, or any
        * line that tells the mouth something the seat it speaks for has not been
        * told. If one of those ever makes this fail, the prompt is the thing to
        * change.
        */
-      ceiling: 760,
+      ceiling: 800,
       sections: [{ head: 'rules + intent + four lines', tokens: tokens(mouth), lines: mouth.split('\n').length }]
     }
   ];

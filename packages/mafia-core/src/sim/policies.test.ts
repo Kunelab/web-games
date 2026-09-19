@@ -24,6 +24,8 @@ import {
   styleOf,
   suspicionParts,
   tide,
+  tradeSuspects,
+  tradeVerdict,
   type Claim,
   type PublicInfo
 } from './policies.js';
@@ -1038,6 +1040,68 @@ describe('the bell overrides the acquittal filter, but only when it must', () =>
       decideDay(voter, brain, exhausted, new Set(), new Set(), always(0.5)).voteSlot,
       null,
       'a town that names nobody at the bell does not skip, it spends the day, and that is the game'
+    );
+  });
+});
+
+describe('the shortlist an examiner’s line actually narrows to', () => {
+  /**
+   * The bug this covers, in one line: a badge that has no night cannot leave a
+   * smell, so listing it as a suspect is inventing a possibility the engine
+   * will never produce.
+   */
+  it('drops the badges that have no night to be caught on', () => {
+    assert.deepEqual(
+      tradeSuspects('hands'),
+      ['godfather', 'dragon-head'],
+      'the Mayor, the Marshall, the Crier and the Judge never act, so they never shake anybody’s hand at night'
+    );
+    assert.deepEqual(tradeSuspects('blade'), ['mass-murderer']);
+    assert.ok(!tradeSuspects('watcher').includes('spy'));
+    assert.ok(!tradeSuspects('rough').includes('mason'));
+  });
+
+  /**
+   * And the point of doing it: the one line in the game that can only be a
+   * family leader was being read out as a six-way shrug with three town badges
+   * in it, which is a conviction thrown away every time it came up.
+   */
+  it('turns the leaders’ line into the conviction it always was', () => {
+    assert.equal(tradeVerdict('hands'), 'damning');
+    assert.equal(tradeVerdict('blade'), 'damning');
+  });
+
+  /** The alert is a night's work, so the Veteran stays honest company on it. */
+  it('keeps the veteran on the gunpowder', () => {
+    assert.ok(tradeSuspects('powder').includes('veteran'));
+  });
+
+  /**
+   * A line nobody can produce is not evidence of anything. The Stump and the
+   * Jester wear one each and neither has a night, so both stay shrugs rather
+   * than convictions built on a role that could not have been there.
+   */
+  it('refuses to convict on a smell nobody can leave', () => {
+    assert.deepEqual(tradeSuspects('dirt'), []);
+    assert.deepEqual(tradeSuspects('laugh'), []);
+    assert.equal(tradeVerdict('dirt'), 'mixed');
+    assert.equal(tradeVerdict('laugh'), 'mixed');
+  });
+
+  /** And the quiet line is the absence of a shortlist, never a clean one. */
+  it('hands out no shortlist at all for a quiet night', () => {
+    assert.deepEqual(tradeSuspects('quiet'), []);
+    assert.equal(tradeVerdict('quiet'), 'mixed');
+  });
+
+  /** The roster still cuts it further, and still never cuts it to nothing. */
+  it('crosses off what this table was never dealt', () => {
+    const noVigilante = new Set<RoleId>(['veteran', 'mafioso', 'citizen', 'doctor']);
+    assert.deepEqual(tradeSuspects('powder', noVigilante), ['veteran', 'mafioso']);
+    assert.deepEqual(
+      tradeSuspects('rope', new Set<RoleId>(['citizen'])),
+      ['kidnapper', 'interrogator'],
+      'a roster that explains nothing allows everything: a shortlist is never cut to nothing'
     );
   });
 });

@@ -101,6 +101,7 @@ export const fr: Catalogue = {
   'mafia.source.serialKiller': 'le Tueur en série',
   'mafia.source.massMurderer': 'le Tueur de masse',
   'mafia.source.jailor': 'le Geôlier',
+  'mafia.source.kidnapper': 'une cave dont personne n’est ressorti',
   'mafia.source.veteran': 'le Vétéran',
   'mafia.source.mafia': 'la Mafia',
   'mafia.source.triad': 'la Triade',

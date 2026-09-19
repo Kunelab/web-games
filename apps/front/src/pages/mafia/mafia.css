@@ -925,11 +925,6 @@
   }
 }
 
-.mz-flag--thinking,
-.mz-flag--speaking {
-  animation: mz-working 1.4s ease-in-out infinite;
-}
-
 .mz-listening {
   margin: 0.25rem 0 0;
   font-size: 0.85em;
@@ -938,8 +933,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mz-flag--thinking,
-  .mz-flag--speaking,
   .mz-listening {
     animation: none;
     opacity: 1;

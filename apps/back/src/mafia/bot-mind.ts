@@ -68,6 +68,29 @@ export interface BotMind {
   /** What this seat has written down about the others, day by day. Append-only. */
   notes: WillNote[];
   /**
+   * Jailor only: the prisoners this seat has told its own name to.
+   *
+   * A Jailor that trusts its captive identifies itself, because the cell is the
+   * only room in the game where that can be said without the square hearing it.
+   * Kept per prisoner so it is said once and not re-introduced on every turn of
+   * a long night, and kept on the mind rather than the brain because it is a
+   * fact about a conversation rather than about the board. See `cellLine`.
+   */
+  namedSelfTo?: string[];
+  /**
+   * Where this seat went, night by night, kept rather than recomputed.
+   *
+   * The will is rebuilt from scratch every time anything touches it, and the
+   * journey line used to be built from the *argument* of that call: present on
+   * the turn that chose tonight's target, gone on the next turn, back on the
+   * one after. A real seat watched its own will gain and lose the same night
+   * three times before dawn, and whichever version happened to be current when
+   * it died is what the town read.
+   *
+   * A will is a record. Records are kept, not derived.
+   */
+  went: { night: number; slot: number }[];
+  /**
    * The day this seat opened its defence with "I am muted." and must now keep
    * to it: a muted person does not say a second thing. See `defenceLine`.
    */
@@ -223,6 +246,7 @@ export class BotMinds {
         saidThisRound: 0,
         mask: null,
         notes: [],
+        went: [],
         confided: [],
         privateTrust: new Map()
       };
@@ -316,7 +340,13 @@ export class BotMinds {
   /** Remembers where a bot actually went, so tomorrow's answer can be checked. */
   wentTo(state: MafiaState, playerId: string, slot: number | null): void {
     const mind = this.mind(state, playerId);
-    if (mind) mind.brain.wentTo = slot;
+    if (!mind) return;
+    mind.brain.wentTo = slot;
+    // And the same journey on the permanent record, one line per night. See `went`.
+    if (slot === null) return;
+    const already = mind.went.find((trip) => trip.night === state.day);
+    if (already) already.slot = slot;
+    else mind.went.push({ night: state.day, slot });
   }
 
   /**
