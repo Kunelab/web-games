@@ -98,7 +98,12 @@ export function negotiate(preferences: readonly string[] | string | undefined): 
  * deliberate: a missing string should look obviously broken in a screenshot
  * rather than quietly render as an empty span that nobody notices for a month.
  */
-export function render(message: Msg, primary: Catalogue, fallback?: Catalogue): string {
+export function render(
+  message: Msg,
+  primary: Catalogue,
+  fallback?: Catalogue,
+  elide = false
+): string {
   const pattern = primary[message.k] ?? fallback?.[message.k];
   if (pattern === undefined) return message.k;
   if (!message.p) return pattern;
@@ -106,9 +111,9 @@ export function render(message: Msg, primary: Catalogue, fallback?: Catalogue): 
   // Nested fragments are rendered first, in the same reader's languages.
   const flat: Record<string, string | number> = {};
   for (const [name, value] of Object.entries(message.p)) {
-    flat[name] = isMsg(value) ? render(value, primary, fallback) : value;
+    flat[name] = isMsg(value) ? render(value, primary, fallback, elide) : value;
   }
-  return interpolate(pattern, flat);
+  return interpolate(pattern, flat, elide);
 }
 
 /**
@@ -120,12 +125,39 @@ export function render(message: Msg, primary: Catalogue, fallback?: Catalogue): 
  * will make it stop being true — the honest move is an ICU library, not a
  * home-grown plural rule quietly guessing.
  */
-export function interpolate(pattern: string, params?: Record<string, string | number>): string {
+export function interpolate(
+  pattern: string,
+  params?: Record<string, string | number>,
+  elide = false
+): string {
   if (!params) return pattern;
-  return pattern.replace(/\{(\w+)\}/g, (whole, name: string) => {
-    const value = params[name];
-    return value === undefined ? whole : String(value);
-  });
+
+  let out = '';
+  let cursor = 0;
+  const holes = /\{(\w+)\}/g;
+  for (let hole = holes.exec(pattern); hole !== null; hole = holes.exec(pattern)) {
+    out += pattern.slice(cursor, hole.index);
+    cursor = hole.index + hole[0].length;
+
+    const value = params[hole[1]];
+    if (value === undefined) {
+      out += hole[0];
+      continue;
+    }
+
+    const text = String(value);
+    // The seam, and the only place the article and its word are ever adjacent:
+    // the article is the tail of `out`, the word it belongs to is `text`.
+    if (elide) {
+      const article = ELIDABLE_ARTICLE.exec(out);
+      if (article) {
+        const word = article[2];
+        if (elides(text)) out = `${out.slice(0, out.length - word.length - 1)}${word[0]}’`;
+      }
+    }
+    out += text;
+  }
+  return out + pattern.slice(cursor);
 }
 
 /**
@@ -137,8 +169,8 @@ export function interpolate(pattern: string, params?: Record<string, string | nu
 export type Translate = (message: Msg) => string;
 
 /**
- * French elision, applied after substitution because that is the only moment
- * the article and the word it belongs to are in the same string.
+ * French elision, applied at the seam between a catalogue's article and the
+ * value substituted after it, which is the only place the two ever meet.
  *
  * A catalogue entry can only write "le {role}", and the role arriving in it is
  * one of sixty-three names, eighteen of which begin with a vowel or a mute h:
@@ -152,27 +184,53 @@ export type Translate = (message: Msg) => string;
  * the call site does not know which language it is rendering into. Here it can,
  * and it is one rule rather than eighteen special cases.
  *
+ * Scoped to that seam rather than run over the finished sentence, because the
+ * finished sentence is mostly prose a translator wrote and got right. Run over
+ * it, the rule rewrote "la horde" as "l’horde" twenty-four times in the Coronaz
+ * catalogue, and — JavaScript's `\b` being ASCII-only, so that it fires between
+ * `ô` and `le` — turned "le rôle exact" into "le rôl’exact". Neither is a
+ * substitution, and neither is any of the business of a rule about articles.
+ *
  * Deliberately only `le`/`la`/`de`. `du`, `au` and the rest contract instead of
  * eliding, which is a different rule with different exceptions, and no entry in
- * either catalogue puts one in front of a `{role}`. There is also no h aspiré
- * among the role names, so the one genuinely hard case does not arise; if one
- * is ever added, it belongs on an exception list here rather than in a string.
+ * either catalogue puts one in front of a `{role}`.
  */
-const FRENCH_ELISION = /\b([Ll]e|[Ll]a|[Dd]e) (?=[aeiouâàäéèêëîïôöûùüAEIOUÂÀÄÉÈÊËÎÏÔÖÛÙÜhH])/g;
+const ELIDABLE_ARTICLE = /(^|[^\p{L}\p{N}’'-])([Ll]e|[Ll]a|[Dd]e) $/u;
 
-function elide(text: string): string {
-  return text.replace(FRENCH_ELISION, (whole, article: string) => `${article[0]}’`);
+const STARTS_ELIDABLE = /^[aeiouâàäéèêëîïôöûùüAEIOUÂÀÄÉÈÊËÎÏÔÖÛÙÜhH]/;
+
+/**
+ * The h aspiré list: a word spelt with h that takes no elision. None of the
+ * sixty-three role names is one — Hôtesse is a mute h and elides — so this
+ * catches nothing today. It is here because the next role name, or the first
+ * common noun somebody interpolates, is one exception away from "l’héros", and
+ * an exception list is where that belongs rather than in a string.
+ */
+const H_ASPIRE = new Set([
+  'hache', 'haie', 'haine', 'hall', 'halte', 'hameau', 'hanche', 'hangar', 'hantise',
+  'harde', 'hareng', 'haricot', 'hasard', 'hate', 'haut', 'haute', 'hauteur', 'havre',
+  'hameçon', 'hamster', 'harpe', 'hernie', 'heron', 'heros', 'hetre', 'hibou', 'hierarchie',
+  'homard', 'honte', 'hoquet', 'horde', 'hors', 'houle', 'housse', 'hublot', 'huche',
+  'huit', 'hurlement', 'hutte'
+]);
+
+function elides(word: string): boolean {
+  if (!STARTS_ELIDABLE.test(word)) return false;
+  if (word[0] !== 'h' && word[0] !== 'H') return true;
+  const bare = word
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .split(/[^a-z]/)[0];
+  return !H_ASPIRE.has(bare);
 }
 
 /**
- * @param locale The reader's language. Only `fr` changes anything: see `elide`.
+ * @param locale The reader's language. Only `fr` changes anything: see `elides`.
  */
 export function translator(primary: Catalogue, fallback?: Catalogue, locale?: string): Translate {
   const french = locale === 'fr';
-  return (message) => {
-    const text = render(message, primary, fallback);
-    return french ? elide(text) : text;
-  };
+  return (message) => render(message, primary, fallback, french);
 }
 
 /**

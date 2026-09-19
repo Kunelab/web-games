@@ -497,6 +497,24 @@ function nicknameAt(line: string): { at: number; role: RoleId } | null {
   return best;
 }
 
+/**
+ * The last clause of a run-up, which is as far as a denial can reach.
+ *
+ * `NEGATED` and `REPORTING` used to be tested against the whole twenty-character
+ * window, so a denial in the clause *before* the claim killed the claim:
+ * "I'm not lying, I'm the Doctor" and "I never lie, I'm the Doctor" both read as
+ * no claim at all, which is the opposite of what either sentence says and a
+ * sentence a cornered player types constantly. A comma ends the reach of a
+ * "not" in both shipped languages.
+ *
+ * `FIRST_PERSON` keeps the full run-up on purpose: "Moi, le Docteur" puts the
+ * marker on the other side of the comma and is still a claim.
+ */
+function lastClause(runUp: string): string {
+  const cut = runUp.search(/[,;:][^,;:]*$/);
+  return cut < 0 ? runUp : runUp.slice(cut + 1);
+}
+
 /** The role somebody claims for themselves in one line, if they claim one. */
 export function selfClaim(text: string): RoleId | null {
   const line = fold(text);
@@ -504,13 +522,15 @@ export function selfClaim(text: string): RoleId | null {
     const at = line.indexOf(name);
     if (at < 0) continue;
     const runUp = line.slice(Math.max(0, at - 20), at);
-    if (FIRST_PERSON.test(runUp) && !REPORTING.test(runUp) && !NEGATED.test(runUp)) return role;
+    const clause = lastClause(runUp);
+    if (FIRST_PERSON.test(runUp) && !REPORTING.test(clause) && !NEGATED.test(clause)) return role;
   }
   // And the same test against what people type instead of the name.
   const nick = nicknameAt(line);
   if (nick) {
     const runUp = line.slice(Math.max(0, nick.at - 20), nick.at);
-    if (FIRST_PERSON.test(runUp) && !REPORTING.test(runUp) && !NEGATED.test(runUp)) return nick.role;
+    const clause = lastClause(runUp);
+    if (FIRST_PERSON.test(runUp) && !REPORTING.test(clause) && !NEGATED.test(clause)) return nick.role;
   }
   return null;
 }

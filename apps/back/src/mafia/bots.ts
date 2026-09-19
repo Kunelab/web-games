@@ -792,13 +792,28 @@ function leaks(text: string, state: MafiaState): boolean {
  * Past tense and future both. "I will douse you tonight" is the same tell said
  * one night earlier, and the model reaches for it just as readily.
  */
+/**
+ * "I am about to", in the six ways a model writes it.
+ *
+ * Shared by the two future-tense rules below, which each used to spell it out
+ * and both spelt it the same way wrong: `i\s+(?:will|'ll|...)` is a space and
+ * then an apostrophe, and nobody has ever typed "i 'll kill 7". So the entire
+ * future tense of `OWN_DEED` matched nothing — "I'll kill 7 tonight" and "I'm
+ * gonna burn him", which are exactly how it comes out of a model, both walked
+ * through a guard that reads as though it were watching for them.
+ *
+ * One string, used twice, because two copies of a rule is how the first one got
+ * fixed and the second one did not.
+ */
+const GOING_TO = String.raw`\bi\s*(?:'ll|will|'?m\s+(?:going\s+to|gonna)|am\s+going\s+to|going\s+to|gonna)\s+`;
+
 const OWN_DEED: RegExp[] = [
   // English: I burned / I doused / I set fire to / I torched
   /\b(?:i|i've|ive)\s+(?:have\s+)?(?:just\s+)?(?:burn(?:ed|t)?|dous(?:ed)?|ignit(?:ed)?|torch(?:ed)?|set\s+fire)\b/i,
-  /\bi\s+(?:will|'ll|am\s+going\s+to|gonna)\s+(?:burn|douse|ignite|torch)\b/i,
+  new RegExp(String.raw`${GOING_TO}(?:burn|douse|ignite|torch)\b`, 'i'),
   // English: I killed / stabbed / shot / poisoned him, her, them or a house
   /\b(?:i|i've|ive)\s+(?:have\s+)?(?:just\s+)?(?:kill(?:ed)?|murder(?:ed)?|stab(?:bed)?|shot|poison(?:ed)?|strangl(?:ed)?|slit)\b[^.!?]{0,20}\b(?:you|him|her|them|your|his|their|[0-9]{1,2})\b/i,
-  /\bi\s+(?:will|'ll|am\s+going\s+to|gonna)\s+(?:kill|stab|shoot|poison|strangle)\s+(?:you|him|her|them|[0-9]{1,2})\b/i,
+  new RegExp(String.raw`${GOING_TO}(?:kill|stab|shoot|poison|strangle)\s+(?:you|him|her|them|[0-9]{1,2})\b`, 'i'),
   // English: the visit a killer makes, owned outright
   /\b(?:i|i've|ive)\s+(?:have\s+)?(?:just\s+)?(?:visit(?:ed)?|went\s+to|was\s+at)\b[^.!?]{0,24}\b(?:to\s+)?(?:kill|burn|douse|finish)\b/i,
   // French: j'ai brulé, je t'ai tué, je vais te bruler
@@ -1194,7 +1209,7 @@ export class MafiaBotDriver {
   /** Rungs that have answered at least once, so the log says so exactly once. */
   private readonly answered = new Set<Rung>();
   /**
-   * The model behind the most recent successful call, for `spokeWith`.
+   * The model behind the most recent successful call, for `noteBrain`.
    *
    * A single field rather than a per-seat map because the walk is synchronous
    * from the caller's point of view: whoever reads this immediately after
@@ -3781,17 +3796,34 @@ export class MafiaBotDriver {
      *
      * Written on the seat rather than kept in a map here, so it travels with the
      * state to the view and the screens without this driver having to be
-     * reachable from the projection. `spokeWith` names the brain that answered,
-     * or the phrasebook when nothing did.
+     * reachable from the projection. `noteBrain` names the brain that answered,
+     * or the phrasebook when nothing did — and it is called from `walk`, so the
+     * ear and the brain report it exactly as the mouth does.
      */
     const seats = new Set(Object.values(state.players).map((player) => player.name.toLowerCase()));
     const spoken = answer ? readLine(answer, intent, { name: self.name, slot: self.slot }, seats) : intent.fallback;
     // In a hushed family room the phrasebook line is the ceiling as well as the floor. See `Intent.hushed`.
     const hushedLeak = intent.hushed === true && spoken !== null && leaks(spoken, state);
-    // And in any room at all, a line that confesses something never decided. See `confesses`.
-    const invented = spoken !== null && confesses(spoken, intent.fallback);
+    /**
+     * A line that confesses something never decided. See `confesses`.
+     *
+     * In every room but one. A seat sitting in its *own* family channel with no
+     * Spy able to hear it is in the one room on the board where naming tonight
+     * is the entire point of speaking, and the phrasebook it was being sent back
+     * to never says it in `confesses`' terms — `'Tonight: {who}, {why}.'` matches
+     * no `OWN_DEED` pattern, so "I'll kill 7 tonight" read as an invention every
+     * single time and the family got a stage whisper instead of a plan.
+     *
+     * `hushed` is the whole of the exception, and it is decided upstream by
+     * `spyMayListen`: a Spy in the roster with none confirmed dead, and the room
+     * goes back to owing nothing to anybody. `leaks` scrubs names, houses and
+     * roles there, and this stays on to catch what `leaks` cannot see — "I will
+     * kill him tonight" carries none of the three and is still the sentence that
+     * hangs the table.
+     */
+    const ownFamilyRoom = intent.hushed !== true && playerFamily(self) === room;
+    const invented = !ownFamilyRoom && spoken !== null && confesses(spoken, intent.fallback);
     const said = hushedLeak || invented ? intent.fallback : spoken;
-    this.spokeWith(state, botId, answer ? this.lastAnswered : 'scripted');
 
     /**
      * A seat that chose to say nothing, written down as a choice.
@@ -3865,10 +3897,30 @@ export class MafiaBotDriver {
     this.publishBusy(code);
   }
 
-  private spokeWith(state: MafiaState, botId: string, brain: string): void {
-    const self = state.players[botId];
-    if (!self || self.botBrain === brain) return;
-    self.botBrain = brain;
+  /**
+   * Which brain is driving a seat, written where the view can see it.
+   *
+   * It used to be written in one place only: the mouth, after it had a line
+   * back. So a seat whose *decision* came from a model and whose wording fell
+   * back to the phrasebook was flagged as a phrasebook seat, and a table whose
+   * ear was reading every word anybody said showed ten little robots. The icon
+   * answers "is a model driving this seat", and two of the three rungs it could
+   * be driving it from were not reporting.
+   *
+   * Now every rung reports, from the one place they all pass through. A null
+   * `botId` is the ear, which is asked for the whole table at once: its answer
+   * feeds every bot on the board, so it marks every bot on the board.
+   */
+  private noteBrain(code: string, botId: string | null, brain: string): void {
+    const state = this.hooks.get(code);
+    if (!state) return;
+    const seats =
+      botId === null
+        ? Object.values(state.players).filter((player) => player.isBot)
+        : [state.players[botId]];
+    for (const seat of seats) {
+      if (seat && seat.botBrain !== brain) seat.botBrain = brain;
+    }
   }
 
   /**
@@ -3902,7 +3954,11 @@ export class MafiaBotDriver {
     round: number,
     rounds: number
   ): Promise<Decision | null> {
-    return this.walk((rung) => this.llmDecision(state, botId, task, channel, round, rounds, rung), { botId, task });
+    return this.walk((rung) => this.llmDecision(state, botId, task, channel, round, rounds, rung), {
+      code: state.code,
+      botId,
+      task
+    });
   }
 
   /**
@@ -3934,16 +3990,33 @@ export class MafiaBotDriver {
     // it should start; only the derived one is second-guessed.
     const start = errand === 'speak' && apis >= 2 && !this.chains.speak ? 1 : 0;
 
+    /**
+     * Who this walk is for, so its outcome can be written on the seat.
+     *
+     * The ear, the jury reader and the room reader are asked once for the whole
+     * table and carry no `botId`; `noteBrain` reads that as "every bot here",
+     * because one answer to any of them is driving all of them.
+     *
+     * Only on the way up. A walk that answered nothing marks the seat it was for
+     * and no other: the ear's budget is the tightest on the chain and it times out
+     * on tables whose every seat is being decided by a model perfectly well, and
+     * flipping the whole board to the phrasebook on that would be a worse lie than
+     * the one this is here to fix.
+     */
+    const forCode = typeof context.code === 'string' ? context.code : null;
+    const forBot = typeof context.botId === 'string' ? context.botId : null;
+
     for (let round = 0; round < chain.length; round++) {
       const rung = this.nextRung(round === 0 ? start : 0, errand, EMPTY_RUNGS, deadline - Date.now());
-      const code = typeof context.code === 'string' ? context.code : null;
       if (rung === null) {
-        if (code) trace('mafia', code).event('chain', { ...context, errand, rung: 'scripted', reason: 'no rung up' });
+        if (forCode) trace('mafia', forCode).event('chain', { ...context, errand, rung: 'scripted', reason: 'no rung up' });
+        if (forCode && forBot) this.noteBrain(forCode, forBot, 'scripted');
         return null;
       }
       if (Date.now() >= deadline) {
         this.log.warn({ ...context, rung }, 'mafia bots: ran out of time, falling back');
-        if (code) trace('mafia', code).event('chain', { ...context, errand, rung, reason: 'out of time' });
+        if (forCode) trace('mafia', forCode).event('chain', { ...context, errand, rung, reason: 'out of time' });
+        if (forCode && forBot) this.noteBrain(forCode, forBot, 'scripted');
         return null;
       }
 
@@ -3966,14 +4039,14 @@ export class MafiaBotDriver {
       const second = hedgeMs > 0 ? this.nextRung(0, errand, new Set([rung]), deadline - Date.now() - hedgeMs) : null;
       const hedged = second !== null && isApiRung(second);
 
-      const first = this.attemptOn(rung, attempt, { ...context, errand, round }, code);
+      const first = this.attemptOn(rung, attempt, { ...context, errand, round }, forCode);
       let outcome = hedged ? await Promise.race([first, sleep(hedgeMs).then(() => 'waited' as const)]) : await first;
 
       if (outcome === 'waited' && second) {
-        if (code) trace('mafia', code).event('hedge', { ...context, errand, slow: rung, alsoAsking: second });
+        if (forCode) trace('mafia', forCode).event('hedge', { ...context, errand, slow: rung, alsoAsking: second });
         outcome = await firstUsable([
           first,
-          this.attemptOn(second, attempt, { ...context, errand, round, hedge: true }, code)
+          this.attemptOn(second, attempt, { ...context, errand, round, hedge: true }, forCode)
         ]);
       }
 
@@ -3989,6 +4062,7 @@ export class MafiaBotDriver {
          * log at first contact settles it.
          */
         this.lastAnswered = this.modelName(outcome.rung);
+        if (forCode) this.noteBrain(forCode, forBot, this.lastAnswered);
         if (!this.answered.has(outcome.rung)) {
           this.answered.add(outcome.rung);
           this.log.info(
@@ -4000,6 +4074,7 @@ export class MafiaBotDriver {
       }
     }
 
+    if (forCode && forBot) this.noteBrain(forCode, forBot, 'scripted');
     return null;
   }
 
@@ -5638,13 +5713,38 @@ export class MafiaBotDriver {
      * What the rope has actually been catching, which is the number that
      * decides whether a town should keep pulling it and the number nobody adds
      * up. Straight off the revealed graveyard.
+     *
+     * On the cause, not on the phase. A day death is not the same thing as a
+     * hanging: a seat dropped mid-day and a lover dying of grief at the foot of
+     * the gallows are both filed under `day`, so counting the phase made one
+     * rope worth two and handed the crier a number a listener can check and
+     * find wrong, which is worse than not saying it.
      */
-    const hanged = state.deaths.filter((death) => death.phase === 'day');
-    if (hanged.length >= 2) {
-      const town = hanged.filter((death) => {
-        const seat = state.players[death.playerId];
-        return !!seat?.role && ROLES[seat.role].faction === 'town';
-      }).length;
+    const hanged = state.deaths.filter(
+      (death) => death.phase === 'day' && death.cause.k === 'mafia.cause.lynched'
+    );
+    /**
+     * Off the public graveyard, never off the seat's own role.
+     *
+     * `deadRoles` is what the table was *told*, and it is deliberately empty for
+     * a corpse the game agreed to say nothing about: a janitor-cleaned body on
+     * any table, and every body on one set to `revealOnDeath: 'none'`. Read off
+     * `state.players` instead, the crier announced how many of the hanged had
+     * been town on a table that had been told nothing about any of them — which
+     * is not a tally, it is the one thing this role is built not to do.
+     *
+     * So the line is said only when every rope is accounted for publicly.
+     * "{count} hanged, {town} of them ours" asserts the other {count}-{town}
+     * were not, and a single unknown corpse makes that a lie rather than a
+     * gap.
+     */
+    const camps = hanged.map((death) => {
+      const slot = state.players[death.playerId]?.slot;
+      const shown = slot === undefined ? undefined : board.deadRoles.get(slot);
+      return shown === undefined ? null : ROLES[shown].faction;
+    });
+    if (hanged.length >= 2 && camps.every((camp) => camp !== null)) {
+      const town = camps.filter((camp) => camp === 'town').length;
       return vary('mafia.bot.crier.news.toll', 2, salt, { count: hanged.length, town });
     }
 
