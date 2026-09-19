@@ -94,7 +94,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.actress.name': 'Actress',
   'mafia.role.actress.desc': 'Plays somebody else’s part: investigators applaud without understanding.',
   'mafia.role.kidnapper.name': 'Kidnapper',
-  'mafia.role.kidnapper.desc': 'Takes a player for the night: unreachable, harmless, furious.',
+  'mafia.role.kidnapper.desc': 'Takes a player for the night — unreachable, harmless, furious — and may execute them in the cellar. Three times.',
   'mafia.role.heartbreaker.name': 'Heartbreaker',
   'mafia.role.heartbreaker.desc': 'Makes a player fall madly in love: if your heart stops, so does theirs.',
 
@@ -103,8 +103,8 @@ export const rolesEn: Catalogue = {
   'mafia.role.dragon-head.desc': 'Orders the murder of the night for the Triad. Above suspicion, untouchable.',
   'mafia.role.enforcer.name': 'Enforcer',
   'mafia.role.enforcer.desc': 'The Triad’s gun arm.',
-  'mafia.role.vanguard.name': 'Vanguard',
-  'mafia.role.vanguard.desc': 'One more soldier for the Triad.',
+  'mafia.role.red-thread.name': 'Red Thread',
+  'mafia.role.red-thread.desc': 'Ties a thread to a player: if your heart stops, so does theirs.',
   'mafia.role.administrator.name': 'Administrator',
   'mafia.role.administrator.desc': 'Each night, learns a player’s exact role.',
   'mafia.role.liaison.name': 'Liaison',
@@ -120,7 +120,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.deceiver.name': 'Deceiver',
   'mafia.role.deceiver.desc': 'Hides at somebody’s house: whatever was meant for you strikes your host.',
   'mafia.role.interrogator.name': 'Interrogator',
-  'mafia.role.interrogator.desc': 'Takes a player for the night: unreachable, harmless, terrified.',
+  'mafia.role.interrogator.desc': 'Takes a player for the night — unreachable, harmless, terrified — and need not let them out. Three times.',
   'mafia.role.diva.name': 'Diva',
   'mafia.role.diva.desc': 'Wears somebody else’s face: investigators will never see through it.',
 

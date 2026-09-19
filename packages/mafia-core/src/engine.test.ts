@@ -1324,6 +1324,45 @@ describe("mafia engine", () => {
     assert.equal(veteran.alive, true);
   });
 
+  /**
+   * A porch is somewhere to be, and the examiner's nose says so.
+   *
+   * The examiner reads what its target *did*, and the first version of that test
+   * asked only whether the target had named a house. The alert names none, so
+   * the one seat in this game that most obviously smells of gunpowder was the
+   * one seat that could never smell of anything — while the Veteran stayed on
+   * the shortlist the bots read out for that very line. It takes a doctor to
+   * see it, because an examiner who calls on an armed porch normally does not
+   * live to file the finding.
+   */
+  it("an alerted veteran smells of gunpowder to an examiner who survives him", () => {
+    const state = table([
+      "veteran",
+      "investigator",
+      "doctor",
+      "citizen",
+      "mafioso",
+    ]);
+    advanceMafia(state, 0, lcg(3)); // night
+    const veteran = bySlot(state, 1);
+    const digger = bySlot(state, 2);
+
+    setNightAction(state, veteran.playerId, veteran.slot); // on alert, nobody's house
+    setNightAction(state, digger.playerId, veteran.slot); // and somebody calls anyway
+    setNightAction(state, bySlot(state, 3).playerId, digger.slot); // the doctor keeps him alive
+    setNightAction(state, bySlot(state, 5).playerId, bySlot(state, 4).slot);
+    advanceMafia(state, 1, lcg(3));
+
+    assert.equal(digger.alive, true, "the doctor is the only reason this reads");
+    assert.deepEqual(
+      digger.intel
+        .filter((entry) => entry.kind === "trade")
+        .map((entry) => entry.value),
+      ["powder"],
+      "a man who spent the night oiling a rifle is not a man with nothing to hide",
+    );
+  });
+
   it("records every visitor’s journey, result or none", () => {
     const state = table(["veteran", "sheriff", "doctor", "citizen", "mafioso"]);
     advanceMafia(state, 0, lcg(3)); // night

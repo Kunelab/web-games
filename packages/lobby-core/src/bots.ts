@@ -351,6 +351,114 @@ export const BOT_NAMES = [
   "Spirou",
   "Fantasio",
   "Gaston",
+
+  /**
+   * Myth, which is the one cast older than all of the above.
+   *
+   * Gods and monsters travel better than characters do: most of them are spelled
+   * the same in both languages, and the handful that differ differ by an accent
+   * or a letter — Hera and Héra, Apollo and Apollon — which is close enough that
+   * nobody reads them as two players. Drawn from everywhere rather than from
+   * Greece and Scandinavia twice, because a table of twenty-four wants range and
+   * because the rest of the world has better names in it than the two pantheons
+   * everybody already knows.
+   *
+   * Two that had to go and are worth writing down: Hathor, because `tooAlike`
+   * reads "Thor" inside it, and Inti, because it is inside "Tintin". Both are
+   * real collisions with names already above, and the test below the list is
+   * what caught them.
+   */
+  // Olympe
+  "Zeus",
+  "Hera",
+  "Athena",
+  "Apollo",
+  "Artemis",
+  "Poseidon",
+  "Hades",
+  "Ares",
+  "Hermes",
+  "Hestia",
+  "Persephone",
+  "Hecate",
+  "Hypnos",
+  "Nyx",
+  "Cronos",
+  "Atlas",
+  "Triton",
+  "Charon",
+  // Nil
+  "Anubis",
+  "Osiris",
+  "Horus",
+  "Sekhmet",
+  "Sobek",
+  "Bastet",
+  "Apophis",
+  "Nephthys",
+  // Nord
+  "Odin",
+  "Freya",
+  "Heimdall",
+  "Fenrir",
+  "Valkyrie",
+  "Ymir",
+  "Njord",
+  "Baldr",
+  "Frigg",
+  "Sleipnir",
+  // Japon
+  "Amaterasu",
+  "Susanoo",
+  "Tsukuyomi",
+  "Izanagi",
+  "Raijin",
+  "Fujin",
+  "Hachiman",
+  // Chine
+  "Wukong",
+  "Nezha",
+  "Pangu",
+  "Nuwa",
+  "Guanyin",
+  "Erlang",
+  // Afrique
+  "Anansi",
+  "Shango",
+  "Ogun",
+  "Oshun",
+  "Yemoja",
+  "Nyame",
+  "Eshu",
+  // Inde
+  "Ganesha",
+  "Hanuman",
+  "Garuda",
+  "Indra",
+  "Kali",
+  "Vishnu",
+  "Shiva",
+  "Durga",
+  // Mesopotamie
+  "Marduk",
+  "Tiamat",
+  "Gilgamesh",
+  "Enki",
+  "Ishtar",
+  // Mesoamerique et Andes
+  "Quetzalcoatl",
+  "Tezcatlipoca",
+  "Viracocha",
+  "Kukulkan",
+  // Celtes et Slaves
+  "Morrigan",
+  "Cernunnos",
+  "Dagda",
+  "Lugh",
+  "Perun",
+  "Baba Yaga",
+  // Pacifique
+  "Tangaroa",
 ] as const;
 
 /**

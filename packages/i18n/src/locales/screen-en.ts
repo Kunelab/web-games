@@ -128,9 +128,6 @@ export const screenEn: Catalogue = {
   'mafia.ui.obsession': 'Your obsession: house {slot}',
   'mafia.ui.you': 'you',
   'mafia.ui.bot': 'Bot',
-  'mafia.ui.bot.scripted': 'Bot · phrasebook, no model',
-  'mafia.ui.bot.model': 'Bot · speaking through {model}',
-  'mafia.ui.bot.quiet': 'Bot · has not spoken yet',
   'mafia.ui.revealed': 'Revealed',
   'mafia.ui.fold': 'Hide this panel',
   'mafia.ui.unfold': 'Show this panel',
@@ -220,8 +217,6 @@ export const screenEn: Catalogue = {
   'mafia.ui.prompt.jailPick': 'Name tonight’s prisoner.',
   'mafia.ui.prompt.discussion': 'Talk, then accuse whoever you want to see on the stand.',
   'mafia.ui.ballotOpensIn': '{seconds}s',
-  'mafia.ui.bot.thinking': 'Deciding what to do…',
-  'mafia.ui.bot.speaking': 'Writing a line…',
   'mafia.ui.bot.reading': 'Reading the square…',
   'mafia.ui.prompt.firstDay': 'First day: you talk, you do not hang. Make some friends.',
 
@@ -943,6 +938,18 @@ export const screenEn: Catalogue = {
   'mafia.bot.dump.trade.1': 'Night {night}: {who} {line}. One of: {roles}.',
   'mafia.bot.dump.trade.2': '{who} {line}, night {night}. So: {roles}.',
   'mafia.bot.dump.trade.3': 'Examined {who}, night {night}: {line}. One of: {roles}.',
+  /**
+   * And the same power coming back with nothing, which is not the same sentence.
+   *
+   * A quiet read has no shortlist: the roles that *wear* the quiet line are
+   * three harmless ones, but the roles that can *produce* it are everybody who
+   * stayed in that night, so printing "one of: Citizen, Survivor, Amnesiac" was
+   * an exoneration the power never issued. Say what was actually learned, which
+   * is only that the seat did not go out.
+   */
+  'mafia.bot.dump.quiet.1': 'Night {night}: I examined {who}. Nothing on them, so they stayed in.',
+  'mafia.bot.dump.quiet.2': 'Night {night}, {who}: nothing to find. That is not the same as clean.',
+  'mafia.bot.dump.quiet.3': 'Examined {who} on night {night} and came back empty. They had a quiet night, no more than that.',
   'mafia.bot.dump.saved.1': 'Night {night}: somebody came for {who} and I stopped it.',
   'mafia.bot.dump.saved.2': 'Night {night}: {who} was attacked. I was there.',
   'mafia.bot.dump.saved.3': '{who} lived through night {night} because of me.',
@@ -1114,6 +1121,9 @@ export const screenEn: Catalogue = {
    * by living through the morning. `cellLine` reaches for these only while a
    * charge remains, which is why they are not simply more `ask` variants.
    */
+  'mafia.bot.jail.trust.1': 'I believe you. It is {who} holding the keys — I am the Jailor. Stay alive and say so for me.',
+  'mafia.bot.jail.trust.2': 'Good enough for me, {role}. My name is {who}, and I am the one with the cell. Vouch for me tomorrow.',
+  'mafia.bot.jail.trust.3': 'You walk at dawn. {who}, Jailor — now you know who to back when they come for me.',
   'mafia.bot.jail.threat.1': 'I can kill you from here. Talk.',
   'mafia.bot.jail.threat.2': 'I still have an execution. Talk me out of it.',
   'mafia.bot.jail.threat.3': 'You leave this cell when I say so. Well?',

@@ -177,6 +177,12 @@ export const NOTE = {
   initiateRefused: (name: string): Msg => msg('mafia.note.initiateRefused', { name }),
   convertDone: (name: string): Msg => msg('mafia.note.convertDone', { name }),
   convertRefused: (name: string): Msg => msg('mafia.note.convertRefused', { name }),
+  /** A cultist who reached the door after the night's one conversion was already spent. */
+  convertCrowded: (name: string): Msg => msg('mafia.note.convertCrowded', { name }),
+  /** The cellar still opens; there is just nothing left to close it with. */
+  cellarSpent: (): Msg => msg('mafia.note.cellarSpent'),
+  cellarKill: (name: string): Msg => msg('mafia.note.cellarKill', { name }),
+  cellarDry: (name: string): Msg => msg('mafia.note.cellarDry', { name }),
   auditDone: (name: string): Msg => msg('mafia.note.auditDone', { name }),
   auditFailed: (name: string): Msg => msg('mafia.note.auditFailed', { name }),
   executedInnocent: (): Msg => msg('mafia.note.executedInnocent'),
@@ -399,6 +405,8 @@ export type DeathSource =
   | 'serialKiller'
   | 'massMurderer'
   | 'jailor'
+  /** The other cell: a captive the Kidnapper or the Interrogator never released. */
+  | 'kidnapper'
   | 'veteran'
   | 'mafia'
   | 'triad'

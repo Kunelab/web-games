@@ -953,7 +953,13 @@ export function legalNightAction(
 
   const def = roleDef(player.role);
   if (!def.nightAction) return null;
-  if (def.charges !== undefined && player.charges <= 0) return null;
+  // A spent Kidnapper still has a cellar, only nothing to end it with. See `optionalCharges`.
+  if (
+    def.charges !== undefined &&
+    def.optionalCharges !== true &&
+    player.charges <= 0
+  )
+    return null;
 
   const family = playerFamily(player);
   const others = alivePlayers(state).filter(
@@ -1001,11 +1007,30 @@ export function legalNightAction(
         targets: slots(outsiders),
         charges: uses,
       };
+    case "kidnap":
+      /**
+       * Take him, and optionally do not give him back.
+       *
+       * The abduction is the action and it never runs out; the execution is the
+       * extra, and it is asked for by naming the captive a second time. That is
+       * how a single picker expresses two decisions without a second control:
+       * tap a house to take it, tap it again to end it. `needsSecondTarget` is
+       * deliberately still false, so the order is complete without the second
+       * tap and the engine never waits for one.
+       *
+       * The list is empty once the charges are gone, which is what stops a
+       * spent cellar from advertising a lever that does nothing.
+       */
+      return {
+        type: "kidnap",
+        targets: slots(outsiders),
+        secondTargets: player.charges > 0 ? slots(outsiders) : [],
+        charges: uses,
+      };
     case "frame":
     case "silence":
     case "charm":
     case "poison":
-    case "kidnap":
     case "audit":
       return {
         type: def.nightAction,
@@ -1137,6 +1162,20 @@ export function setNightAction(
     if (destination.slot === targetSlot)
       return { ok: false, error: NO.sameTwice() };
     secondTargetId = destination.playerId;
+  } else if (legal.type === "kidnap" && secondTargetSlot != null) {
+    /**
+     * The cellar's second tap, and the only shape it is allowed to have.
+     *
+     * Naming the captive again means "and do not let him out". Naming anybody
+     * else is not a second half of this order, it is a misunderstanding of it,
+     * and it is refused rather than dropped — silently ignoring the slot is how
+     * a player ends up believing they pulled a lever they never pulled.
+     */
+    if (secondTargetSlot !== targetSlot)
+      return { ok: false, error: NO.badTarget() };
+    if (!(legal.secondTargets ?? []).includes(secondTargetSlot))
+      return { ok: false, error: NO.noAction() };
+    secondTargetId = targetId;
   }
 
   state.nightActions[playerId] = { type: legal.type, targetId, secondTargetId };
@@ -1630,8 +1669,16 @@ function beginNight(state: MafiaState, now: number): void {
   for (const player of Object.values(state.players)) {
     if (!player.alive || !player.role) continue;
     const def = roleDef(player.role);
-    if (def.nightAction && def.charges !== undefined && player.charges <= 0)
+    // Not the Kidnapper, whose power is not spent — only its executions are.
+    if (
+      def.nightAction &&
+      def.charges !== undefined &&
+      def.optionalCharges !== true &&
+      player.charges <= 0
+    )
       notify(player, NOTE.powerSpent());
+    if (def.optionalCharges === true && player.charges <= 0)
+      notify(player, NOTE.cellarSpent());
   }
 
   const jailed = state.jailedId ? state.players[state.jailedId] : null;
@@ -1818,6 +1865,32 @@ function evilRole(role: RoleId): boolean {
  * nobody. Reads the true `role` on purpose: a borrowed face is an examiner's
  * problem, and a role that was genuinely changed reveals what it became.
  */
+/**
+ * A seat nothing may turn into something else — once it has said what it is.
+ *
+ * `keepsRole` is written on the Mayor, and the reason it is written there is a
+ * *revealed* Mayor: a sash worth three votes, on a seat that has already stood
+ * up and told the room what it is. Reading the flag off the role alone extended
+ * that protection to a Mayor nobody knows about yet, and that leaked him.
+ *
+ * The cult can only ever select town seats (`legalNightAction` filters the flock
+ * to them), so `keepsRole` was the single remaining way a conversion could be
+ * refused: "refused" therefore meant "this seat is the Mayor", delivered to the
+ * cult on night one, for free, about a seat the room has no idea about. A rule
+ * meant to stop the cult buying three votes was instead handing it the name.
+ *
+ * Gated on the reveal, the leak closes and the rule still does its job: an
+ * unrevealed Mayor is an ordinary townsman to convert, which is the cult doing
+ * what the cult is for, and the moment he puts the sash on he is untouchable.
+ */
+function keepsItsRole(player: MafiaPlayer): boolean {
+  return (
+    player.role !== null &&
+    roleDef(player.role).keepsRole === true &&
+    player.revealed
+  );
+}
+
 function bodyReads(state: MafiaState, player: MafiaPlayer): Msg {
   const role = player.role;
   if (!role) return BODY.unknown();
@@ -2141,6 +2214,16 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
 
   // Kidnappings: gone for the night — unreachable, harmless, furious.
   const sheltered = new Set<string>();
+  /**
+   * Captives their keeper has decided not to release. See `optionalCharges`.
+   *
+   * Collected here and fired later, beside the Jailor's lever, because an
+   * execution is an attack and attacks are all resolved together: pushing one
+   * from this loop would put it in front of the alert, the vest and the bus,
+   * and the cellar is not supposed to outrank those — only protection from the
+   * outside, which the shelter check below handles.
+   */
+  const cellarKills = new Map<string, string>();
   for (const player of players) {
     if (!player.alive || blocked.has(player.playerId)) continue;
     const action = actionOf(player);
@@ -2150,6 +2233,12 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     visit(player.playerId, target.playerId);
     blocked.add(target.playerId);
     sheltered.add(target.playerId);
+    if (action.secondTargetId === target.playerId) {
+      // Asked for the lever. Whether there is one left is a separate question,
+      // and a keeper who is out gets told so rather than left guessing.
+      if (player.charges > 0) cellarKills.set(player.playerId, target.playerId);
+      else notify(player, NOTE.cellarDry(target.name));
+    }
     notify(target, NOTE.kidnapped());
     // And the kidnapper is told it worked, which it never was: the whole of the
     // feedback was an `intel` row, and no screen in the game renders those. You
@@ -2628,6 +2717,32 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     });
   }
 
+  /**
+   * The family's cellar, on the same terms as the town's cell.
+   *
+   * Power three and no protection reaches it, because the captive is not at
+   * home to be healed or guarded — he is in somebody's basement, which is the
+   * same fact the shelter is already made of. Three a game, so it is a
+   * resource the family spends rather than a second knife it swings nightly.
+   *
+   * The keeper is never in `cellarKills` if it was blocked: the abduction loop
+   * that filled this map skipped blocked seats, so an Escort on the Kidnapper
+   * empties the cellar the same way it empties everything else.
+   */
+  for (const [keeperId, captiveId] of cellarKills) {
+    const keeper = state.players[keeperId];
+    const captive = living(captiveId);
+    if (!keeper?.alive || keeper.charges <= 0 || !captive) continue;
+    keeper.charges -= 1;
+    notify(keeper, NOTE.cellarKill(captive.name));
+    attacks.push({
+      attackerId: keeper.playerId,
+      targetId: captive.playerId,
+      power: 3,
+      source: "kidnapper",
+    });
+  }
+
   // The veteran shoots everything that moves on his porch.
   for (const { visitorId, targetId } of visits) {
     if (alerted.has(targetId) && visitorId !== targetId) {
@@ -2713,10 +2828,22 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     };
 
     const fromJailor = attack.source === "jailor";
+    /**
+     * Either keeper, with the keys to their own door.
+     *
+     * The two cells are the same mechanism from opposite sides — a seat taken
+     * out of the world for a night, reachable by exactly one person — so every
+     * check that lets the Jailor through has to let the Kidnapper through too.
+     * Written as one name rather than two comparisons at four call sites,
+     * because the last time this file had two spellings of "the man holding
+     * them" one of them was missing a clause and an outsider could reach into
+     * the jail.
+     */
+    const fromKeeper = fromJailor || attack.source === "kidnapper";
     const isPoison = attack.source === "poison";
 
     // The cell protects its prisoner from the outside world, never from its keeper.
-    if (target.playerId === jailedId && !fromJailor && !isPoison) {
+    if (target.playerId === jailedId && !fromKeeper && !isPoison) {
       if (attacker) notify(attacker, NOTE.targetMissing());
       note("jailed");
       continue;
@@ -2725,11 +2852,11 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
      * A kidnapped player is somewhere nobody knows — except the man holding
      * them in his own cell.
      *
-     * `!fromJailor` is on the cell check above and was missing here, so an
+     * `!fromKeeper` is on the cell check above and was missing here, so an
      * outsider could reach into the jail, sack the prisoner, and void a
      * power-three execution the jailor had already spent a charge on.
      */
-    if (sheltered.has(target.playerId) && !fromJailor && !isPoison) {
+    if (sheltered.has(target.playerId) && !fromKeeper && !isPoison) {
       if (attacker) notify(attacker, NOTE.targetMissing());
       note("sheltered");
       continue;
@@ -2792,7 +2919,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     const guardList = (guards.get(target.playerId) ?? [])
       .map((id) => state.players[id])
       .filter((g) => g?.alive);
-    if (!fromJailor && !isPoison && attack.power <= 2 && guardList.length > 0) {
+    if (!fromKeeper && !isPoison && attack.power <= 2 && guardList.length > 0) {
       const guard = guardList[0];
       if (guard) {
         diedTonight.add(guard.playerId);
@@ -2819,7 +2946,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     const healerList = (healers.get(target.playerId) ?? [])
       .map((id) => state.players[id])
       .filter((h) => h?.alive);
-    if (!fromJailor && attack.power <= 2 && healerList.length > 0) {
+    if (!fromKeeper && attack.power <= 2 && healerList.length > 0) {
       if (isPoison) {
         target.poisonedNight = null;
         notify(target, NOTE.purged());
@@ -3114,8 +3241,23 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
          * you learn nothing, and the town cannot treat a quiet result as a
          * clean one. See `tradeVerdict`, which refuses to read it as clean.
          */
+        /**
+         * And a porch counts as somewhere to be.
+         *
+         * The Veteran's alert and the Survivor's vest name no house, so the
+         * first version of this test, which asked only whether the target had
+         * pointed at somebody, filed both as a seat that stayed in. The man who
+         * spent his night oiling a rifle on his own porch is the most obvious
+         * thing in this game to smell of gunpowder, and he was the one seat
+         * guaranteed to come back quiet. Read off `alerted` and `vested`
+         * rather than the submitted action, so a charge that was never actually
+         * spent leaves no smell either.
+         */
         const acted =
-          !!acts[target.playerId]?.targetId && !blocked.has(target.playerId);
+          (!!acts[target.playerId]?.targetId ||
+            alerted.has(target.playerId) ||
+            vested.has(target.playerId)) &&
+          !blocked.has(target.playerId);
         const line = framed.has(target.playerId)
           ? roleDef("framer").investigated
           : acted
@@ -3231,18 +3373,25 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       }
     }
 
-    if (
-      action.type === "convert" &&
-      player.role === "cultist" &&
-      target.alive &&
-      !convertedTonight
-    ) {
+    if (action.type === "convert" && player.role === "cultist" && target.alive) {
+      /**
+       * The visit happens whether or not the door opens.
+       *
+       * `convertedTonight` used to sit in the condition above, so the second
+       * cultist of a night was skipped entirely: no `visit`, so a Lookout
+       * watching that house saw nobody though somebody had knocked, and no
+       * notification at all, so the player pressed convert and observed
+       * nothing. That is the same silent no-op as the kidnapper's, and it is
+       * read the same way — as a power that does not work.
+       */
       visit(player.playerId, target.playerId);
       // A sash is not a soul to be bought. See `keepsRole`.
-      if (
+      if (convertedTonight) {
+        notify(player, NOTE.convertCrowded(target.name));
+      } else if (
         target.role &&
         roleDef(target.role).faction === "town" &&
-        !roleDef(target.role).keepsRole
+        !keepsItsRole(target)
       ) {
         const converted: RoleId =
           target.role === "doctor" ? "witch-doctor" : "cultist";
@@ -3292,8 +3441,8 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       visit(player.playerId, target.playerId);
       const targetDef = roleDef(target.role!);
       let audited: RoleId | null = null;
-      // The same seat the cult may not have. See `keepsRole`.
-      if (targetDef.keepsRole) audited = null;
+      // The same seat the cult may not have. See `keepsItsRole`.
+      if (keepsItsRole(target)) audited = null;
       else if (targetDef.faction === "town") audited = "citizen";
       else if (
         targetDef.faction === "mafia" &&

@@ -77,7 +77,7 @@ export type RoleId =
   | 'interrogator'
   | 'liaison'
   | 'silencer'
-  | 'vanguard'
+  | 'red-thread'
   // Neutral (16)
   | 'amnesiac'
   | 'arsonist'
@@ -193,6 +193,20 @@ export interface RoleDef {
   selfTarget?: boolean;
   /** Uses per game for limited actions. */
   charges?: number;
+  /**
+   * The charges buy an *extra*, not the action itself.
+   *
+   * Almost every charge in this file gates the whole power: a Janitor out of
+   * bleach cannot clean, and `legalNightAction` is right to stop offering it.
+   * The cell is the exception. A Kidnapper with no executions left can still
+   * take somebody off the board for the night, which is most of what the role
+   * is for, and switching the abduction off with the bullets would quietly
+   * delete the role on night four.
+   *
+   * So the gate asks this first. The charge is spent by the execution and by
+   * nothing else; see `kidnap` in `legalNightAction` and in `resolveNight`.
+   */
+  optionalCharges?: boolean;
   /** Survives basic (power 1) night attacks. */
   nightImmune?: boolean;
   /** Reads innocent to the sheriff despite being evil. */
@@ -561,7 +575,11 @@ export const ROLES: Record<RoleId, RoleDef> = {
     name: 'Ravisseur',
     faction: 'mafia',
     nightAction: 'kidnap',
-    description: 'Enlève un joueur pour la nuit : injoignable, inoffensif, furieux.',
+    // Three executions; the abduction itself is unlimited. See `optionalCharges`.
+    charges: 3,
+    optionalCharges: true,
+    description:
+      'Enlève un joueur pour la nuit : injoignable, inoffensif, furieux — et peut l’exécuter dans sa cave.',
     investigated: L.rope
   }),
   heartbreaker: def({
@@ -595,14 +613,28 @@ export const ROLES: Record<RoleId, RoleDef> = {
     description: 'Le bras armé de la Triade.',
     investigated: L.powder
   }),
-  vanguard: def({
-    id: 'vanguard',
-    name: 'Avant-garde',
+  /**
+   * The Triad's answer to the Heartbreaker, and the only ability it lacked.
+   *
+   * Every other power the Mafia has, the Triad had a name for: a leader, knives,
+   * an examiner, a blocker, a framer, a silencer, a cleaner, a shadow, a hider,
+   * a kidnapper and a face-stealer. `charm` was the one hole, so a Triad could
+   * never field the threat that makes a family dangerous to kill — and this seat
+   * was a third knife nobody needed, identical in every field to the Enforcer
+   * beside it.
+   *
+   * Named for the red thread of fate rather than for another soldier: the thread
+   * that ties two people together whatever either of them does about it is the
+   * mechanic, and it sits with the Dragon Head and the Incense Master instead of
+   * sounding like a rank.
+   */
+  'red-thread': def({
+    id: 'red-thread',
+    name: 'Fil Rouge',
     faction: 'triad',
-    nightAction: 'kill',
-    familyRank: 'executor',
-    description: 'Un soldat de plus pour la Triade.',
-    investigated: L.powder
+    nightAction: 'charm',
+    description: 'Noue un fil à un joueur : si votre cœur s’arrête, le sien aussi.',
+    investigated: L.charm
   }),
   administrator: def({
     id: 'administrator',
@@ -666,7 +698,11 @@ export const ROLES: Record<RoleId, RoleDef> = {
     name: 'Interrogateur',
     faction: 'triad',
     nightAction: 'kidnap',
-    description: 'Enlève un joueur pour la nuit : injoignable, inoffensif, terrifié.',
+    // The Triad's cell, and the same three executions the Ravisseur holds.
+    charges: 3,
+    optionalCharges: true,
+    description:
+      'Enlève un joueur pour la nuit : injoignable, inoffensif, terrifié — et peut ne pas le relâcher.',
     investigated: L.rope
   }),
   diva: def({

@@ -13,6 +13,8 @@ import {
   decideDay,
   decideNightTarget,
   decideSecondTarget,
+  executesCaptive,
+  cellProves,
   chatRules,
   jailChannel,
   legalNightAction,
@@ -23,7 +25,8 @@ import {
   isEvilRole,
   ROLE,
   ROLES,
-  rolesWithTrade,
+  tradeSuspects,
+  QUIET_TRADE,
   sheriffSuspects,
   tradeVerdict,
   SKIP_VOTE,
@@ -902,14 +905,41 @@ const OWN_DEED: RegExp[] = [
  * the third person is ordinary table talk and stays: "the cult is winning" is
  * something anybody may say. It is the first person that convicts.
  */
+/**
+ * Every word here has to convict on its own, because a false one is not free.
+ *
+ * The first cut of this list hung on the faction word wherever it appeared, and
+ * eight of ten ordinary townie lines tripped it: "we are the mafia's next
+ * target", "I am a mafia hunter", "our side is losing", "the mafia stuff is
+ * getting obvious", "notre famille de masons tient bon". Every one of those had
+ * its model line thrown away and a phrasebook line put in its place — and town
+ * bots have no family room, so `ownFamilyRoom` never exempted a single one of
+ * them. The guard was costing the square more good sentences than it was
+ * catching bad ones.
+ *
+ * So: `side`, `team`, `family` and `famille` are gone, because a Mason and a
+ * Lover both say "our family" and mean it; the faction word must be the end of
+ * the claim rather than the start of a different noun ("mafia hunter", "the
+ * mafia's target"); and a bare mention of "cult stuff" now needs a first person
+ * doing it, so the confession keeps firing and the observation stops.
+ */
+const NOT_THE_SIDE = String.raw`(?!['’]s|\s+(?:hunter|hunters|target|targets|next|kill|kills|list|lists|member|members))`;
+
 const OWN_SIDE: RegExp[] = [
-  /\b(?:i|we)(?:'m|'re| am| are| was| were)?\s+(?:the\s+|a\s+|one\s+of\s+the\s+|part\s+of\s+the\s+|with\s+the\s+|in\s+the\s+)?(?:cult|mafia|triad|famiglia|coven)\b/i,
-  /\b(?:my|our)\s+(?:cult|mafia|triad|famiglia|family|side|team)\s+(?:is|are|was|were|will|wants|needs)\b/i,
-  /\b(?:i|we)\s+(?:was|were|am|are)\b[^.!?]{0,40}\b(?:whispering|talking|speaking|meeting|plotting|conspiring)\s+(?:to|with|in|for)\s+(?:the\s+)?(?:cult|mafia|triad|coven|family|famiglia)\b/i,
-  /\b(?:cult|mafia|triad)\s+(?:stuff|business|work|things|meeting|chat|room)\b/i,
-  /\b(?:je|j'?)\s*(?:suis|etais|fais partie)\s+(?:de\s+)?(?:la\s+|le\s+|du\s+)?(?:secte|mafia|triade|famille)\b/i,
-  /\b(?:ma|notre)\s+(?:secte|mafia|triade|famille)\b/i,
-  /\b(?:trucs?|affaires?|reunions?|histoires?)\s+de\s+(?:secte|mafia|triade)\b/i
+  new RegExp(
+    String.raw`\b(?:i|we)\s*(?:'m|'re|am|are|was|were)\s+(?:the\s+|a\s+|one\s+of\s+the\s+|part\s+of\s+the\s+|with\s+the\s+|in\s+the\s+)?(?:cult|mafia|triad|famiglia|coven)\b${NOT_THE_SIDE}`,
+    'i'
+  ),
+  /\b(?:my|our)\s+(?:cult|mafia|triad|famiglia)\s+(?:is|are|was|were|will|wants|needs)\b/i,
+  /\b(?:i|we)\s+(?:was|were|am|are)\b[^.!?]{0,40}\b(?:whispering|talking|speaking|meeting|plotting|conspiring)\s+(?:to|with|in|for)\s+(?:the\s+)?(?:cult|mafia|triad|coven|famiglia)\b/i,
+  // "not doing cult stuff" convicts; "the mafia stuff is getting obvious" is the room talking.
+  /\b(?:doing|did|do|done|on|at|in|back\s+from)\s+(?:the\s+|my\s+|our\s+)?(?:cult|mafia|triad)\s+(?:stuff|business|work|things|meeting|chat|room)\b/i,
+  // "j'ai fait partie de la triade" and "j'étais dans la secte" are the same
+  // admission as "je suis de la secte"; the accented forms too, since
+  // `straighten` fixes apostrophes and leaves every other diacritic alone.
+  /\b(?:je|j'?)\s*(?:suis|[ée]tais|ai\s+fait\s+partie|fais\s+partie|faisais\s+partie)\s+(?:de\s+|dans\s+)?(?:la\s+|le\s+|du\s+)?(?:secte|mafia|triade)\b/i,
+  /\b(?:ma|notre)\s+(?:secte|mafia|triade)\b/i,
+  /\b(?:trucs?|affaires?|reunions?|histoires?)\s+de\s+(?:la\s+)?(?:secte|mafia|triade)\b/i
 ];
 
 export function confesses(text: string, fallback: string): boolean {
@@ -928,15 +958,42 @@ export function confesses(text: string, fallback: string): boolean {
 const EMPTY: Decision = { say: null, targetSlot: null, verdict: null, claim: null };
 
 /**
+ * How much room a *case* gets, which is not how much room a chat line gets.
+ *
+ * These were one number for a while, and the reason they were merged is sound:
+ * two different limits on the same sentence meant `clip` cutting a composed
+ * line mid-word and putting an ellipsis on it, which is how "Tu as déjà voté…"
+ * reached a real table. Composing against the figure that is actually applied
+ * is the right fix.
+ *
+ * Merging them at 140 was the wrong half of it. `SAY_CHARS` is the mouth's
+ * number and it exists to keep a *model* terse — one line, often under ten
+ * words, somebody typing on a phone. A case is not that. It is the evidence
+ * this seat is asking the room to hang somebody on, it is assembled from named
+ * findings rather than written, and at 140 the second finding almost never fit:
+ * "someone saw you visiting 5 on night 3, and 5 was killed that night" is 66
+ * characters before the frame and the name, so two of them plus "It is Nami:"
+ * overruns immediately and `caseLine` drops one. Which is exactly the reported
+ * symptom — a square full of seats asserting things and not saying why.
+ *
+ * So the case keeps its own budget, larger, and the clamp below takes the wider
+ * of the two so a composed line is never cut. The mouth is unaffected:
+ * `readLine` still refuses a model past `SAY_CHARS`, because the thing that
+ * number is protecting is the model's habit of writing prose, not the table's
+ * right to hear a reason.
+ */
+const CASE_CHARS = 210;
+
+/**
  * The hard ceiling on anything that reaches the square, scripted or written.
  *
- * Imported rather than declared, and there is no second number beside it any
- * more. `caseLine` composes against exactly the figure the clamp applies and
- * the mouth refuses past, so two reasons are dropped to one before anything is
- * ever cut — which is the same trade a person makes deciding what is worth
- * saying out loud, rather than a sentence ending in an ellipsis.
+ * The wider of the two on purpose: a model line has already been refused past
+ * `SAY_CHARS` before it gets here, and a phrasebook line has already been
+ * measured against `CASE_CHARS`. This is the backstop for neither of them
+ * having happened, and a backstop that is tighter than the thing it is backing
+ * is just the mid-word cut again.
  */
-const CASE_CHARS = SAY_CHARS;
+const CLAMP_CHARS = Math.max(SAY_CHARS, CASE_CHARS);
 
 /**
  * Several reasons, joined the way somebody speaking would join them.
@@ -2211,26 +2268,41 @@ export class MafiaBotDriver {
        * which is not what happened: nobody asked it anything it was allowed to
        * hear.
        */
-      for (const bot of bots) {
-        if (bot.playerId === state.trial?.accusedId) continue;
-        this.later(code, within(0.12, 0.55, state.config.judgementMs), () => this.decide(code, bot.playerId, 'judgement'));
-      }
-
       /**
-       * And the accused answers, on the same task the defence used.
+       * The accused speaks first, and the room votes on what it heard.
        *
-       * `judgement` casts a ballot and the accused has none to cast, so this is a
-       * `defense` turn: the one that answers whoever is talking to them. Twice,
-       * late, because the questions worth answering are the ones asked after the
-       * room has heard the defence and started arguing about it.
+       * The first pass at this put the ballots at 12%–55% and the accused's two
+       * answers at 42%–76%, which filled the dead air by talking over the
+       * verdict: most jurors had committed before the booth said a word, and a
+       * bot never revisits a ballot it has cast. That is a worse room than a
+       * silent one — it looks like a hearing and is not.
+       *
+       * So the accused has the opening half and the ballots land behind it.
+       * `judgement` casts a ballot and the accused has none to cast, so its turn
+       * is a `defense` one: the task that answers whoever is talking to it.
        */
       const onTrial = state.trial ? state.players[state.trial.accusedId] : null;
       if (onTrial?.isBot && onTrial.alive) {
         for (let round = 1; round <= 2; round++) {
-          this.later(code, within(0.2 + round * 0.22, 0.32 + round * 0.22, state.config.judgementMs), () =>
-            this.decide(code, onTrial.playerId, 'defense', 'day', round)
-          );
+          this.later(code, within(0.04 + round * 0.16, 0.12 + round * 0.16, state.config.judgementMs), () => {
+            /**
+             * Still the same trial, still in the booth.
+             *
+             * A timer armed here fires against whatever the table has become by
+             * then, and `decide` only checks that the seat is alive. An answer
+             * to the stand that lands after the verdict is an answer to a
+             * question the room has stopped asking, posted into the square.
+             */
+            const now = this.hooks.get(code);
+            if (now?.stage !== 'judgement' || now.trial?.accusedId !== onTrial.playerId) return;
+            this.decide(code, onTrial.playerId, 'defense', 'day', round);
+          });
         }
+      }
+
+      for (const bot of bots) {
+        if (bot.playerId === state.trial?.accusedId) continue;
+        this.later(code, within(0.45, 0.88, state.config.judgementMs), () => this.decide(code, bot.playerId, 'judgement'));
       }
     }
   }
@@ -3327,6 +3399,44 @@ export class MafiaBotDriver {
   }
 
   /**
+   * Is this seat the only one who can read the room it is about to speak in?
+   *
+   * The last Mafioso alive still gets a night turn in the mafia channel, still
+   * drafts a plan, and still spent a model call writing it — to an empty room.
+   * Nobody is in there. Nobody will ever be in there: the rest of the family is
+   * dead and `canRead` lets no one else in. The same goes for the last Triad
+   * member, a Cult of one, and a lodge down to its final Mason. Those calls buy
+   * literally nothing and they come out of the same tokens-per-minute the whole
+   * table is sharing, so every one of them is an accusation somewhere else that
+   * fell back to the phrasebook.
+   *
+   * The square is never empty, so `day` is excluded by construction — which is
+   * also what leaves the Crier alone. His whole power is that his voice carries
+   * into `day` at night, when the rest of the town cannot answer; the room is
+   * full of people reading him, they simply cannot reply. A seat with no
+   * audience and a seat with a silent audience are not the same thing.
+   *
+   * The cell is excluded for the same reason: there is a prisoner in it, and a
+   * Jailor talking to somebody who cannot be seen is the point of the room.
+   *
+   * Asked of `canRead` rather than of the roster, because who can see a channel
+   * is the chat's rule and not this file's guess — the Spy reads the families'
+   * rooms, and a family of one with a Spy listening is not alone at all.
+   */
+  private aloneIn(state: MafiaState, botId: string, room: string): boolean {
+    if (room === 'day' || room.startsWith('jail:')) return false;
+    const rules = chatRules();
+    try {
+      return !Object.values(state.players).some(
+        (other) => other.playerId !== botId && other.alive && rules.canRead(room, other.playerId, state)
+      );
+    } catch {
+      // The rules are the authority, never a reason to drop a turn on the floor.
+      return false;
+    }
+  }
+
+  /**
    * Whether this sentence is worth a model at all.
    *
    * The phrasebook is the floor, and for most of what a table says it is also
@@ -3355,6 +3465,8 @@ export class MafiaBotDriver {
      * nobody heard.
      */
     if (this.timeLeft(state) < 2500) return false;
+    // Nobody in there but the speaker. See `aloneIn`.
+    if (this.aloneIn(state, botId, sayChannel)) return false;
     if (task === 'defense' || decision.urgent === true) return true;
     // Family, cell, crier: few, and read by somebody waiting for exactly them.
     if (task === 'night' || sayChannel !== 'day') return true;
@@ -4283,7 +4395,7 @@ export class MafiaBotDriver {
        * a request and this is not. Truncated at a word boundary so a model that
        * rambles gets cut off looking terse rather than looking broken.
        */
-      const text = clip(decision.say.replace(/\s+/g, ' ').trim(), SAY_CHARS);
+      const text = clip(decision.say.replace(/\s+/g, ' ').trim(), CLAMP_CHARS);
       const room = this.sayChannelFor(state, botId, task, channel);
       // Asked again here because a room that was open when this turn was
       // drafted may have shut while a model was writing the line.
@@ -4925,10 +5037,36 @@ export class MafiaBotDriver {
             [...board.deadRoles.values()].includes(told.role) ||
             [...board.provenRoles.entries()].some(([seat, role]) => role === told.role && seat !== prisoner?.slot));
 
-        if (told && disputed && rng() < 0.85) return { ...EMPTY, targetSlot: slot };
-        if (told && !disputed && suspected < 1.6 && rng() < 0.85) return { ...EMPTY, targetSlot: null };
-        if (pleaded && suspected < 1.2 && rng() < 0.75) return { ...EMPTY, targetSlot: null };
-        if (!pleaded && rng() < 0.35) return { ...EMPTY, targetSlot: slot };
+        /**
+         * Decisive in both directions, which it was in neither.
+         *
+         * The reprieves were so wide that the lever effectively did not exist:
+         * any badge nobody else was wearing bought a night 85% of the time, any
+         * plea at all bought one 75% of the time, and silence — the single most
+         * damning thing a prisoner can offer — only killed 35% of the time. A
+         * Jailor holding three charges therefore held them to the end of the
+         * game, which is what "the jailor never kills" describes.
+         *
+         * Silence is now the answer it actually is. A prisoner given a locked
+         * room, a private channel and one night to say anything at all, who
+         * says nothing, has told the Jailor the only thing it needed: every
+         * townsperson in that cell begs, and the seats that do not are the ones
+         * with nothing safe to say. So that goes to 0.8.
+         *
+         * And a badge still buys a night, because it should — but 0.6, and only
+         * from a seat the square is not already doubting. `cellProves` is added
+         * on top because it is the one fact in this room that cannot be
+         * rehearsed: a night this seat was held and the killing stopped outranks
+         * anything it says now.
+         */
+        const proven = prisoner ? cellProves(mind.brain, prisoner.slot) : 0;
+        const weight = suspected + proven;
+
+        if (told && disputed && rng() < 0.9) return { ...EMPTY, targetSlot: slot };
+        if (proven >= 1.8 && rng() < 0.85) return { ...EMPTY, targetSlot: slot };
+        if (told && !disputed && weight < 1.4 && rng() < 0.6) return { ...EMPTY, targetSlot: null };
+        if (pleaded && weight < 1.0 && rng() < 0.55) return { ...EMPTY, targetSlot: null };
+        if (!pleaded && rng() < 0.8) return { ...EMPTY, targetSlot: slot };
       }
 
       /**
@@ -5081,6 +5219,20 @@ export class MafiaBotDriver {
         const second = decideSecondTarget(self, board, action.type, slot, action.secondTargets ?? [], rng);
         if (second === null) return EMPTY;
         return { ...EMPTY, targetSlot: slot, secondTargetSlot: second };
+      }
+
+      /**
+       * And the cellar door, which is the same house named twice.
+       *
+       * Optional rather than required, so this is not `needsSecondTarget`: the
+       * abduction is a complete order on its own and the second slot is the
+       * lever. The engine advertises it in `secondTargets` only while there are
+       * charges left, so an empty list here is a spent cellar and the seat
+       * simply takes somebody for the night. See `executesCaptive`.
+       */
+      if (slot !== null && action.type === 'kidnap' && (action.secondTargets ?? []).includes(slot)) {
+        const ends = executesCaptive(self, mind.brain, board, slot, self.charges, rng);
+        return { ...EMPTY, targetSlot: slot, secondTargetSlot: ends ? slot : null };
       }
 
       return { ...EMPTY, targetSlot: slot };
@@ -5367,14 +5519,20 @@ export class MafiaBotDriver {
        * bench, two amnesiacs who had each remembered Justicier, and the board
        * filed both as `truthful`. One of them was lying without knowing it.
        *
-       * The engine already tells the loser: `attackTooLate` is pushed to the
-       * attacker whose blade found a body somebody else had made. A seat that was
-       * told that has its answer, and a claim the graveyard cannot separate from
-       * a rival's is exactly the kind this block exists not to make.
+       * Read off `nightLog` rather than the notification feed. The feed is a
+       * rolling sixty entries that nothing clears between nights, so a fixed
+       * tail of it failed in both directions: an `attackTooLate` from night 3
+       * was still sitting in the last four notes on night 5 and gagged a real
+       * kill-claim, and a seat that picked up four notes after its attack lost
+       * tonight's one and made the double-claim anyway. `nightLog` is rewritten
+       * whole every night and carries the attacker, so it answers the question
+       * that was actually being asked: did *this* blade arrive second, *last
+       * night*, at *that* house.
        */
-      const tooLate = self.notifications
-        .slice(-4)
-        .some((note) => note.k === 'mafia.note.attackTooLate');
+      const tooLate = (state.nightLog ?? []).some(
+        (outcome) =>
+          outcome.attackerSlot === me.slot && outcome.targetSlot === struck && outcome.outcome === 'too-late'
+      );
       if (body && !already && !tooLate) {
         publishes.unshift({
           kind: 'kill-claim',
@@ -6443,7 +6601,7 @@ export class MafiaBotDriver {
         )
       });
     const both = frame(parts);
-    return t(both).length <= SAY_CHARS ? both : null;
+    return t(both).length <= CASE_CHARS ? both : null;
   }
 
   /**
@@ -6893,11 +7051,7 @@ export class MafiaBotDriver {
         tradeVerdict(entry.value, board.rolesInPlay) === 'damning'
     );
     if (smelt) {
-      const camps = new Set(
-        rolesWithTrade(smelt.value)
-          .filter((role) => !board.rolesInPlay || board.rolesInPlay.has(role))
-          .map((role) => ROLES[role].faction)
-      );
+      const camps = new Set(tradeSuspects(smelt.value, board.rolesInPlay).map((role) => ROLES[role].faction));
       const [camp] = [...camps];
       if (camps.size === 1 && camp) return vary('mafia.bot.stake.faction', 6, salt, { who, faction: FACTION(camp) });
     }
@@ -7067,6 +7221,58 @@ export class MafiaBotDriver {
     if (!self?.role || !me) return null;
 
     if (self.role === 'jailor') {
+      /**
+       * The one thing a Jailor has that nobody else does: a room that cannot leak.
+       *
+       * The cell is the only channel in the game where two seats can talk with
+       * no third party and no record the square ever sees, and the Jailor spent
+       * every night of it asking questions and giving nothing — which is correct
+       * against a prisoner it suspects and a waste against one it does not. A
+       * Doctor who has proved itself in that room walks out at dawn knowing
+       * nothing about who held it, so the two seats that just established mutual
+       * trust go back to the square as strangers, and the Jailor dies later that
+       * week unvouched-for by the one person who could have vouched.
+       *
+       * So: when this seat has decided the prisoner is genuinely town, it says
+       * who it is. That is a real cost — the prisoner might be lying, and a
+       * Jailor's name in the wrong hands is a dead Jailor — which is exactly why
+       * it is gated on the same evidence the execution is gated on, read the
+       * other way round. It needs a badge that nobody is contesting, a square
+       * that is not already doubting them, and no cell history suggesting the
+       * killing stops when this one is locked up.
+       *
+       * Once per prisoner, and never while there is an execution pending on
+       * them: a seat does not introduce itself to somebody it is about to empty.
+       */
+      const held = state.jailedId ? state.players[state.jailedId] : null;
+      const mine = this.minds.mind(state, botId);
+      if (held && mine && !mine.namedSelfTo?.includes(held.playerId)) {
+        const board = this.minds.board(state, botId);
+        const cellNow = jailChannel(state.day);
+        const told = readRoom(state, cellNow, 0).claimed;
+        const contested =
+          told !== null &&
+          (board.claims.some(
+            (claim) =>
+              claim.kind === 'role-claim' &&
+              claim.claimedRole === told.role &&
+              claim.claimerSlot !== held.slot &&
+              board.aliveSlots.includes(claim.claimerSlot)
+          ) ||
+            [...board.deadRoles.values()].includes(told.role));
+        const doubted = suspicion(held.slot, self, board, () => 0.5) + cellProves(mine.brain, held.slot);
+        const trusted = told !== null && !contested && doubted < 0.6 && ROLES[told.role].faction === 'town';
+        if (trusted) {
+          (mine.namedSelfTo ??= []).push(held.playerId);
+          return t(
+            vary('mafia.bot.jail.trust', 3, botId + ':trust:' + state.day, {
+              who: self.name,
+              role: ROLE.name(told.role)
+            })
+          );
+        }
+      }
+
       /**
        * The threat, only while there is one.
        *
@@ -7647,7 +7853,7 @@ export class MafiaBotDriver {
      * stood, and a corpse still names the porch it died on.
      */
     const written = record
-      .map((entry) => ({ entry, line: this.nightLine(state, entry) }))
+      .map((entry) => ({ entry, line: this.nightLine(state, entry, botId) }))
       .filter((row): row is { entry: IntelEntry; line: string } => row.line !== null);
     /**
      * Only a night that actually says something counts as already reported.
@@ -7674,14 +7880,33 @@ export class MafiaBotDriver {
      * the house, and so does this. Honest seats only: a liar's destination is
      * the family's business.
      */
-    const going =
-      honest && tonight !== null && state.phase === 'night'
-        ? [
+    /**
+     * Every night this seat left the house, not just tonight.
+     *
+     * Read off `mind.went`, which keeps them, rather than off the `tonight`
+     * argument, which only exists on the turn that chose a target. Built from the
+     * argument, the line appeared on that turn and vanished on the next one, so a
+     * seat's will gained and lost the same night repeatedly and the town read
+     * whichever version happened to be current when it died.
+     *
+     * Oldest first, like the rest of the record. A will is read from night one.
+     */
+    if (honest && tonight !== null && state.phase === 'night') {
+      const already = mind.went.find((trip) => trip.night === state.day);
+      if (!already) mind.went.push({ night: state.day, slot: tonight });
+    }
+    const going = honest
+      ? [...mind.went]
+          .sort((left, right) => left.night - right.night)
+          .map((trip) =>
             t(
-              vary('mafia.bot.dump.going', 3, botId + ':going:' + state.day, { night: state.day, who: nameOf(tonight) })
+              vary('mafia.bot.dump.going', 3, botId + ':going:' + trip.night, {
+                night: trip.night,
+                who: nameOf(trip.slot)
+              })
             )
-          ]
-        : [];
+          )
+      : [];
 
     /**
      * The journal: who this seat thought was lying, day by day, and where it
@@ -7689,7 +7914,16 @@ export class MafiaBotDriver {
      * person keeps one: "Day 5: I was wrong about 4" under "Day 3: 4 is lying"
      * is worth more to whoever reads it than a will that quietly forgot.
      */
-    const notes = mind.notes.slice(-6).map((note) =>
+    /**
+     * The whole journal, not the last six entries.
+     *
+     * A will is the one place hoarding buys nothing, and a seat that dies on day
+     * nine should leave nine days of it. `fitWill` still decides what fits in the
+     * space available; deciding it twice, once here with an arbitrary six and
+     * again there with a real budget, only ever threw away the oldest entries —
+     * which are the ones nobody else can still remember.
+     */
+    const notes = mind.notes.map((note) =>
       t(
         vary(`mafia.bot.will.note.${note.kind}`, 3, botId + ':note:' + note.slot, {
           day: note.day,
@@ -7752,7 +7986,7 @@ export class MafiaBotDriver {
       fitWill({
         role: roleLine,
         nights,
-        going: going[0] ?? null,
+        going,
         notes,
         flavour: t(msg(`mafia.bot.will.${shelf[(hashCode(botId) + offset) % shelf.length]}`))
       });
@@ -8142,8 +8376,22 @@ export class MafiaBotDriver {
       case 'trade': {
         const board = botId ? this.minds.board(state, botId) : null;
         const pool = board?.rolesInPlay;
-        const shortlist = rolesWithTrade(entry.value).filter((role) => !pool || pool.has(role));
-        if (shortlist.length === 0) return null;
+        const shortlist = tradeSuspects(entry.value, pool);
+        /**
+         * Nothing found is its own sentence.
+         *
+         * `tradeSuspects` returns nothing for the quiet line, because a quiet
+         * line narrows nothing: every seat that stayed in produces it. It used
+         * to be read out with the three harmless badges that wear it, which
+         * turned "I found nothing" into "they are a Citizen, a Survivor or an
+         * Amnesiac" and handed the room an exoneration the power had refused
+         * to give. See `tradeVerdict`, which has always refused it too.
+         */
+        if (shortlist.length === 0) {
+          return entry.value === QUIET_TRADE
+            ? t(vary('mafia.bot.dump.quiet', 3, salt, { night: entry.night, who }))
+            : null;
+        }
         return t(
           vary('mafia.bot.dump.trade', 3, salt, {
             night: entry.night,
@@ -8610,8 +8858,8 @@ export class MafiaBotDriver {
            * room checking it against the roster.
            */
           const pool = board.rolesInPlay;
-          const trades = [...new Set(Object.values(ROLES).map((role) => role.investigated))].filter((trade) =>
-            rolesWithTrade(trade).some((role) => !pool || pool.has(role))
+          const trades = [...new Set(Object.values(ROLES).map((role) => role.investigated))].filter(
+            (trade) => tradeSuspects(trade, pool).length > 0
           );
           const smelling = (verdict: 'damning' | 'clean'): string | undefined => {
             const fitting = trades.filter((trade) => tradeVerdict(trade, pool) === verdict);
@@ -9230,7 +9478,8 @@ function readClaim(
 function fitWill(parts: {
   role: string | null;
   nights: string[];
-  going: string | null;
+  /** One line per night this seat left the house, oldest first. See `BotMind.went`. */
+  going: string[];
   notes: string[];
   flavour: string;
 }): string {
@@ -9249,12 +9498,20 @@ function fitWill(parts: {
   };
 
   const role = parts.role !== null && afford(parts.role) ? parts.role : null;
-  const going = parts.going !== null && afford(parts.going) ? parts.going : null;
+  /**
+   * The nights first, and all of them if they fit.
+   *
+   * `going` used to be one line, and the caller handed it the first of however
+   * many there were, so a seat that walked out on six nights willed one of them.
+   * They are the cheapest and most checkable thing a corpse can leave: one line,
+   * one night, a house the room can hold against somebody else's account.
+   */
   const nights = take(parts.nights);
+  const going = take(parts.going);
   const notes = take(parts.notes);
   const flavour = afford(parts.flavour) ? parts.flavour : null;
 
-  return [role, ...nights, going, ...notes, flavour].filter((line): line is string => line !== null).join('\n');
+  return [role, ...nights, ...going, ...notes, flavour].filter((line): line is string => line !== null).join('\n');
 }
 
 /**

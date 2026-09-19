@@ -1218,27 +1218,6 @@ export default function MafiaPlayer() {
                       <span className="mz-seat-name" style={{ color: authorColour(player.name) }}>
                         {player.name}
                         {/*
-                          Which brain, not just "a bot".
-
-                          The driver falls back from a model to a phrasebook
-                          silently, which is the right behaviour and also means a
-                          rate-limited API and a working one look identical from
-                          the outside. Two icons and a hover settle it: 🧠 is a
-                          model and names it, 🤖 is the phrasebook.
-                        */}
-                        {player.isBot && (
-                          <BotFlag
-                            brain={player.botBrain}
-                            working={
-                              busy.speaking.includes(player.slot)
-                                ? 'speaking'
-                                : busy.thinking.includes(player.slot)
-                                  ? 'thinking'
-                                  : null
-                            }
-                          />
-                        )}
-                        {/*
                           The sash, named rather than hinted at.
 
                           A faint ribbon at half opacity was the whole of it, and
@@ -1626,50 +1605,6 @@ function VoteTrail({ view, t }: { view: MafiaView; t: (message: Msg) => string }
  * description. Same shell for all three so they open and close the same way and
  * a fourth costs nothing.
  */
-/**
- * The bot marker, and what is behind it.
- *
- * `botBrain` is null until something has answered for the seat, which is a real
- * state and worth showing as such: a quiet bot on day one has not yet been
- * through the chain, so nothing is known about which end of it answered.
- *
- * It used to be written only when the *mouth* came back with a line, so a seat
- * whose move a model had chosen, and a whole table whose ear was reading every
- * word said in the square, both showed the phrasebook robot. All three rungs
- * report now: see `noteBrain`.
- */
-function BotFlag({ brain, working }: { brain: string | null; working: 'thinking' | 'speaking' | null }) {
-  const { t } = useLocale();
-  const scripted = brain === 'scripted';
-  const label = working
-    ? t(msg(working === 'speaking' ? 'mafia.ui.bot.speaking' : 'mafia.ui.bot.thinking'))
-    : brain === null
-      ? t(msg('mafia.ui.bot.quiet'))
-      : scripted
-        ? t(msg('mafia.ui.bot.scripted'))
-        : t(msg('mafia.ui.bot.model', { model: brain }));
-
-  /**
-   * The same flag, lit while something is actually running for this seat.
-   *
-   * It used to report only which end of the chain last *spoke*, which is a fact
-   * about the past and answered none of the question people actually ask while
-   * they wait: is anything happening. A local model takes a second or two per
-   * line and a slow rung ten, and for all of it the square sat still — exactly
-   * what a fallen-over chain looks like. Now the seat being written for says so
-   * while it is being written for.
-   */
-  return (
-    <span
-      className={working ? `mz-flag mz-flag--${working}` : 'mz-flag'}
-      title={label}
-      aria-label={label}
-    >
-      {' '}
-      {brain === null || scripted ? '🤖' : '🧠'}
-    </span>
-  );
-}
 
 function FloatingPanel({
   title,

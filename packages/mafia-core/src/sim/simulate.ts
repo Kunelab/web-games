@@ -29,6 +29,7 @@ import {
   makeBrain,
   decideNightTarget,
   decideSecondTarget,
+  executesCaptive,
   isEvilRole,
   makePersonality,
   sheriffSuspects,
@@ -222,6 +223,11 @@ export interface SimResult {
   saves: number;
   executions: number;
   wrongExecutions: number;
+  /** Captives the Kidnapper or the Interrogator did not release. See `optionalCharges`. */
+  cellarKills: number;
+  /** Tables that dealt a cell at all, so the two counts above can be read as rates. */
+  jailorPresent: boolean;
+  keeperPresent: boolean;
   /** Diagnostics: what the rumour mill produced, and who stood at the end. */
   claimsTrue: number;
   claimsFalse: number;
@@ -721,11 +727,18 @@ export function simulateGame(options: SimOptions): SimResult {
           rng
         );
         // A two-house power is submitted whole or not at all: the engine refuses a
-        // control or a swap that names only one doorstep.
+        // control or a swap that names only one doorstep. The cellar's second
+        // slot is optional and is the captive named again; see `executesCaptive`.
         const second =
-          target !== null && needsSecondTarget(legal.type)
-            ? decideSecondTarget(player, info, legal.type, target, legal.secondTargets ?? [], rng)
-            : null;
+          target === null
+            ? null
+            : needsSecondTarget(legal.type)
+              ? decideSecondTarget(player, info, legal.type, target, legal.secondTargets ?? [], rng)
+              : legal.type === 'kidnap' && (legal.secondTargets ?? []).includes(target)
+                ? executesCaptive(player, brains.get(player.playerId)!, info, target, player.charges, rng)
+                  ? target
+                  : null
+                : null;
         if (target !== null && (!needsSecondTarget(legal.type) || second !== null)) {
           setNightAction(state, player.playerId, target, second);
         }
@@ -858,6 +871,9 @@ function tally(
     saves: state.points.filter((entry) => entry.reason === 'save').length,
     executions: executed.length,
     wrongExecutions: executed.filter((death) => !isEvilRole(death.role)).length,
+    cellarKills: state.deaths.filter((death) => death.source === 'kidnapper').length,
+    jailorPresent: rolePresent('jailor'),
+    keeperPresent: rolePresent('kidnapper') || rolePresent('interrogator'),
     claimsTrue: claims.filter((claim) => claim.truthful).length,
     claimsFalse: claims.filter((claim) => !claim.truthful).length,
     finalAlive: players.filter((player) => player.alive).map((player) => player.role!),

@@ -730,6 +730,42 @@ export function rolesWithTrade(trade: string): RoleId[] {
 }
 
 /**
+ * Whether a badge can ever leave its own smell.
+ *
+ * An examiner reads a night, not a badge: the engine hands back the target's
+ * trade only for a seat that did something, and the quiet line for everybody
+ * else. A role with no night action at all therefore *never* produces the line
+ * written on its card, which makes those roles padding in every shortlist that
+ * lists them, and padding is not a neutral cost here. Four town badges sit on
+ * `hands` and none of them can act, so the one line in the game that is a
+ * guaranteed family leader was being read out as a six-way shrug with the Mayor
+ * at the top of it.
+ *
+ * The alert and the vest count: they name no house but they are a night's work,
+ * and the engine agrees with this function about that.
+ */
+export function canEmitTrade(role: RoleId): boolean {
+  return roleDef(role).nightAction !== null;
+}
+
+/**
+ * The shortlist as the room should actually read it: the roles that could have
+ * produced this line, at this table, on some night.
+ *
+ * Two crossings-off, and both are things a player could do from the two screens
+ * in front of them: the roster on the wall removes what was never dealt, and the
+ * role cards remove what cannot act. Empty for the quiet line, which is not a
+ * shortlist at all but the absence of one, and every caller has to say something
+ * different about that case rather than print three harmless names.
+ */
+export function tradeSuspects(trade: string, rolesInPlay?: ReadonlySet<RoleId>): RoleId[] {
+  if (trade === QUIET_TRADE) return [];
+  const able = rolesWithTrade(trade).filter(canEmitTrade);
+  const dealt = rolesInPlay ? able.filter((role) => rolesInPlay.has(role)) : able;
+  return dealt.length > 0 ? dealt : able;
+}
+
+/**
  * What a shortlist is worth once you cross off the roles this table cannot hold.
  *
  * The whole point of the mechanic, and the thing that decides whether a finding
@@ -763,9 +799,17 @@ export function tradeVerdict(trade: string, rolesInPlay?: ReadonlySet<RoleId>): 
    * roles that can *produce* it are everybody. It stays a shrug forever.
    */
   if (trade === QUIET_TRADE) return 'mixed';
-  const all = rolesWithTrade(trade);
-  const possible = rolesInPlay ? all.filter((role) => rolesInPlay.has(role)) : all;
-  const shortlist = possible.length > 0 ? possible : all;
+  const shortlist = tradeSuspects(trade, rolesInPlay);
+  /**
+   * A line nobody at this table could have left is not a verdict.
+   *
+   * `dirt` and `laugh` are worn by the Stump and the Jester, neither of whom
+   * has a night, so those two lines cannot be produced by anybody, ever. They
+   * survive only as something a liar might claim, and a claim about an
+   * impossible smell deserves the shrug rather than a conviction built on the
+   * faction of a role that could not have been there.
+   */
+  if (shortlist.length === 0) return 'mixed';
   if (shortlist.every((role) => isEvilRole(role))) return 'damning';
   if (shortlist.every((role) => roleDef(role).faction === 'town')) return 'clean';
   return 'mixed';
@@ -2743,8 +2787,46 @@ export function decideDay(
           (entry) => votesAgainst(entry.targetSlot, info) >= 1 || info.trialSlot === entry.targetSlot
         );
         const confident = suspects.length >= 2 ? 1.4 : 1;
-        if (timely && rng() < Math.max(speakChance, 0.75)) publish(timely.targetSlot, 'accuse');
-        else if (suspects.length > 0 && rng() < speakChance * confident * 0.7) {
+        /**
+         * The badge travels with the finding, or the finding is just an opinion.
+         *
+         * A check is evidence because of who made it. Said without the badge it
+         * is "3 is bad" from nobody in particular, which is the cheapest
+         * sentence in the game and the one every liar at the table is also
+         * saying — so the square filled up with assertions and emptied of
+         * reasons, which is exactly how it reads from a seat.
+         *
+         * The badge only came out when `endangered`, which is to say once it no
+         * longer bought anything. It costs exposure, and that cost is real, but
+         * the comment on the branch above already concedes the point for a
+         * timely finding: confirming a live wagon is worth being seen. If it is
+         * worth the exposure it is worth the badge, because the exposure is
+         * incurred either way the moment the accusation lands — a seat that
+         * accuses accurately twice is read as an investigator whether it said so
+         * or not, and `claimerWeight` pays an uncontested badge 1.3 for being
+         * checkable.
+         */
+        const badge = (): void => {
+          if (!alreadyClaimed(info, self.slot, self.slot, 'role-claim')) publish(self.slot, 'role-claim', role);
+        };
+        if (timely && rng() < Math.max(speakChance, 0.75)) {
+          badge();
+          publish(timely.targetSlot, 'accuse');
+        } else if (suspects.length > 0 && rng() < speakChance * confident * 0.7) {
+          /**
+           * And not here, which is the measured half of the rule.
+           *
+           * Badging both branches read better and played worse: 47.7% for the
+           * town against 50.5% over the same 600 seeds. The difference is the
+           * speculative finding — a check on a seat nobody is voting for, which
+           * buys the room very little and tells the family which house holds the
+           * notebook, a night before that notebook was going to matter.
+           *
+           * The timely branch keeps its badge because the exposure there is
+           * already sunk: the wagon exists, the seat is confirming it, and being
+           * the one who confirmed it is what the family reads anyway. This
+           * branch is the one where staying anonymous is still worth something.
+           */
           publish(suspects[suspects.length - 1].targetSlot, 'accuse');
         }
       }
@@ -2788,6 +2870,18 @@ export function decideDay(
           .sort((left, right) => rank(right.verdict) - rank(left.verdict));
         const best = graded[0];
         if (best) {
+          /**
+           * No badge on a trade line, and that is measured rather than assumed.
+           *
+           * The Sheriff's timely finding gets one (see above) and it is free:
+           * 50.8% for the town against 50.5% without it. The same rule applied
+           * to the Investigator cost 1.8 points on the same 600 seeds, and the
+           * reason the two differ is what the claim is worth once it is made. A
+           * verdict names a seat; a trade line names three or four roles it
+           * could be, so the room still has to argue about it — the badge buys
+           * that argument very little and sells the family a confirmed
+           * investigator for it. The finding goes up; the notebook stays shut.
+           */
           if (best.verdict === 'damning') publish(best.entry.targetSlot, 'accuse');
           else if (best.verdict === 'clean') publish(best.entry.targetSlot, 'clear');
           else publish(best.entry.targetSlot, 'hint');
@@ -3537,12 +3631,31 @@ export function decideDay(
     const pressure = parityPressure(info);
     if (sure && others.includes(sure.slot)) {
       decision.jailSlot = sure.slot;
-    } else if (pressure >= 0.6) {
+    } else if (pressure >= 0.35 || info.day >= 4) {
+      /**
+       * The cell stops being an interview room well before parity does.
+       *
+       * This opened at `pressure >= 0.6`, which on a fifteen-seat table is most
+       * of the way to losing, so for the first two thirds of every game the
+       * Jailor picked out of the *quiet* branch below — unclaimed seats with
+       * near-zero suspicion, chosen deliberately because they are unknowns. It
+       * then asked, at dusk, whether the unknown it had gone out of its way to
+       * select was suspicious enough to execute. It never was: three charges
+       * reached the end of 600 benched tables having killed 0.20 people
+       * between them, and the role's entire teeth went unused in four games out
+       * of five.
+       *
+       * Interviewing strangers is right on day two, when nobody has said
+       * anything worth doubting. By day four the board has opinions and the
+       * cell is worth more pointed at one of them. The bar comes down with it,
+       * because 1.0 was "the room's leading suspect" and the room's leading
+       * suspect is the seat that does not need a Jailor.
+       */
       const suspects = others
         .map((slot) => ({ slot, score: suspicion(slot, self, info, rng) }))
         .sort((a, b) => b.score - a.score);
       const top = suspects[0];
-      if (top && top.score >= 1) decision.jailSlot = top.slot;
+      if (top && top.score >= 0.8) decision.jailSlot = top.slot;
     } else {
       const quiet = others.filter(
         (slot) =>
@@ -4794,7 +4907,37 @@ export function decideNightTarget(
      * bar. `cellProves` is the private half, and it is the half that is true.
      */
     const score = suspicion(prisoner, self, info, rng) + cellProves(brain, prisoner);
-    return score >= 2.4 - brain.personality.courage ? prisoner : null;
+    /**
+     * 2.4 to 2.3, and the reason it is barely a change is the finding.
+     *
+     * The lever was never being pulled — 0.20 executions per table across 600
+     * benched games, three charges mostly reaching the end of the game unspent
+     * — and the obvious read was that the bar was too high. It is not. Swept
+     * against 600 games each, holding everything else fixed:
+     *
+     *     bar    executions/table   evil / town     correct
+     *     1.7          0.31           86 / 100        46%
+     *     2.0          0.26           78 /  76        51%
+     *     2.3          0.20           68 /  50        58%
+     *     2.6          0.17           61 /  42        59%
+     *
+     * Every execution bought below about 2.3 is a coin flip, and the coin is
+     * paid for twice: the town loses the seat, and the engine takes the
+     * Jailor's remaining charges for killing an innocent. The town win rate is
+     * flat across the whole column (50.2% to 50.7%), which says the bar is not
+     * what is wrong with the role.
+     *
+     * What was wrong is *who was in the cell* — see the day pick above, which
+     * spent the first two thirds of every game deliberately interviewing seats
+     * it had no reason to doubt. Fixing that moved accuracy from 46% to 58% at
+     * the same volume, which is the improvement worth having. The number here
+     * only comes down by the tenth that the sweep says is free.
+     *
+     * The real teeth are in the cell itself, which this function cannot see:
+     * `cellProves` is the half that is not an opinion, and the interrogation in
+     * `bots.ts` is where a live Jailor learns something the square never will.
+     */
+    return score >= 2.3 - brain.personality.courage ? prisoner : null;
   }
 
   /* ------------------------------ protectors ------------------------------ */
@@ -5080,6 +5223,53 @@ export function decideNightTarget(
  * Returns null only when there is genuinely nowhere to point, in which case the
  * caller drops the whole order: half of one of these is worse than none of it.
  */
+/**
+ * Does the captive come back out at dawn?
+ *
+ * Almost never, and that is the design rather than an oversight. The cellar
+ * holds three executions for a whole game and the abduction is worthless on its
+ * own — a blocked seat for one night, against a family that already has a
+ * knife — so a Kidnapper hoarding charges is a Kidnapper playing as a slightly
+ * worse Consort. The charges are there to make it a resource, not a decision to
+ * agonise over: take somebody worth taking, and end them.
+ *
+ * Two brakes, and only two, because every one of them is a night the role did
+ * nothing.
+ *
+ * The first is the seat the town is already hanging. A captive scoring above
+ * the square's own conviction line is somebody the room will do for free
+ * tomorrow, and spending an irreplaceable charge on them buys a corpse the
+ * family was getting anyway — worse, it buys it *quietly*, so the room never
+ * sees the confirmation it was heading towards and starts again from nothing.
+ *
+ * The second is the last charge against a seat nobody has any reason to care
+ * about. Two spent on the loud ones and the third held for whoever turns out to
+ * matter is better than three spent on the first three houses in seat order.
+ *
+ * Everything else dies. A quiet unclaimed townsman is the best possible use of
+ * the cellar: unprotectable, unprovable, and gone.
+ */
+export function executesCaptive(
+  self: MafiaPlayer,
+  brain: Brain,
+  info: PublicInfo,
+  captiveSlot: number,
+  charges: number,
+  rng: () => number
+): boolean {
+  if (charges <= 0) return false;
+  const score = suspicion(captiveSlot, self, info, rng);
+
+  // The room is already walking this one to the rope. Let it.
+  if (score >= 2.6 && rng() < 0.75) return false;
+
+  // The last one is worth keeping for somebody who matters.
+  const nobody = score < 0.6 && !info.claims.some((claim) => claim.claimerSlot === captiveSlot);
+  if (charges === 1 && nobody && rng() < 0.6) return false;
+
+  return rng() < 0.92;
+}
+
 export function decideSecondTarget(
   self: MafiaPlayer,
   info: PublicInfo,
