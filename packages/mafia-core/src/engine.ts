@@ -3089,7 +3089,12 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       target.alive
     ) {
       visit(player.playerId, target.playerId);
-      if (target.role && roleDef(target.role).faction === "town") {
+      // A sash is not a soul to be bought. See `keepsRole`.
+      if (
+        target.role &&
+        roleDef(target.role).faction === "town" &&
+        !roleDef(target.role).keepsRole
+      ) {
         const converted: RoleId =
           target.role === "doctor" ? "witch-doctor" : "cultist";
         target.role = converted;
@@ -3128,7 +3133,9 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       visit(player.playerId, target.playerId);
       const targetDef = roleDef(target.role!);
       let audited: RoleId | null = null;
-      if (targetDef.faction === "town") audited = "citizen";
+      // The same seat the cult may not have. See `keepsRole`.
+      if (targetDef.keepsRole) audited = null;
+      else if (targetDef.faction === "town") audited = "citizen";
       else if (
         targetDef.faction === "mafia" &&
         targetDef.familyRank !== "leader"

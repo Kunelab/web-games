@@ -167,8 +167,6 @@ export interface AutocompleteProps {
   placeholder?: string;
   id?: string;
   disabled?: boolean;
-  /** How many matches to show at once. The rest are reachable by typing more. */
-  most?: number;
 }
 
 /** Case and accents are not a difference anybody means when they type. */
@@ -179,11 +177,12 @@ function loosely(text: string): string {
     .toLowerCase();
 }
 
-export function Autocomplete({ options, onPick, placeholder, id, disabled, most = 8 }: AutocompleteProps) {
+export function Autocomplete({ options, onPick, placeholder, id, disabled }: AutocompleteProps) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [cursor, setCursor] = useState(0);
   const box = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const listId = useId();
 
   /**
@@ -192,16 +191,27 @@ export function Autocomplete({ options, onPick, placeholder, id, disabled, most 
    * A word that *starts* the label comes before one buried in the middle: typing
    * "ma" wants the Mafioso before the Pharmacist, and every list in this app is
    * short enough that sorting the matches costs nothing.
+   *
+   * Nothing typed is not nothing to show: the whole catalogue opens, in its own
+   * order, so a host who does not yet know a name can still browse for one. The
+   * list scrolls, so how long it is stays the catalogue's business.
    */
   const matches = useMemo(() => {
     const needle = loosely(query.trim());
-    if (!needle) return options.slice(0, most);
-    const scored = options
+    if (!needle) return options;
+    return options
       .map((option) => ({ option, at: loosely(option.label).indexOf(needle) }))
       .filter((entry) => entry.at >= 0)
-      .sort((left, right) => left.at - right.at || left.option.label.localeCompare(right.option.label));
-    return scored.slice(0, most).map((entry) => entry.option);
-  }, [options, query, most]);
+      .sort((left, right) => left.at - right.at || left.option.label.localeCompare(right.option.label))
+      .map((entry) => entry.option);
+  }, [options, query]);
+
+  // The highlight can walk past the bottom of a list this long, so the list
+  // follows it rather than leaving the arrows pointing at something unseen.
+  useEffect(() => {
+    if (!open) return;
+    list.current?.children[cursor]?.scrollIntoView({ block: 'nearest' });
+  }, [open, cursor]);
 
   // A click anywhere else is an answer too: it means not this one.
   useEffect(() => {
@@ -264,7 +274,7 @@ export function Autocomplete({ options, onPick, placeholder, id, disabled, most 
         onKeyDown={onKey}
       />
       {open && matches.length > 0 && (
-        <ul className="combo-list" id={listId} role="listbox">
+        <ul className="combo-list" id={listId} role="listbox" ref={list}>
           {matches.map((option, index) => (
             <li
               key={option.value}

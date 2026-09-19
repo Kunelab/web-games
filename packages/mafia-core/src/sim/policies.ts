@@ -535,6 +535,20 @@ export interface Brain {
   wentTo: number | null;
   /** The way this seat plays the whole game, for the two roles that get to choose one. See `styleOf`. */
   style: Style | null;
+  /**
+   * A Jailor only: who was in the cell on which night, and what the morning said.
+   *
+   * The one piece of evidence in this game that cannot be faked, framed,
+   * blackmailed or talked around. A night the cell was full and nothing died is
+   * not a quiet night, it is a name. Seen on a real table: the Jailor held the
+   * Serial Killer on night five, the killing stopped for exactly that night, the
+   * prisoner claimed Doctor, and the Jailor let him out, never jailed him again
+   * and was hanged two days later by a room he could have saved.
+   *
+   * Kept on the brain rather than read off the board because it is private: the
+   * room is never told who was in the cell.
+   */
+  cell: { night: number; slot: number; quiet: boolean }[];
 }
 
 /**
@@ -605,8 +619,39 @@ export function makeBrain(slot: number, personality: Personality): Brain {
     lastKillTarget: null,
     desperation: CALM,
     wentTo: null,
-    style: null
+    style: null,
+    cell: []
   };
+}
+
+/**
+ * What the cell has proved, if anything.
+ *
+ * A night the Jailor held somebody and the board woke to no killing of a kind
+ * that had been killing is the only unfakeable evidence this game produces: the
+ * prisoner could not act, and the act did not happen. One such night is a strong
+ * suspicion. Two, on the same prisoner, is a confession the prisoner never made.
+ *
+ * Deliberately counted against nights the cell was EMPTY, not against nights in
+ * general. A killer who simply chose not to swing makes a quiet night too, and a
+ * board where nobody has died for three nights running proves nothing about
+ * whoever happened to be in the cell on one of them. What the comparison asks is
+ * narrower and fair: when this seat was locked up, did the killing stop, and when
+ * it was not, did it carry on.
+ */
+export function cellProves(brain: Brain, slot: number): number {
+  const held = brain.cell.filter((night) => night.slot === slot);
+  if (held.length === 0) return 0;
+  const quietHeld = held.filter((night) => night.quiet).length;
+  if (quietHeld === 0) return 0;
+
+  // Nights this seat was NOT in the cell, and whether the board was quiet anyway.
+  const heldNights = new Set(brain.cell.filter((night) => night.slot === slot).map((night) => night.night));
+  const free = brain.cell.filter((night) => !heldNights.has(night.night));
+  const quietFree = free.filter((night) => night.quiet).length;
+  // A board that goes quiet on its own says nothing about the prisoner.
+  if (free.length > 0 && quietFree / free.length >= 0.5) return quietHeld * 0.6;
+  return quietHeld >= 2 ? 3.2 : 1.8;
 }
 
 export function makePersonality(profile: Personality, rng: () => number): Personality {
@@ -3332,6 +3377,19 @@ export function decideDay(
 
   /* -------- Jailor picks tonight's prisoner. -------- */
   if (role === 'jailor') {
+    /**
+     * Last night's answer, which only this morning can give.
+     *
+     * The cell is written down when the prisoner goes in and cannot be judged
+     * until the board wakes up, so the verdict is filled in here, one day late,
+     * for whatever was recorded yesterday. A night with nobody jailed is
+     * recorded too, as slot -1: without it there is no control group, and
+     * "nothing died while I held him" means nothing on a board where nothing
+     * dies most nights anyway. See `cellProves`.
+     */
+    for (const night of brain.cell) {
+      if (night.night === info.day - 1) night.quiet = info.lastNightDeathSlots.size === 0;
+    }
     // Early game the cell is an interrogation room: safe-check the quiet,
     // unclaimed seats nobody knows anything about. Once parity looms, it's an
     // execution chamber for the top suspect.
@@ -3364,6 +3422,17 @@ export function decideDay(
       const pick = quiet[Math.floor(rng() * quiet.length)];
       if (pick !== undefined && rng() < 0.8) decision.jailSlot = pick;
     }
+
+    /**
+     * Tonight, written down before it happens.
+     *
+     * Including the nights nobody goes in, which are the control: see the note
+     * above and `cellProves`. Rewritten rather than appended if this day has
+     * already been recorded, because a day decision can be taken more than once.
+     */
+    const tonight = brain.cell.find((night) => night.night === info.day);
+    if (tonight) tonight.slot = decision.jailSlot ?? -1;
+    else brain.cell.push({ night: info.day, slot: decision.jailSlot ?? -1, quiet: false });
   }
 
   /* --------------------- The mayor takes the sash off the shelf. -------------------- */
@@ -3598,6 +3667,18 @@ function pickVote(
     const loudest = wagons
       .map((slot) => ({ slot, along: wagonAlong(slot, info) }))
       .sort((left, right) => right.along - left.along)[0];
+    /**
+     * At three seats the only thing left to get wrong is being the odd one out.
+     *
+     * He wins by being alive when it stops, whoever it stops for, so every
+     * remaining question is about not being the one hanged and not being the one
+     * knifed for standing in the way. Riding whatever wagon exists does both: it
+     * ends the game a seat sooner and it puts him on the same side of the vote as
+     * whoever would otherwise come for him. Watched a Survivor reach the last
+     * three, say nothing, vote nothing in particular, and win on a coin flip he
+     * had no part in.
+     */
+    if (info.aliveSlots.length <= 3 && loudest) return loudest.slot;
     // The town is losing, so the seats it suspects are the wrong wagon: ride the biggest one, whoever is under it.
     if (tide(info) === 'evil' && loudest) return loudest.slot;
     // In a hurry, any real wagon is a way to make the table smaller tonight.
@@ -4079,6 +4160,8 @@ export function decideBallot(
   }
 
   if (role === 'survivor') {
+    // Three seats left: end it while he is still one of them. See the same rule in the day vote.
+    if (info.aliveSlots.length <= 3) return 'guilty';
     // Whoever is on the stand, a hanging tonight is one fewer night for a knife to find him.
     if (tide(info) === 'evil') return 'guilty';
     if (styleOf(self, brain, rng) === 'hurried' && info.day >= 4 && rng() < 0.8) return 'guilty';
@@ -4569,10 +4652,17 @@ export function decideNightTarget(
   }
 
   if (actionType === 'jail-execute') {
-    // Execute when the prisoner carries real public suspicion.
     const prisoner = legalTargets[0];
     if (prisoner === undefined) return null;
-    const score = suspicion(prisoner, self, info, rng);
+    /**
+     * What the room thinks, plus the one thing only this seat knows.
+     *
+     * Public suspicion alone sent a Jailor to the gallows with the Serial Killer
+     * still in his cell: he had held him the night the killing stopped, and the
+     * square had never suspected him at all, so the score was nowhere near the
+     * bar. `cellProves` is the private half, and it is the half that is true.
+     */
+    const score = suspicion(prisoner, self, info, rng) + cellProves(brain, prisoner);
     return score >= 2.4 - brain.personality.courage ? prisoner : null;
   }
 

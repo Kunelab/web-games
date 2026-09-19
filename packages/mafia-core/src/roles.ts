@@ -201,6 +201,18 @@ export interface RoleDef {
   suspicious?: boolean;
   /** At most one per table. */
   unique?: boolean;
+  /**
+   * Nothing may turn this seat into something else.
+   *
+   * The Cult converts and the Auditor strips, and both walked straight through
+   * a revealed Mayor. His sash is worth three votes, so converting him hands the
+   * cult a third of a small table in one night and auditing him deletes the
+   * single largest number in the game, in both cases from a seat that has already
+   * stood up and told everybody what it is. No other role carries an effect that
+   * survives its own conversion, which is what makes this one different rather
+   * than merely unlucky.
+   */
+  keepsRole?: boolean;
   /** Family kill chain: leaders order, executors carry. */
   familyRank?: 'leader' | 'executor';
   /** Solo killing role: wins alone, counted apart from families. */
@@ -383,6 +395,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     faction: 'town',
     nightAction: null,
     unique: true,
+    keepsRole: true,
     description: 'Peut se révéler en plein jour : son vote compte alors triple.',
     investigated: L.hands
   }),

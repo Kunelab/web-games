@@ -863,6 +863,30 @@ const OWN_DEED: RegExp[] = [
  * or a badge the decision never held is an invention, and an invention that
  * convicts its own speaker is the most expensive kind.
  */
+/**
+ * The family a seat belongs to, named by the seat itself.
+ *
+ * "Last night I was in house 13, whispering to the cult" and "not doing cult
+ * stuff, just waiting for the power to come back on" were both said on the
+ * stand, by a cultist, in the square, while defending himself. Neither was
+ * decided: the brain had handed the mouth an alibi and the model dressed it up
+ * with the one word that hangs the speaker.
+ *
+ * `OWN_DEED` catches a killer owning a kill. This catches an evil owning a
+ * *side*, which is the same mistake and costs the same game. Naming the side in
+ * the third person is ordinary table talk and stays: "the cult is winning" is
+ * something anybody may say. It is the first person that convicts.
+ */
+const OWN_SIDE: RegExp[] = [
+  /\b(?:i|we)(?:'m|'re| am| are| was| were)?\s+(?:the\s+|a\s+|one\s+of\s+the\s+|part\s+of\s+the\s+|with\s+the\s+|in\s+the\s+)?(?:cult|mafia|triad|famiglia|coven)\b/i,
+  /\b(?:my|our)\s+(?:cult|mafia|triad|famiglia|family|side|team)\s+(?:is|are|was|were|will|wants|needs)\b/i,
+  /\b(?:i|we)\s+(?:was|were|am|are)\b[^.!?]{0,40}\b(?:whispering|talking|speaking|meeting|plotting|conspiring)\s+(?:to|with|in|for)\s+(?:the\s+)?(?:cult|mafia|triad|coven|family|famiglia)\b/i,
+  /\b(?:cult|mafia|triad)\s+(?:stuff|business|work|things|meeting|chat|room)\b/i,
+  /\b(?:je|j'?)\s*(?:suis|etais|fais partie)\s+(?:de\s+)?(?:la\s+|le\s+|du\s+)?(?:secte|mafia|triade|famille)\b/i,
+  /\b(?:ma|notre)\s+(?:secte|mafia|triade|famille)\b/i,
+  /\b(?:trucs?|affaires?|reunions?|histoires?)\s+de\s+(?:secte|mafia|triade)\b/i
+];
+
 export function confesses(text: string, fallback: string): boolean {
   const plain = straighten(text);
   const plainFallback = straighten(fallback);
@@ -871,7 +895,9 @@ export function confesses(text: string, fallback: string): boolean {
   const decided = selfClaim(plainFallback);
   const said = selfClaim(plain);
   if (said && said !== decided) return true;
-  return OWN_DEED.some((pattern) => pattern.test(plain)) && !OWN_DEED.some((pattern) => pattern.test(plainFallback));
+  const owned = (patterns: RegExp[]): boolean =>
+    patterns.some((pattern) => pattern.test(plain)) && !patterns.some((pattern) => pattern.test(plainFallback));
+  return owned(OWN_DEED) || owned(OWN_SIDE);
 }
 
 const EMPTY: Decision = { say: null, targetSlot: null, verdict: null, claim: null };
@@ -2331,7 +2357,9 @@ export class MafiaBotDriver {
         answer,
         claimableRoles(fresh),
         new Set(wills.map((will) => will.authorId).filter((id): id is string => id !== null)),
-        refused
+        refused,
+        // The transcript itself, so a night number cannot be filed as a house.
+        lines.map((line) => line.text).join('\n')
       );
       for (const claim of filed) {
         /**
@@ -5261,7 +5289,25 @@ export class MafiaBotDriver {
       const already = board.claims.some(
         (claim) => claim.kind === 'kill-claim' && claim.claimerSlot === me.slot && claim.targetSlot === struck
       );
-      if (body && !already) {
+      /**
+       * And the knife that arrived second does not get to claim the body.
+       *
+       * The report above only says a corpse of the right weapon is lying where
+       * this seat went, which is a different sentence from "I killed it". Two
+       * Vigilantes who pick the same house on the same night both pass that test
+       * and both stand up the next morning claiming the same kill: seen on the
+       * bench, two amnesiacs who had each remembered Justicier, and the board
+       * filed both as `truthful`. One of them was lying without knowing it.
+       *
+       * The engine already tells the loser: `attackTooLate` is pushed to the
+       * attacker whose blade found a body somebody else had made. A seat that was
+       * told that has its answer, and a claim the graveyard cannot separate from
+       * a rival's is exactly the kind this block exists not to make.
+       */
+      const tooLate = self.notifications
+        .slice(-4)
+        .some((note) => note.k === 'mafia.note.attackTooLate');
+      if (body && !already && !tooLate) {
         publishes.unshift({
           kind: 'kill-claim',
           claimerSlot: me.slot,
