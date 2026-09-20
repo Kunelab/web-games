@@ -537,7 +537,19 @@ function readTestaments(state: MafiaState): Claim[] {
         // Written down rather than left to be guessed from `day`. See `Claim.night`.
         night: entry.night,
         claimerSlot: player.slot,
-        truthful: false
+        truthful: false,
+        /**
+         * Every line of this is a night somebody actually worked.
+         *
+         * A will rendered from `intel` is the record itself: the entry exists
+         * because the engine wrote it when the power resolved. `worked` is what
+         * separates "I checked 9 and he came back bad" from "I reckon 9 is
+         * bad", and without it a dead investigator's testimony reached the
+         * board indistinguishable from a stranger's hunch — which is how the
+         * town's own corpses ended up counting as hearsay in the one place it
+         * matters, the half of the score a juror is allowed to point at.
+         */
+        worked: true
       } as const;
       switch (entry.kind) {
         case 'sheriff':

@@ -7107,10 +7107,26 @@ export class MafiaBotDriver {
       });
     }
 
-    // 8. A seat that has never said anything is a seat nobody can be wrong about.
-    if (board.day >= 2 && !board.claims.some((claim) => claim.claimerSlot === targetSlot)) {
-      return vary('mafia.bot.why.silent', 3, botId + ':w:' + targetSlot);
-    }
+    /**
+     * 8. Being quiet, which is not a reason and was the commonest one given.
+     *
+     * Silence is worth exactly nothing in the arithmetic: it appears in no
+     * weight in `suspicionParts`, in no rule in `rank`, and in no deduction. It
+     * had this rung anyway, near the bottom, which is precisely where a vote
+     * decided by noise lands — so whenever the board held nothing, the sentence
+     * that came out of the square was "they have not made a single claim all
+     * game", and the room heard the town hanging people for not talking.
+     *
+     * From a real table, day five: two seats a twentieth of a point apart, the
+     * wagon opened on the quieter one with this line, and four seats followed
+     * it within the minute. Nobody at that table had a single checkable fact
+     * about the man they hanged.
+     *
+     * So it is gone as a reason to pull a rope. What silence justifies is a
+     * *question* — `decideDay` already asks one, and a seat that then refuses
+     * to answer is caught by the rung below, which is a different sentence
+     * about a different thing.
+     */
 
     /**
      * Two names that have never crossed on a ballot.
@@ -7173,7 +7189,22 @@ export class MafiaBotDriver {
         // table.
         (claim.kind === 'account' || claim.kind === 'sighting' || claim.kind === 'ailing' || claim.worked === true)
     );
-    return board.day >= 3 && silentOnNights ? vary('mafia.bot.why.nowhere', 3, botId + ':w:' + targetSlot) : null;
+    /**
+     * And only once the room has actually asked.
+     *
+     * Volunteering your nights is a habit, not a duty: plenty of honest seats
+     * never think to, and hanging them for it is the same mistake the rung
+     * above was deleted for, wearing a longer sentence. What is a real tell is
+     * being *asked* and not answering, which is a choice the whole room watched
+     * somebody make — and which the arithmetic already prices, at half an
+     * accuser's weight, through `dodgedTheQuestion`.
+     *
+     * So this sentence now says what it has always looked like it was saying.
+     */
+    const asked = board.claims.some((claim) => claim.kind === 'question' && claim.targetSlot === targetSlot);
+    return board.day >= 3 && silentOnNights && asked
+      ? vary('mafia.bot.why.nowhere', 3, botId + ':w:' + targetSlot)
+      : null;
   }
 
   /**

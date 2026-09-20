@@ -786,6 +786,42 @@ describe("what the record proves", () => {
     );
   });
 
+
+  /**
+   * And it does not convict however many voices join it.
+   *
+   * The discount above bounds the echo and not the first voice, so a name
+   * several credible seats repeat used to climb without limit: measured on a
+   * real table, a case rose from 1.21 to 5.33 across four seats' reads with
+   * nothing held in any of them, and the room hanged him. The cap is what makes
+   * the hearsay floor a floor.
+   */
+  it("and a whole room repeating it still cannot reach the rope", () => {
+    const state = table(
+      ["citizen", "citizen", "citizen", "citizen", "citizen", "citizen", "citizen", "citizen"],
+      3,
+    );
+    const judge = playerBySlot(state, 1);
+    if (!judge) throw new Error("no judge");
+    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
+
+    // Everybody who can, naming the same seat, and one of them trusted for it.
+    const roomful = [2, 3, 4, 5, 6, 7].map((slot) =>
+      claim({ claimerSlot: slot, targetSlot: 8, kind: "accuse" }),
+    );
+    const crowd = suspicionParts(
+      8,
+      judge,
+      toPublicInfo(state, roomful, []),
+      () => 0,
+    );
+
+    assert.equal(crowd.hard, 0, "still nobody holding anything");
+    assert.ok(
+      crowd.evidence < 2.2,
+      `a roomful of agreement reached the rope on its own: ${crowd.evidence}`,
+    );
+  });
   /** And one voice that actually holds something still does. */
   it("but one seat with a real case still does", () => {
     const state = table(
@@ -1742,6 +1778,47 @@ describe("a family in the booth", () => {
     assert.notEqual(
       decideBallot(self, brain, info, 3, new Set([3]), () => 0.9),
       "guilty",
+    );
+  });
+});
+
+/**
+ * The lodge in the booth, which is the opposite job.
+ *
+ * `teammates` holds the masons as well as the families, and everything the
+ * family branch does — hide, count the room, never cast the ballot that marks
+ * you — is exactly wrong for the one bloc that has nothing to hide and knows
+ * for a fact that the accused is town.
+ */
+describe("the lodge in the booth", () => {
+  it("vouches for a brother whatever the room has decided", () => {
+    const state = table(["mason-leader", "mason", "mafioso", "doctor", "sheriff", "citizen"]);
+    const info = toPublicInfo(state, [], []);
+
+    for (const slot of [1, 2]) {
+      const self = playerBySlot(state, slot)!;
+      if (self.role !== "mason" && self.role !== "mason-leader") continue;
+      const brother = slot === 1 ? 2 : 1;
+      const brain = makeBrain(slot, DEFAULT_PROFILE);
+      assert.equal(
+        decideBallot(self, brain, info, brother, new Set([brother]), () => 0.9),
+        "innocent",
+        `a ${self.role} let the room hang a seat it knows to be town`,
+      );
+    }
+  });
+
+  /** And it is about the lodge, not about anybody who happens to be an ally. */
+  it("still weighs a stranger the ordinary way", () => {
+    const state = table(["mason-leader", "mason", "mafioso", "doctor", "sheriff", "citizen"]);
+    const info = toPublicInfo(state, [], []);
+    const self = playerBySlot(state, 1)!;
+    if (self.role !== "mason-leader") return;
+    const brain = makeBrain(1, DEFAULT_PROFILE);
+    assert.notEqual(
+      decideBallot(self, brain, info, 3, new Set([2]), () => 0.5),
+      "abstain",
+      "a mason in the booth still has an opinion about everybody else",
     );
   });
 });

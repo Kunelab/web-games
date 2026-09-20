@@ -24,7 +24,14 @@ import {
   type Pressure,
   type Stance
 } from '../social.js';
-import { sheriffSuspects, type IntelEntry, type MafiaPlayer, type MafiaState, type SheriffVerdict } from '../state.js';
+import {
+  isMason,
+  sheriffSuspects,
+  type IntelEntry,
+  type MafiaPlayer,
+  type MafiaState,
+  type SheriffVerdict
+} from '../state.js';
 export { sheriffSuspects, type SheriffVerdict };
 
 /**
@@ -2038,6 +2045,30 @@ export function suspicionParts(
   score += caught;
   hard += caught;
 
+  /**
+   * A night's work, read out by somebody the room still listens to.
+   *
+   * `worked` is the difference between "I checked 9 and he came back bad" and
+   * "I reckon 9 is bad", and it was worth the same as any other voice: it went
+   * into the chorus, which is the half of the score that is explicitly *not*
+   * pointable. So the town's own investigation counted as hearsay, and the only
+   * thing that ever registered as held evidence was a deduction or a seat's own
+   * eyes — which meant a board carrying a Sheriff's public check looked, to
+   * every rule that asks whether anybody has anything, exactly like a board
+   * carrying nothing at all.
+   *
+   * It belongs here. A check is a report about a night, the room can hold the
+   * speaker to it tomorrow, and a juror asked why can name it. Added to `hard`
+   * only: the weight itself is already in the chorus and counting it twice
+   * would make an investigator worth two of itself.
+   */
+  for (const claim of info.claims) {
+    if (claim.kind !== 'accuse' || claim.targetSlot !== targetSlot || claim.worked !== true) continue;
+    if (claim.claimerSlot === self.slot) continue;
+    const voice = claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1);
+    if (voice >= CREDIBLE) hard += 0.8 * voice;
+  }
+
   const record = settledCredit(targetSlot, info);
   if (record < 0) {
     const misled = Math.min(1.5, -record * 0.5);
@@ -2278,7 +2309,29 @@ export function suspicionParts(
    * everybody distrusts for reasons none of them can name is still worth
    * looking at. It is just not worth a rope on its own.
    */
-  score += crowd + (hard > 0 ? echoed : echoed / 3);
+  /**
+   * And the rule this comment has always described, now applied to the voice
+   * that was actually deciding the day.
+   *
+   * Only the *echo* was discounted here. The loudest voice kept its full two
+   * points whatever was under it, so the first accusation of an afternoon was
+   * worth more than anything the town had genuinely worked out, and the room
+   * converged on whoever was named first. Measured on a real table, day five:
+   * two seats a twentieth of a point apart, one wagon opened on nothing, and
+   * the case against the man they hanged rose from 1.2 to 5.3 without a single
+   * seat holding one checkable fact — `hard` was zero in every juror's read of
+   * him, right up to the rope.
+   *
+   * So when nobody holds anything the echo is worth a third, as it always was,
+   * and the whole of it is capped just under the bar a rope has to clear. The
+   * room can be as suspicious as it likes and cannot arrive at a hanging on
+   * agreement alone. With anything held at all — a check read out, a
+   * contradiction, a seat's own eyes — it is worth what it was always worth,
+   * because then the room is agreeing *about* something rather than agreeing
+   * with itself. See `HEARSAY_CAP`.
+   */
+  const said = crowd + (hard > 0 ? echoed : echoed / 3);
+  score += hard > 0 ? said : Math.min(said, HEARSAY_CAP);
 
   return { evidence: score + rng() * 0.3, wagon: wagon * 0.5 * brainHerd(self), hard };
 }
@@ -2312,6 +2365,66 @@ const TIEBREAK_FLOOR = 1.6;
  * and a rope thrown at its best guess is a coin flip with a corpse at the end.
  */
 const NO_CASE_CEILING = 0.5;
+
+/**
+ * Hearsay, and what it costs to hang somebody on it.
+ *
+ * The bench was asked why the rope kept finding town, and the answer was not
+ * subtle: of the town seats that went to the gallows, **92%** went there on a
+ * day when not one living juror held a single checkable thing against them — no
+ * check, no fatal house, no claim the graveyard had broken. The average best
+ * evidence anybody had was 0.16. Day two was the worst of it: the largest pile
+ * of hangings in the game, 59% of them town, and the room was not even
+ * frightened yet.
+ *
+ * The arithmetic said it would be. A bare accusation is worth 2.0 through
+ * `chorus`, the bar to vote sits near 1.0, and the evidence floor at low
+ * pressure is 0.38 — so *one* seat saying "5 is mafia", with nothing behind it
+ * and no reason given, cleared every gate the town had. The average town
+ * hanging was built by 1.3 accusers. One voice, one afternoon, one corpse.
+ *
+ * So a case nobody can check needs a room behind it rather than a voice. Set
+ * where two independent unproven seats clear it and one never does, which is
+ * the discount `chorus` already applies made into a threshold: the first person
+ * to say it is an opinion, the second one agreeing is the beginning of
+ * evidence.
+ *
+ * And it lifts as the clock runs out, to nothing at the parity bell. A town
+ * that has run out of days must hang somebody on a hunch — that is the game
+ * working. A town on day two with eleven people alive and an afternoon to spend
+ * has no such excuse.
+ *
+ * Swept on the bench from 1.2 to 2.6 at four table sizes. Accuracy rises all
+ * the way up and hangings fall all the way up, so the number is a choice about
+ * which mistake the table should make: 2.6 hangs the right seat two times in
+ * three and hangs half as often, which starves every role whose win needs a
+ * rope. This is the knee — ten points of accuracy for one hanging a game, with
+ * the Jester and the Executioner still playable.
+ *
+ * Out here rather than inside `pickVote` because `suspicionParts` has to know
+ * it too: what the floor is worth depends on a chorus never being able to reach
+ * it by itself. See the cap there.
+ */
+const HEARSAY_FLOOR = 2.2;
+
+/**
+ * The most a room agreeing with itself may ever be worth.
+ *
+ * The floor above assumed a chorus grows slowly enough to stay under it, and it
+ * does not: `ECHO` bounds the *tail* of the chorus, not the first voice, so a
+ * name that several credible seats repeat climbs past 2.2 on nothing but
+ * repetition and the floor stops being a floor. Measured on a real table, day
+ * five: a case rose from 1.21 to 5.33 across four seats' reads with `hard` at
+ * zero in every one of them, and the man they hanged never had a fact said
+ * about him.
+ *
+ * So hearsay is capped just under the bar it must not clear. The room can still
+ * be suspicious, still open a wagon, still talk about somebody all afternoon —
+ * it simply cannot arrive at a rope without one seat holding something. Anybody
+ * holding anything at all lifts the cap, because then the agreement is *about*
+ * something.
+ */
+const HEARSAY_CAP = HEARSAY_FLOOR - 0.3;
 
 /** What a seat should do with its ballot: a slot, a skip, or leave it alone. */
 export interface SteadyVote {
@@ -2376,9 +2489,24 @@ export function steadyVote(
 
     const townish = self.role ? roleDef(self.role).faction === 'town' : false;
     const desperate = townish && parityPressure(info) >= 0.6;
+    /**
+     * The best case standing against anybody, counted as what is *held*.
+     *
+     * This read `evidence`, which includes the room agreeing with itself — so
+     * the guard against hanging on nothing was switched off by the act of
+     * accusing. One seat says a name, the crowd term lifts that name over the
+     * bar, and the square that had found nothing now believes it has found
+     * somebody. A wagon authorised itself, every time, and the only thing under
+     * it was the wagon.
+     *
+     * `hard` is the half a juror can stand up and point to: a check read out, a
+     * contradiction, a deduction off the morning report, this seat's own eyes.
+     * That is the right question for "has the town found anything", and it is
+     * the one sentence of arithmetic behind the town's right to say it has not.
+     */
     const best = info.aliveSlots
       .filter((slot) => slot !== self.slot)
-      .reduce((most, slot) => Math.max(most, suspicionParts(slot, self, info, rng).evidence), 0);
+      .reduce((most, slot) => Math.max(most, suspicionParts(slot, self, info, rng).hard), 0);
 
     /**
      * A board this empty has not found anybody, so say so — unless saying so
@@ -2699,6 +2827,50 @@ export function decideDay(
   /** The fields only the newer kinds carry. See `Claim`. */
   type Extra = Partial<Pick<Claim, 'urge' | 'deniedRole' | 'promise' | 'relayedFrom' | 'at'>>;
 
+  /**
+   * Is this claim the seat reading out one of its own nights? See `Claim.worked`.
+   *
+   * The field existed, the live driver set it, and nothing in the played brain
+   * ever did — so every check, watch and trade line a simulated investigator
+   * published went onto the board as an opinion. It matters more than it looks:
+   * `worked` is what the score counts as *held* evidence, so a table whose
+   * Sheriff had named a mafioso out loud read, to every rule that asks whether
+   * anybody has found anything, exactly like a table that had found nothing.
+   *
+   * Derived rather than tagged at two dozen call sites, and derived strictly:
+   * the seat must hold a night's record about that house and the record must
+   * point the same way the claim does. A liar has no such entry, and an
+   * investigator that turns on a seat it cleared does not get to call that a
+   * report.
+   */
+  const fromANight = (targetSlot: number, kind: ClaimKind): boolean => {
+    const mine = self.intel.filter(
+      (entry) => entry.targetSlot === targetSlot || (entry.slots?.includes(targetSlot) ?? false)
+    );
+    if (mine.length === 0) return false;
+    switch (kind) {
+      case 'accuse':
+        return mine.some(
+          (entry) =>
+            (entry.kind === 'sheriff' && sheriffSuspects(entry.value)) ||
+            (entry.kind === 'role' && entry.value in ROLES && isEvilRole(entry.value as RoleId))
+        );
+      case 'clear':
+        return mine.some(
+          (entry) =>
+            (entry.kind === 'sheriff' && !sheriffSuspects(entry.value)) ||
+            (entry.kind === 'role' && entry.value in ROLES && !isEvilRole(entry.value as RoleId)) ||
+            entry.kind === 'saved'
+        );
+      case 'sighting':
+        return mine.some((entry) => entry.kind === 'visitors' || entry.kind === 'tracked' || entry.kind === 'spied');
+      case 'hint':
+        return mine.some((entry) => entry.kind === 'trade' || entry.kind === 'controlled' || entry.kind === 'jailed');
+      default:
+        return false;
+    }
+  };
+
   const publish = (
     targetSlot: number,
     kind: ClaimKind,
@@ -2719,6 +2891,8 @@ export function decideDay(
         claimedRole,
         account,
         ailment,
+        // A night's record, when that is what this is. See `fromANight`.
+        ...(fromANight(targetSlot, kind) ? { worked: true } : {}),
         ...extra
       });
     }
@@ -4438,45 +4612,19 @@ function pickVote(
   const evidenceFloor = 0.55 * (1 - pressure) * (possible && possible.size <= 3 ? 0 : 1);
 
   /**
-   * Hearsay, and what it costs to hang somebody on it.
+   * Hearsay, and what it costs to hang somebody on it. See `HEARSAY_FLOOR`.
    *
-   * The bench was asked why the rope kept finding town, and the answer was not
-   * subtle: of the town seats that went to the gallows, **92%** went there on a
-   * day when not one living juror held a single checkable thing against them —
-   * no check, no fatal house, no claim the graveyard had broken. The average
-   * best evidence anybody had was 0.16. Day two was the worst of it: the
-   * largest pile of hangings in the game, 59% of them town, and the room was
-   * not even frightened yet.
+   * And it is the town's floor, not everybody's.
    *
-   * The arithmetic said it would be. A bare accusation is worth 2.0 through
-   * `chorus`, the bar to vote sits near 1.0, and the evidence floor at low
-   * pressure is 0.38 — so *one* seat saying "5 is mafia", with nothing behind
-   * it and no reason given, cleared every gate the town had. The average town
-   * hanging was built by 1.3 accusers. One voice, one afternoon, one corpse.
-   *
-   * So a case nobody can check needs a room behind it rather than a voice. Set
-   * where two independent unproven seats clear it and one never does, which is
-   * the discount `chorus` already applies made into a threshold: the first
-   * person to say it is an opinion, the second one agreeing is the beginning of
-   * evidence.
-   *
-   * And it lifts as the clock runs out, to nothing at the parity bell. A town
-   * that has run out of days must hang somebody on a hunch — that is the game
-   * working. A town on day two with eleven people alive and an afternoon to
-   * spend has no such excuse, and this is what the desperation meter was for:
-   * not only lowering the bar when things are dire, but holding it up when they
-   * are not.
+   * A family seat joining a wagon is not forming a belief about whether the man
+   * is guilty — it is buying a day of credit on a hanging that was happening
+   * anyway, which is the cheapest thing a family ever does and one of the few
+   * it should never be talked out of. Holding it to a standard of evidence
+   * meant to stop the *town* hanging strangers on hearsay left the family
+   * unable to ride a wagon at all, which is both worse play and, from outside,
+   * the one seat at the table conspicuously not on the wagon everybody else is.
    */
-  /**
-   * Swept on the bench from 1.2 to 2.6 at four table sizes. Accuracy rises all
-   * the way up and hangings fall all the way up, so the number is a choice
-   * about which mistake the table should make: 2.6 hangs the right seat two
-   * times in three and hangs half as often, which starves every role whose win
-   * needs a rope. This is the knee — ten points of accuracy for one hanging a
-   * game, with the Jester and the Executioner still playable.
-   */
-  const HEARSAY_FLOOR = 2.2;
-  const unchecked = top.hard > 0 ? 0 : HEARSAY_FLOOR * (1 - pressure);
+  const unchecked = top.hard > 0 || isMafiaSeat ? 0 : HEARSAY_FLOOR * (1 - pressure);
   if (top.score >= threshold && top.evidence >= Math.max(evidenceFloor, unchecked)) return top.slot;
 
   /**
@@ -4664,6 +4812,28 @@ export function decideBallot(
   const stance = stanceOf(agenda, brain.desperation, brain.personality);
 
   if (teammates.has(accusedSlot)) {
+    /**
+     * The lodge is not a family, and it must not vote like one.
+     *
+     * Everything below this is written for a conspiracy: hide, count the room,
+     * spend mercy only where it can change the tally, and never cast the one
+     * ballot that marks you. The masons share the same `teammates` set and none
+     * of that applies to them. They are the only bloc at the table who *know*
+     * the accused is town, there is nothing to hide because being seen
+     * defending a townsperson is not a tell, and an abstention here is a
+     * brother declining to say the one true thing he is certain of.
+     *
+     * Seen on a real table: a Mason Leader and an initiate both voted guilty on
+     * their own Mason, on a case with nothing in it, because the family branch
+     * read a twelve-to-one room as "he is dead either way, do not mark
+     * yourself". Twelve to one is exactly the room a vouch exists for.
+     *
+     * The one thing it is not is a licence to lie: a brother the graveyard has
+     * already caught is a brother the lodge was wrong about, and the arithmetic
+     * below is left to say so.
+     */
+    if (isMason(self)) return 'innocent';
+
     /**
      * The brother at the barre, and the third option the family never used.
      *
