@@ -1134,6 +1134,28 @@
   font: inherit;
 }
 
+/*
+ * An answer and the other names for it, as one block.
+ *
+ * The spellings belong to the answer above them and to nothing else, so they are
+ * fenced in with it: on a round with a title and an artist there are two of
+ * these, and a loose column of four boxes would leave the room guessing which
+ * aliases went with which.
+ */
+.host-correct-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid currentColor;
+  border-color: color-mix(in srgb, currentColor 25%, transparent);
+}
+
+/* A judgement, not a measurement: narrow, because it is two digits. */
+.host-correct-difficulty {
+  max-width: 10rem;
+}
+
 /* The four numbers sit together: they are one decision, not four. */
 .host-correct-clip {
   display: grid;
@@ -1149,6 +1171,12 @@
   display: flex;
   gap: var(--space-2);
   justify-content: flex-end;
+}
+
+/* The reveal's footnote. Quieter than the title it follows, and never the answer. */
+.host-difficulty {
+  opacity: 0.65;
+  font-size: 0.8em;
 }
 
 /* The same note on the phone: a quiet box is a pause, not a lost connection. */

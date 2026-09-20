@@ -142,7 +142,16 @@ export interface ClientToServerEvents {
    */
   'host:correctRound': (payload: {
     hostToken: string;
-    fields?: { key: string; value: string }[];
+    /**
+     * The answers, each with the spellings that are to count as it.
+     *
+     * `aliases` omitted leaves the stored ones alone; sent, it replaces them
+     * whole, empty array included. The distinction is what lets a wrong alias be
+     * taken away as well as a missing one added - one that accepts an answer
+     * nobody should get points for is the same kind of mistake as a wrong
+     * answer, and needs the same door out.
+     */
+    fields?: { key: string; value: string; aliases?: string[] }[];
     /**
      * And where the clip should actually start and stop.
      *
@@ -153,6 +162,15 @@ export interface ClientToServerEvents {
      * nobody could fix. Seconds, as the payload stores them.
      */
     clip?: { startGuess?: number; endGuess?: number; startReveal?: number; endReveal?: number };
+    /**
+     * And how hard the room turned out to find it, 0 to 100.
+     *
+     * The draw's own figure is a rank among search results, which is a guess at
+     * fame rather than a measure of it; this one is the verdict of a room that
+     * has just played the clip. Omitted leaves it as it is, which is not the
+     * same as 0 - that would be a claim that everybody knows it.
+     */
+    difficulty?: number;
   }) => void;
 }
 

@@ -467,9 +467,10 @@ export class GameManager {
        * keeping a *pool* draw off a song the catalogue already supplied.
        */
       const dealt = new Set(state.order);
-      const replayed = await replayFromLibrary(infinite.genreIds, history, wanted, dealt).catch(
-        () => [] as MediaView[]
-      );
+      const replayed = await replayFromLibrary(infinite.genreIds, history, wanted, dealt, {
+        min: infinite.difficultyMin,
+        max: infinite.difficultyMax
+      }).catch(() => [] as MediaView[]);
       if (replayed.length > 0) return replayed;
     }
 

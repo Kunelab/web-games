@@ -400,6 +400,10 @@ export function RoundPanel({
             <GuessList guesses={reveal.guesses} myId={myId} locale={locale} />
           )}
           {reveal.explanation && <p className="play-note">{reveal.explanation}</p>}
+          {/* How hard it was held to be. Small, and after the answer it belongs to. */}
+          {reveal.difficulty !== undefined && (
+            <p className="play-note">{t(msg('play.difficulty', { value: reveal.difficulty }))}</p>
+          )}
           {mine && (
             <p className="play-note">
               {t(msg('play.pointsThisRound', { points: mine.points }))}

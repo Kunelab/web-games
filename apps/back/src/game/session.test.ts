@@ -11,7 +11,8 @@ import {
   advance,
   buzz,
   correctAnswers,
-  correctClip,
+  correctPayloadNumbers,
+  libraryCodeOf,
   holdRound,
   closeAnswers,
   createSession,
@@ -512,6 +513,43 @@ describe('correcting a round', () => {
     assert.equal(state.round?.answers.find((field) => field.key === 'title')?.value, 'Dune');
   });
 
+  /**
+   * The other half of a correction: not what the answer is, but what counts as it.
+   *
+   * Tested through a real submission rather than by reading the field back,
+   * because "the alias is stored" is not the claim. The claim is that a player
+   * who types the other name of the thing, after the room has agreed it is the
+   * other name of the thing, is marked right — in the round that is still open.
+   */
+  it('accepts a spelling added mid-round, at once', () => {
+    const { state, ids } = playing(['Ana'], { buzzer: false });
+
+    const before = answer(state, ids[0] ?? '', 'title', 'Duna', 1_200);
+    assert.equal(before.correct, false, 'not a name of the film yet');
+
+    assert.equal(correctAnswers(state, [{ key: 'title', value: 'Dune', aliases: ['Duna', 'Dune 1984'] }]), true);
+
+    const after = answer(state, ids[0] ?? '', 'title', 'Duna', 1_300);
+    assert.equal(after.correct, true);
+  });
+
+  it('leaves the spellings alone when none are sent, and clears them when an empty list is', () => {
+    const item = media({ answers: [field({ key: 'title', value: 'Dune', aliases: ['Duna'], points: 10 })] });
+    const { state } = playing(['Ana'], { buzzer: false }, item);
+
+    correctAnswers(state, [{ key: 'title', value: 'Dune (1984)' }]);
+    assert.deepEqual(state.round?.answers[0]?.aliases, ['Duna'], 'an omitted list is not an empty one');
+
+    assert.equal(correctAnswers(state, [{ key: 'title', value: '', aliases: [] }]), true);
+    assert.deepEqual(state.round?.answers[0]?.aliases, [], 'and an empty one is a real edit');
+  });
+
+  it('keeps one copy of each spelling, however many times it is typed', () => {
+    const { state } = playing(['Ana'], { buzzer: false });
+    correctAnswers(state, [{ key: 'title', value: 'Dune', aliases: ['  Duna  ', 'Duna', '', 'Dune 1984'] }]);
+    assert.deepEqual(state.round?.answers.find((entry) => entry.key === 'title')?.aliases, ['Duna', 'Dune 1984']);
+  });
+
   /** The clip window goes through the kind's own schema, so bad values bounce. */
   it('refuses a clip the kind would not accept', () => {
     const item = media({
@@ -520,8 +558,54 @@ describe('correcting a round', () => {
     });
     const { state } = playing(['Ana'], { buzzer: false }, item);
 
-    assert.equal(correctClip(state, { startGuess: -5 }), false, 'negative is not a second');
-    assert.equal(correctClip(state, { startGuess: 12 }), true);
+    assert.equal(correctPayloadNumbers(state, { startGuess: -5 }), false, 'negative is not a second');
+    assert.equal(correctPayloadNumbers(state, { startGuess: 12 }), true);
     assert.equal((state.round?.payload as { startGuess: number }).startGuess, 12);
+  });
+
+  /** The difficulty rides in the same payload, and is held to the same bounds. */
+  it('takes a difficulty inside the scale and refuses one outside it', () => {
+    const item = media({
+      kind: 'blindtest',
+      payload: { code: 'abcdefghijk', startGuess: 0, endGuess: 20, startReveal: 20, endReveal: 40, volume: 100 }
+    });
+    const { state } = playing(['Ana'], { buzzer: false }, item);
+
+    assert.equal(correctPayloadNumbers(state, { difficulty: 140 }), false, '140 is not a difficulty');
+    assert.equal(correctPayloadNumbers(state, { difficulty: 85 }), true);
+    assert.equal((state.round?.payload as { difficulty: number }).difficulty, 85);
+  });
+});
+
+/**
+ * Which rounds the room may correct at all.
+ *
+ * The rule is ownership, not the sign of an id: the shared catalogue is
+ * everybody's, and somebody's own library item is not. A replayed round is the
+ * case that reads wrong at a glance — a real, positive id, and still the
+ * catalogue's.
+ */
+describe('a round the catalogue owns', () => {
+  const payload = { code: 'abcdefghijk', startGuess: 0, endGuess: 20, startReveal: 20, endReveal: 40, volume: 100 };
+
+  it('offers its entry when it was generated for this session', () => {
+    const { state } = playing(['Ana'], { buzzer: false }, media({ id: -3, kind: 'blindtest', payload }));
+    assert.equal(libraryCodeOf(state.round!), 'abcdefghijk');
+  });
+
+  it('offers it for a round replayed out of the catalogue, id and all', () => {
+    const { state } = playing(['Ana'], { buzzer: false }, media({ id: 42, kind: 'blindtest', payload }));
+    assert.equal(libraryCodeOf(state.round!), 'abcdefghijk');
+  });
+
+  it("offers nothing for somebody's own library item", () => {
+    const { state } = playing(['Ana'], { buzzer: false }, media({ id: 42, user_id: 7, kind: 'blindtest', payload }));
+    assert.equal(libraryCodeOf(state.round!), undefined);
+  });
+
+  it('offers nothing once the entry has been thrown away', () => {
+    const { state } = playing(['Ana'], { buzzer: false }, media({ id: -3, kind: 'blindtest', payload }));
+    state.round!.libraryPurged = true;
+    assert.equal(libraryCodeOf(state.round!), undefined);
   });
 });

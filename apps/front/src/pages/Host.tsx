@@ -40,6 +40,13 @@ const CLIP_FIELDS = [
 
 const CLIP_KEYS = CLIP_FIELDS.map((field) => field.key);
 
+/** One answer as the correction form holds it: the answer, and what else counts as it. */
+interface CorrectedField {
+  value: string;
+  /** One accepted spelling per line. Split on the way out, joined on the way in. */
+  aliases: string;
+}
+
 export default function Host() {
   const { code = '' } = useParams<{ code: string }>();
   const navigate = useNavigate();
@@ -83,8 +90,22 @@ export default function Host() {
    * Held in one object rather than an input each, because the fields are the
    * round's and vary by kind: a blind test asks for a title and an artist, an
    * anime opening for the work alone.
+   *
+   * Each field carries the answer and the other spellings that are to count as
+   * it, the second as one per line - a title can contain a comma and regularly
+   * does, so a separator the room has to think about before typing is the wrong
+   * separator.
    */
-  const [correcting, setCorrecting] = useState<Record<string, string> | null>(null);
+  const [correcting, setCorrecting] = useState<Record<string, CorrectedField> | null>(null);
+  /**
+   * How hard the round is held to be, 0 to 100, as typed. Empty leaves it alone.
+   *
+   * Beside the answers rather than with the clip window, because it is the one
+   * number on this form that is a judgement rather than a measurement: the model
+   * guessed it from how famous it thought the answer was, and a room that has
+   * just watched nobody get it knows better.
+   */
+  const [difficulty, setDifficulty] = useState('');
   /**
    * The clip window being typed, in seconds, or null when the form is closed.
    *
@@ -415,6 +436,20 @@ export default function Host() {
                 )}
                 <p className="play-note">{round.title}</p>
                 {/*
+                  How hard it was, in the small print.
+
+                  Worth saying and not worth saying loudly: a room that has just
+                  been beaten by a clip wants to know whether it was beaten by an
+                  obscure one, and a room that walked it wants the same. Under
+                  the answer rather than beside it, so it can never be read as
+                  part of the answer.
+                */}
+                {session.reveal?.difficulty !== undefined && (
+                  <p className="play-note host-difficulty">
+                    {t(msg('play.difficulty', { value: session.reveal.difficulty }))}
+                  </p>
+                )}
+                {/*
                   The one moment a wrong generated answer can be caught.
 
                   A round drawn by the model is kept in the shared library once it
@@ -510,7 +545,16 @@ export default function Host() {
               className="host-correct"
               onSubmit={(event) => {
                 event.preventDefault();
-                const fields = Object.entries(correcting).map(([key, value]) => ({ key, value }));
+                const fields = Object.entries(correcting).map(([key, field]) => ({
+                  key,
+                  value: field.value,
+                  // Split here rather than on the server: the server takes a
+                  // list, and how a screen collects one is the screen's business.
+                  aliases: field.aliases
+                    .split('\n')
+                    .map((alias) => alias.trim())
+                    .filter((alias) => alias.length > 0)
+                }));
                 // Blank or unparseable is "leave it alone", not zero: the server
                 // takes only the keys it is sent.
                 const seconds = Object.fromEntries(
@@ -518,22 +562,73 @@ export default function Host() {
                     .map(([key, value]) => [key, Number(value)] as const)
                     .filter(([, value]) => Number.isFinite(value) && value >= 0)
                 );
-                socket?.emit('host:correctRound', { hostToken, fields, clip: seconds });
+                const rating = Number(difficulty);
+                socket?.emit('host:correctRound', {
+                  hostToken,
+                  fields,
+                  clip: seconds,
+                  // Blank is "leave it as it is", which is not zero: zero is a
+                  // real claim about a clip, and it says everybody knows it.
+                  difficulty: difficulty.trim() === '' || !Number.isFinite(rating) ? undefined : rating
+                });
                 setCorrecting(null);
                 setClip(null);
+                setDifficulty('');
                 socket?.emit('host:holdRound', { hostToken, hold: false });
               }}
             >
               {round.answers.map((answer) => (
-                <label key={answer.key}>
-                  <span className="play-label">{fieldText(t, answer.label)}</span>
-                  <input
-                    className="host-correct-input"
-                    value={correcting[answer.key] ?? ''}
-                    onChange={(event) => setCorrecting((current) => ({ ...current, [answer.key]: event.target.value }))}
-                  />
-                </label>
+                <div className="host-correct-field" key={answer.key}>
+                  <label>
+                    <span className="play-label">{fieldText(t, answer.label)}</span>
+                    <input
+                      className="host-correct-input"
+                      value={correcting[answer.key]?.value ?? ''}
+                      onChange={(event) =>
+                        setCorrecting((current) => ({
+                          ...current,
+                          [answer.key]: { value: event.target.value, aliases: current?.[answer.key]?.aliases ?? '' }
+                        }))
+                      }
+                    />
+                  </label>
+                  {/*
+                    And everything else that counts as that answer.
+
+                    The matcher already forgives accents, case, punctuation and a
+                    typo or two, so this is for the answers that are simply a
+                    different name: the French title and the original, the band
+                    and the singer, an anime and the three letters everybody
+                    calls it by. One per line, as many as the room can think of.
+                  */}
+                  <label>
+                    <span className="play-note">{t(msg('host.correctAliases'))}</span>
+                    <textarea
+                      className="host-correct-input"
+                      rows={2}
+                      value={correcting[answer.key]?.aliases ?? ''}
+                      onChange={(event) =>
+                        setCorrecting((current) => ({
+                          ...current,
+                          [answer.key]: { value: current?.[answer.key]?.value ?? '', aliases: event.target.value }
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
               ))}
+              <label className="host-correct-difficulty">
+                <span className="play-label">{t(msg('host.correctDifficulty'))}</span>
+                <input
+                  className="host-correct-input tabular"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={difficulty}
+                  onChange={(event) => setDifficulty(event.target.value)}
+                />
+              </label>
               {/*
                 The window, for a round that opens in the wrong place.
 
@@ -571,6 +666,7 @@ export default function Host() {
                   onClick={() => {
                     setCorrecting(null);
                     setClip(null);
+                    setDifficulty('');
                     socket?.emit('host:holdRound', { hostToken, hold: false });
                   }}
                 >
@@ -614,13 +710,21 @@ export default function Host() {
                     // Stopped first, then opened: the other order gives the
                     // auto-advance a window to fire in.
                     socket?.emit('host:holdRound', { hostToken, hold: true });
-                    setCorrecting(Object.fromEntries(round.answers.map((answer) => [answer.key, answer.value])));
+                    setCorrecting(
+                      Object.fromEntries(
+                        round.answers.map((answer) => [
+                          answer.key,
+                          { value: answer.value, aliases: (answer.aliases ?? []).join('\n') }
+                        ])
+                      )
+                    );
                     const payload = (round.payload ?? {}) as Record<string, unknown>;
                     setClip(
                       Object.fromEntries(
                         CLIP_KEYS.map((key) => [key, String(typeof payload[key] === 'number' ? payload[key] : 0)])
                       )
                     );
+                    setDifficulty(typeof payload.difficulty === 'number' ? String(payload.difficulty) : '');
                   }}
                 >
                   ✎ {t(msg('host.correct'))}

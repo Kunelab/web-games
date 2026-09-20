@@ -296,7 +296,16 @@ function toMediaView(entry: PoolEntry, difficultyTarget: number): MediaView {
     endGuess: plan.endGuess,
     startReveal: plan.startReveal,
     endReveal: plan.endReveal,
-    volume: 100
+    volume: 100,
+    /**
+     * The pool's own reading of how hard this one is, carried into the round.
+     *
+     * Not the target the round was drawn for: the target is what the session
+     * asked for and the entry is what it got, and the two are only ever as close
+     * as the pool allowed. Stored on the item, so it survives into the shared
+     * catalogue and can be argued with at the reveal.
+     */
+    difficulty: Math.round(entry.difficulty)
   };
 
   const item = { kind: 'blindtest', timing: null, payload };

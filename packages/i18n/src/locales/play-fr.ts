@@ -94,10 +94,13 @@ export const playFr: Catalogue = {
   "host.heldPlayer": "Pause demand\u00e9e par l\u2019animateur",
   "host.correct": "Corriger la r\u00e9ponse",
   "host.correctClip": "Extrait (secondes)",
+  "host.correctAliases": "Autres r\u00e9ponses accept\u00e9es (une par ligne)",
+  "host.correctDifficulty": "Difficult\u00e9 (0-100)",
   "host.correctSave": "Enregistrer",
   "host.correctCancel": "Annuler",
   "host.correctNote":
     "Corrige cette manche \u00e0 l\u2019\u00e9cran et dans le catalogue commun, pour toutes les salles qui auront ce morceau ensuite. Les points d\u00e9j\u00e0 attribu\u00e9s ne bougent pas.",
+  "play.difficulty": "Difficult\u00e9 {value}/100",
   "host.flagWrong": "Info incorrecte",
   "host.flagHint":
     "Cette manche a \u00e9t\u00e9 g\u00e9n\u00e9r\u00e9e et gard\u00e9e dans la biblioth\u00e8que commune. Si la r\u00e9ponse est fausse, retirez-la.",

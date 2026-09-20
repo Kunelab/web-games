@@ -105,6 +105,9 @@ export const atelierFr: Catalogue = {
   "field.work.film": "Film",
   "field.work.series": "Série",
   "field.work.game": "Jeu vidéo",
+  "field.difficulty": "Difficult\u00e9",
+  "field.difficultyHelp":
+    "De 0, que tout le monde trouve, \u00e0 100, que seul un passionn\u00e9 trouvera. Renseign\u00e9e par le tirage pour une manche g\u00e9n\u00e9r\u00e9e, et corrigeable ensuite \u2014 y compris pendant la partie, depuis l\u2019\u00e9cran de l\u2019animateur. Vide : personne ne s\u2019est prononc\u00e9.",
   "field.volume": "Volume",
   "field.volumeHelp":
     "Pour aligner cet extrait sur le reste de la playlist. 100 = plein volume, à baisser seulement pour un extrait masterisé plus fort que ses voisins.",

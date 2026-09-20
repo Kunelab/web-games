@@ -141,6 +141,18 @@ export interface RoundState {
    * rebuild the view. Optional, so a round persisted before this existed restores.
    */
   libraryPurged?: boolean;
+  /**
+   * The item behind this round is a row of the shared catalogue.
+   *
+   * Decided when the round is dealt, from the item's owner, because that is the
+   * only moment the item itself is in hand. It is what tells a *replayed* round
+   * apart from one out of somebody's own library: both arrive with a real,
+   * positive id, and only the first is everybody's to correct.
+   *
+   * Optional, so a round persisted before this existed restores; it restores as
+   * "not the catalogue's", which is the safe way round.
+   */
+  catalogue?: boolean;
 }
 
 /**
@@ -580,6 +592,8 @@ export function advance(state: SessionState, lookup: MediaLookup, now = Date.now
     index: nextIndex,
     mediaId: item.id,
     kind: item.kind,
+    // Ownerless means the shared catalogue; see `catalogue` on the round.
+    catalogue: item.user_id === null,
     answers: item.answers,
     payload: item.payload,
     timing,
@@ -644,21 +658,45 @@ export function holdRound(state: SessionState, hold: boolean, now = Date.now()):
  * caller, the copy kept in the shared catalogue — so the next room dealt this
  * song gets the right one.
  *
- * Values only, and only for fields the round already has. A key naming no field
- * is ignored rather than added: the fields are the round's shape, fixed when it
- * was built, and a client inventing one must not be able to grow it.
+ * Only for fields the round already has. A key naming no field is ignored rather
+ * than added: the fields are the round's shape, fixed when it was built, and a
+ * client inventing one must not be able to grow it.
+ *
+ * Aliases are the half of this that decides points rather than words. The
+ * commonest argument at a reveal is not that the answer is wrong but that it has
+ * two names — the French title and the original, the band and the singer, the
+ * anime and its abbreviation — and a room that has just been marked wrong for
+ * one of them is exactly the room that knows which. So further spellings can be
+ * added here and they take effect at once: the round is still open on most
+ * corrections, and everything typed after this is matched against them.
+ *
+ * An omitted `aliases` leaves the ones the field has. An empty array clears
+ * them, which is a real edit rather than a no-op: a wrong alias accepts a wrong
+ * answer, and there has to be a way to say so.
  */
-export function correctAnswers(state: SessionState, fields: { key: string; value: string }[]): boolean {
+export function correctAnswers(
+  state: SessionState,
+  fields: { key: string; value: string; aliases?: string[] }[]
+): boolean {
   const round = state.round;
   if (!round) return false;
 
   let changed = false;
   for (const field of fields) {
     const answer = round.answers.find((candidate) => candidate.key === field.key);
+    if (!answer) continue;
+
     const value = field.value.trim();
-    if (!answer || !value || answer.value === value) continue;
-    answer.value = value;
-    changed = true;
+    if (value && answer.value !== value) {
+      answer.value = value;
+      changed = true;
+    }
+
+    const aliases = cleanAliases(field.aliases);
+    if (aliases && JSON.stringify(aliases) !== JSON.stringify(answer.aliases)) {
+      answer.aliases = aliases;
+      changed = true;
+    }
   }
 
   if (changed) state.lastActivityAt = Date.now();
@@ -666,7 +704,37 @@ export function correctAnswers(state: SessionState, fields: { key: string; value
 }
 
 /**
- * Moves this round's clip window.
+ * The accepted spellings, as the answer field's schema would have them.
+ *
+ * Blank entries and duplicates out, each one trimmed and cut to the length the
+ * schema allows, and the list capped where the schema caps it — so a correction
+ * typed into a box can never produce a field that would be refused if the same
+ * item were saved through the editor.
+ *
+ * Returns undefined for "not sent", which is what distinguishes leaving the
+ * aliases alone from clearing them.
+ */
+export function cleanAliases(aliases: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(aliases)) return undefined;
+
+  const seen: string[] = [];
+  for (const alias of aliases) {
+    if (typeof alias !== 'string') continue;
+    const trimmed = alias.trim().slice(0, 200);
+    if (!trimmed || seen.includes(trimmed)) continue;
+    seen.push(trimmed);
+    if (seen.length === 20) break;
+  }
+  return seen;
+}
+
+/**
+ * Moves this round's clip window, and whatever else about it is a number.
+ *
+ * The window is what this was built for and still the commonest correction; the
+ * difficulty joined it because it lives in the same place and is fixed in the
+ * same breath — the room that says a clip opens in the wrong spot is usually the
+ * room that has just discovered nobody could name it.
  *
  * Validated through the kind's own payload schema rather than field by field,
  * so the bounds that a saved item is held to are the bounds a correction is
@@ -681,12 +749,12 @@ export function correctAnswers(state: SessionState, fields: { key: string; value
  * it is next read, so the correction takes full effect the next time the song
  * is played.
  */
-export function correctClip(state: SessionState, clip: Record<string, number | undefined>): boolean {
+export function correctPayloadNumbers(state: SessionState, numbers: Record<string, number | undefined>): boolean {
   const round = state.round;
   if (!round) return false;
 
   const patch: Record<string, number> = {};
-  for (const [key, value] of Object.entries(clip)) {
+  for (const [key, value] of Object.entries(numbers)) {
     if (typeof value === 'number' && Number.isFinite(value)) patch[key] = Math.round(value);
   }
   if (Object.keys(patch).length === 0) return false;
@@ -1426,17 +1494,40 @@ export function estimationGuesses(round: RoundState): { playerId: string; value:
 }
 
 /**
- * The library entry this round belongs to, if the room may throw it away.
+ * The catalogue entry this round belongs to, if the room may edit or discard it.
  *
- * Three conditions, and each one excludes a round it would be wrong to offer a
- * delete button for. A positive media id is somebody's own library item, which
- * the reveal screen has no business deleting from under them. A round with no
- * video code is not a blind test. And one already purged is gone.
+ * Each condition excludes a round it would be wrong to offer those controls for.
+ * A round with no video code is not a blind test, and one already purged is
+ * gone. What is left is the two ways a round can be the shared catalogue's: it
+ * was generated in this session and will be filed once played (a negative id),
+ * or it came *out* of the catalogue on a replay, which is an ordinary library
+ * item with a positive id and no owner.
+ *
+ * That second case used to be excluded along with everything positive, and the
+ * exclusion was aimed at the wrong thing: what must not be edited from the
+ * reveal screen is somebody's *own* item, not any item with a real id. In the
+ * endless mode about half the evening is replayed, so about half the rounds
+ * offered no way to fix an answer the room had just proved wrong — and the
+ * rounds that had already been played, and were therefore the likeliest to be
+ * wrong, were exactly the ones locked.
  */
-function libraryCodeOf(round: RoundState): string | undefined {
-  if (round.libraryPurged || round.mediaId >= 0 || round.kind !== 'blindtest') return undefined;
+export function libraryCodeOf(round: RoundState): string | undefined {
+  if (round.libraryPurged || round.kind !== 'blindtest') return undefined;
+  if (round.mediaId >= 0 && !round.catalogue) return undefined;
   const code = (round.payload as { code?: unknown } | null)?.code;
   return typeof code === 'string' && code.length > 0 ? code : undefined;
+}
+
+/**
+ * How hard the round was, if anybody has said.
+ *
+ * Read off the payload rather than kept on the round, so a correction made
+ * during the round is what the reveal shows: there is one copy of the number and
+ * it is the one the item carries.
+ */
+function difficultyOf(round: RoundState): number | undefined {
+  const value = (round.payload as { difficulty?: unknown } | null)?.difficulty;
+  return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : undefined;
 }
 
 export function toRevealView(state: SessionState): RevealView | null {
@@ -1468,6 +1559,7 @@ export function toRevealView(state: SessionState): RevealView | null {
     answers: round.answers.map((field) => ({ key: field.key, label: field.label, value: field.value })),
     explanation: explanation || undefined,
     guesses,
+    difficulty: difficultyOf(round),
     libraryCode: libraryCodeOf(round),
     roundScores: Object.entries(round.scored)
       .map(([playerId, points]) => ({
@@ -1513,6 +1605,7 @@ function toHostRoundView(state: SessionState, title: string): HostRoundView | nu
       key: field.key,
       label: field.label,
       value: field.value,
+      aliases: field.aliases,
       points: field.points
     }))
   };

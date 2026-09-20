@@ -33,7 +33,27 @@ export const blindtestPayloadSchema = z
      * Defaulted rather than required, so every row saved before this existed
      * parses and plays at full volume.
      */
-    volume: z.number().int().min(10).max(100).default(100)
+    volume: z.number().int().min(10).max(100).default(100),
+    /**
+     * How hard this clip is to name, 0 to 100.
+     *
+     * Written by the draw, which reads it off the pool the entry came from, and
+     * editable afterwards by anybody who may edit the item — the pool's number is
+     * a rank among search results and is wrong often enough to be worth a second
+     * opinion from the room that just heard it.
+     *
+     * Optional rather than defaulted, because the two states are genuinely
+     * different: 50 means somebody judged this middling, absent means nobody has
+     * judged it at all, and a default would quietly turn every row saved before
+     * this existed into the former.
+     */
+    /*
+     * Nullish rather than merely optional: the editor's number box writes null
+     * when it is cleared, and clearing it is the one way to say "withdraw the
+     * judgement". Every reader tests for a number, so the two empties behave
+     * alike.
+     */
+    difficulty: z.number().int().min(0).max(100).nullish()
   })
   .refine((payload) => payload.endGuess > payload.startGuess, {
     message: 'La fin du extrait doit être après le début',
@@ -115,6 +135,16 @@ export const blindtest = defineKind<BlindtestPayload>({
       max: 100,
       step: 5,
       help: 'field.volumeHelp',
+      width: 'half'
+    },
+    {
+      name: 'difficulty',
+      label: 'field.difficulty',
+      control: 'number',
+      min: 0,
+      max: 100,
+      step: 5,
+      help: 'field.difficultyHelp',
       width: 'half'
     }
   ],

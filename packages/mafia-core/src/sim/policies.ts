@@ -4694,15 +4694,23 @@ function pickVote(
    *
    * And it is the town's floor, not everybody's.
    *
-   * A family seat joining a wagon is not forming a belief about whether the man
-   * is guilty — it is buying a day of credit on a hanging that was happening
-   * anyway, which is the cheapest thing a family ever does and one of the few
+   * A killer joining a wagon is not forming a belief about whether the man is
+   * guilty — it is buying a day of credit on a hanging that was happening
+   * anyway, which is the cheapest thing a killer ever does and one of the few
    * it should never be talked out of. Holding it to a standard of evidence
-   * meant to stop the *town* hanging strangers on hearsay left the family
-   * unable to ride a wagon at all, which is both worse play and, from outside,
-   * the one seat at the table conspicuously not on the wagon everybody else is.
+   * meant to stop the *town* hanging strangers on hearsay left it unable to
+   * ride a wagon at all, which is both worse play and, from outside, the one
+   * seat at the table conspicuously not on the wagon everybody else is.
+   *
+   * Every killer, not only the ones with brothers. The first shape of this
+   * exempted `isMafiaSeat`, which is a seat that can *see* teammates — so the
+   * families got the tool and the lone blades did not, and the bench said so
+   * loudly: at twelve seats the solo killers lost nine points and the mafia
+   * took every one of them. A Serial Killer riding a wagon is doing exactly
+   * what a Mafioso riding a wagon is doing, and neither of them cares whether
+   * the man is guilty.
    */
-  const unchecked = top.hard > 0 || isMafiaSeat ? 0 : HEARSAY_FLOOR * (1 - pressure);
+  const unchecked = top.hard > 0 || isMafiaSeat || isEvilRole(role) ? 0 : HEARSAY_FLOOR * (1 - pressure);
   if (top.score >= threshold && top.evidence >= Math.max(evidenceFloor, unchecked)) return top.slot;
 
   /**

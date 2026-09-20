@@ -122,6 +122,15 @@ export interface RevealView {
    */
   guesses?: { playerId: string; name: string; value: number; delta: number }[];
   /**
+   * How hard the round was held to be, 0 to 100, when the item says.
+   *
+   * Absent on anything nobody has judged, which is every hand-authored item and
+   * every generated one saved before the number was kept. The screens print it
+   * small beside the answer: it is the footnote to a round the room has just
+   * either walked or been beaten by, not part of the reveal itself.
+   */
+  difficulty?: number;
+  /**
    * The recording this round is filed under in the shared library, if it is.
    *
    * Present only for a generated round that was kept, and only while it is still
@@ -167,15 +176,24 @@ export interface HostRoundView {
    *
    * The same value the reveal carries, on the host's own round so the controls
    * can offer a correction at any point in the round rather than only once the
-   * answers are up. Absent for a round that came from somebody's own library,
-   * which is theirs to edit in the editor and not from here.
+   * answers are up. Present for a round generated in this session and for one
+   * replayed out of the catalogue, since both are everybody's; absent for a
+   * round that came from somebody's own library, which is theirs to edit in the
+   * editor and not from here.
    */
   libraryCode?: string;
   phaseStartAt: number;
   phaseEndsAt: number | null;
   answerMs: number;
   payload: unknown;
-  answers: { key: string; label: string; value: string; points: number }[];
+  /**
+   * `aliases` travels so the correction form can show what is already accepted.
+   *
+   * Without it the form could only ever add to a list it could not see, and
+   * saving would have to mean "keep whatever is there" — which leaves no way to
+   * remove a wrong spelling that is handing out points.
+   */
+  answers: { key: string; label: string; value: string; aliases: string[]; points: number }[];
 }
 
 /**

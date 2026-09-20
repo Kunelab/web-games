@@ -1,6 +1,8 @@
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { getMediaKind, normalizeAnswer } from 'game-core';
 
+import { cleanAliases } from '../game/session.js';
+
 import { db } from '../db/index.js';
 import { media, playlistItems, playlists, type MediaRow } from '../db/schema.js';
 import type { DrawHistory } from './blindtest-draw.js';
@@ -168,11 +170,7 @@ export async function rememberPlayedRound(item: MediaView): Promise<MediaView | 
     .select()
     .from(media)
     .where(
-      and(
-        isNull(media.user_id),
-        eq(media.kind, 'blindtest'),
-        sql`json_extract(${media.payload}, '$.code') = ${code}`
-      )
+      and(isNull(media.user_id), eq(media.kind, 'blindtest'), sql`json_extract(${media.payload}, '$.code') = ${code}`)
     )
     .limit(1);
 
@@ -245,8 +243,8 @@ export async function rememberPlayedRound(item: MediaView): Promise<MediaView | 
  */
 export async function correctLibraryRound(
   code: string,
-  fields: { key: string; value: string }[],
-  clip: Record<string, number | undefined> = {}
+  fields: { key: string; value: string; aliases?: string[] }[],
+  numbers: Record<string, number | undefined> = {}
 ): Promise<boolean> {
   const [row] = await db
     .select()
@@ -262,14 +260,32 @@ export async function correctLibraryRound(
   let changed = false;
   for (const field of fields) {
     const answer = view.answers.find((candidate) => candidate.key === field.key);
+    if (!answer) continue;
+
     const value = field.value.trim();
-    if (!answer || !value || answer.value === value) continue;
-    answer.value = value;
-    changed = true;
+    if (value && answer.value !== value) {
+      answer.value = value;
+      changed = true;
+    }
+
+    /**
+     * The accepted spellings, kept for every room afterwards.
+     *
+     * This is the half of a correction that outlives the argument it came from.
+     * A round is marked wrong once, somebody says "that is the same film under
+     * its other title", and from here on it is the same film under its other
+     * title for everybody — which is a thing the model that wrote the row could
+     * not have known and a thing no room should have to discover twice.
+     */
+    const aliases = cleanAliases(field.aliases);
+    if (aliases && JSON.stringify(aliases) !== JSON.stringify(answer.aliases)) {
+      answer.aliases = aliases;
+      changed = true;
+    }
   }
 
   /**
-   * And the clip window, through the kind's own schema.
+   * And the numbers in the payload: the clip window, and how hard it is.
    *
    * Same rule as the live round's: a patch that would not survive a save is
    * refused whole. Unlike the live round, the stored copy keeps no separate
@@ -277,7 +293,7 @@ export async function correctLibraryRound(
    * correcting the window here is the whole of the fix for every future room.
    */
   const patch: Record<string, number> = {};
-  for (const [key, value] of Object.entries(clip)) {
+  for (const [key, value] of Object.entries(numbers)) {
     if (typeof value === 'number' && Number.isFinite(value)) patch[key] = Math.round(value);
   }
 
@@ -323,11 +339,7 @@ export async function purgeLibraryRound(code: string): Promise<boolean> {
   const rows = await db
     .delete(media)
     .where(
-      and(
-        isNull(media.user_id),
-        eq(media.kind, 'blindtest'),
-        sql`json_extract(${media.payload}, '$.code') = ${code}`
-      )
+      and(isNull(media.user_id), eq(media.kind, 'blindtest'), sql`json_extract(${media.payload}, '$.code') = ${code}`)
     )
     .returning({ id: media.id });
 
@@ -349,9 +361,15 @@ export async function purgeLibraryRound(code: string): Promise<boolean> {
  * the catalogue worth keeping.
  *
  * Filtered to the genres this room asked for — a rap night stays a rap night —
- * and to what it has not already heard. Difficulty is not filtered on, because
- * a saved row carries no difficulty: that number was a rank inside the pool it
- * came from and means nothing outside it.
+ * and to what it has not already heard.
+ *
+ * Difficulty filters too, but only where there is one to filter on. A row saved
+ * before the number was kept has none, and "unknown" must not read as "too hard"
+ * or an evening on a narrow window would quietly stop replaying anything: those
+ * rows stay eligible and the window is applied to the rest. What makes the
+ * filter worth having at all is that the number on a saved row is the one a room
+ * could correct — the pool's own figure is a rank among search results, this one
+ * has been through the reveal.
  *
  * The rows come back with their real, positive ids, which is the point: a
  * replayed round is an ordinary library item, so it needs no saving, restores
@@ -367,7 +385,8 @@ export async function replayFromLibrary(
   genreIds: readonly string[],
   history: DrawHistory,
   count: number,
-  dealt: ReadonlySet<number> = new Set()
+  dealt: ReadonlySet<number> = new Set(),
+  difficulty: { min: number; max: number } = { min: 0, max: 100 }
 ): Promise<MediaView[]> {
   if (count <= 0) return [];
 
@@ -376,6 +395,11 @@ export async function replayFromLibrary(
     .map(toMediaView)
     .filter((item) => item.readiness.ready && wanted.has(item.category ?? ''))
     .filter((item) => !dealt.has(item.id))
+    .filter((item) => {
+      const rating = (item.payload as { difficulty?: unknown } | null)?.difficulty;
+      if (typeof rating !== 'number') return true;
+      return rating >= difficulty.min && rating <= difficulty.max;
+    })
     .filter((item) => {
       const key = trackKeyOf(item);
       return key !== '' && !history.playedTracks.has(key);

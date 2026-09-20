@@ -99,10 +99,13 @@ export const playEn: Catalogue = {
   "host.heldPlayer": "Paused by the host",
   "host.correct": "Correct the answer",
   "host.correctClip": "Clip (seconds)",
+  "host.correctAliases": "Other accepted answers (one per line)",
+  "host.correctDifficulty": "Difficulty (0-100)",
   "host.correctSave": "Save",
   "host.correctCancel": "Cancel",
   "host.correctNote":
     "Fixes this round on screen and in the shared catalogue, for every room dealt this song afterwards. The points already given stay as they are.",
+  "play.difficulty": "Difficulty {value}/100",
   "host.flagWrong": "Wrong information",
   "host.flagHint":
     "This round was generated and kept in the shared library. If the answer is wrong, throw it out.",

@@ -71,9 +71,11 @@ import { allowedOrigins } from '../env.js';
 import type { GameManager } from '../game/manager.js';
 import {
   buzz,
+  cleanAliases,
   correctAnswers,
-  correctClip,
+  correctPayloadNumbers,
   holdRound,
+  libraryCodeOf,
   isBuzzerRound,
   joinSession,
   revealChoices,
@@ -617,11 +619,12 @@ export function registerRealtime(
     /**
      * The room says the reveal is wrong, and the library entry goes.
      *
-     * Only ever acts on a generated round that is still filed: `libraryCodeOf`
-     * decides that and the screen only draws the button when it answered, but it
-     * is re-derived here rather than trusted from the payload, because a client
-     * that sent a code of its own choosing must not be able to delete an arbitrary
-     * row out of a catalogue everybody shares.
+     * Only ever acts on a round the shared catalogue owns — generated here, or
+     * replayed out of it. `libraryCodeOf` decides that and the screen only draws
+     * the button when it answered, but it is re-derived here rather than trusted
+     * from the payload, because a client that sent a code of its own choosing
+     * must not be able to delete an arbitrary row out of a catalogue everybody
+     * shares.
      *
      * The round on screen is left exactly as it is. It has been played, the points
      * are settled, and rewriting the answers under a room in the middle of reading
@@ -631,10 +634,10 @@ export function registerRealtime(
     socket.on('host:flagRound', (payload) => {
       withHost(payload?.hostToken, async (state) => {
         const round = state.round;
-        if (!round || round.phase !== 'reveal' || round.mediaId >= 0 || round.libraryPurged) return;
+        if (!round || round.phase !== 'reveal') return;
 
-        const code = (round.payload as { code?: unknown } | null)?.code;
-        if (typeof code !== 'string' || !code) return;
+        const code = libraryCodeOf(round);
+        if (!code) return;
 
         await purgeLibraryRound(code);
 
@@ -684,14 +687,28 @@ export function registerRealtime(
         return;
       }
 
+      /**
+       * The answers, each with however many spellings are to be accepted.
+       *
+       * `aliases` is optional on the wire and stays optional all the way down:
+       * a client that sends none is asking for the stored ones to be left alone,
+       * which is not the same as sending an empty list. `cleanAliases` is what
+       * holds the list to the shape the answer field's schema would.
+       */
       const fields = Array.isArray(payload.fields)
         ? payload.fields
             .filter(
-              (field): field is { key: string; value: string } =>
+              (field): field is { key: string; value: string; aliases?: string[] } =>
                 !!field && typeof field.key === 'string' && typeof field.value === 'string'
             )
             .slice(0, 8)
-            .map((field) => ({ key: field.key, value: field.value.slice(0, 200) }))
+            .map((field) => ({
+              key: field.key,
+              value: field.value.slice(0, 200),
+              aliases: cleanAliases(
+                Array.isArray(field.aliases) ? field.aliases.filter((alias) => typeof alias === 'string') : undefined
+              )
+            }))
         : [];
       /**
        * The clip window, read defensively.
@@ -710,6 +727,17 @@ export function registerRealtime(
         }
       }
 
+      /**
+       * And how hard it was, which rides in the payload beside the window.
+       *
+       * Read the same defensive way and bounded by the kind's schema below, so
+       * the worst a client can do with it is have its number refused.
+       */
+      const difficulty = (payload as { difficulty?: unknown }).difficulty;
+      if (typeof difficulty === 'number' && Number.isFinite(difficulty)) {
+        clip.difficulty = Math.min(100, Math.max(0, difficulty));
+      }
+
       if (fields.length === 0 && Object.keys(clip).length === 0) return;
 
       void (async () => {
@@ -719,19 +747,21 @@ export function registerRealtime(
           return;
         }
 
+        // The catalogue's rule, not a rule of this handler's own: a round
+        // generated here, or one replayed out of the shared catalogue. A round
+        // from somebody's own library is theirs, and is edited in the editor.
         const round = state.round;
-        const libraryCode =
-          round && round.mediaId < 0 ? (round.payload as { code?: unknown } | null)?.code : undefined;
+        const libraryCode = round ? libraryCodeOf(round) : undefined;
 
         // Either may land on its own: an answer that was right with a window
         // that was not is the commonest correction of the two.
         const fixedAnswers = correctAnswers(state, fields);
-        const fixedClip = correctClip(state, clip);
+        const fixedClip = correctPayloadNumbers(state, clip);
         if (!fixedAnswers && !fixedClip) return;
 
         // The shared copy second: a correction that cannot be stored has still
         // fixed the screen the room is arguing in front of.
-        if (typeof libraryCode === 'string' && libraryCode) {
+        if (libraryCode) {
           await correctLibraryRound(libraryCode, fields, clip).catch((error: unknown) => {
             app.log.warn({ err: error, code: state.code }, 'could not store a round correction');
           });

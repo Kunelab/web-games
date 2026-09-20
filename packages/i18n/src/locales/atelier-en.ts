@@ -116,6 +116,14 @@ export const atelierEn: Catalogue = {
   "field.work.film": "Movie",
   "field.work.series": "TV series",
   "field.work.game": "Video game",
+  /*
+   * The number the endless mode draws against, and the one the reveal prints
+   * small. Left empty it means nobody has judged this clip, which is not the
+   * same as judging it average.
+   */
+  "field.difficulty": "Difficulty",
+  "field.difficultyHelp":
+    "0 if everyone at a party would name it, 100 if only an enthusiast would. Filled in by the draw on a generated round, and correctable afterwards - including mid-game, from the host screen. Empty means nobody has said.",
   "field.volume": "Volume",
   "field.volumeHelp":
     "Levels this clip against the rest of the playlist. 100 is full — turn it down only for a clip mastered louder than everything around it.",
