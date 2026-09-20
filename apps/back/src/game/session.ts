@@ -247,6 +247,20 @@ export interface SessionState {
   /** Guards the results table against a finished game being recorded twice. */
   resultsRecorded?: boolean;
   /**
+   * A dry run of one item, from the library rather than from a playlist.
+   *
+   * Everything about the game is real — same engine, same phases, same timings —
+   * because a rehearsal that played by different rules would not answer the one
+   * question it is asked: does this media, with these timecodes, play the way its
+   * author meant it to. What it must not do is *count*: it never reaches the
+   * history, and it never pays a wallet. Checking a clip six times in a row would
+   * otherwise read as six games played, and the librarian's own career would be
+   * mostly rehearsals of the same thirty seconds.
+   *
+   * Optional, so a session persisted before this existed restores without it.
+   */
+  rehearsal?: boolean;
+  /**
    * What the game paid each player, computed once when the results were banked.
    *
    * Stored on the session rather than recomputed per view because it is a

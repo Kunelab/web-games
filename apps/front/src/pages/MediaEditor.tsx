@@ -82,6 +82,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
   const [timing, setTiming] = useState<KindTiming | null>(item?.timing ?? null);
 
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
@@ -188,15 +189,17 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
     setAnswers((current) => current.filter((_, position) => position !== index));
   }
 
-  async function save() {
-    if (!kind) return;
-
-    setSaving(true);
-    setError(null);
-    setFieldErrors({});
-
+  /**
+   * Writes the form and hands back what the server stored, or null if it refused.
+   *
+   * Split out of `save` for the rehearsal below, which has to write before it can
+   * play: the game is built from the row, so testing an unsaved timecode would
+   * quietly play the previous one and answer a question nobody asked. Errors are
+   * reported here so both callers report them the same way.
+   */
+  async function persist(chosenKind: string): Promise<MediaItem | null> {
     const body = {
-      kind,
+      kind: chosenKind,
       title: title.trim() || t(msg('me.untitled')),
       category: category.trim() || null,
       date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null,
@@ -206,10 +209,7 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
     };
 
     try {
-      const saved = mediaId === null ? await api.createMedia(body) : await api.updateMedia(mediaId, body);
-      // Creating navigates to the item's own address, so the next refresh or back
-      // press lands somewhere real.
-      void navigate(`/bibliotheque/${saved.id}`, { replace: true });
+      return mediaId === null ? await api.createMedia(body) : await api.updateMedia(mediaId, body);
     } catch (cause) {
       if (cause instanceof ApiError) {
         setError(cause.message);
@@ -217,8 +217,57 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
       } else {
         setError(t(msg('me.saveFailed')));
       }
+      return null;
+    }
+  }
+
+  async function save() {
+    if (!kind) return;
+
+    setSaving(true);
+    setError(null);
+    setFieldErrors({});
+
+    try {
+      const saved = await persist(kind);
+      // Creating navigates to the item's own address, so the next refresh or back
+      // press lands somewhere real.
+      if (saved) void navigate(`/bibliotheque/${saved.id}`, { replace: true });
     } finally {
       setSaving(false);
+    }
+  }
+
+  /**
+   * Saves, then plays this one item on its own as a game.
+   *
+   * Solo, because the author is the only audience a rehearsal has: the host
+   * screen presents and answers on the same device, which is the arrangement
+   * already built for trying a quiz out alone. It leaves the editor rather than
+   * opening a preview beside it, deliberately — the thing being checked is how
+   * the round *plays*, and a small player in a corner of a form is a different
+   * experience from the one players will get.
+   */
+  async function rehearse() {
+    if (!kind) return;
+
+    setTesting(true);
+    setError(null);
+    setFieldErrors({});
+
+    try {
+      const saved = await persist(kind);
+      if (!saved) return;
+
+      const session = await api.rehearseMedia(saved.id);
+      // Same contract as a launch: the host token proves the socket is the host's
+      // and has to survive a refresh of the screen it is about to open.
+      sessionStorage.setItem(`kune.host.${session.code}`, session.hostToken);
+      void navigate(`/partie/${session.code}?solo=1`);
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : t(msg('me.testFailed')));
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -429,7 +478,19 @@ function Editor({ item, kinds, mediaId }: EditorProps) {
           <Button variant="ghost" onClick={() => void navigate('/bibliotheque')}>
             {t(msg('me.cancel'))}
           </Button>
-          <Button variant="primary" busy={saving} onClick={() => void save()}>
+          {/* Offered only on a playable item: the server refuses a draft, and a
+              button whose whole answer is "not ready yet" is one the readiness
+              badge beside it has already given. */}
+          <Button
+            variant="secondary"
+            busy={testing}
+            disabled={!readiness.ready || saving}
+            title={t(msg('me.testHint'))}
+            onClick={() => void rehearse()}
+          >
+            {t(msg('me.test'))}
+          </Button>
+          <Button variant="primary" busy={saving} disabled={testing} onClick={() => void save()}>
             {t(msg('me.save'))}
           </Button>
         </div>

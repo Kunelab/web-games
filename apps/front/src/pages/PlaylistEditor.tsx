@@ -15,7 +15,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { api, type MediaItem, type Playlist } from '../api/client';
-import { useAuth } from '../hooks/useAuth';
+import { isAdmin, useAuth } from '../hooks/useAuth';
 import { useT } from '../i18n/locale-context';
 import { kindColor, kindKey } from '../app/kinds';
 import { useAsync } from '../hooks/useAsync';
@@ -101,8 +101,15 @@ export default function PlaylistEditor() {
    *
    * Duplicating is the real answer and already exists on both sides, so the
    * screen offers that instead of a save it cannot perform.
+   *
+   * Admins are the exception, and they have to be: the generated-rounds
+   * catalogue is written with no owner at all, so no id ever matches it and the
+   * ownership test alone locked every account out of the one playlist that is
+   * meant to be maintained. The server has always allowed this: `mayEdit` runs
+   * `ownerFilter`, which an admin's role widens to "any row". So this only stops
+   * the screen from hiding an edit the API would have accepted all along.
    */
-  const mine = playlist.data.user_id === user?.id;
+  const mine = playlist.data.user_id === user?.id || isAdmin(user);
   if (!mine) {
     return (
       <>

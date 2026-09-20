@@ -1,8 +1,8 @@
 /* eslint-disable no-console -- a CLI's output is its interface */
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import { closeDb, db } from '../db/index.js';
-import { users } from '../db/schema.js';
+import { sessions, users } from '../db/schema.js';
 
 /**
  * Role management from the shell.
@@ -52,7 +52,26 @@ async function main(): Promise<number> {
     }
 
     await db.update(users).set({ role }).where(eq(users.id, user.id));
+
+    /*
+     * And sign them out everywhere.
+     *
+     * The role is copied into the session at login and read back from there on
+     * every request, so a promotion on its own changes nothing for a browser
+     * that is already signed in: this prints "member -> admin", the account goes
+     * on behaving as a member, and nothing at either end says the grant is
+     * waiting on a logout nobody knew to perform. Dropping the rows means the
+     * next sign-in picks the new role up, which is the only moment it can.
+     */
+    const signedOut = db
+      .delete(sessions)
+      .where(sql`json_extract(${sessions.data}, '$.user.id') = ${user.id}`)
+      .run().changes;
+
     console.log(`${login}: ${user.role ?? 'member'} -> ${role}`);
+    if (signedOut > 0) {
+      console.log(`Signed out of ${signedOut} session(s) — sign in again for it to take effect.`);
+    }
     return 0;
   }
 

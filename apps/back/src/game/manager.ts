@@ -328,6 +328,8 @@ export class GameManager {
      * asking for "eight rounds" out of a hundred-item quiz actually means.
      */
     maxRounds?: number;
+    /** A dry run of one library item: played for real, banked nowhere. */
+    rehearsal?: boolean;
   }): Promise<SessionState> {
     const parsedConfig = sessionConfigSchema.safeParse(options.config ?? {});
     const config: SessionConfig = parsedConfig.success ? parsedConfig.data : defaultSessionConfig;
@@ -343,6 +345,10 @@ export class GameManager {
 
     if (options.maxRounds !== undefined && options.maxRounds > 0) {
       state.order = state.order.slice(0, options.maxRounds);
+    }
+
+    if (options.rehearsal) {
+      state.rehearsal = true;
     }
 
     if (options.infinite) {
@@ -784,6 +790,10 @@ export class GameManager {
    */
   private async bank(state: SessionState): Promise<void> {
     const played = state.phase === 'finished' || state.currentRoundIndex >= 0;
+    // A rehearsal is a real game played for a fake reason, so it is stopped here
+    // rather than earlier: everything upstream should behave exactly as it would
+    // in a match, and only the banking is a lie worth refusing.
+    if (state.rehearsal) return;
     if (state.resultsRecorded || state.config.oral || !played) return;
     if (Object.keys(state.players).length === 0) return;
 

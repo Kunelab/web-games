@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { frontOrigin } from '../env.js';
 import { loadAssetOnce, resolveAsset } from '../game/assets.js';
+import { mediaService } from '../services/media-service.js';
 import { playlistService } from '../services/playlist-service.js';
 import { resultsService } from '../services/results-service.js';
 
@@ -106,6 +107,72 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
         await app.games.destroy(state.code);
         return reply.code(400).send({
           message: "Aucun média de cette playlist n'est prêt à être joué",
+          skipped: state.skipped
+        });
+      }
+
+      return reply.code(201).send({
+        code: state.code,
+        hostToken: state.hostToken,
+        total: state.order.length,
+        skipped: state.skipped
+      });
+    }
+  );
+
+  /**
+   * Starts a one-item game from the library, to hear a media as players will.
+   *
+   * The library screen can describe a clip but it cannot answer the question its
+   * author actually has — does the timecode land on the chorus, is the extract
+   * long enough to place, does the answer arrive before the giveaway. Reading the
+   * payload back tells you nothing about that; only playing it does, and until
+   * now playing it meant building a throwaway playlist, launching it, and then
+   * remembering to delete it. Most of the time nobody remembered, which is how a
+   * library fills with playlists called "test".
+   *
+   * So the session is built straight from the media and owns no playlist at all
+   * (`playlistId: null`), and it runs the real engine on the real default config
+   * — the point is fidelity, a preview with its own timing rules would answer a
+   * question nobody asked. `rehearsal` keeps it out of the history; see the flag.
+   *
+   * `mediaService.getById` scopes the lookup, so this plays what the caller could
+   * already open in the editor and nothing else.
+   */
+  app.post(
+    '/play/rehearsals',
+    {
+      preHandler: app.requireAuth,
+      schema: {
+        body: z.object({
+          mediaId: z.coerce.number().int().positive(),
+          config: sessionConfigSchema.partial().optional()
+        })
+      }
+    },
+    async (request, reply) => {
+      const item = await mediaService.getById(request.body.mediaId, request.currentUser);
+      if (!item) {
+        throw app.httpErrors.notFound('Média introuvable');
+      }
+
+      const state = await app.games.create({
+        playlistId: null,
+        playlistName: item.title,
+        hostUserId: request.currentUser.id,
+        items: [item],
+        // Shuffling one item is a no-op and chronological order over one date is
+        // too, so whatever the caller sends only ever changes the timings.
+        config: request.body.config,
+        rehearsal: true
+      });
+
+      if (state.order.length === 0) {
+        await app.games.destroy(state.code);
+        // The editor already shows what a draft is missing, so the reason here is
+        // the same one in a single sentence rather than a second field list.
+        return reply.code(400).send({
+          message: "Ce média n'est pas encore prêt à être joué",
           skipped: state.skipped
         });
       }

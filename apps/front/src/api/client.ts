@@ -342,6 +342,15 @@ export const api = {
   /* play */
   startSession: (playlistId: number, config?: Partial<SessionConfig>) =>
     request<StartedSession>('/play/sessions', { method: 'POST', body: { playlistId, config } }),
+  /**
+   * Plays one library item on its own, so its author can hear what players will.
+   *
+   * Same shape as `startSession` because it is the same thing: a real game with a
+   * one-item order. It owns no playlist, and the server keeps it out of the
+   * history — see `rehearsal` on the session state.
+   */
+  rehearseMedia: (mediaId: number, config?: Partial<SessionConfig>) =>
+    request<StartedSession>('/play/rehearsals', { method: 'POST', body: { mediaId, config } }),
   sessionSummary: (code: string) => request<SessionSummary>(`/play/sessions/${code}`, { allowAnonymous: true }),
   endSession: (code: string) => request<void>(`/play/sessions/${code}`, { method: 'DELETE' }),
   mySessions: () =>

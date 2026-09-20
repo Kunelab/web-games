@@ -6,7 +6,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { api } from '../api/client';
 import { badgeMeta } from '../app/badges';
 import { fieldText } from '../forms/fieldText';
-import { useAuth } from '../hooks/useAuth';
+import { isAdmin, useAuth } from '../hooks/useAuth';
 import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
 import { useLocale } from '../i18n/locale-context';
 import { RoundPanel } from './Player';
@@ -62,7 +62,7 @@ export default function Host() {
    * Whether to *offer* the correction controls. The server decides whether to
    * honour them, against the role on the session rather than this.
    */
-  const canCorrect = user?.role === 'admin' || user?.role === 'super-admin';
+  const canCorrect = isAdmin(user);
 
   const [hostToken] = useState(() => sessionStorage.getItem(`kune.host.${code}`) ?? '');
   const [openError, setOpenError] = useState<string | null>(null);

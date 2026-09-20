@@ -1120,6 +1120,33 @@ section('when a game is banked');
   check('but coming first among one is not a win', solo?.wins === 0, solo?.wins);
   check('so the title says only that they played', solo?.title === 'first-game', solo?.title);
 
+  /**
+   * A rehearsal is played, not counted.
+   *
+   * Trying one media out from the library runs the whole engine — that is the
+   * point of it, a preview with its own rules would not tell its author whether
+   * the timecode lands. So it walks the same path a solo game just did, right
+   * down to a seat and a score, and the only thing that must differ is what it
+   * leaves behind. Checked against the same career the block above builds, with
+   * a name of its own: if `bank` ever stops honouring the flag, this is a game
+   * appearing out of nowhere rather than a number quietly drifting.
+   */
+  const dryRun = await app.games.create({
+    playlistId: null,
+    playlistName: quizItem.title,
+    hostUserId: 1,
+    items: [quizItem],
+    rehearsal: true
+  });
+  const author = joinSession(dryRun, 'Rehearser', undefined).player;
+  await app.games.advanceSession(dryRun.code);
+  const rehearsalScorer = dryRun.players[author.id];
+  if (rehearsalScorer) rehearsalScorer.totalScore = 30;
+  await app.games.destroy(dryRun.code);
+
+  const rehearsed = (await resultsService.careers()).find((career) => career.name === 'Rehearser');
+  check('a rehearsal is played but never recorded', rehearsed === undefined, rehearsed);
+
   await app.games.destroy(live.code);
 }
 
