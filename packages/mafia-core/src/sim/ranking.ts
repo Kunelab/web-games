@@ -81,6 +81,8 @@ export type ReasonCode =
   | 'proven-town'
   /** The seat that accused them did not see the morning. */
   | 'accuser-silenced'
+  /** A dead player wrote their name down. */
+  | 'named-in-a-will'
   | TempoCode;
 
 /**
@@ -167,7 +169,21 @@ const SAID = {
    * the right sign, which is more than two of the six rules in the first
    * version of this table managed.
    */
-  accuserSilenced: 0.385
+  accuserSilenced: 0.385,
+  /**
+   * The word of somebody who is no longer here to be argued with.
+   *
+   * Fitted at +1.311, which makes it the third heaviest rule in the model, and
+   * the comparison beside it is the interesting part. `accusedBy` — a *living*
+   * seat naming somebody — fires on 1.5% of killers and 1.9% of everybody else,
+   * which is a rule pointing gently the wrong way. The same accusation from a
+   * corpse fires on 1.9% against 0.5%.
+   *
+   * The living accuse each other all afternoon and it measures nothing, because
+   * an accusation is free and everybody makes them. A person who wrote a name
+   * down as they were dying had a reason, paid for it, and cannot take it back.
+   */
+  namedInAWill: 1.311
 } as const;
 
 /**
@@ -236,6 +252,38 @@ export function rank(info: PublicInfo): Suspect[] {
         .sort((left, right) => right.heard - left.heard)[0];
       if (accusers && accusers.heard >= CREDIBLE_ENOUGH) {
         reasons.push({ code: 'accused-by', weight: SAID.accusedBy, slot: accusers.slot });
+      }
+
+      /**
+       * And the accusation nobody can press, which is usually the best one.
+       *
+       * The filter above reads `aliveSlots`, so every name written down by a
+       * dying player was worth precisely nothing to the case. That is the one
+       * kind of testimony in this game that is *expensive to fake and cannot be
+       * retracted*: a Sheriff who wrote "N2: 7 came back mafia" and was knifed
+       * for it that same night has told the room something a living seat could
+       * only assert. `claimerWeight` has always priced a dead claimer properly
+       * — a town corpse at 1.6, an evil one at zero — and nothing was asking it
+       * about the dead.
+       *
+       * Kept as its own code rather than folded into `accused-by`, because the
+       * two want different sentences and different weights: one is a seat you
+       * can turn round and question, the other is a line in a will that the
+       * whole room read this morning and that a bot can quote back word for
+       * word. See the will quoting in `bots.ts`.
+       */
+      const buried = info.claims
+        .filter(
+          (claim) =>
+            claim.kind === 'accuse' &&
+            claim.targetSlot === slot &&
+            !info.aliveSlots.includes(claim.claimerSlot) &&
+            info.deadRoles.has(claim.claimerSlot)
+        )
+        .map((claim) => ({ slot: claim.claimerSlot, heard: claimerWeight(claim.claimerSlot, info) }))
+        .sort((left, right) => right.heard - left.heard)[0];
+      if (buried && buried.heard >= CREDIBLE_ENOUGH) {
+        reasons.push({ code: 'named-in-a-will', weight: SAID.namedInAWill, slot: buried.slot });
       }
 
       const voucher = info.claims
@@ -389,6 +437,7 @@ function isSaid(reason: Reason): boolean {
     reason.code === 'badge-unchallenged' ||
     reason.code === 'proven-town' ||
     reason.code === 'accuser-silenced' ||
+    reason.code === 'named-in-a-will' ||
     reason.code === 'led-town-wagon' ||
     reason.code === 'led-killer-wagon' ||
     reason.code === 'saved-at-the-edge'

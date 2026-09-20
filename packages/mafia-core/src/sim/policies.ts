@@ -877,6 +877,46 @@ export function couldStillAct(action: NightActionType, info: PublicInfo): boolea
   return possible.some((role) => !buried.has(role));
 }
 
+/** What standing up for a killer costs when the room could not possibly miss it. */
+const MERCY = 2.5;
+
+/**
+ * How damning one innocent vote was, 0 (forgivable) to 1 (the full price).
+ *
+ * Two halves, weighted the same, and both are read off the board as it stood
+ * *that afternoon* rather than as it stands now. That distinction is the whole
+ * function: every claim carries the day it was made, so "what did the room have
+ * when it voted" is answerable without storing anything, and answering it any
+ * other way would charge a seat for evidence that arrived after its ballot.
+ *
+ *  - **The case.** Distinct seats who had named them by then, plus a watcher
+ *    who had put them on a doorstep. Three voices and a sighting is a case
+ *    nobody votes innocent on by accident; one grumble is not.
+ *  - **The clock.** An afternoon early in the game is cheap and the town knows
+ *    it; the last few are not. Read off the day rather than off the parity
+ *    clock, because the clock moves with the board and the day is what the seat
+ *    could see when it raised its hand.
+ */
+function mercyCost(trial: TrialRecord, info: PublicInfo): number {
+  const named = new Set(
+    info.claims
+      .filter(
+        (claim) =>
+          claim.kind === 'accuse' &&
+          claim.targetSlot === trial.accusedSlot &&
+          claim.claimerSlot !== trial.accusedSlot &&
+          claim.day <= trial.day
+      )
+      .map((claim) => claim.claimerSlot)
+  );
+  const watched = info.claims.some(
+    (claim) => claim.kind === 'sighting' && claim.targetSlot === trial.accusedSlot && claim.day <= trial.day
+  );
+  const held = Math.min(1, (named.size + (watched ? 1 : 0)) / 3);
+  const late = Math.min(1, Math.max(0, trial.day - 2) / 3);
+  return 0.5 * held + 0.5 * late;
+}
+
 export function trustOf(slot: number, info: PublicInfo, through: Temperament = EVEN_TEMPERAMENT): number {
   let trust = 0;
   for (const trial of info.trials) {
@@ -907,7 +947,29 @@ export function trustOf(slot: number, info: PublicInfo, through: Temperament = E
       const cast = trial.guiltySlots.length + trial.innocentSlots.length;
       const divided = cast > 0 ? trial.innocentSlots.length / cast : 0;
       if (guilty) trust += 0.2 + 0.9 * divided;
-      if (innocent) trust -= 2.5; // tried to save the mafia, in public
+      /**
+       * Mercy is priced by what it cost the room, not by how it turned out.
+       *
+       * Saving a mafioso in public was a flat 2.5 whenever it happened, which
+       * reads as strict and plays as a tax on the one habit a town needs most.
+       * On day two, with nothing on the board, voting innocent is what an
+       * honest player *should* do: the room has found nothing, and a seat that
+       * says so is not protecting anybody, it is refusing to hang a stranger on
+       * a hunch. The graveyard then settles the matter days later and brands
+       * them for the rest of the game for having been careful early.
+       *
+       * The same ballot on day six, with three seats naming them and a watcher
+       * putting them on a doorstep, is a different act entirely. Nobody votes
+       * innocent there by accident.
+       *
+       * So the price is what the room was holding at the time and how late it
+       * was, and the two are added rather than multiplied: a thin case late is
+       * worth something, a strong case early is worth something, and only both
+       * together are worth the old flat rate. A quarter of it is charged
+       * whatever the circumstances, because the seat did still stand up for a
+       * killer.
+       */
+      if (innocent) trust -= MERCY * (0.25 + 0.75 * mercyCost(trial, info));
     } else if (roleDef(revealed).faction === 'town') {
       if (guilty) trust -= 1.2;
       if (innocent) trust += 0.8;

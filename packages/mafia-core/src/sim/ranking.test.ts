@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { RoleId } from '../roles.js';
-import type { Claim, PublicInfo } from './policies.js';
+import { trustOf, type Claim, type PublicInfo } from './policies.js';
 import { caseFor, defenceFor, rank } from './ranking.js';
 import { visitOdds } from './visits.js';
 
@@ -255,5 +255,107 @@ describe('who the night chose', () => {
 
     const found = rank(hanged).find((suspect) => suspect.slot === 4);
     assert.ok(!codes(found?.against ?? []).includes('accuser-silenced'));
+  });
+});
+
+/**
+ * The testimony nobody can cross-examine, which the case was throwing away.
+ *
+ * `accused-by` filtered its accusers to `aliveSlots`, so every name a dying
+ * player wrote down was worth exactly nothing to the ranking. It is the one
+ * accusation in this game that is expensive to make and impossible to retract,
+ * and the fit says so: +1.311 against -0.255 for the same words from somebody
+ * still breathing.
+ */
+describe('a name written down by the dead', () => {
+  const graveyard = (accuser: number, role: RoleId, target: number): PublicInfo =>
+    board({
+      aliveSlots: [1, 2, 3, 4],
+      totalDead: 1,
+      deadRoles: new Map<number, RoleId>([[accuser, role]]),
+      deaths: [{ slot: accuser, day: 2, phase: 'night', source: 'mafia' }],
+      claims: [said({ claimerSlot: accuser, targetSlot: target, kind: 'accuse', day: 2 })]
+    });
+
+  it('counts a dead townsperson naming somebody', () => {
+    const found = rank(graveyard(5, 'sheriff', 3)).find((suspect) => suspect.slot === 3);
+    assert.ok(codes(found?.against ?? []).includes('named-in-a-will'));
+  });
+
+  /** A killer's will is kindling: `claimerWeight` puts a dead evil at zero. */
+  it('ignores a name written down by a killer', () => {
+    const found = rank(graveyard(5, 'mafioso', 3)).find((suspect) => suspect.slot === 3);
+    assert.ok(!codes(found?.against ?? []).includes('named-in-a-will'));
+  });
+
+  /** And a living accuser is still the other, much cheaper rule. */
+  it('is not the same reason as being accused by somebody alive', () => {
+    const alive = board({
+      aliveSlots: [1, 2, 3, 4, 5],
+      claims: [said({ claimerSlot: 5, targetSlot: 3, kind: 'accuse', day: 2 })]
+    });
+    const found = rank(alive).find((suspect) => suspect.slot === 3);
+    assert.ok(!codes(found?.against ?? []).includes('named-in-a-will'));
+  });
+
+  it('weighs the dead accusation far above the living one', () => {
+    const dead = rank(graveyard(5, 'sheriff', 3)).find((suspect) => suspect.slot === 3);
+    const willed = (dead?.against ?? []).find((reason) => reason.code === 'named-in-a-will');
+    assert.ok((willed?.weight ?? 0) > 1);
+  });
+});
+
+/**
+ * What mercy costs, which used to be a flat rate.
+ *
+ * Voting innocent on somebody the graveyard later names as a killer was 2.5
+ * whenever it happened. On the second afternoon, with nothing on the board, it
+ * is what an honest player does; on the sixth, with three seats naming them and
+ * a watcher putting them on a doorstep, nobody does it by accident.
+ */
+describe('the price of voting innocent on a killer', () => {
+  const trial = (day: number, extra: Claim[] = []): PublicInfo =>
+    board({
+      day: day + 1,
+      aliveSlots: [1, 2, 3, 4],
+      totalDead: 1,
+      deadRoles: new Map<number, RoleId>([[5, 'mafioso']]),
+      deaths: [{ slot: 5, day, phase: 'day', source: null }],
+      trials: [{ day, accusedSlot: 5, lynched: true, guiltySlots: [2], innocentSlots: [1] }],
+      claims: extra
+    });
+
+  it('barely charges an early vote on an empty board', () => {
+    const early = trustOf(1, trial(2));
+    assert.ok(early > -1.2, `an honest early mercy should be cheap, got ${early}`);
+  });
+
+  it('charges the full price late, with the room pointing', () => {
+    const late = trial(5, [
+      said({ claimerSlot: 2, targetSlot: 5, kind: 'accuse', day: 4 }),
+      said({ claimerSlot: 3, targetSlot: 5, kind: 'accuse', day: 5 }),
+      said({ claimerSlot: 4, targetSlot: 5, kind: 'sighting', day: 5 })
+    ]);
+    assert.ok(trustOf(1, late) <= -2.4, `a late mercy against a real case is the old flat rate`);
+  });
+
+  /** And the clock alone is not the whole story: a thin case late still costs less. */
+  it('charges less when the room had found nothing, however late it was', () => {
+    const thin = trustOf(1, trial(5));
+    const thick = trustOf(
+      1,
+      trial(5, [
+        said({ claimerSlot: 2, targetSlot: 5, kind: 'accuse', day: 4 }),
+        said({ claimerSlot: 3, targetSlot: 5, kind: 'accuse', day: 5 }),
+        said({ claimerSlot: 4, targetSlot: 5, kind: 'sighting', day: 5 })
+      ])
+    );
+    assert.ok(thin > thick);
+  });
+
+  /** Evidence that arrived after the ballot is not evidence the voter had. */
+  it('does not charge for a case made after the verdict', () => {
+    const later = trustOf(1, trial(2, [said({ claimerSlot: 2, targetSlot: 5, kind: 'accuse', day: 4 })]));
+    assert.equal(later, trustOf(1, trial(2)));
   });
 });

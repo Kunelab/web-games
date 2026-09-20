@@ -68,7 +68,7 @@ import { vetTurn } from './turn.js';
 
 import { apiSlots, env } from '../env.js';
 import { trace } from '../trace.js';
-import { readRoom, selfClaim, type RoomAsks } from './asks.js';
+import { readRoom, seatHits, selfClaim, type RoomAsks } from './asks.js';
 import { say } from './say.js';
 import { actionVerb, brief, dossier } from './bot-brief.js';
 import { BotMinds, willHeed, type BotMind } from './bot-mind.js';
@@ -1032,6 +1032,16 @@ const EMPTY: Decision = { say: null, targetSlot: null, verdict: null, claim: nul
  * right to hear a reason.
  */
 const CASE_CHARS = 210;
+
+/**
+ * How much of a will a bot may read out in one breath.
+ *
+ * Short, because the quote has to fit inside a sentence that also names who
+ * wrote it and still land under `CASE_CHARS`. A will entry is one night and one
+ * house, so this is generous for the lines worth quoting and cuts only the
+ * rambling ones, which are the ones nobody reads anyway.
+ */
+const WILL_QUOTE_CHARS = 90;
 
 /**
  * The hard ceiling on anything that reaches the square, scripted or written.
@@ -6744,6 +6754,9 @@ export class MafiaBotDriver {
           ? vary('mafia.bot.case.pushedByPlain', 2, seed, { other })
           : vary('mafia.bot.case.pushedBy', 2, seed, { other });
       }
+      case 'named-in-a-will':
+        /** The heaviest thing a corpse can say, and it comes with a quotation. */
+        return other === null ? null : vary('mafia.bot.case.namedInAWill', 2, seed, { other });
       case 'accuser-silenced':
         /** The oldest read at any table, and the board could not make it until now. */
         return other === null ? null : vary('mafia.bot.case.accuserSilenced', 2, seed, { other });
@@ -7041,6 +7054,24 @@ export class MafiaBotDriver {
     if (unsaid) {
       const spoken = this.aloud(unsaid, botId, targetSlot);
       if (spoken) return spoken;
+    }
+
+    /**
+     * 0c. A name written down by somebody who did not live to be questioned.
+     *
+     * High on this ladder because the bench put it there: fitted at +1.311, the
+     * third heaviest rule in the model and five times the weight of a living
+     * seat's accusation. It also happens to be the single most *persuasive*
+     * thing a bot can say, because it is the only rung that comes with a
+     * quotation the whole room already read this morning.
+     */
+    const willed = caseFor(targetSlot, board, 8).find((reason) => reason.code === 'named-in-a-will');
+    if (willed?.slot !== undefined) {
+      const quoted = this.willLine(state, willed.slot, targetSlot);
+      const seed = botId + ':w:' + targetSlot;
+      return quoted
+        ? vary('mafia.bot.why.willQuote', 3, seed, { who: nameOf(willed.slot), line: quoted })
+        : vary('mafia.bot.why.willNames', 3, seed, { who: nameOf(willed.slot) });
     }
 
     // 1. Caught out: they said they were home and somebody put them outside.
@@ -8666,6 +8697,44 @@ export class MafiaBotDriver {
       onTrial: accused?.slot ?? null,
       mostVoted
     };
+  }
+
+  /**
+   * The line of a dead player's will that names one particular house.
+   *
+   * A bot citing a will should be able to read it out, the way a person does:
+   * not "the sheriff's will accuses you" but the sentence itself, the one the
+   * whole square scrolled past at dawn. It is the most checkable thing anybody
+   * can say in this game, because every seat can scroll back up and see whether
+   * the quote is honest.
+   *
+   * Three guards, and the middle one is the load-bearing one:
+   *
+   *  - the author has to be dead, because a living seat's will is private;
+   *  - the corpse must not have been **cleaned**. A janitor takes the will with
+   *    the face, the room never saw it, and a bot quoting one would be reading
+   *    out a document that does not publicly exist. The engine applies exactly
+   *    this test before announcing it (see `record.hidden`), and so does this;
+   *  - the line has to name the house, found with the same reader the square
+   *    uses, so a will that mentions somebody by nickname still matches.
+   *
+   * Returns the line trimmed to something sayable, or null, in which case the
+   * caller says the shorter sentence that names no quote.
+   */
+  private willLine(state: MafiaState, deadSlot: number, targetSlot: number): string | null {
+    const author = Object.values(state.players).find((player) => player.slot === deadSlot);
+    if (!author || author.alive || !author.lastWill) return null;
+    const grave = state.deaths.find((death) => death.playerId === author.playerId);
+    if (!grave || grave.hidden) return null;
+
+    const seats = Object.values(state.players).map((player) => ({ slot: player.slot, name: player.name }));
+    for (const line of author.lastWill.split(/[\n\r]+/).slice(0, 12)) {
+      const said = line.trim();
+      if (said.length < 4) continue;
+      if (!seatHits(said, seats).some((hit) => hit.slot === targetSlot)) continue;
+      return clip(said, WILL_QUOTE_CHARS);
+    }
+    return null;
   }
 
   /**
