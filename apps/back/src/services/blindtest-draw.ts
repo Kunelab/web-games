@@ -279,7 +279,9 @@ function toMediaView(entry: PoolEntry, difficultyTarget: number): MediaView {
       : [
           {
             key: 'work',
-            label: 'field.work',
+            // The genre names itself when it can; the catch-all only covers a
+            // genre added without one.
+            label: genre?.workLabel ?? 'field.work',
             value: entry.work,
             aliases: entry.workAliases,
             points: 4,

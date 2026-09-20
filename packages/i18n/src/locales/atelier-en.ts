@@ -107,6 +107,15 @@ export const atelierEn: Catalogue = {
    * to be the word that covers all of them rather than any one of their names.
    */
   "field.work": "Film, series or game",
+  /*
+   * And the five genres that know better. The catch-all above is what a round
+   * falls back to; a generated round says which of them it is.
+   */
+  "field.work.animeOpening": "Anime (opening)",
+  "field.work.animeEnding": "Anime (ending)",
+  "field.work.film": "Movie",
+  "field.work.series": "TV series",
+  "field.work.game": "Video game",
   "field.volume": "Volume",
   "field.volumeHelp":
     "Levels this clip against the rest of the playlist. 100 is full — turn it down only for a clip mastered louder than everything around it.",
