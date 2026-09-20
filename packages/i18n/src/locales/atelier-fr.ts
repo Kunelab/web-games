@@ -279,6 +279,7 @@ export const atelierFr: Catalogue = {
   "ple.add": "Ajouter {title}",
   "ple.move": "Déplacer {title}, position {position}",
   "ple.remove": "Retirer {title}",
+  "ple.editMedia": "Modifier {title} (nouvel onglet)",
   /* --------------------- ouvrir un salon depuis une playlist ---------------- */
   "launch.failed": "Le lancement a échoué.",
   "launch.backPlaylist": "Playlist",

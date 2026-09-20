@@ -283,6 +283,7 @@ export const atelierEn: Catalogue = {
   "ple.add": "Add {title}",
   "ple.move": "Move {title}, position {position}",
   "ple.remove": "Remove {title}",
+  "ple.editMedia": "Edit {title} (opens in a new tab)",
   /* ------------------------- opening a room from a playlist ----------------- */
   "launch.failed": "The launch failed.",
   "launch.backPlaylist": "Playlist",

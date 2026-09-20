@@ -168,7 +168,25 @@ interface EditorProps {
 
 function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   const t = useT();
+  const { user } = useAuth();
   const playlistId = playlist.id;
+
+  /**
+   * Whether this row offers a way through to the media editor.
+   *
+   * The same test the server applies in `ownerFilter`, asked here so the link is
+   * absent rather than dead: a member who took a copy of a public quiz has rows
+   * in it they cannot open, and a pencil that leads to "média introuvable" is
+   * worse than no pencil.
+   *
+   * For an admin it is always true, which is the point of it. The generated
+   * rounds belong to nobody, so they appear in no library and there is otherwise
+   * no route to them at all: you could see that a clip's artist was wrong, sat
+   * in a playlist you were allowed to edit, and have nowhere to go to fix it.
+   */
+  function mayEditMedia(item: MediaItem): boolean {
+    return isAdmin(user) || (user !== null && item.user_id === user.id);
+  }
 
   const [name, setName] = useState(playlist.name ?? '');
   const [isPublic, setIsPublic] = useState(Boolean(playlist.public));
@@ -311,7 +329,13 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
               <SortableContext items={order} strategy={verticalListSortingStrategy}>
                 <ul className="pl-items">
                   {chosen.map((item, index) => (
-                    <SortableRow key={item.id} item={item} index={index} onRemove={() => remove(item.id)} />
+                    <SortableRow
+                      key={item.id}
+                      item={item}
+                      index={index}
+                      canEdit={mayEditMedia(item)}
+                      onRemove={() => remove(item.id)}
+                    />
                   ))}
                 </ul>
               </SortableContext>
@@ -394,7 +418,17 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   );
 }
 
-function SortableRow({ item, index, onRemove }: { item: MediaItem; index: number; onRemove: () => void }) {
+function SortableRow({
+  item,
+  index,
+  canEdit,
+  onRemove
+}: {
+  item: MediaItem;
+  index: number;
+  canEdit: boolean;
+  onRemove: () => void;
+}) {
   const t = useT();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
 
@@ -426,6 +460,30 @@ function SortableRow({ item, index, onRemove }: { item: MediaItem; index: number
       </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
         {!item.readiness.ready && <Badge tone="warn">{t(msg('lib.unfinished'))}</Badge>}
+        {/*
+          A new tab, deliberately.
+
+          This playlist is very likely half-edited: the order moved, the name
+          changed, nothing saved yet, and none of that survives a navigation.
+          Correcting one clip's artist should not cost you the reordering you
+          just did, and the alternative would be a "leave without saving?"
+          dialogue, which this app has nowhere else and does not need here.
+
+          A real anchor rather than a button, so it also behaves the way a link
+          should: the middle click and the context menu both work.
+        */}
+        {canEdit && (
+          <a
+            className="btn btn-icon"
+            href={`/bibliotheque/${item.id}`}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={t(msg('ple.editMedia', { title: item.title }))}
+            title={t(msg('ple.editMedia', { title: item.title }))}
+          >
+            <PencilIcon />
+          </a>
+        )}
         <IconButton icon={<MinusIcon />} label={t(msg('ple.remove', { title: item.title }))} onClick={onRemove} />
       </span>
     </li>
@@ -457,6 +515,22 @@ function MinusIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** A pencil, at the same weight as the grip and the minus beside it. */
+function PencilIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="m14.5 7.5 2 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
