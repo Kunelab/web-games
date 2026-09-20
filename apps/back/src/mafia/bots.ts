@@ -1737,16 +1737,22 @@ export class MafiaBotDriver {
       const quietest = Math.min(...close.map((entry) => this.busyOn.get(entry) ?? 0));
       const idle = close.filter((entry) => (this.busyOn.get(entry) ?? 0) === quietest);
       /**
-       * Among equals, the one that has waited longest.
+       * And among the idle, the quickest — not the one that has waited longest.
        *
-       * A coin flip between idle endpoints spreads the work in the long run and
-       * not within one afternoon, which is the only run there is: over a game
-       * of fifty calls a fair coin leaves two of five endpoints barely touched.
-       * Least recently used reaches all of them, and it is the same tie-break
-       * the opt-in rotation uses one branch above.
+       * Rotating here was tried and is wrong, which a test caught immediately:
+       * with nothing in flight every endpoint ties on busyness, so least
+       * recently used walks the whole field and the ranking stops being a
+       * ranking. That is what `MAFIA_API_SPREAD` is for, and it is opt-in
+       * precisely because it is not the right default.
+       *
+       * The spread comes from the two rules above instead, and it comes from
+       * the table's own shape: a dozen seats think at once, one call in flight
+       * per endpoint, so the quick ones are busy most of the time and the work
+       * reaches the rest of the field by itself. When there is a single call to
+       * make there is no reason to ask anybody but the best, and a widened
+       * window must not turn that into a lottery.
        */
-      const longestAgo = Math.min(...idle.map((entry) => this.usedAt.get(entry) ?? 0));
-      return idle.find((entry) => (this.usedAt.get(entry) ?? 0) === longestAgo) ?? rung;
+      return idle.sort((left, right) => this.score(left) - this.score(right))[0] ?? rung;
     }
     return null;
   }
