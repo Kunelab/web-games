@@ -2519,7 +2519,14 @@ export class MafiaBotDriver {
         new Set(wills.map((will) => will.authorId).filter((id): id is string => id !== null)),
         refused,
         // The transcript itself, so a night number cannot be filed as a house.
-        lines.map((line) => line.text).join('\n')
+        lines.map((line) => line.text).join('\n'),
+        /**
+         * And the same lines kept apart by speaker, so the instant reader can
+         * be held against the model's reading of them. See `readHeard`.
+         */
+        lines
+          .map((line) => ({ slot: fresh.players[line.authorId ?? '']?.slot, text: line.text }))
+          .filter((line): line is { slot: number; text: string } => typeof line.slot === 'number')
       );
       for (const claim of filed) {
         /**

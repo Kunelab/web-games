@@ -108,6 +108,14 @@ export interface Genre {
   /** Extra title patterns that mean this is not the genre's kind of video. */
   reject?: RegExp;
   /**
+   * The prompt over the answer box, for a genre answered by its work.
+   *
+   * One shared "film, series or game" covered all five of them and told the room
+   * nothing: an anime opening was announced as maybe a film, maybe a game. The
+   * genre already knows which of the five it is, so it says so.
+   */
+  workLabel?: string;
+  /**
    * Where this genre's recognisable part tends to sit.
    *
    * Defaulted from the answer shape, because the two correlate strongly: a genre
@@ -235,6 +243,7 @@ export const GENRES: Genre[] = [
     label: 'Openings',
     section: 'anime',
     answerShape: 'work',
+    workLabel: 'field.work.animeOpening',
     queries: ['anime opening official', 'anime opening full', 'anime op creditless'],
     reject: /\b(amv|nightcore|cover|piano|8d|reaction)\b/i
   },
@@ -243,6 +252,7 @@ export const GENRES: Genre[] = [
     label: 'Endings',
     section: 'anime',
     answerShape: 'work',
+    workLabel: 'field.work.animeEnding',
     queries: ['anime ending official', 'anime ending full'],
     reject: /\b(amv|nightcore|cover|piano|8d|reaction)\b/i
   },
@@ -253,6 +263,7 @@ export const GENRES: Genre[] = [
     label: 'Musiques de films',
     section: 'ecrans',
     answerShape: 'work',
+    workLabel: 'field.work.film',
     queries: ['movie soundtrack main theme', 'film score official soundtrack', 'bande originale film thème'],
     reject: /\b(cover|piano tutorial|remix|reaction|epic music mix)\b/i
   },
@@ -261,6 +272,7 @@ export const GENRES: Genre[] = [
     label: 'Génériques de séries',
     section: 'ecrans',
     answerShape: 'work',
+    workLabel: 'field.work.series',
     queries: ['tv series opening theme', 'série générique officiel', 'tv show intro theme song'],
     reject: /\b(cover|reaction|fan made)\b/i
   },
@@ -271,6 +283,7 @@ export const GENRES: Genre[] = [
     label: 'Musiques de jeux',
     section: 'jeux',
     answerShape: 'work',
+    workLabel: 'field.work.game',
     queries: ['video game soundtrack main theme', 'game ost official', 'videogame music theme'],
     reject: /\b(cover|remix|piano tutorial|reaction|playthrough|gameplay)\b/i
   },

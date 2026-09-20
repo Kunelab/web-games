@@ -28,7 +28,7 @@
  */
 import type { Claim, ClaimKind, RoleId } from 'mafia-core';
 
-import { fold, roleNamed, seatHits, selfClaim } from './asks.js';
+import { fold, roleNamedAt, seatHits, selfClaim } from './asks.js';
 
 /** One assertion read off a line, in the shape `BotMinds.record` takes. */
 export interface SquareClaim {
@@ -200,6 +200,24 @@ const AGAINST =
 /** Pulling one back. */
 const NEGATED =
   /\b(?:not|no|never|dont|don'?t|doesn'?t|isn'?t|ain'?t|stop|pas|jamais|plus|arrete|arretez|surtout pas)\b/i;
+
+/**
+ * A sentence that offers two answers and picks neither.
+ *
+ * "Pinhead and Loki are either town power or evil" is a piece of reasoning, and
+ * it asserts nothing at all about either house: the whole point of it is that
+ * the speaker does not know which half is true. Read as a verdict it comes out
+ * as a *clearing* of both, because "town" is the first word either side of the
+ * house that this reader recognises — which is how a human working through the
+ * conversion rules out loud ended up vouching for two seats he was in the
+ * middle of suspecting. From a real table, and both readers made the same
+ * mistake on the same sentence.
+ *
+ * So a disjunction files nothing. Missing a claim costs the board one reading;
+ * inventing one costs somebody the rope, and this reader's whole discipline is
+ * that a wrong entry is worse than a missing one.
+ */
+const EITHER = /\b(?:either|soit|ou bien)\b/i;
 
 /** A question put to a house rather than about one. */
 const ASKED =
@@ -560,9 +578,27 @@ export function readSquare(
      * verdict the sentence comes out as a *clearing* of the seat whose badge is
      * being torn up. Which is backwards, and was the reading until now.
      */
-    const badge = roleNamed(after) ?? roleNamed(before);
+    const badge = roleNamedAt(after, 'first')?.role ?? roleNamedAt(before, 'last')?.role;
     if (badge && DENIES.test(near)) {
       add({ kind: 'counter-claim', targetSlot: hit.slot, deniedRole: badge });
+      /**
+       * And the rope, when the same breath asks for one.
+       *
+       * "vote for athena she is not jester" is two claims and this read one of
+       * them: the badge branch filed the denial and went straight to the next
+       * house, so the only part of the sentence the room acted on was the part
+       * that moves no suspicion. A person who types a house number after the
+       * word "vote" has named somebody to hang, whatever else the line does,
+       * and that is the half the afternoon runs on. From a real table, where
+       * the human said it twice and the board recorded neither vote.
+       *
+       * Deliberately only the rope, and not the evil/good verdicts below: those
+       * read the same negation this branch has already consumed, and letting
+       * them run would file the denial twice over with the sign flipped.
+       */
+      if (AGAINST.test(before.slice(-24)) && !NEGATED.test(before.slice(-18))) {
+        add({ kind: 'accuse', targetSlot: hit.slot });
+      }
       continue;
     }
 
@@ -571,11 +607,13 @@ export function readSquare(
       add({ kind: 'clear', targetSlot: hit.slot });
       continue;
     }
-    if (evilAt >= 0) {
+    // A verdict offered as one of two possibilities is not a verdict. See `EITHER`.
+    const guessing = EITHER.test(near);
+    if (evilAt >= 0 && !guessing) {
       add({ kind: denied(evilAt) ? 'clear' : 'accuse', targetSlot: hit.slot });
       continue;
     }
-    if (goodAt >= 0) {
+    if (goodAt >= 0 && !guessing) {
       add({ kind: denied(goodAt) ? 'accuse' : 'clear', targetSlot: hit.slot });
       continue;
     }

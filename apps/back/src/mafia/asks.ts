@@ -648,9 +648,37 @@ export function selfClaim(text: string): RoleId | null {
  * where were you" into a house needs.
  */
 export function roleNamed(text: string): RoleId | null {
+  return roleNamedAt(text)?.role ?? null;
+}
+
+/**
+ * The same question, answered with *where* the role was named.
+ *
+ * Position is the whole of it, and reading it off the role table instead of off
+ * the sentence got badges backwards. `roleNamed` walked `ROLES` in declaration
+ * order and returned the first entry that appeared anywhere in the text, so
+ * "Athena can't be jester, any role was enforcer and a jester is already dead"
+ * answered *enforcer* — a role named twenty characters further along, about a
+ * different seat, in a clause that was not the denial. The board then recorded
+ * a player denying Athena's Enforcer badge, which nobody had claimed and which
+ * was not what was said. From a real table.
+ *
+ * `pick` is which end matters, and it depends on where the caller is standing.
+ * Text that runs *away* from a house wants the first role in it, because that
+ * is the one nearest the house; a run-up *towards* one wants the last. Both are
+ * "the role closest to what we are talking about".
+ */
+export function roleNamedAt(text: string, pick: 'first' | 'last' = 'first'): { role: RoleId; at: number } | null {
   const line = fold(text);
-  for (const { name, role } of roleNames()) if (line.includes(name)) return role;
-  return nicknameAt(line)?.role ?? null;
+  let best: { role: RoleId; at: number } | null = null;
+  const closer = (at: number): boolean => best === null || (pick === 'first' ? at < best.at : at > best.at);
+  for (const { name, role } of roleNames()) {
+    const at = pick === 'first' ? line.indexOf(name) : line.lastIndexOf(name);
+    if (at >= 0 && closer(at)) best = { role, at };
+  }
+  const nick = nicknameAt(line);
+  if (nick && closer(nick.at)) best = { role: nick.role, at: nick.at };
+  return best;
 }
 
 /**

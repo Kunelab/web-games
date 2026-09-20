@@ -32,8 +32,9 @@
 import type { ChatMessage } from 'chat-core';
 import type { Claim, ClaimKind, MafiaState, RoleId } from 'mafia-core';
 
-import { roleFromName } from './asks.js';
+import { roleFromName, seatHits } from './asks.js';
 import { screen } from './guard.js';
+import { readSquare, type Seat } from './square.js';
 
 /** The shape the model must answer in. Every field is required, null when unused. */
 export const HEARD_FORMAT = {
@@ -238,6 +239,32 @@ export interface DroppedClaim {
     | 'role not in this game'
     | 'that number was a night'
     | 'unknown ailment'
+    /**
+     * The instant reader read the same sentence the other way round.
+     *
+     * The two readers exist because they fail differently: the patterns miss
+     * things a model catches, and the model asserts things the patterns would
+     * never assert. Measured against one real afternoon, the patterns were the
+     * more accurate of the two — and where they disagreed, the model's reading
+     * was an *inversion*: "vote for athena she is not jester" came back as the
+     * speaker **clearing** Athena, which is the opposite of the sentence and
+     * subtracts from her suspicion instead of adding to it.
+     *
+     * So a disagreement is settled in favour of the reader that cannot
+     * hallucinate. The model keeps everything the patterns had no opinion
+     * about, which is most of what it is for.
+     */
+    | 'read the other way by the parser'
+    /**
+     * A badge denial aimed at a house the sentence never mentions.
+     *
+     * "You are not the Town Crier, you didn't speak during the night" was filed
+     * against house 1, who was not being spoken to and had claimed nothing: the
+     * model resolved "you" to the wrong seat and the board recorded a person
+     * tearing up a stranger's badge. A denial is about a house, so the house
+     * has to be in the sentence or on the stand.
+     */
+    | 'that house is not in the line'
     | 'unknown kind';
 }
 
@@ -453,7 +480,12 @@ export function readHeard(
   /** Filled with everything the board refused, for the recorder. See `DroppedClaim`. */
   dropped: DroppedClaim[] = [],
   /** The transcript the model was given, so a night cannot be filed as a house. */
-  said = ''
+  said = '',
+  /**
+   * The same lines, kept apart by who said them, so the instant reader can be
+   * asked what *it* made of each one. See `read the other way by the parser`.
+   */
+  spoken: readonly { slot: number; text: string }[] = []
 ): HeardClaim[] {
   const heard = Array.isArray(raw.claims) ? (raw.claims as Heard[]) : [];
   const spokenNumbers = numbersSpoken(said);
@@ -465,6 +497,36 @@ export function readHeard(
   const drop = (entry: Heard, why: DroppedClaim['why']): undefined => {
     dropped.push({ entry, why });
     return undefined;
+  };
+
+  /**
+   * What the patterns made of the same words, and which houses each line names.
+   *
+   * Built once per pass and only when the caller hands over the lines kept
+   * apart, so nothing changes for a caller that does not — a test board, a
+   * will-only pass — and the model keeps the benefit of the doubt there.
+   */
+  const seats: Seat[] = Object.values(state.players).map((player) => ({ slot: player.slot, name: player.name }));
+  const parsed = new Map<number, ReturnType<typeof readSquare>>();
+  const named = new Map<number, Set<number>>();
+  for (const line of spoken) {
+    parsed.set(line.slot, [...(parsed.get(line.slot) ?? []), ...readSquare(line.text, line.slot, seats)]);
+    const houses = named.get(line.slot) ?? new Set<number>();
+    for (const hit of seatHits(line.text, seats)) houses.add(hit.slot);
+    named.set(line.slot, houses);
+  }
+
+  /** The seat the room is looking at, which is who an unaddressed line is to. */
+  const onTrial = state.trial ? (state.players[state.trial.accusedId]?.slot ?? null) : null;
+
+  /** Did the instant reader take this speaker's words the opposite way about this house? */
+  const inverted = (speakerSlot: number, kind: string, targetSlot: number): boolean => {
+    const mine = parsed.get(speakerSlot);
+    if (!mine) return false;
+    const about = mine.filter((claim) => claim.targetSlot === targetSlot);
+    if (kind === 'clear') return about.some((claim) => claim.kind === 'accuse' || claim.kind === 'counter-claim');
+    if (kind === 'accuse') return about.some((claim) => claim.kind === 'clear');
+    return false;
   };
 
   for (const entry of heard.slice(0, 24)) {
@@ -507,6 +569,10 @@ export function readHeard(
         }
         if (!about.alive && !testators.has(speaker.playerId)) {
           drop(entry, 'house is dead');
+          continue;
+        }
+        if (inverted(speaker.slot, entry.kind, about.slot)) {
+          drop(entry, 'read the other way by the parser');
           continue;
         }
         filed.push({ claimerId: speaker.playerId, kind: entry.kind, targetSlot: about.slot });
@@ -621,6 +687,21 @@ export function readHeard(
         }
         if (about.playerId === speaker.playerId) {
           drop(entry, 'about themselves');
+          continue;
+        }
+        /**
+         * And aimed at a house this sentence is actually about.
+         *
+         * A denial is the one kind whose target is never implied by the board:
+         * "he can't be the doctor" is about whoever *he* is, and when the model
+         * resolves that pronoun wrongly the board records a player tearing up a
+         * badge belonging to somebody they were not talking to. So the house is
+         * either in the line or it is the one on the stand, which is who an
+         * unaddressed sentence is to. Checked only when the caller handed the
+         * lines over; without them this is the same function it was.
+         */
+        if (spoken.length > 0 && !named.get(speaker.slot)?.has(about.slot) && about.slot !== onTrial) {
+          drop(entry, 'that house is not in the line');
           continue;
         }
         /**

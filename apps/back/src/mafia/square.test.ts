@@ -507,3 +507,60 @@ describe('the night a will line names', () => {
     assert.equal(nightNamed('7 is lying'), null);
   });
 });
+
+/**
+ * An afternoon from a real table, read back.
+ *
+ * Every line below was typed by a person in game 9NBF3 and every reading below
+ * is what this parser made of it at the time. Three of them were wrong, and
+ * they were wrong in the three ways that cost the most: a badge denial that
+ * named the wrong badge, a vote that was never filed because the same sentence
+ * also denied a badge, and a piece of open reasoning read as a vouch for the
+ * two seats it was reasoning *about*.
+ *
+ * Kept as a corpus rather than as three invented sentences, because the value
+ * is that a person actually typed these and the next regression will be found
+ * the same way.
+ */
+describe('an afternoon somebody really typed', () => {
+  const TABLE: Seat[] = [
+    { slot: 1, name: 'Tonton' },
+    { slot: 2, name: 'Xavier' },
+    { slot: 6, name: 'Athena' },
+    { slot: 8, name: 'Blade' },
+    { slot: 10, name: 'Loki' },
+    { slot: 19, name: 'Saul Goodman' },
+    { slot: 20, name: 'Pinhead' }
+  ];
+  const said = (text: string, speaker: number) => readSquare(text, speaker, TABLE);
+
+  it('denies the badge the denial names, not the next role in the sentence', () => {
+    assert.deepEqual(said("Athena can't be jester, any role was enforcer and a jester is already dead", 1), [
+      { kind: 'counter-claim', targetSlot: 6, deniedRole: 'jester' }
+    ]);
+  });
+
+  it('files the vote as well as the denial when one breath carries both', () => {
+    assert.deepEqual(said('vote for athena she is not jester', 2), [
+      { kind: 'counter-claim', targetSlot: 6, deniedRole: 'jester' },
+      { kind: 'accuse', targetSlot: 6 }
+    ]);
+  });
+
+  it('files nothing for a sentence that offers two answers and picks neither', () => {
+    assert.deepEqual(said('Pinhead and loki were not converted They are either town power or evil', 2), []);
+  });
+
+  it('still reads the plain ones it always read', () => {
+    assert.deepEqual(said('Blade is not crier', 2), [{ kind: 'counter-claim', targetSlot: 8, deniedRole: 'crier' }]);
+    assert.deepEqual(said('go vote for 6', 1), [{ kind: 'accuse', targetSlot: 6 }]);
+    assert.deepEqual(said('pinhead is not town for sure', 2), [{ kind: 'accuse', targetSlot: 20 }]);
+    assert.deepEqual(said('I am mason', 2), [{ kind: 'role-claim', targetSlot: 2, claimedRole: 'mason' }]);
+  });
+
+  it('and says nothing about greetings and asides', () => {
+    assert.deepEqual(said('Hi', 1), []);
+    assert.deepEqual(said('It can be confirmed by my friend', 2), []);
+    assert.deepEqual(said('same for Saul Goodman.', 2), []);
+  });
+});

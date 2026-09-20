@@ -224,3 +224,95 @@ describe('what the ear files', () => {
     assert.equal(dropped[0]?.why, 'unknown ailment');
   });
 });
+
+/**
+ * The two readers, and which one wins when they disagree.
+ *
+ * Both of these came off one real afternoon. The model turned a vote into a
+ * vouch and aimed a badge denial at a seat nobody was talking to, and the
+ * patterns had already read the same sentences correctly — so the board held
+ * the model's version and a player's afternoon was recorded backwards.
+ */
+describe('the ear held against the instant reader', () => {
+  /** The speaker is the person; the houses are whatever this deal named them. */
+  function names(state: MafiaState): { me: number; them: number; theirName: string } {
+    const me = Object.values(state.players).find((player) => !player.isBot)!;
+    const them = Object.values(state.players).find((player) => player.isBot && player.alive)!;
+    return { me: me.slot, them: them.slot, theirName: them.name };
+  }
+
+  it('refuses a clearing of a house the sentence votes for', () => {
+    const state = table();
+    const { me, them } = names(state);
+    const line = `vote for ${them} she is not jester`;
+    const dropped: DroppedClaim[] = [];
+    const filed = readHeard(
+      state,
+      { claims: [{ speaker: me, kind: 'clear', about: them, role: null, source: null, ailment: null }] },
+      roles(state),
+      new Set(),
+      dropped,
+      line,
+      [{ slot: me, text: line }]
+    );
+    assert.deepEqual(filed, []);
+    assert.equal(dropped[0]?.why, 'read the other way by the parser');
+  });
+
+  it('keeps the same clearing when nothing contradicts it', () => {
+    const state = table();
+    const { me, them } = names(state);
+    const line = `${them} is fine, I trust them`;
+    const filed = readHeard(
+      state,
+      { claims: [{ speaker: me, kind: 'clear', about: them, role: null, source: null, ailment: null }] },
+      roles(state),
+      new Set(),
+      [],
+      line,
+      [{ slot: me, text: line }]
+    );
+    assert.deepEqual(filed, [{ claimerId: expectedId(state, me), kind: 'clear', targetSlot: them }]);
+  });
+
+  it('refuses a badge denial aimed at a house the line never names', () => {
+    const state = table();
+    const { me, them } = names(state);
+    const line = 'You are not the Town Crier, you didn’t speak during the night';
+    const dropped: DroppedClaim[] = [];
+    const filed = readHeard(
+      state,
+      { claims: [{ speaker: me, kind: 'counter-claim', about: them, role: 'crier', source: null, ailment: null }] },
+      roles(state),
+      new Set(),
+      dropped,
+      line,
+      [{ slot: me, text: line }]
+    );
+    assert.deepEqual(filed, []);
+    assert.equal(dropped[0]?.why, 'that house is not in the line');
+  });
+
+  it('accepts the same denial when the house is named', () => {
+    const state = table();
+    const { me, them, theirName } = names(state);
+    const line = `${theirName} is not the Town Crier`;
+    const filed = readHeard(
+      state,
+      { claims: [{ speaker: me, kind: 'counter-claim', about: them, role: 'crier', source: null, ailment: null }] },
+      roles(state),
+      new Set(),
+      [],
+      line,
+      [{ slot: me, text: line }]
+    );
+    assert.equal(filed.length, 1);
+    assert.equal(filed[0].kind, 'counter-claim');
+    assert.equal(filed[0].targetSlot, them);
+  });
+});
+
+/** The player id sitting in a slot, for an assertion that reads like the board. */
+function expectedId(state: MafiaState, slot: number): string {
+  return Object.values(state.players).find((player) => player.slot === slot)!.playerId;
+}
