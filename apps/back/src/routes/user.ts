@@ -115,7 +115,19 @@ const userRoutes: FastifyPluginAsyncZod = async (app) => {
       noteLoginSuccess(username);
       await startSession(request, { id: user.id, login: user.login, role: user.role ?? 'member' });
 
-      return reply.send({ login: user.login, id: user.id });
+      /*
+       * The role travels with the sign-in, exactly as it does from `GET /user`.
+       *
+       * It used to be left out, and the shape of the bug that caused is worth
+       * remembering: the frontend does `setUser(await api.login(...))`, so the
+       * account object it holds came from *this* response. Without the role, a
+       * freshly signed-in admin was an admin on the server and a member in the
+       * browser, until something happened to trigger a full page load and the
+       * session probe filled it in. Every screen that offers admin controls went
+       * missing for exactly one session, and came back after a refresh, which is
+       * the most confusing way a permission can behave.
+       */
+      return reply.send({ login: user.login, id: user.id, role: user.role ?? 'member' });
     }
   );
 
@@ -151,7 +163,8 @@ const userRoutes: FastifyPluginAsyncZod = async (app) => {
       const { user } = created;
       await startSession(request, { id: user.id, login: user.login ?? username, role: user.role ?? 'member' });
 
-      return reply.code(201).send({ login: user.login, id: user.id });
+      // With the role, for the reason spelled out on the login route above.
+      return reply.code(201).send({ login: user.login, id: user.id, role: user.role ?? 'member' });
     }
   );
 

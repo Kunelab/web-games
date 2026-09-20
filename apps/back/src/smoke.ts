@@ -176,6 +176,25 @@ check('and logging in issues a session id nobody has seen', afterLogin !== '' &&
   after: afterLogin.slice(0, 12)
 });
 
+/**
+ * The sign-in response carries the role, and has to.
+ *
+ * The frontend builds its account object out of exactly this body, so a missing
+ * role here does not fail, it *downgrades*: the server treats the caller as an
+ * admin while their browser draws the screens of a member, until some later full
+ * page load runs the session probe and quietly corrects it. That is how an admin
+ * came to be shown "someone else's quiz, duplicate to edit" on a playlist the
+ * API would have let them save, and why a refresh appeared to fix it.
+ *
+ * Asserted on the key being present rather than on its value, because the point
+ * is that the field travels at all.
+ */
+const loginBody = JSON.parse(signedIn.body) as { role?: string };
+check('the sign-in response carries the role', loginBody.role === 'member', signedIn.body);
+
+const registerBody = JSON.parse(freshRegistered.body) as { role?: string };
+check('and so does the registration response', registerBody.role === 'member', freshRegistered.body);
+
 /* -------------------------------- kinds ----------------------------------- */
 section('media kinds');
 
