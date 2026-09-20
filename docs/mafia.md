@@ -347,6 +347,70 @@ enquêteurs meurent maintenant sur les perrons où ils allaient gratuitement.
 - **La composition n'est jamais affichée** au lobby : la déduction se raisonne
   sur un pool de rôles connu.
 
+## Ce que la table sait compter
+
+Le cerveau déterministe (`packages/mafia-core/src/sim`) est le vrai joueur :
+le LLM parle et écoute, il ne décide presque rien. Quatre couches de
+raisonnement, de la plus certaine à la plus statistique.
+
+**L'horloge (`clock.ts`)**. Ce n'était qu'une humeur : quatre crans lus sur un
+total de tueurs, avec une barre décalée d'une corde. C'est maintenant un
+**budget d'erreurs**. Une pendaison ratée coûte la corde et la nuit et laisse
+les tueurs entiers, donc la marge baisse ; une pendaison juste coûte les mêmes
+têtes et emporte un tueur, donc elle ne coûte rien. D'où trois phrases qu'un
+joueur dit à voix haute et que la table ne pouvait pas calculer :
+
+- « il nous reste une erreur » : `mislynches`, disponible dès le jour deux
+  puisque la liste des rôles est affichée ;
+- « passer coûte moins cher que se tromper » : une journée jetée coûte une
+  tête, une pendaison ratée en coûte deux ;
+- « ils ne sont pas un seul camp » : la parité est la victoire d'une *famille*,
+  pas d'un tueur solo. Attention, corrigé par le banc : séparer par faction sans
+  compter les couteaux par nuit a rendu la ville insouciante face aux tueurs
+  solos, +5 points de victoires solo en une passe. Le coût d'une journée perdue
+  se compte donc en morts observées, pas en rôles distribués.
+
+**Le comptage (`beliefs.ts`)**. Qui pouvait tuer cette nuit, une fois rayés ceux
+que ce siège sait innocents. Il ne parlait qu'à un ou deux noms restants ; il
+rapporte maintenant la liste entière, **sans score** : tarifée à un sur quatre,
+elle remonte tous les sièges de la liste à l'identique, ne réordonne personne
+et coûtait 1,7 point de victoire au banc. La phrase reste, parce que « c'est
+l'un de ces quatre, et voilà qui ce n'est pas » vaut un après-midi.
+
+**Les déductions (`deduce.ts`)**. Uniquement du certain. Nouveauté : le
+**principe des tiroirs** sur les vivants. Trois sièges annoncent un badge
+d'enquête, la liste n'a que deux places qui pourraient en contenir un, donc l'un
+des trois ment et l'arithmétique le dit avant que personne n'ait rien vu. Prudent
+par construction : dernière annonce par siège, vivants seulement, rien du tout
+si le cimetière lui-même ne rentre plus dans la liste (conversion, promotion,
+amnésique).
+
+**Le classement (`ranking.ts`, `visits.ts`, `tempo.ts`)**. Chaque règle est un
+rapport de vraisemblance *mesuré* au banc (`sim --calibrate`), jamais discuté :
+le log du rapport *est* le poids. Deux ajouts, deux abandons documentés.
+
+| Règle | Sur les tueurs | Sur les autres | Poids |
+| --- | --- | --- | --- |
+| `led-town-wagon` (a lancé la meute sur un innocent) | 6,1 % | 4,1 % | +0,383 |
+| `led-killer-wagon` (l'a lancée sur un tueur) | 5,4 % | 8,5 % | -0,450 |
+| `accuser-silenced` (son accusateur meurt la nuit même) | 1,5 % | 1,0 % | +0,385 |
+| `hammered-town` (a donné la voix qui ouvre le procès) | 2,8 % | 3,0 % | abandonnée |
+| `never-first` (n'ouvre jamais une meute) | 5,6 % | 7,5 % | abandonnée |
+
+`hammered-town` ne mesure rien : quand une meute atteint la barre, l'après-midi
+est déjà décidé et le dernier votant ne porte l'intention de personne.
+`never-first` mesure quelque chose de réel et de mauvais : nos tueurs jouent une
+politique plus agressive que nos villageois, donc la règle détecte *quel bot
+tourne*, ce qui flatte le banc et ne dit rien d'une personne.
+
+`tempo.ts` lit enfin l'ordre des votes, que `state.voteLog` enregistrait depuis
+toujours sans lecteur : qui a ouvert la meute, qui l'a rejointe, qui en est
+descendu au bord de la corde. Détail amusant : `lateSwitch` est un trait de
+personnalité que les bots *jouent* et que rien ne pouvait détecter.
+`saved-at-the-edge` est détecté et volontairement non tarifé, parce qu'un bot
+tueur ne monte jamais sur la meute de son frère et que le banc ne mesurerait
+donc que des villageois qui changent d'avis.
+
 ## Boîte noire : les dix dernières parties
 
 Tout ce qui est intéressant chez ces bots se passe entre le moment où quelqu'un

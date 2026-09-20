@@ -154,7 +154,19 @@ function models(lines: Line[]): void {
     byRung.set(key, row);
   }
 
-  console.log(`\n${BOLD}the model${OFF}  (${calls.length} calls)`);
+  /**
+   * Calls per phase, which is the number the free tier is actually rationing.
+   *
+   * A total is a fact about how long the game was. What decides whether a seat
+   * gets to think is how many calls land inside one ninety-second afternoon,
+   * against an allowance the whole table shares — so this is the figure to hold
+   * against `budget.ts`, which prices one call, and the one that says whether a
+   * quiet table is quiet because nothing was asked or because everything was.
+   */
+  const phases = lines.filter((line) => line.ev === 'phase').length;
+  const perPhase = phases > 0 ? (calls.length / phases).toFixed(1) : '-';
+
+  console.log(`\n${BOLD}the model${OFF}  (${calls.length} calls, ${perPhase} per phase over ${phases})`);
   for (const [key, row] of [...byRung].sort((left, right) => right[1].ok.length - left[1].ok.length)) {
     const failed = row.bad > 0 ? `, ${row.bad} refused` : '';
     console.log(`  ${key.padEnd(24)} ${String(row.ok.length).padStart(4)} ok${failed}   ${spread(row.ok)}   ${DIM}${row.model}${OFF}`);

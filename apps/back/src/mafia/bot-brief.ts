@@ -5,6 +5,7 @@ import {
   beliefs,
   contradicted,
   deductions,
+  soloEndgame,
   townClock,
   provenLiar,
   rank,
@@ -423,7 +424,20 @@ function arithmetic(view: MafiaView, board: PublicInfo, self: MafiaPlayer): stri
    * for it.
    */
   const clock = townClock(board);
-  if (clock.blades > 0 && clock.mislynches === 0) {
+  if (soloEndgame(board)) {
+    /**
+     * A different game, and the one place the advice above would be wrong.
+     *
+     * Against a family the town is racing a head count, so a quiet day is a
+     * cheap day. Against a lone knife there is no head count to lose: nobody
+     * wins by standing level with the last villager, so every quiet day is a
+     * free kill and the only move that ever helps is finding them.
+     */
+    lines.push(
+      'THE CLOCK: whoever is left kills alone and wins by outliving everybody. Going home quietly is a free kill for ' +
+        'them. Somebody has to hang.'
+    );
+  } else if (clock.blades > 0 && clock.mislynches === 0) {
     lines.push(
       'THE CLOCK: no wrong ropes left. Hanging a townsperson today loses it tonight; hanging nobody costs half that. ' +
         'Be sure, or say you are not.'
@@ -964,7 +978,8 @@ export function dossier(
   task: string,
   round: number,
   rounds: number,
-  locale: Locale
+  locale: Locale,
+  self?: MafiaPlayer
 ): string {
   const me = view.me!;
   const lines: string[] = [];
@@ -1058,6 +1073,19 @@ export function dossier(
     );
   }
   lines.push(...pressure(view, board));
+  /**
+   * The arithmetic, which the slow tempo needed more than the fast one and was
+   * the only one of the two not getting it.
+   *
+   * `brief` is a conclusion handed to a small model, so it has carried the
+   * clock and the counting since they existed. `dossier` hands a larger model
+   * the board and asks it to reason, and a model reasoning about an endgame
+   * without being told how many mistakes the town can still afford will reason
+   * carefully to the wrong answer. Placed by the stance, because it is the
+   * thing the decision turns on.
+   */
+  const sums = self ? arithmetic(view, board, self) : null;
+  if (sums) lines.push(sums);
   lines.push(stanceLine(mind, view));
   lines.push(task);
   return lines.join('\n');

@@ -22,6 +22,7 @@ import {
   parityPressure,
   playerFamily,
   unclashedTargets,
+  wagonOpener,
   FACTION,
   isEvilRole,
   ROLE,
@@ -8506,12 +8507,36 @@ export class MafiaBotDriver {
       return { text: said.join(' '), claim: null, verbatim: true };
     }
 
-    const pusher = [...board.votes.entries()].find(
+    /**
+     * "{who} started this" — said, at last, about the seat that actually did.
+     *
+     * The sentence was already in both catalogues and it was pointed at the
+     * wrong person: whichever voter on the wagon the room had written off. That
+     * is a different complaint ("nobody should be listening to them") wearing
+     * the words of this one, and on an afternoon where the discredited seat had
+     * joined a wagon somebody else built, it was simply false.
+     *
+     * A wagon looks identical from the inside however it was built — eight
+     * votes, and no way to tell the seat that made the case from the seven who
+     * agreed with it. The engine recorded the order all along and nothing read
+     * it. Now the accused can name the first name on the wagon and hand the
+     * room a question, which is what a person in that chair does and the only
+     * move that changes an afternoon.
+     *
+     * The old reading stays as the fallback, because a discredited voice
+     * pushing a rope is still worth pointing at, and only worth pointing at
+     * once the wagon is a wagon: with one vote on the board "the votes followed
+     * them" is a seat arguing with one person and calling it a mob.
+     */
+    const riding = [...board.votes.values()].filter((target) => target === me.slot).length;
+    const opener = riding >= 2 ? wagonOpener(me.slot, board) : null;
+    const discredited = [...board.votes.entries()].find(
       ([voter, target]) => target === me.slot && claimerWeight(voter, board) === 0
     );
-    if (pusher) {
+    const blame = opener !== null && opener !== me.slot ? opener : riding >= 2 ? (discredited?.[0] ?? null) : null;
+    if (blame !== null) {
       return {
-        text: t(vary('mafia.bot.defend.accuser', 3, botId + ':stand:' + state.day, { who: nameOf(pusher[0]) })),
+        text: t(vary('mafia.bot.defend.accuser', 3, botId + ':stand:' + state.day, { who: nameOf(blame) })),
         claim: null
       };
     }
@@ -9371,7 +9396,7 @@ export class MafiaBotDriver {
      */
     const prompt =
       this.tempo === 'deliberate'
-        ? dossier(view, board, mind, taskLine(view, task, tongue), round, rounds, tongue)
+        ? dossier(view, board, mind, taskLine(view, task, tongue), round, rounds, tongue, state.players[botId])
         : brief(view, board, mind, taskLine(view, task, tongue), tongue, state.players[botId]);
 
     /**

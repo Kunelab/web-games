@@ -1,4 +1,4 @@
-import { isSoloKiller, familyOf, roleDef } from '../roles.js';
+import { roleDef } from '../roles.js';
 import { isEvilRole, type PublicInfo } from './policies.js';
 import { bladesDealt, campOf, type Camp } from './slots.js';
 
@@ -279,14 +279,3 @@ export function soloEndgame(info: PublicInfo): boolean {
   return clock.blades >= 1 && info.aliveSlots.length <= 6;
 }
 
-/** Roles still unaccounted for that would end the game by themselves. Used by the briefing. */
-export function lonelyBlades(info: PublicInfo): number {
-  if (!info.rolesInPlay) return 0;
-  let count = 0;
-  for (const role of info.rolesInPlay) {
-    if (!isSoloKiller(role) || familyOf(role) !== null) continue;
-    if ([...info.deadRoles.values()].includes(role)) continue;
-    count++;
-  }
-  return count;
-}
