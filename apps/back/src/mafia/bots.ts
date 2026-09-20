@@ -9339,7 +9339,7 @@ export class MafiaBotDriver {
     const prompt =
       this.tempo === 'deliberate'
         ? dossier(view, board, mind, taskLine(view, task, tongue), round, rounds, tongue)
-        : brief(view, board, mind, taskLine(view, task, tongue), tongue);
+        : brief(view, board, mind, taskLine(view, task, tongue), tongue, state.players[botId]);
 
     /**
      * The system message is the same bytes for every bot at every table in this

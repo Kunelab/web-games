@@ -14,7 +14,7 @@ import {
 import type { SlotToken } from '../setups.js';
 import { beliefs, surestSuspect } from './beliefs.js';
 import { deductions, deductionWeight } from './deduce.js';
-import { possibleRoles } from './slots.js';
+import { bladesDealt, possibleRoles } from './slots.js';
 export { QUIET_TRADE };
 import {
   advanceDesperation,
@@ -926,13 +926,35 @@ export function monomaniacScore(slot: number, info: PublicInfo): number {
 /**
  * The parity clock. When the living evils are one bad day away from parity,
  * not lynching *is* losing: pressure rises from 0 (comfortable) to 1 (LyLo).
- * Evils-remaining is an estimate from public data — expected share of the
- * original table, minus the confirmed evil corpses.
+ * Evils-remaining is counted off the published roster, minus the confirmed evil
+ * corpses.
  */
 export function parityPressure(info: PublicInfo): number {
   const alive = info.aliveSlots.length;
   const initial = alive + info.totalDead;
-  const expectedEvils = Math.max(1, Math.round(initial * 0.3));
+  /**
+   * How many blades this table was dealt, counted rather than assumed.
+   *
+   * Thirty per cent of the seats, rounded, was the whole of the town's sense of
+   * time. On a roster of four mafia, one triad and two neutral killers that is
+   * four when the answer is seven, and a town that believes it has two spare
+   * days when it has none plays the entire midgame at the wrong speed.
+   *
+   * The list is on the wall and a person reads it on the first morning, which
+   * is what makes this the endgame arithmetic available from day two. It comes
+   * back as a range, because a category slot is only known as far as its pool
+   * goes, and the reading sits between the two: every slot that must be a
+   * killer, plus half of the ones that merely might be. Erring upwards on a
+   * board full of Any Role slots would have the town at parity panic on day one
+   * at a table with nothing in it.
+   *
+   * The old guess stays for a board with no roster on it, which is every board
+   * a test builds by hand.
+   */
+  const dealt = info.roleSlots ? bladesDealt(info.roleSlots) : null;
+  const expectedEvils = dealt
+    ? Math.max(1, Math.round(dealt.sure + (dealt.possible - dealt.sure) * 0.5))
+    : Math.max(1, Math.round(initial * 0.3));
   const deadEvils = [...info.deadRoles.values()].filter((role) => isEvilRole(role)).length;
   const evilsLeft = Math.max(info.lastNightDeathSlots.size > 0 ? 1 : 0, expectedEvils - deadEvils);
   const margin = alive - 2 * evilsLeft;

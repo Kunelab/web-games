@@ -244,3 +244,74 @@ describe('what one seat can work out for itself', () => {
     assert.equal(read.get(3)!.because[0].code, 'record');
   });
 });
+
+/**
+ * The same arithmetic, made to last longer than one night.
+ *
+ * A single night at a full table narrows nothing: eleven people could have done
+ * it. Four nights of the *same* blade narrow a great deal, because the seats
+ * that could not have done night two and the seats that could not have done
+ * night four are two cuts at one name — and that is the deduction a person at
+ * the table makes without noticing, while the board used to throw last night's
+ * working away at every dawn.
+ */
+describe('a blade that keeps coming back', () => {
+  /** A table with room to eliminate, and a solo killer working every night. */
+  function hunt(): { state: MafiaState; board: PublicInfo } {
+    const state = table(
+      ['escort', 'citizen', 'citizen', 'citizen', 'sheriff', 'serial-killer', 'citizen', 'citizen', 'citizen'],
+      5
+    );
+    const board: PublicInfo = {
+      ...toPublicInfo(state, [], []),
+      day: 5,
+      aliveSlots: [1, 2, 3, 4, 5, 6],
+      deaths: [
+        { slot: 7, day: 2, phase: 'night', source: 'serialKiller' },
+        { slot: 8, day: 3, phase: 'night', source: 'serialKiller' },
+        { slot: 9, day: 4, phase: 'night', source: 'serialKiller' }
+      ]
+    };
+    return { state, board };
+  }
+
+  it('crosses off a seat it kept busy, night by night', () => {
+    const { state, board } = hunt();
+    const escort = playerBySlot(state, 1)!;
+    // Two nights of holding people at home, and one check, leaves one name.
+    escort.intel.push({ night: 2, kind: 'blocked', targetSlot: 2, value: 'blocked' });
+    escort.intel.push({ night: 3, kind: 'blocked', targetSlot: 3, value: 'blocked' });
+    escort.intel.push({ night: 4, kind: 'blocked', targetSlot: 4, value: 'blocked' });
+    escort.intel.push({ night: 4, kind: 'sheriff', targetSlot: 5, value: 'clear' });
+
+    const read = beliefs(escort, board);
+    assert.ok(read.get(6)!.odds >= 0.9, `the only seat left on both nights: ${read.get(6)!.odds}`);
+    assert.equal(read.get(6)!.because[0].code, 'only-one-left');
+  });
+
+  it('does not track a family knife, which is not one pair of hands', () => {
+    const { state, board } = hunt();
+    const escort = playerBySlot(state, 1)!;
+    escort.intel.push({ night: 2, kind: 'blocked', targetSlot: 2, value: 'blocked' });
+    escort.intel.push({ night: 3, kind: 'blocked', targetSlot: 3, value: 'blocked' });
+    escort.intel.push({ night: 4, kind: 'blocked', targetSlot: 4, value: 'blocked' });
+    escort.intel.push({ night: 4, kind: 'sheriff', targetSlot: 5, value: 'clear' });
+    const family: PublicInfo = {
+      ...board,
+      deaths: board.deaths.map((death) => ({ ...death, source: 'mafia' as const }))
+    };
+
+    const read = beliefs(escort, family);
+    assert.ok(read.get(6)!.odds < 0.9, 'which brother held the knife changes from night to night');
+  });
+
+  /** And a doorstep this seat watched names the callers outright. */
+  it('reads its own lookout list as the shortlist it is', () => {
+    const { state, board } = hunt();
+    const watcher = playerBySlot(state, 1)!;
+    watcher.intel.push({ night: 3, kind: 'visitors', targetSlot: 8, value: 'visitors', slots: [6] });
+
+    const read = beliefs(watcher, board);
+    assert.ok(read.get(6)!.odds >= 0.9, `the one name on the doorstep: ${read.get(6)!.odds}`);
+  });
+});

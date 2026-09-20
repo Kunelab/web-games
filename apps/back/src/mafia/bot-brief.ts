@@ -2,12 +2,15 @@ import {
   ACTION,
   FACTION,
   SLOT,
+  beliefs,
   contradicted,
   deductions,
+  parityPressure,
   provenLiar,
   rank,
   trustOf,
   type Deduction,
+  type MafiaPlayer,
   type MafiaView,
   type PublicInfo,
   type RoleId
@@ -368,6 +371,68 @@ function rolesInPlay(view: MafiaView, locale: Locale): string {
 }
 
 /**
+ * The counting, which the model was never shown.
+ *
+ * The briefing handed over an ordering and no reason: `rank` decides who sits
+ * at the top of the heatmap, and nothing anywhere said *why*, so a model asked
+ * to decide a turn was reasoning about names in a list. Meanwhile the seat's own
+ * brain was holding the two pieces of arithmetic a person at that table would
+ * actually open their mouth about — how close the killers are to the numbers,
+ * and which seats could have made a night's attack once the impossible ones are
+ * crossed off.
+ *
+ * Both are checkable by anybody in the room, both are sentences rather than
+ * numbers, and both cost about fifteen tokens. That is the difference between a
+ * bot that says "vote 7" and one that says "of the four who could have killed 9
+ * on night three, three are cleared and only 7 is left", which is the whole of
+ * what the town is for.
+ *
+ * `beliefs` already carries the reason codes and the nights; this turns the two
+ * that are arithmetic into English and leaves the rest of the read alone.
+ */
+function arithmetic(view: MafiaView, board: PublicInfo, self: MafiaPlayer): string | null {
+  if (!view.me?.alive) return null;
+  const lines: string[] = [];
+
+  /**
+   * The parity clock, said out loud.
+   *
+   * It has always been the town's sense of how much time it has and it reached
+   * the model as nothing at all, so a bot on the last afternoon before parity
+   * argued exactly as it had on day two.
+   */
+  const clock = parityPressure(board);
+  if (clock >= 1) {
+    lines.push('THE CLOCK: one more wasted day and the killers have the numbers. Somebody has to hang today.');
+  } else if (clock >= 0.6) {
+    lines.push('THE CLOCK: the killers are close to parity. A day thrown away now is probably the game.');
+  }
+
+  /** And the night's own arithmetic, which nobody can talk their way out of. */
+  const counted = [...beliefs(self, board).values()]
+    .filter((belief) => belief.because.some((why) => why.code === 'only-one-left' || why.code === 'one-of-two'))
+    .sort((left, right) => right.odds - left.odds)
+    .slice(0, 2);
+
+  for (const belief of counted) {
+    const who = view.players.find((player) => player.slot === belief.slot);
+    const why = belief.because.find((entry) => entry.code === 'only-one-left' || entry.code === 'one-of-two');
+    if (!who || !why) continue;
+    if (why.code === 'only-one-left') {
+      lines.push(
+        `THE COUNTING: of everybody who could have made the attack on night ${why.night}, only ${belief.slot}. ${who.name} is left. Say so, and say how you know.`
+      );
+    } else if (why.code === 'one-of-two') {
+      lines.push(
+        `THE COUNTING: after night ${why.night} it is ${belief.slot}. ${who.name} or house ${why.other}, and nobody else. Say so.`
+      );
+    }
+  }
+
+  return lines.length > 0 ? lines.join('\n') : null;
+}
+
+/**
  * The fast briefing: a conclusion, not a transcript.
  *
  * Deliberately short. A 4B model given a wall of chat answers about the wall of
@@ -375,7 +440,22 @@ function rolesInPlay(view: MafiaView, locale: Locale): string {
  * chat is trimmed to the last handful of *human-authored* lines, because those
  * are the ones a bot is expected to react to.
  */
-export function brief(view: MafiaView, board: PublicInfo, mind: BotMind, task: string, locale: Locale): string {
+export function brief(
+  view: MafiaView,
+  board: PublicInfo,
+  mind: BotMind,
+  task: string,
+  locale: Locale,
+  /**
+   * This seat as the engine holds it, for the one piece of reasoning only it can
+   * do.
+   *
+   * `beliefs` reads a seat's own intel and its own rescued night, and neither
+   * survives the projection into a view. Optional, so a caller holding only a
+   * board still gets a briefing, one section shorter.
+   */
+  self?: MafiaPlayer
+): string {
   const me = view.me!;
   const lines: string[] = [];
   lines.push(
@@ -416,6 +496,9 @@ export function brief(view: MafiaView, board: PublicInfo, mind: BotMind, task: s
   const humans = view.players.filter((player) => player.alive && !player.isBot).length;
   const window = humans === 0 ? 6 : humans <= 2 ? 16 : 26;
   const hotRows = humans >= 2 ? 3 : 5;
+
+  const sums = self ? arithmetic(view, board, self) : null;
+  if (sums) lines.push(sums);
 
   const hot = heatmap(view, board, hotRows);
   if (hot.length > 0) lines.push(`What matters:\n${hot.join('\n')}`);

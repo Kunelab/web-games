@@ -1,4 +1,4 @@
-import { ROLES, roleDef, type RoleId } from '../roles.js';
+import { familyOf, isSoloKiller, ROLES, roleDef, type RoleId } from '../roles.js';
 import { slotPool, type SlotToken } from '../setups.js';
 
 /**
@@ -171,4 +171,47 @@ export function possibleRoles(roleSlots: readonly SlotToken[], revealed: readonl
 
   for (const role of reachable) possible.add(role);
   return possible;
+}
+
+/**
+ * How many blades this table was dealt, read off the same list.
+ *
+ * The parity clock is the town's entire sense of how much time it has, and it
+ * was a guess: thirty per cent of the seats, rounded, whatever the roster
+ * actually said. On a table dealt four mafia, one triad and two neutral killers
+ * that guess is four when the answer is seven, and a town that thinks it has
+ * two spare days when it has none plays the whole midgame at the wrong speed.
+ *
+ * The list on the wall answers it exactly, and a person reading that list does
+ * this arithmetic on the first morning — which is the whole of what "endgame
+ * reasoning from day two" turns out to mean. A pinned slot is a known quantity;
+ * a category slot is known only as far as its pool goes, so this comes back as
+ * a range and never as a number pretending to be one:
+ *
+ *  - `sure` counts the slots whose every possible roll is a killer. A Godfather
+ *    slot, a Mafia Deception slot, a Neutral Killing slot: whatever they rolled,
+ *    somebody at this table is holding a knife for it.
+ *  - `possible` also counts the slots that merely *might* have been one. A
+ *    Neutral Benign slot is not a killer and a Neutral Random slot might be; Any
+ *    Role might be anything.
+ *
+ * The Cult is counted with the knives. It does not kill every night, but it
+ * takes seats off the town's side one at a time, which is the same clock.
+ */
+export function bladesDealt(roleSlots: readonly SlotToken[]): {
+  sure: number;
+  possible: number;
+} {
+  let sure = 0;
+  let possible = 0;
+  for (const token of roleSlots) {
+    const pool = slotPool(token).filter((role) => role in ROLES);
+    if (pool.length === 0) continue;
+    const blades = pool.filter(
+      (role) => familyOf(role) !== null || isSoloKiller(role) || roleDef(role).faction === 'cult'
+    );
+    if (blades.length === pool.length) sure++;
+    if (blades.length > 0) possible++;
+  }
+  return { sure, possible };
 }

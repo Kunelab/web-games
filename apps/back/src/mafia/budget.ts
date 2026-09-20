@@ -61,7 +61,7 @@ const NAMES = [
 // prettier-ignore
 const HEADS = [
   'Day ', 'You:', 'With you:', 'Roles dealt', 'What matters', 'Nobody stands out',
-  'You know:', 'ON TRIAL', 'This morning', 'Recent lines', 'WHAT WAS ACTUALLY SAID',
+  'You know:', 'ON TRIAL', 'This morning', 'Recent lines', 'WHAT WAS ACTUALLY SAID', 'THE CLOCK', 'THE COUNTING',
   'WHAT YOU MAY DO RIGHT NOW', 'HOW YOU WIN', 'CAUGHT IN A LIE', 'Nobody has spoken', 'TASK'
 ];
 
@@ -110,7 +110,7 @@ function midGame(players: number, humans: number, chatLines: number, said?: stri
 
   const me = alive[alive.length - 1];
   const view = toMafiaView(state, { kind: 'player', playerId: me.playerId });
-  return brief(view, minds.board(state, me.playerId), minds.mind(state, me.playerId)!, 'TASK <task line>', 'en');
+  return brief(view, minds.board(state, me.playerId), minds.mind(state, me.playerId)!, 'TASK <task line>', 'en', me);
 }
 
 function breakdown(prompt: string): BudgetRow['sections'] {
