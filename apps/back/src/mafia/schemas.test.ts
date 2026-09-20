@@ -206,3 +206,66 @@ describe('a line that narrates itself', () => {
     assert.equal(said('7: explique-toi'), '7: explique-toi');
   });
 });
+
+/**
+ * The seat's own number at the front of its line.
+ *
+ * The prompt opens with "You are Trinity, number 15" and a small model reads
+ * that as a letterhead, so the number comes back at the front of the sentence
+ * beside the one the chat prints anyway. Trimming it is right; trimming it
+ * unconditionally is not, because the same number is sometimes the subject.
+ */
+describe('a line that opens with the speaker’s own number', () => {
+  const intent = { act: 'say something', mood: 'dry', fallback: 'FALLBACK' };
+  const self = { name: 'Arwen', slot: 3 };
+  const said = (line: string) => readLine({ line }, intent, self);
+
+  it('trims the letterhead', () => {
+    assert.equal(said('3, je suis le vétéran'), 'je suis le vétéran');
+    assert.equal(said('3 Arwen is the culprit'), 'Arwen is the culprit');
+  });
+
+  /**
+   * And leaves the line alone when the number is the subject. From a chaos run:
+   * the model wrote "3 n'a pas voté hier, donc je vote en aveugle" and the
+   * square got a sentence with no subject in it at all.
+   */
+  it('does not eat the subject of the sentence', () => {
+    assert.equal(
+      said('3 n’a pas voté hier, donc je vote en aveugle'),
+      '3 n’a pas voté hier, donc je vote en aveugle'
+    );
+    assert.equal(said('3 est resté muet toute la journée'), '3 est resté muet toute la journée');
+  });
+});
+
+/**
+ * The guard that was eating French.
+ *
+ * A lone letter is thrown away because a model handed a name sometimes writes
+ * the initial instead, and the room cannot vote for "F". The test for "this
+ * letter belongs to a longer word" was `\w`, which is `[A-Za-z0-9_]` and does
+ * not include an accented letter — so in "vétéran" the `v` is followed by `é`,
+ * the lookahead passed, and the whole line was replaced by the phrasebook.
+ *
+ * Every model line with a consonant before an accent went the same way:
+ * vétéran, détective, légiste, témoin, réponds, vérifie, décide. On a French
+ * table that is most of what there is to talk about.
+ */
+describe('a consonant in front of an accent', () => {
+  const intent = { act: 'say something', mood: 'dry', fallback: 'FALLBACK' };
+  const self = { name: 'Arwen', slot: 3 };
+  const said = (line: string) => readLine({ line }, intent, self);
+
+  it('keeps the French words it used to throw away', () => {
+    assert.equal(said('je suis le vétéran'), 'je suis le vétéran');
+    assert.equal(said('le détective a parlé hier'), 'le détective a parlé hier');
+    assert.equal(said('je vérifie et je réponds demain'), 'je vérifie et je réponds demain');
+  });
+
+  /** And still refuses a name written as one letter, which is the whole point. */
+  it('still refuses a lone initial', () => {
+    assert.equal(said('je vote pour F'), 'FALLBACK');
+    assert.equal(said('F'), 'FALLBACK');
+  });
+});

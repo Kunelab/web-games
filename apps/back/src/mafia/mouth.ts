@@ -414,7 +414,27 @@ export function readLine(
    * anyway. It is not a wrong line, it is a line with a stutter, so it is
    * trimmed rather than thrown away.
    */
-  return cleaned.replace(new RegExp(`^${self.slot}\\s*[,:.\\-–—]?\\s+(?=\\S)`), '');
+  /**
+   * And only when what is left still stands up as a sentence.
+   *
+   * The trim is for a letterhead — "15, I'm the veteran" said by house 15 —
+   * and it was firing on any line that opened with the speaker's own number,
+   * including the ones where that number is the grammatical subject. A model
+   * wrote "3 n'a pas voté hier, donc je vote en aveugle" and the square got
+   * "n'a pas voté hier, donc je vote en aveugle": a sentence with no subject at
+   * all, which reads as software rather than as a person.
+   *
+   * Two shapes, and the punctuation is what tells them apart. A number with a
+   * comma, colon or dash after it is a signature whatever follows it, and comes
+   * off. A number with only a space after it comes off when the remainder
+   * begins something in its own right — a capital, a first-person pronoun,
+   * another number — and stays when a lower-case verb follows, because then the
+   * number was the subject. If that subject is the speaker itself then it is
+   * `addressesSelf`'s problem rather than a reason to mangle the sentence.
+   */
+  const signed = new RegExp(`^${self.slot}\\s*[,:.\\-–—]\\s*(?=\\S)`, 'u');
+  const bare = new RegExp(`^${self.slot}\\s+(?=[\\p{Lu}\\d]|j['’]|je\\b|i['’ ])`, 'u');
+  return cleaned.replace(signed, '').replace(bare, '');
 }
 
 /**
@@ -474,8 +494,23 @@ function asTyped(line: string): string {
  * good sentence about them: the roster decides which it is, so the guard reads
  * the roster.
  */
+/**
+ * Unicode-aware, because `\w` is not, and this guard is read against French.
+ *
+ * `\w` is `[A-Za-z0-9_]` and an accented letter is none of those. So the
+ * lookahead that was meant to say "this letter belongs to a longer word" said
+ * nothing of the kind about half the French vocabulary: in "vétéran" the `v` is
+ * followed by `é`, which is not `\w`, so the `v` read as a lone initial and the
+ * whole line was thrown away and replaced by the phrasebook.
+ *
+ * It is not a rare word. Every model line containing `vétéran`, `détective`,
+ * `légiste`, `témoin`, `réponds`, `vérifie` or `décide` — a consonant, then an
+ * accent — was silently discarded on a French table, which is most of what the
+ * bots are given to talk about. Measured by hand afterwards: "je suis le
+ * veteran" survives and "je suis le vétéran" does not.
+ */
 function initialForAName(line: string, seats: ReadonlySet<string>): boolean {
-  const match = /(?:^|[\s("'«])([b-hj-tvwxzB-HJ-TVWXZ])(?![\w'’-])/.exec(line);
+  const match = /(?:^|[\s("'«])([b-hj-tvwxzB-HJ-TVWXZ])(?![\p{L}\p{N}_'’-])/u.exec(line);
   return match !== null && !seats.has(match[1].toLowerCase());
 }
 
