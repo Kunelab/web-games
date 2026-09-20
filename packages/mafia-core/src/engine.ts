@@ -566,7 +566,11 @@ export function chatLineFor(
   if (state.phase === "ended") return message;
   const reader = state.players[playerId];
   if (reader?.role !== "spy" || !message.authorId) return message;
-  if (message.channel !== "mafia" && message.channel !== "triad")
+  if (
+    message.channel !== "mafia" &&
+    message.channel !== "triad" &&
+    message.channel !== "cult"
+  )
     return message;
   return { ...message, authorId: null, authorName: ANONYMOUS };
 }
@@ -3548,7 +3552,25 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       if (isCultist(target)) {
         kill(state, target, "night", CAUSE.killedBy("lodge"), "lodge");
         notify(player, NOTE.lodgeStruck(target.name));
-      } else if (target.role === "citizen") {
+      } else if (convertible(target)) {
+        /**
+         * Anybody the cult could have taken, the lodge can take first.
+         *
+         * The rule was `role === "citizen"`, which is a single role out of
+         * twenty, and on a table that deals none — perfectly ordinary, since
+         * every town slot but Town Core can roll something else — the Mason
+         * Leader's whole power was unusable from the first night and nothing
+         * anywhere said so. Seen on a real table: three nights, three
+         * initiations announced in the lodge, three silent refusals, and a
+         * badge that had done nothing at all by the time its owner was the last
+         * brother alive.
+         *
+         * `convertible` is the predicate this always wanted and the cult has
+         * used all along: town, not Town Power, not night immune, not a
+         * revealed seat whose role is fixed. The two conversions are now the
+         * same question asked by opposite sides, which is what makes the
+         * doorstep between them a real race.
+         */
         target.role = "mason";
         notify(target, NOTE.initiated());
         notify(player, NOTE.initiateDone(target.name));

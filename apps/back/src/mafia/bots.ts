@@ -755,7 +755,33 @@ function moodOf(personality: { aggression: number; herd: number; claimRate: numb
  */
 function spyMayListen(view: MafiaView, board: PublicInfo): boolean {
   if (!board.rolesInPlay?.has('spy')) return false;
-  return !view.players.some((player) => !player.alive && player.roleName?.k === 'mafia.role.spy.name');
+  // A spy in the ground is a wall with nobody behind it.
+  if (view.players.some((player) => !player.alive && player.roleName?.k === 'mafia.role.spy.name')) return false;
+
+  /**
+   * And "could there be one" is not the question. "Is there one" is.
+   *
+   * `rolesInPlay` expands every category slot to everything it might roll, so a
+   * single Town Investigative slot puts the Spy in that set — which is nearly
+   * every roster ever dealt, and chaos and census always. The families
+   * therefore hushed in every game, and on the half of tables whose discipline
+   * is silence the mafia, triad and cult rooms held **no lines at all** for the
+   * whole game. Verified on a real table: five nights, eighty-three chat
+   * events, not one of them in a family room, with a person sitting in the Spy
+   * seat waiting for something to overhear.
+   *
+   * A counter-measure that fires on a possibility that is always true costs the
+   * family nothing and deletes a town role, an entire private channel, and the
+   * only reason to sit in it. So the test is now evidence rather than paranoia:
+   * the roster names a Spy outright, or somebody has stood up and claimed the
+   * badge. A category slot that *might* be one is a risk a family runs, which
+   * is what makes the room worth listening to.
+   */
+  if (view.roleList.includes('spy')) return true;
+  return board.claims.some(
+    (claim) =>
+      claim.kind === 'role-claim' && claim.claimedRole === 'spy' && board.aliveSlots.includes(claim.claimerSlot)
+  );
 }
 
 /**
@@ -5240,13 +5266,31 @@ export class MafiaBotDriver {
        * Master is bringing in tonight.
        */
       if (channel === 'mason') {
-        const line = this.lodgeLine(state, botId, view, board, slot);
+        /**
+         * The name the Master is actually taking tonight, not a fresh draw.
+         *
+         * The family room learned this the hard way and the lodge was left
+         * with the bug: `slot` comes out of a policy full of deliberate
+         * randomness and this turn only *talks*, so the brothers were told one
+         * house and the initiation went to another. On a real table the lodge
+         * heard "Tonight I initiate Pinhead" while the submitted target was
+         * Sonic, and then Blade — three nights, three names, none of them the
+         * one that was knocked on.
+         *
+         * Read off the submission like `familyKnife` does, and nothing is said
+         * about a recruit until there is one, which is an honest answer early
+         * in the night rather than a promise the dawn contradicts.
+         */
+        const committed = state.nightActions[botId]?.targetId;
+        const recruit = committed ? (state.players[committed]?.slot ?? null) : null;
+        const line = this.lodgeLine(state, botId, view, board, recruit);
         if (!line) return EMPTY;
         const heard = this.answering(state, botId, channel);
         return {
           ...EMPTY,
           say: line,
-          about: slot,
+          // The house the line is actually about: the recruit when there is one.
+          about: recruit ?? slot,
           intent: {
             act:
               heard.length > 0

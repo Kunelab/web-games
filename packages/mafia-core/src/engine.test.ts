@@ -2523,6 +2523,32 @@ describe("the cult", () => {
 
   it("remembers the door that refused the lodge", () => {
     const state = table(
+      ["mason-leader", "jailor", "citizen", "citizen", "godfather"],
+      3,
+    );
+    const leader = bySlot(state, 1);
+    const jailor = bySlot(state, 2);
+
+    advanceMafia(state, 1_000, lcg(1));
+    setNightAction(state, leader.playerId, jailor.slot);
+    advanceMafia(state, 2_000, lcg(1));
+
+    assert.equal(jailor.role, "jailor", "a town power keeps its own badge");
+    assert.deepEqual(leader.refused, [jailor.slot]);
+  });
+
+  /**
+   * And the door that opens, which for most of this game's life was one role
+   * wide.
+   *
+   * The rule was `role === "citizen"`, so on any table that dealt no Citizen —
+   * perfectly ordinary, since every town slot but Town Core can roll something
+   * else — the Mason Leader's power did nothing at all and nothing said so.
+   * Anybody the cult could take, the lodge can take first: the two conversions
+   * ask the same question from opposite sides.
+   */
+  it("initiates anybody the cult could have taken", () => {
+    const state = table(
       ["mason-leader", "doctor", "citizen", "citizen", "godfather"],
       3,
     );
@@ -2533,8 +2559,8 @@ describe("the cult", () => {
     setNightAction(state, leader.playerId, doctor.slot);
     advanceMafia(state, 2_000, lcg(1));
 
-    assert.equal(doctor.role, "doctor", "only a citizen can be initiated");
-    assert.deepEqual(leader.refused, [doctor.slot]);
+    assert.equal(doctor.role, "mason", "the doctor joined the lodge");
+    assert.deepEqual(leader.refused ?? [], []);
   });
 
   /** What the cult learned is the cult's; a second cultist pays for it again. */

@@ -956,9 +956,18 @@ export function chatRules(): ChannelRules<MafiaState> {
       // Family rooms — and the spy's ear pressed to the killing families' walls.
       if (channel === 'mafia' || channel === 'triad' || channel === 'cult') {
         if (playerFamily(member) === channel) return true;
-        // A corpse eavesdrops on nobody: the night intel half of the same ear
-        // already required a living spy, the wall half did not.
-        return member.alive && member.role === 'spy' && channel !== 'cult';
+        /**
+         * A corpse eavesdrops on nobody: the night intel half of the same ear
+         * already required a living spy, the wall half did not.
+         *
+         * And the cult is a room like the others. It was excluded, which read
+         * as caution and played as a hole: the cult conspires at night in a
+         * private channel exactly as the two families do, it is the faction the
+         * town has the least information about, and it is the one whose growth
+         * a spy could actually report. Nothing about the Spy's own side changes
+         * — it is town, and what it hears it may repeat or keep.
+         */
+        return member.alive && member.role === 'spy';
       }
       if (channel === 'mason') return isMason(member);
       if (channel.startsWith('jail:')) {
