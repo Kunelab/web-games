@@ -6524,6 +6524,8 @@ export class MafiaBotDriver {
         return vary('mafia.bot.why.impossibleAilment', 3, seed, { what: msg(`mafia.ailment.${found.ailment}`) });
       case 'role-not-in-play':
         return vary('mafia.bot.why.roleNotInPlay', 3, seed, { role: ROLE.name(found.role) });
+      case 'no-slot-left':
+        return vary('mafia.bot.why.noSlotLeft', 3, seed, { role: ROLE.name(found.role) });
       case 'relay-denied':
         return vary('mafia.bot.why.relayDenied', 3, seed, { who: nameOf(found.otherSlot) });
       case 'broken-promise':

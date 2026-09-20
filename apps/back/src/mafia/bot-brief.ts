@@ -337,6 +337,8 @@ function caughtBy(finding: Deduction): string {
       return `claims a ${finding.ailment} nobody left alive could have done`;
     case 'role-not-in-play':
       return `claims ${finding.role}, which this game never dealt`;
+    case 'no-slot-left':
+      return `claims ${finding.role}, and every slot that could have been one is already in the graveyard`;
     case 'relay-denied':
       return `quoted ${finding.otherSlot}, who denies saying it`;
     case 'broken-promise':

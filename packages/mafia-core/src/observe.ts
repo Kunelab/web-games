@@ -71,6 +71,7 @@ interface BoardCache {
   day: number;
 
   rolesInPlay: Set<RoleId>;
+  roleSlots: SlotToken[];
   dealCopies: Map<RoleId, number>;
 
   grave: {
@@ -226,6 +227,17 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
        * that actually get bluffed. A Sheriff could be claimed by two living
        * seats with a third in the ground and the arithmetic said nothing.
        */
+      /**
+       * And the list itself, unexpanded.
+       *
+       * The expansion above answers "could this table contain a Jester" and
+       * cannot answer "can it still", because a category slot that has already
+       * turned out to be something else is still in the union. The slots are
+       * what the room reads off the wall and what `possibleRoles` matches the
+       * graveyard against, so they belong on the board next to their own
+       * expansion.
+       */
+      roleSlots: tableRoleList(state, players.length),
       dealCopies: copiesDealt(tableRoleList(state, players.length)),
       grave: null,
       spokenRef: null,
@@ -356,6 +368,7 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
     rampage: grave.rampage,
     votes: cache.votes,
     rolesInPlay: cache.rolesInPlay,
+    roleSlots: cache.roleSlots,
     dealCopies: cache.dealCopies,
     revealedMayorSlot: grave.revealedMayorSlot,
     trialSlot,

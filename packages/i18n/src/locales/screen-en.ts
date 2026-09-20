@@ -484,6 +484,14 @@ export const screenEn: Catalogue = {
   'mafia.bot.why.roleNotInPlay.1': 'they claimed {role}, and this game never dealt a {role}',
   'mafia.bot.why.roleNotInPlay.2': 'there is no {role} in this game. It is on the role list',
   'mafia.bot.why.roleNotInPlay.3': '{role} was never dealt, so that claim is invented',
+  /**
+   * The same catch one step on: the roster allowed the badge and the graveyard
+   * has since used up every slot that could have been it. Said with the corpses
+   * named, because that is the half the room can check. See `no-slot-left`.
+   */
+  'mafia.bot.why.noSlotLeft.1': 'every slot that could have been {role} is in the graveyard already',
+  'mafia.bot.why.noSlotLeft.2': 'count the list: there is nowhere left at this table for a {role} to be',
+  'mafia.bot.why.noSlotLeft.3': 'the {role} slots are all accounted for, so that badge cannot exist any more',
   'mafia.bot.why.relayDenied.1': 'they quoted {who}, and {who} says they never said it',
   'mafia.bot.why.relayDenied.2': 'they said {who} told them that, and {who} denies it',
   'mafia.bot.why.relayDenied.3': 'they put those words in {who}’s mouth and {who} says no',

@@ -11,8 +11,10 @@ import {
   staysHome,
   tradeSuspects
 } from '../roles.js';
+import type { SlotToken } from '../setups.js';
 import { beliefs, surestSuspect } from './beliefs.js';
 import { deductions, deductionWeight } from './deduce.js';
+import { possibleRoles } from './slots.js';
 export { QUIET_TRADE };
 import {
   advanceDesperation,
@@ -504,6 +506,21 @@ export interface PublicInfo {
    * "unknown", and the checks that use it fall back to allowing the claim.
    */
   rolesInPlay?: ReadonlySet<RoleId>;
+  /**
+   * The published list itself, slot by slot and unexpanded.
+   *
+   * `rolesInPlay` is this list with every category opened out, which answers
+   * what the deal *could* have contained and stops answering anything useful
+   * the moment a corpse is identified: a Neutral Benign slot that turned out to
+   * be the Lover is still contributing the Jester to that set. Matching the
+   * graveyard against the slots themselves is what `possibleRoles` does, and it
+   * is the difference between "this game never dealt one" and "there is no
+   * longer anywhere for one to be".
+   *
+   * Optional for the same reason as `rolesInPlay`: a hand-built test board has
+   * none, and absent reads as "unknown", which allows everything.
+   */
+  roleSlots?: readonly SlotToken[];
   /**
    * How many copies of each role the deal can contain, from the same roster.
    *
@@ -4149,11 +4166,50 @@ function burnedFaces(info: PublicInfo): Set<RoleId> {
       if (!info.rolesInPlay.has(role)) burned.add(role);
     }
   }
+  /**
+   * And every face the graveyard has quietly used up.
+   *
+   * The roster check above is the union of every category slot's pool, so it
+   * goes on offering a Jester long after the only slots that could have held
+   * one have been identified as something else. A liar picking from it walks
+   * into a sentence the room can disprove off two screens — which a cornered
+   * Mafioso did, on a real table, claiming Jester on day four with both
+   * candidate slots already named in the graveyard. A bluff has to be possible
+   * or it is not a bluff.
+   *
+   * The same accounting catches a person who tries it, through `deductions`.
+   * That is the pair: the bots stop making the claim, and the room learns how
+   * to answer it.
+   */
+  if (info.roleSlots) {
+    const possible = possibleRoles(info.roleSlots, [...info.deadRoles.values()]);
+    for (const role of Object.keys(ROLES) as RoleId[]) {
+      if (!possible.has(role)) burned.add(role);
+    }
+  }
   for (const role of info.deadRoles.values()) burned.add(role);
   for (const claim of info.claims) {
-    if (claim.kind === 'role-claim' && claim.claimedRole && info.aliveSlots.includes(claim.claimerSlot)) {
+    if (claim.kind !== 'role-claim' || !claim.claimedRole) continue;
+    if (info.aliveSlots.includes(claim.claimerSlot)) {
       burned.add(claim.claimedRole);
+      continue;
     }
+    /**
+     * And a face the room has already watched being torn off.
+     *
+     * A claim only burned its badge while the claimant was alive, so a liar who
+     * claimed Jester and flipped Enforcer handed the face straight back: the
+     * next cornered seat picked it up two days later, in front of a room that
+     * had just seen it proven false. From a real table, both claims, both
+     * Jester, two days apart.
+     *
+     * Only when the grave actually contradicted them. A seat that claimed
+     * Doctor and turned out to be the Doctor has confirmed the badge rather
+     * than spent it, and that one is simply taken by a corpse, which the line
+     * above this loop already burns.
+     */
+    const grave = info.deadRoles.get(claim.claimerSlot);
+    if (grave && grave !== claim.claimedRole) burned.add(claim.claimedRole);
   }
   return burned;
 }

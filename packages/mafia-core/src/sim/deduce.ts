@@ -1,4 +1,5 @@
 import { ROLES, roleDef, type RoleId } from '../roles.js';
+import { possibleRoles } from './slots.js';
 import type { Claim, PublicInfo } from './policies.js';
 
 /**
@@ -48,6 +49,18 @@ export type Deduction =
   | { kind: 'impossible-ailment'; ailment: NonNullable<Claim['ailment']> }
   /** Claimed a badge the published roster does not contain. */
   | { kind: 'role-not-in-play'; role: RoleId }
+  /**
+   * Claimed a badge the roster could have held and the graveyard has used up.
+   *
+   * The same arithmetic one step further on, and the harder half of it. The
+   * list on the wall says one Neutral Benign and one Any Role; the graveyard
+   * says the first was the Lover and the second was a Triad Enforcer; so there
+   * is no longer anywhere at this table for a Jester to be, and a seat claiming
+   * one is claiming something the room can check for itself. A person at a real
+   * table made exactly this deduction by hand, in the square, while the board
+   * had no way to hold it. See `possibleRoles`.
+   */
+  | { kind: 'no-slot-left'; role: RoleId }
   /** Put words in a living seat's mouth, and that seat never said them. */
   | { kind: 'relay-denied'; otherSlot: number }
   /** Bet their life on proving it by dawn, and dawn came. */
@@ -67,6 +80,7 @@ const WORTH: Record<Deduction['kind'], number> = {
   'guarded-nobody-died': 2.5,
   'acted-from-the-cell': 2.5,
   'role-not-in-play': 3,
+  'no-slot-left': 3,
   'broken-promise': 2.5,
   'poison-survived': 2,
   'impossible-ailment': 2,
@@ -84,6 +98,9 @@ const WORTH: Record<Deduction['kind'], number> = {
 function nightOf(claim: Claim): number {
   return claim.night ?? Math.max(1, claim.day - 1);
 }
+
+/** The slot accounting, kept per board. See `stillFits`. */
+const SLOT_FITS = new WeakMap<PublicInfo, Set<RoleId>>();
 
 /** Was this seat already buried before that night fell? */
 function buriedBefore(slot: number, night: number, info: PublicInfo): boolean {
@@ -166,6 +183,23 @@ export function deductions(slot: number, info: PublicInfo): Deduction[] {
   const mine = info.claims.filter((claim) => claim.claimerSlot === slot);
   if (mine.length === 0) return found;
 
+  /**
+   * Whether a badge still has anywhere to be, worked out once per board.
+   *
+   * `possibleRoles` walks a matching per role and this function is asked about
+   * every seat on every decision, so the answer is computed on first ask and
+   * kept with the board, which is rebuilt whenever anything it reads changes.
+   */
+  const stillFits = (role: RoleId): boolean => {
+    if (!info.roleSlots) return true;
+    let possible = SLOT_FITS.get(info);
+    if (!possible) {
+      possible = possibleRoles(info.roleSlots, [...info.deadRoles.values()]);
+      SLOT_FITS.set(info, possible);
+    }
+    return possible.has(role);
+  };
+
   const alive = info.aliveSlots.includes(slot);
 
   for (const claim of mine) {
@@ -182,6 +216,15 @@ export function deductions(slot: number, info: PublicInfo): Deduction[] {
       !info.rolesInPlay.has(claim.claimedRole)
     ) {
       found.push({ kind: 'role-not-in-play', role: claim.claimedRole });
+    } else if (claim.kind === 'role-claim' && claim.claimedRole && info.roleSlots && !stillFits(claim.claimedRole)) {
+      /**
+       * The roster allowed it and the graveyard has since spent every slot that
+       * could have been it. See `no-slot-left` and `possibleRoles`.
+       *
+       * Only when the first test did not already fire: a role the deal never
+       * contained is the simpler sentence and the one the room checks faster.
+       */
+      found.push({ kind: 'no-slot-left', role: claim.claimedRole });
     }
 
     if (claim.kind === 'relay' && claim.relayedFrom !== undefined) {
