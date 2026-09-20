@@ -5432,9 +5432,9 @@ export class MafiaBotDriver {
             act: hushed
               ? `answer your own family privately, but a SPY MAY BE LISTENING to this room: use NO name, NO house number and NO role, whatever you were asked — ${ask ? (heeded ? 'agree to what they asked' : 'turn down what they asked') : 'acknowledge them and say nothing specific'}`
               : ask
-                ? `${heeded ? 'agree to' : 'turn down'} what your own family just asked for, privately: they want house ${ask.slot} dead tonight and you want ${aim === null ? 'to hear more first' : `house ${aim}`}`
+                ? `${heeded ? 'agree to' : 'turn down'} what your own family just asked for, privately: they want ${ask.slot} dead tonight and you want ${aim === null ? 'to hear more first' : String(aim)}`
                 : heard.length > 0
-                  ? `answer your own family, privately, about tonight — you want ${aim === null ? 'to hear what they think' : `house ${aim} dead`}`
+                  ? `answer your own family, privately, about tonight — you want ${aim === null ? 'to hear what they think' : `${aim} dead`}`
                   : `tell your own family, privately, what you want done tonight — say this and only this: "${shop}"`,
             mood: moodOf(mind.brain.personality),
             fallback: shop,
@@ -6672,7 +6672,7 @@ export class MafiaBotDriver {
       )
       .map((claim) => claim.claimerSlot);
     if (accusers.length > 0) {
-      parts.push(`pushing this: ${[...new Set(accusers)].map((who) => `house ${who} (${nameOf(who)})`).join(', ')}`);
+      parts.push(`pushing this: ${[...new Set(accusers)].map((who) => `${who} (${nameOf(who)})`).join(', ')}`);
     }
 
     /** What this seat can actually offer back, in the order it is worth saying. */
@@ -6711,13 +6711,13 @@ export class MafiaBotDriver {
     const went = board.claims.find(
       (claim) => claim.kind === 'account' && claim.claimerSlot === slot && claim.account === 'visited'
     );
-    if (went) mine.push(`you already told the room you went to house ${went.targetSlot} that night`);
+    if (went) mine.push(`you already told the room you went to ${went.targetSlot} that night`);
     for (const entry of me.intel.slice(-3)) {
       if (entry.kind === 'sheriff')
-        mine.push(`your night ${entry.night} check on house ${entry.targetSlot}: ${entry.value}`);
+        mine.push(`your night ${entry.night} check on ${entry.targetSlot}: ${entry.value}`);
       if (entry.kind === 'visitors' && (entry.slots ?? []).length > 0) {
         mine.push(
-          `night ${entry.night} you watched house ${entry.targetSlot} and saw ${(entry.slots ?? []).join(', ')}`
+          `night ${entry.night} you watched ${entry.targetSlot} and saw ${(entry.slots ?? []).join(', ')}`
         );
       }
     }
@@ -9593,7 +9593,7 @@ export class MafiaBotDriver {
     const mind = this.minds.mind(state, botId);
     if (!me || !mind) return EMPTY;
 
-    const persona = `Your character: ${me.name}, house ${me.slot}. Temperament: ${PERSONAS[hashCode(botId) % PERSONAS.length]}.`;
+    const persona = `Your character: ${me.name}, number ${me.slot}. Temperament: ${PERSONAS[hashCode(botId) % PERSONAS.length]}.`;
     /**
      * The table's spoken language — English unless a lone human wants otherwise
      * (see `spokenLocale`) — and it renders the briefing as well as instructing
@@ -9988,7 +9988,7 @@ function taskLine(view: MafiaView, task: BotTask, tongue: Locale): string {
        * spelled out, is what makes the loop actually run.
        */
       return [
-        `Daytime. You are house ${me.slot} and cannot vote against yourself.`,
+        `Daytime. You are number ${me.slot} and cannot vote against yourself.`,
         'EVERY line you speak must be paired with a claim, or the table will not remember it:',
         '  asking somebody about their night → claim="question", claimSlot=their house',
         '  answering about your OWN night → claim="account-home", or claim="account-visited" + claimSlot',
