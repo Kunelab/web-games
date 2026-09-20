@@ -94,6 +94,15 @@ export interface Intent {
    */
   record?: string[];
   /**
+   * What this seat has already said out loud today, so it does not say it again.
+   *
+   * The newest couple of its own lines in this room. See the note at the foot
+   * of `mouthPrompt`: without them, roughly a line in five came back as a
+   * verbatim repeat, was refused by the room's own guard, and cost a request
+   * to produce a silence.
+   */
+  said?: string[];
+  /**
    * Said in a family room a Spy may be listening to.
    *
    * The instruction tells the model to name nothing; this is the check that it
@@ -222,6 +231,30 @@ export function mouthPrompt(
     lines.push(
       'The last things said in the room (context only — do not answer them unless it fits what you decided):',
       ...recent.slice(-4).map((line) => `${line.slot} ${line.name}: ${line.text}`)
+    );
+  }
+
+  /**
+   * And the one thing this sheet never showed the model: its own last line.
+   *
+   * `recent` is everybody *else*, deliberately, because the job is to answer
+   * the room. The consequence went unnoticed until a run of ten chaos games
+   * counted it: about one line in five came back word for word identical to
+   * something that seat had already said that day, was refused by the room's
+   * repeat guard, and cost a whole request to produce nothing. The seat is then
+   * silent in a round it had something to say in.
+   *
+   * It is not a temperature problem — the mouth runs at 0.9. It is that the
+   * intent is often genuinely the same intent twice (the same vote, the same
+   * reason) and the model has no way to know it has already said it.
+   *
+   * Twenty tokens to stop paying three hundred, and the instruction is the kind
+   * a small model follows: here is a sentence, do not write that sentence.
+   */
+  if (intent.said && intent.said.length > 0) {
+    lines.push(
+      'YOU ALREADY SAID THIS TODAY. Say something different, even if you mean the same thing:',
+      ...intent.said.slice(-2)
     );
   }
   lines.push('Your line:');

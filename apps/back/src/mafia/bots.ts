@@ -3391,25 +3391,25 @@ export class MafiaBotDriver {
     text: string,
     urgent: boolean,
     reserved = false
-  ): boolean {
-    if (channel !== 'day') return true;
+  ): 'ok' | 'repeat' | 'budget' {
+    if (channel !== 'day') return 'ok';
     const floor = this.floor.get(state.code);
-    if (!floor) return true;
+    if (!floor) return 'ok';
 
     // Verbatim repeats read as a bug even when they are statistically fair.
     const fingerprint = text.toLowerCase();
-    if (floor.said.has(fingerprint)) return false;
+    if (floor.said.has(fingerprint)) return 'repeat';
 
     // Urgent lines are still deduplicated; they simply do not queue. A line
     // whose slot was reserved before the mouth was asked has already paid.
     if (urgent || reserved) {
       floor.said.add(fingerprint);
-      return true;
+      return 'ok';
     }
 
-    if (!this.reserve(floor, kind)) return false;
+    if (!this.reserve(floor, kind)) return 'budget';
     floor.said.add(fingerprint);
-    return true;
+    return 'ok';
   }
 
   /**
@@ -4084,10 +4084,23 @@ export class MafiaBotDriver {
         text: message.text
       }));
 
+    /**
+     * And what this seat has already said in here today.
+     *
+     * `square` is everybody else on purpose; this is the other half, and it is
+     * the half that was missing. See the note in `mouthPrompt`: the room
+     * refuses a verbatim repeat, so a model that cannot see its own last line
+     * pays a full request to be told to be quiet.
+     */
+    const mine = state.chat.messages
+      .filter((message) => message.channel === room && message.authorId === botId && message.text)
+      .slice(-2)
+      .map((message) => message.text);
+
     const answer = await this.askChain(
       {
         system: mouthRules(tongue),
-        user: mouthPrompt({ name: self.name, slot: self.slot }, intent, recent),
+        user: mouthPrompt({ name: self.name, slot: self.slot }, { ...intent, said: mine }, recent),
         format: MOUTH_FORMAT,
         formatName: 'mouth',
         // One short line. The ceiling is for a model that decides to explain
@@ -4524,11 +4537,40 @@ export class MafiaBotDriver {
       const sayChannel = room && this.mayWriteIn(state, botId, room) ? room : null;
       // A defence is somebody arguing for their life; it never waits its turn.
       const urgent = decision.urgent === true || task === 'defense';
-      if (
-        text &&
-        sayChannel &&
-        this.maySpeak(state, sayChannel, decision.claim?.kind ?? null, text, urgent, reserved)
-      ) {
+      const verdict =
+        text && sayChannel
+          ? this.maySpeak(state, sayChannel, decision.claim?.kind ?? null, text, urgent, reserved)
+          : 'budget';
+      /**
+       * A seat on the stand is never silenced for repeating itself.
+       *
+       * The repeat check is right and the silence it produced was not. On the
+       * stand there is no next speaker and no other business: the room is
+       * waiting on this one sentence, and a model that reaches for the same
+       * words it used in the last round costs the seat its whole turn. Measured
+       * on a chaos run, where a bot in the dock said nothing at the verdict
+       * because its best line had already been its best line a minute earlier.
+       *
+       * So the phrasebook takes the turn instead. It varies by round by
+       * construction, it is the line the brain had already decided on, and it
+       * is checked against the same fingerprint set — a seat with genuinely
+       * nothing new to say still says nothing, which is a fact about the seat
+       * rather than an accident of the guard.
+       */
+      let spoken = text;
+      let allowed = verdict === 'ok';
+      if (!allowed && verdict === 'repeat' && urgent && sayChannel) {
+        const spare = decision.intent?.fallback;
+        if (spare && spare !== text) {
+          const retry = this.maySpeak(state, sayChannel, decision.claim?.kind ?? null, spare, urgent, reserved);
+          if (retry === 'ok') {
+            spoken = spare;
+            allowed = true;
+          }
+        }
+      }
+      if (allowed && sayChannel) {
+        const text = spoken;
         /**
          * Typed, not printed.
          *
@@ -4629,8 +4671,17 @@ export class MafiaBotDriver {
           claim: decision.claim?.kind ?? null,
           urgent,
           reserved,
-          // Which silence this was: no words, no room to say them in, or a floor that was full or had heard them.
-          why: !text ? 'empty' : !sayChannel ? 'no room' : 'floor',
+          /**
+           * Which silence this was, and the two that used to be one.
+           *
+           * This event exists to tell the causes of silence apart, and it filed
+           * "floor" for both of the interesting ones: a room whose budget was
+           * spent, and a sentence the room had already heard. They are a
+           * different problem each — the first is a table talking too much, the
+           * second is a model with one idea — and a run of ten games could not
+           * say which it was looking at.
+           */
+          why: !text ? 'empty' : !sayChannel ? 'no room' : verdict === 'repeat' ? 'repeat' : 'floor',
           text
         });
       }
@@ -6809,6 +6860,15 @@ export class MafiaBotDriver {
           : vary('mafia.bot.why.ownBadge', 3, seed, { role: ROLE.name(reason.role) });
       case 'saved-killers':
         return vary('mafia.bot.why.savedKillers', 3, seed, {});
+      case 'led-town-wagon':
+        /** A vote is an act; this is the third-person half of `case.ledTownWagon`. */
+        return reason.slot === undefined
+          ? null
+          : vary('mafia.bot.why.ledTownWagon', 3, seed, { at: String(reason.slot), day: reason.day ?? 0 });
+      case 'accuser-silenced':
+        return reason.slot === undefined
+          ? null
+          : vary('mafia.bot.why.accuserSilenced', 3, seed, { other: String(reason.slot) });
       default:
         return null;
     }
@@ -7254,6 +7314,28 @@ export class MafiaBotDriver {
           role: ROLE.name(theirs.claimedRole)
         });
       }
+    }
+
+    /**
+     * 6b. The two rules that scored and could not be said.
+     *
+     * `led-town-wagon` and `accuser-silenced` were fitted, wired into the
+     * ranking, and given second-person sentences for a *case* — which needs two
+     * reasons before it says anything. A seat whose whole read was one of them
+     * therefore reached the bottom of this ladder with nothing, and posted "8.
+     * Une intuition, pas un dossier" over evidence it was actually holding. Ten
+     * of those across a chaos run, every one of them a vote the room could not
+     * argue with because nobody said what it was for.
+     *
+     * Low on the ladder, where their weights put them: a third of a doorstep
+     * and a fifth of a badge. Above the bare read, which is the point.
+     */
+    const tempo = caseFor(targetSlot, board, 8).find(
+      (reason) => reason.code === 'led-town-wagon' || reason.code === 'accuser-silenced'
+    );
+    if (tempo) {
+      const spoken = this.aloud(tempo, botId, targetSlot);
+      if (spoken) return spoken;
     }
 
     // 7. Their own words, quoted back at them.
@@ -8573,17 +8655,34 @@ export class MafiaBotDriver {
      */
     const recital = mind.willNights;
     if (recital.length > 0) {
-      const RECITAL_MAX = 380;
+      /**
+       * Composed against the limit that is actually applied, which was 380
+       * against a clamp of 210.
+       *
+       * The recital packs whole nights up to its own ceiling and `apply` then
+       * clips whatever arrives to `CLAMP_CHARS` — so every will longer than a
+       * couple of nights reached the square cut mid-word with an ellipsis on
+       * it. From a chaos run: "Nuit 4, Amaterasu : aucune visite. Nuit 1 : c'est
+       * chez…", which is a seat on the stand reading out its own record and
+       * being cut off by its own software in front of the room about to hang
+       * it.
+       *
+       * This is the same mistake `CASE_CHARS` was written to fix one screen
+       * away, with the reasoning spelled out there: two different limits on one
+       * sentence means the composer fills a space the speaker does not have.
+       * A whole night dropped reads as a short record; half a night reads as a
+       * crash.
+       */
       const said: string[] = [];
       let spent = 0;
       for (const line of recital) {
-        if (spent + line.length + 1 > RECITAL_MAX) break;
+        if (spent + line.length + 1 > CLAMP_CHARS) break;
         said.push(line);
         spent += line.length + 1;
       }
       // One night that does not fit is a line worth truncating; none at all is
       // not worth saying.
-      if (said.length === 0) said.push(recital[0].slice(0, RECITAL_MAX));
+      if (said.length === 0) said.push(clip(recital[0], CLAMP_CHARS));
       return { text: said.join(' '), claim: null, verbatim: true };
     }
 

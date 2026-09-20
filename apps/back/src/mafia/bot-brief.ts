@@ -108,7 +108,27 @@ export function stanceLine(mind: BotMind, view: MafiaView): string {
         ? 'You are under pressure: people are looking at you, act.'
         : 'You are safe for now: watch, and ask questions.';
   orders.push(mood);
-  switch (mind.agenda) {
+  /**
+   * The agenda line, unless the role has already been handed a better one.
+   *
+   * These two blocks say the same thing at two levels of detail: the agenda
+   * speaks for a *kind* of seat and `WIN_LINE` for the role itself. When both
+   * fire the briefing states one fact twice, and on a Survivor it was worse
+   * than that — the header says "Survivor, Neutral side", the role card in
+   * `You know` says it wins by seeing the end, the agenda says "You win by
+   * staying alive", and the win line says "YOU WIN WITH ANYBODY, as long as you
+   * are alive at the end", which is ninety tokens of one sentence said four
+   * ways on every turn that seat takes all game.
+   *
+   * The specific one wins, because it is the one written for the role. The
+   * agenda stays for every seat that has no win line of its own, which is most
+   * of the town.
+   */
+  const named = winLine(view) !== null;
+  if (named) {
+    /** The role's own line covers it. See `WIN_LINE`. */
+  } else
+    switch (mind.agenda) {
     case 'town':
       orders.push('Your side wins when the killers hang. Truth serves you — not to the point of dying for it.');
       break;
@@ -205,10 +225,19 @@ function pressure(view: MafiaView, board: PublicInfo): string[] {
   const alive = view.players.filter((player) => player.alive).length;
   const needed = Math.floor(alive / 2) + 1;
   const leader = view.players.filter((player) => player.alive).sort((a, b) => b.votesAgainst - a.votesAgainst)[0];
+  /**
+   * Said once, here, because this is where the live count is.
+   *
+   * `legalMoves` used to print the same bar and the same "nobody is targeted
+   * yet" a few lines earlier. The procedure that used to ride along with it —
+   * what a trial actually is — is kept on the branch where a model needs it,
+   * which is the one where no wagon exists yet and it is deciding whether to
+   * start one.
+   */
   lines.push(
     leader && leader.votesAgainst > 0
       ? `It takes ${needed} votes to start a trial. ${leader.slot}. ${leader.name} has ${leader.votesAgainst} — ${needed - leader.votesAgainst} more and they are on trial.`
-      : `It takes ${needed} votes to start a trial. Nobody is targeted yet.`
+      : `It takes ${needed} votes to put somebody on the stand, where they defend themselves and the room votes guilty or innocent. Nobody is targeted yet.`
   );
 
   /**
@@ -704,12 +733,18 @@ function legalMoves(view: MafiaView): string {
     lines.push(
       '- You may accuse one house, or vote to skip the day. Changing your mind is free until the count lands.'
     );
-    const leader = view.players.filter((player) => player.alive).sort((a, b) => b.votesAgainst - a.votesAgainst)[0];
-    lines.push(
-      leader && leader.votesAgainst > 0
-        ? `- ${view.voteThreshold} votes put somebody on the stand. House ${leader.slot} has ${leader.votesAgainst}; ${view.skipVotes} want to skip.`
-        : `- ${view.voteThreshold} votes put somebody on the stand, where they defend themselves and the room then votes guilty or innocent. Nobody is targeted yet.`
-    );
+    /**
+     * The bar, and who is nearest it, are `pressure`'s to say.
+     *
+     * Both sections printed both facts. Every day briefing carried "7 votes put
+     * somebody on the stand. Nobody is targeted yet." here and "It takes 7
+     * votes to start a trial. Nobody is targeted yet." forty tokens later —
+     * the same two numbers, in the same words, on every turn of every day. What
+     * belongs in this section is the *procedure*, because this section is the
+     * list of legal moves; what belongs in `pressure` is the live count, and it
+     * already carries how many more the wagon needs.
+     */
+    if (view.skipVotes > 0) lines.push(`- ${view.skipVotes} seat(s) want to skip the day.`);
   }
   return lines.join('\n');
 }
@@ -955,11 +990,20 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
    * over the bench's own ceiling on a fifteen-seat table with two people at it,
    * and the ceiling is there because the model is paid for in tokens a minute.
    */
+  /**
+   * And the legend itself is only printed when something is marked.
+   *
+   * It explains what a stamp means, so on a transcript with no stamps in it —
+   * the common case, an afternoon whose lines are all from this afternoon — it
+   * is twenty tokens explaining a notation that does not appear. The same
+   * reasoning as the per-line stamp immediately above, applied one level up.
+   */
   const nowLabel = `${view.phase === 'night' ? 'N' : 'D'}${view.day}`;
-  const legend = `unmarked = now (${nowLabel}); D2 = day 2, N2 = night 2`;
+  const stamped = rendered.some((line) => line.includes(', earlier — context'));
+  const legend = stamped ? ` (unmarked = now (${nowLabel}); D2 = day 2, N2 = night 2)` : '';
   const header = humansPresent
-    ? `WHAT WAS ACTUALLY SAID (${legend}) — read it properly. Claims, accusations and defences matter more than the numbers above, especially from human players:`
-    : `Recent lines (${legend}):`;
+    ? `WHAT WAS ACTUALLY SAID${legend} — read it properly. Claims, accusations and defences matter more than the numbers above, especially from human players:`
+    : `Recent lines${legend}:`;
   return `${header}\n${rendered.join('\n')}`;
 }
 

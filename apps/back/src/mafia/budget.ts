@@ -155,25 +155,24 @@ interface Scenario {
 }
 
 const SCENARIOS: Scenario[] = [
-  { scenario: 'all bots, quiet day', players: 15, humans: 0, chat: 4, ceiling: 480 },
-  { scenario: 'all bots, busy day', players: 15, humans: 0, chat: 30, ceiling: 530 },
+  { scenario: 'all bots, quiet day', players: 15, humans: 0, chat: 4, ceiling: 430 },
+  { scenario: 'all bots, busy day', players: 15, humans: 0, chat: 30, ceiling: 480 },
   /**
-   * 810, and the five tokens that bought it.
+   * This one went the other way, twice, and both are worth remembering.
    *
-   * This scenario has been sitting five tokens over its ceiling since before
-   * the clock work, on a clean checkout of `main`, and the alarm was doing
-   * exactly its job: something grew. What grew is the transcript, which on a
-   * table with people at it is the one section that is *supposed* to be the
-   * expensive one, and which is already bounded by construction at
-   * `TRANSCRIPT_CHARS`.
+   * It sat five tokens *over* its ceiling on a clean checkout, which is the
+   * alarm doing its job: the transcript had grown, and on a table with people
+   * at it the transcript is the section that is supposed to be expensive. So
+   * the ceiling moved to 810 rather than the prompt being cut.
    *
-   * So the ceiling moves rather than the prompt, once, with the number written
-   * down: 795 measured, 810 allowed, which is a sentence of headroom and not a
-   * section. Trimming the human half of a briefing to save 0.6% of a turn would
-   * be paying for it in the one thing the bots are for.
+   * Then the duplicates came out — the trial bar printed in two sections, the
+   * win condition said four ways — and the same scenario measured 748. Nothing
+   * a model can read was removed; the prompt simply stopped repeating itself.
+   * The ceiling follows it back down, because a ceiling that only ever rises is
+   * a ratchet rather than a budget.
    */
-  { scenario: '2 humans at the table', players: 15, humans: 2, chat: 30, ceiling: 810 },
-  { scenario: '5 humans, 24 seats', players: 24, humans: 5, chat: 40, ceiling: 950 },
+  { scenario: '2 humans at the table', players: 15, humans: 2, chat: 30, ceiling: 780 },
+  { scenario: '5 humans, 24 seats', players: 24, humans: 5, chat: 40, ceiling: 910 },
   /**
    * The afternoon the ceilings exist for.
    *
@@ -188,7 +187,7 @@ const SCENARIOS: Scenario[] = [
     players: 24,
     humans: 5,
     chat: 40,
-    ceiling: 950,
+    ceiling: 910,
     said: 'x'.repeat(390)
   }
 ];

@@ -556,6 +556,12 @@ export const screenFr: Catalogue = {
   'mafia.bot.whisper.role.2': 'Doucement, et rien qu’à toi : {role}. Fais-en ce que tu veux.',
   'mafia.bot.whisper.role.3': 'Tu es le seul siège dont je sais qu’il n’est pas un loup, alors : {role}.',
   'mafia.bot.whisper.role.4': '{role}. Le dire là-bas me fait tuer cette nuit, te le dire non.',
+  'mafia.bot.why.ledTownWagon.1': 'c’est lui qui a lancé la meute sur {at} au jour {day}, et {at} était de la ville',
+  'mafia.bot.why.ledTownWagon.2': 'le dossier contre {at} au jour {day} venait de lui, et on a pendu un innocent',
+  'mafia.bot.why.ledTownWagon.3': 'il a été le premier nom sur {at} au jour {day}, et {at} était innocent',
+  'mafia.bot.why.accuserSilenced.1': '{other} l’a accusé et était mort au matin',
+  'mafia.bot.why.accuserSilenced.2': 'celui qui l’a pointé du doigt, {other}, n’a pas vécu pour le redire',
+  'mafia.bot.why.accuserSilenced.3': '{other} l’a nommé et s’est fait tuer la nuit même',
   'mafia.bot.why.willQuote.1': '{who} l’a écrit avant de mourir : « {line} »',
   'mafia.bot.why.willQuote.2': 'c’est dans le testament de {who}, mot pour mot : « {line} »',
   'mafia.bot.why.willQuote.3': 'relisez le testament de {who} : « {line} »',
@@ -934,9 +940,9 @@ export const screenFr: Catalogue = {
    * le carnet dit et ce que le rapport a dit, réunis. Rien n'est déduit tout
    * haut : « donc c'est 6 » appartient à la place, pas au témoin.
    */
-  'mafia.bot.dump.visitorsDead.1': 'Nuit {night} : {slots} ont visité {who}. {who} est mort cette nuit-là.',
+  'mafia.bot.dump.visitorsDead.1': 'Nuit {night}, visite chez {who} : {slots}. {who} est mort cette nuit-là.',
   'mafia.bot.dump.visitorsDead.2': '{who} est mort la nuit {night}. Les visiteurs cette nuit-là : {slots}.',
-  'mafia.bot.dump.visitorsDead.3': 'La nuit où {who} est mort, {slots} sont entrés. Nuit {night}.',
+  'mafia.bot.dump.visitorsDead.3': 'La nuit où {who} est mort, on a vu entrer : {slots}. Nuit {night}.',
   'mafia.bot.dump.nobodyDead.1': 'Nuit {night} : personne n’a visité {who}. {who} est mort cette nuit-là.',
   'mafia.bot.dump.nobodyDead.2': '{who} est mort la nuit {night} et je n’ai vu personne entrer.',
   'mafia.bot.dump.nobodyDead.3': 'Aucun visiteur chez {who} la nuit {night}, et {who} était mort au matin.',

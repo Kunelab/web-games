@@ -90,6 +90,26 @@ const clocks =
 const defaultTimeout = tempo === 'deliberate' ? (clocks.dayMs + clocks.nightMs) * 14 : 180_000;
 const watchdogMs = Number(process.env.SIM_TIMEOUT_MS ?? defaultTimeout);
 
+/**
+ * Which deal to play, because the interesting faults are not in the balanced one.
+ *
+ * `auto` is the setup the balance numbers are quoted against, and it was the
+ * only one this table could play — so the debug runs only ever saw the twenty
+ * or so roles a balanced deal reaches for. `chaos` deals out of the whole
+ * catalogue, which is where the readers, the masks and the phrasebook are
+ * actually tested: the Amnesiac, the Auditor, a Bus Driver swapping two houses
+ * and the three different ways a family promotes an heir.
+ */
+const setupName = process.env.SIM_SETUP ?? 'auto';
+const setup =
+  setupName === 'chaos'
+    ? ({ mode: 'chaos' } as const)
+    : setupName === 'census'
+      ? ({ mode: 'census' } as const)
+      : setupName === 'auto'
+        ? ({ mode: 'auto' } as const)
+        : ({ mode: 'preset', presetId: setupName } as const);
+
 const BANNER = `
   tempo     ${tempo}${tempo === 'deliberate' ? ` (${rounds} rounds/phase)` : ''}
   brain     ${provider}${provider === 'ollama' ? ` · ${env.MAFIA_BOT_MODEL} @ ${env.OLLAMA_URL}` : ''}${
@@ -101,13 +121,15 @@ const BANNER = `
 
   language  ${locale}
 
-  knobs: SIM_BOTS, SIM_DAY_MS, SIM_NIGHT_MS, SIM_TIMEOUT_MS, SIM_TAIL, SIM_LOCALE
+  setup     ${setupName}
+
+  knobs: SIM_BOTS, SIM_SETUP, SIM_DAY_MS, SIM_NIGHT_MS, SIM_TIMEOUT_MS, SIM_TAIL, SIM_LOCALE
          MAFIA_BOT_TEMPO=live|deliberate, MAFIA_BOT_ROUNDS=1..6
          MAFIA_BOT_PROVIDER=ollama|anthropic|scripted
 `;
 
 const manager = new MafiaManager(log);
-const state = manager.create({ hostUserId: null, config: { ...clocks, locale }, takenCodes: new Set() });
+const state = manager.create({ hostUserId: null, config: { ...clocks, locale, setup }, takenCodes: new Set() });
 
 manager.addBots(state.code, bots);
 manager.start(state.code);
