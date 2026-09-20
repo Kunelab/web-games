@@ -12,6 +12,16 @@ import { GAMES } from './games';
 import './shells.css';
 
 /**
+ * The hub, which carries the legal pages for every KuneLab project.
+ *
+ * Hardcoded rather than read from the environment because it is a public address
+ * that changes about as often as the project is renamed, and a build-time
+ * variable nobody sets would turn these into dead links on the one deployment
+ * that matters.
+ */
+const HUB_URL = 'https://kunelab.duckdns.org';
+
+/**
  * Two shells, because the app has two jobs.
  *
  * The atelier keeps navigation visible: you are preparing, you move between the
@@ -78,8 +88,44 @@ export function AtelierShell() {
         <main className="atelier-main">
           <Outlet />
         </main>
+
+        <SiteFooter />
       </div>
     </PortalContainerProvider>
+  );
+}
+
+/**
+ * Where the site says who runs it.
+ *
+ * On the atelier shell only, never on a game screen: a television showing a
+ * round has no business carrying a privacy link, and the room is not reading it.
+ * Every screen where somebody types something about themselves is under this
+ * shell, which is where the law expects the notice to be reachable from.
+ *
+ * The legal pages live on the hub rather than here, because they cover every
+ * KuneLab project and two copies of a privacy policy is one copy too many: the
+ * moment they disagree, neither is the truth.
+ */
+function SiteFooter() {
+  const t = useT();
+
+  return (
+    <footer className="site-foot">
+      <nav aria-label={t(msg('site.foot.label'))}>
+        <NavLink to="/signaler-un-bug">{t(msg('bug.link'))}</NavLink>
+        <a href={`${HUB_URL}/a-propos.html`} target="_blank" rel="noreferrer">
+          {t(msg('site.foot.about'))}
+        </a>
+        <a href={`${HUB_URL}/confidentialite.html`} target="_blank" rel="noreferrer">
+          {t(msg('site.foot.privacy'))}
+        </a>
+        <a href={`${HUB_URL}/mentions-legales.html`} target="_blank" rel="noreferrer">
+          {t(msg('site.foot.legal'))}
+        </a>
+      </nav>
+      <p className="site-foot-note">{t(msg('site.foot.note'))}</p>
+    </footer>
   );
 }
 

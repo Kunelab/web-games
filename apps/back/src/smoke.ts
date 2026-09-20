@@ -34,7 +34,9 @@ import {
 } from './services/blindtest-library.js';
 import { emptyHistory } from './services/blindtest-draw.js';
 import { closeDb, db } from './db/index.js';
-import { passwordResets } from './db/schema.js';
+import { gameResults, media, passwordResets, sessions } from './db/schema.js';
+import { eraseAccount } from './services/account-erasure.js';
+import { mediaService } from './services/media-service.js';
 import { passwordResetService } from './services/password-reset-service.js';
 import { userService } from './services/user-service.js';
 import { clearAssets, resolveAsset } from './game/assets.js';
@@ -1753,6 +1755,73 @@ section('password reset');
     payload: { token: expiring.token, password: 'too-late-for-this' }
   });
   check('and is refused by the route', expiredReset.statusCode === 400, expiredReset.statusCode);
+}
+
+/* ------------------------- erasing an account (RGPD) ---------------------- */
+section('erasing an account');
+{
+  /**
+   * The article 17 path, which the privacy page promises in writing.
+   *
+   * Worth a check precisely because it is the code nobody runs: it is reached by
+   * an e-mail arriving and somebody typing `admin delete`, perhaps twice a year,
+   * and a foreign key added later would break it silently until the one moment
+   * it is needed. The two halves are asserted separately because they are meant
+   * to differ: what the account made must go, and the games it hosted must stay
+   * with the name taken off.
+   */
+  /*
+   * Built through the services rather than over HTTP, because registration is
+   * capped at five an hour and this run has spent them. The subject here is
+   * `eraseAccount`, not the routes that happen to create its fixtures.
+   */
+  const doomedLogin = `${login}_erasable`;
+  const created = await userService.create(doomedLogin, 'hunter2hunter2', `${doomedLogin}@example.com`);
+  assert(created.ok, 'the erasable account must be created');
+  const doomed = created.user;
+
+  // A signed-in browser, in the shape the session store writes.
+  const doomedSid = `smoke-erase-${doomed.id}`;
+  await db.insert(sessions).values({
+    sid: doomedSid,
+    expiresAt: Date.now() + 60_000,
+    data: JSON.stringify({ user: { id: doomed.id, login: doomedLogin, role: 'member' } })
+  });
+
+  const theirMedia = await mediaService.create(
+    { kind: 'quiz', title: 'Theirs', answers: [{ ...answerFieldSchema.parse({ key: 'a', value: 'x' }) }], payload: quiz.defaultPayload },
+    { id: doomed.id, login: doomedLogin, role: 'member' }
+  );
+
+  // A game they hosted, which four other people also played.
+  await db.insert(gameResults).values({
+    code: 'ERASE1',
+    playlist_id: null,
+    playlist_name: 'Their evening',
+    host_user_id: doomed.id,
+    finished_at: Date.now(),
+    rounds_total: 3,
+    players: JSON.stringify([{ name: 'Someone else', score: 5, rank: 1 }]),
+    awards: '[]'
+  });
+
+  const report = eraseAccount(doomed.id);
+
+  check('the account is gone', (await userService.getByLogin(doomedLogin)) === undefined);
+  check('their library goes with it', report.media >= 1, report);
+  check(
+    'and so does their signed-in session',
+    (await db.select().from(sessions).where(eq(sessions.sid, doomedSid))).length === 0
+  );
+  check(
+    'the media row really is deleted, not just unlinked',
+    (await db.select().from(media).where(eq(media.id, theirMedia.id))).length === 0
+  );
+
+  /** The other half: somebody else's evening survives, unattributed. */
+  const survivor = (await db.select().from(gameResults).where(eq(gameResults.code, 'ERASE1')))[0];
+  check('the game they hosted is kept', survivor !== undefined);
+  check('but no longer names them', survivor?.host_user_id === null, survivor?.host_user_id);
 }
 
 /**

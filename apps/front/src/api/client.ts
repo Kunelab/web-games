@@ -250,6 +250,19 @@ export interface GameResult {
   awards: FinalAward[];
 }
 
+/** A filed bug report, as the operator's screen reads it. */
+export interface BugReport {
+  id: number;
+  login: string | null;
+  area: string;
+  message: string;
+  page: string | null;
+  userAgent: string | null;
+  gameCode: string | null;
+  status: string;
+  createdAt: string | null;
+}
+
 /** Lifetime tallies for one nickname. */
 export interface PlayerCareer {
   name: string;
@@ -303,6 +316,20 @@ export const api = {
       method: 'POST',
       body: { token, password }
     }),
+
+  /* bug reports */
+  /**
+   * Files a bug report. Works signed in or not, because the commonest moment to
+   * meet a bug is halfway through a game and the players in one have no account.
+   * Nothing is mailed; the report waits in a table for whoever runs the box.
+   */
+  reportBug: (report: { area: string; message: string; page?: string; gameCode?: string }) =>
+    request<{ id: number; message: string }>('/bugs', { method: 'POST', body: report }),
+  listBugs: (status?: 'new' | 'seen' | 'closed') =>
+    request<BugReport[]>(`/bugs${status ? `?status=${status}` : ''}`),
+  setBugStatus: (id: number, status: 'new' | 'seen' | 'closed') =>
+    request<{ message: string }>(`/bugs/${id}`, { method: 'PATCH', body: { status } }),
+  deleteBug: (id: number) => request<void>(`/bugs/${id}`, { method: 'DELETE' }),
 
   /* media */
   kinds: () => request<KindDescriptor[]>('/media/kinds'),

@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 
 import { closeDb, db } from '../db/index.js';
 import { sessions, users } from '../db/schema.js';
+import { eraseAccount } from '../services/account-erasure.js';
 
 /**
  * Role management from the shell.
@@ -14,6 +15,7 @@ import { sessions, users } from '../db/schema.js';
  *
  *   pnpm --filter back admin list
  *   pnpm --filter back admin role <login> <member|admin|super-admin>
+ *   pnpm --filter back admin delete <login>     # RGPD art. 17, see account-erasure.ts
  */
 
 const ROLES = ['member', 'admin', 'super-admin'] as const;
@@ -75,7 +77,31 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  console.error('Usage:\n  admin list\n  admin role <login> <member|admin|super-admin>');
+  if (command === 'delete') {
+    if (!login) {
+      console.error('Usage: admin delete <login>');
+      return 1;
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.login, login)).limit(1);
+    if (!user) {
+      console.error(`No user with login "${login}".`);
+      return 1;
+    }
+
+    const erased = eraseAccount(user.id);
+
+    console.log(`Deleted ${login} (id ${user.id}).`);
+    for (const [what, count] of Object.entries(erased)) {
+      if (count > 0) console.log(`  ${what}: ${count}`);
+    }
+    console.log('Games they hosted are kept, with the account no longer named on them.');
+    return 0;
+  }
+
+  console.error(
+    'Usage:\n  admin list\n  admin role <login> <member|admin|super-admin>\n  admin delete <login>'
+  );
   return 1;
 }
 

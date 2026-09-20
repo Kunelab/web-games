@@ -15,6 +15,11 @@ import type { Catalogue } from "../index.js";
 export const siteEn: Catalogue = {
   /* -------------------------------- the bar --------------------------------- */
   "site.nav.main": "Main navigation",
+  "site.foot.label": "Legal links and contact",
+  "site.foot.about": "About",
+  "site.foot.privacy": "Privacy",
+  "site.foot.legal": "Legal notice",
+  "site.foot.note": "A personal project, with no advertising and no trackers. Hosted in France.",
   "nav.backHome": "← Home",
   "site.nav.games": "Games",
   "site.nav.signIn": "Sign in",

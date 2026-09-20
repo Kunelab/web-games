@@ -12,6 +12,7 @@ const Login = lazy(() => import('../pages/Login'));
 const Register = lazy(() => import('../pages/Register'));
 const ForgotPassword = lazy(() => import('../pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('../pages/ResetPassword'));
+const ReportBug = lazy(() => import('../pages/ReportBug'));
 const Account = lazy(() => import('../pages/Account'));
 const Library = lazy(() => import('../pages/Library'));
 const MediaEditor = lazy(() => import('../pages/MediaEditor'));
@@ -81,6 +82,7 @@ const router = createBrowserRouter([
       { path: '/inscription', element: <Register /> },
       { path: '/mot-de-passe-oublie', element: <ForgotPassword /> },
       { path: '/nouveau-mot-de-passe', element: <ResetPassword /> },
+      { path: '/signaler-un-bug', element: <ReportBug /> },
       {
         path: '/compte',
         element: (

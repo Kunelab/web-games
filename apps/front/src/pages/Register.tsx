@@ -8,6 +8,9 @@ import { useT } from '../i18n/locale-context';
 import { Button, Field, Input } from '../ui';
 import './home.css';
 
+/** The hub, which carries the legal pages. Mirrors the constant in shells.tsx. */
+const HUB_URL = 'https://kunelab.duckdns.org';
+
 /** Mirrors registerSchema on the server. */
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -101,6 +104,23 @@ export default function Register() {
             />
           )}
         </Field>
+
+        {/*
+          The RGPD notice, at the moment the data is actually handed over.
+          Article 13 wants people told who is taking what and why as they give it,
+          not on a page they might come across later, so this sits above the
+          button that submits rather than only in the footer.
+
+          No tick box, deliberately. The legal basis for an account is the
+          contract, not consent, and a checkbox asking permission for something
+          that does not need it teaches people that the boxes mean nothing.
+        */}
+        <p className="field-hint">
+          {t(msg('auth.privacyNotice'))}{' '}
+          <a href={`${HUB_URL}/confidentialite.html`} target="_blank" rel="noreferrer">
+            {t(msg('auth.privacyLink'))}
+          </a>
+        </p>
 
         <Button type="submit" variant="primary" busy={busy} block disabled={!username || !password || !email}>
           {t(msg('auth.createAccount'))}

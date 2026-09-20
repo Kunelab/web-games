@@ -441,7 +441,11 @@ function YoutubeInput({ value, onChange, onMetadata, placeholder, ...aria }: You
 
       {id && (
         <div className="yt-preview">
-          <img src={`https://img.youtube.com/vi/${id}/default.jpg`} alt="" width={80} height={60} />
+          {/* `i.ytimg.com` rather than `img.youtube.com`: the latter is a redirect
+              to this same CDN by way of the youtube.com origin, which means the
+              browser attaches whatever Google cookies it is holding. Same picture,
+              one hop fewer, and nothing identifying goes with it. */}
+          <img src={`https://i.ytimg.com/vi/${id}/default.jpg`} alt="" width={80} height={60} />
           <div className="stack-1">
             <code className="yt-id">{id}</code>
             <a className="link-quiet" href={`https://www.youtube.com/watch?v=${id}`} target="_blank" rel="noreferrer">

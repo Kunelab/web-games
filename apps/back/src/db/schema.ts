@@ -426,6 +426,47 @@ export const passwordResets = sqliteTable(
   (table) => [index('PasswordResets_user_id_idx').on(table.user_id)]
 );
 
+/**
+ * Bug reports sent from inside the app.
+ *
+ * Kept in the database rather than mailed anywhere, because there is no SMTP
+ * path out of this deployment. That is a feature here rather than a compromise:
+ * a report is free-text written by a player, which means it can contain anything
+ * they chose to type, and the one place that is least bad is a table the
+ * operator reads and can delete a row from.
+ *
+ * `user_id` is nullable and set to null rather than cascading on delete: a report
+ * is about the software and stays useful after its author closes their account,
+ * while the link back to them does not.
+ */
+export const bugReports = sqliteTable(
+  'BugReports',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** Null for a report sent by somebody not signed in. */
+    user_id: integer('user_id').references(() => users.id, { onDelete: 'set null' }),
+    /** The login as it stood when the report was written, so a rename is survivable. */
+    login: text('login'),
+    /** Which screen or game it is about, from a fixed list the form offers. */
+    area: text('area').notNull(),
+    message: text('message').notNull(),
+    /**
+     * Where they were and what they were using: the page path, the browser's
+     * user agent, and the game code when there was one. Volunteered by the form
+     * rather than harvested, and listed on the privacy page for that reason.
+     */
+    page: text('page'),
+    user_agent: text('user_agent'),
+    game_code: text('game_code'),
+    /** 'new' | 'seen' | 'closed'. Moved by the operator, not by the reporter. */
+    status: text('status').notNull().default('new'),
+    created_at: text('created_at').default(now)
+  },
+  (table) => [index('BugReports_status_idx').on(table.status)]
+);
+
+export type BugReportRow = typeof bugReports.$inferSelect;
+
 export type MediaRow = typeof media.$inferSelect;
 export type GameResultRow = typeof gameResults.$inferSelect;
 export type NewMediaRow = typeof media.$inferInsert;

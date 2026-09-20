@@ -367,3 +367,47 @@
 .accountmenu-item:hover {
   background: var(--bg-hover);
 }
+
+/*
+ * The site footer, on the atelier shell only.
+ *
+ * Quiet by design: it carries the legal links and the bug report, none of which
+ * anybody is looking for until they are, so it sits below the fold in muted ink
+ * and never competes with the page. It needs nothing to pin it to the bottom on
+ * a short page, because `.atelier-main` above it already takes the slack.
+ */
+.site-foot {
+  padding: var(--space-6) var(--space-5) var(--space-5);
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  text-align: center;
+}
+
+.site-foot nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.site-foot a {
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+
+.site-foot a:hover,
+.site-foot a:focus-visible {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.site-foot-note {
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+  margin: 0;
+}

@@ -11,6 +11,11 @@ import type { Catalogue } from "../index.js";
 export const siteFr: Catalogue = {
   /* -------------------------------- la barre -------------------------------- */
   "site.nav.main": "Navigation principale",
+  "site.foot.label": "Liens légaux et contact",
+  "site.foot.about": "À propos",
+  "site.foot.privacy": "Confidentialité",
+  "site.foot.legal": "Mentions légales",
+  "site.foot.note": "Projet personnel, sans publicité ni traceurs. Hébergé en France.",
   "nav.backHome": "← Accueil",
   "site.nav.games": "Jeux",
   "site.nav.signIn": "Connexion",

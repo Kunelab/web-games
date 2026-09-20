@@ -124,6 +124,22 @@ export function useYoutubePlayer(options: UseYoutubeOptions) {
        * never supply an initial id, so this is the normal path, not an edge case.
        */
       const options: YT.PlayerOptions = {
+        /**
+         * The privacy-enhanced domain, which is what keeps this site free of a
+         * consent banner.
+         *
+         * A default `youtube.com` embed sets Google's advertising cookies on the
+         * visitor the moment the player loads, for Google's own purposes and not
+         * ours. Under the ePrivacy rules that is non-essential storage, so it
+         * would need asking first — and a quiz that opens with a cookie dialogue
+         * before anybody has played a note is a worse product as well as more
+         * work. `youtube-nocookie.com` serves the same player without them.
+         *
+         * Only the player moves. The IFrame API script itself is still fetched
+         * from `youtube.com` because Google publishes it nowhere else; it sets
+         * nothing on its own, and the embed is where the tracking actually lived.
+         */
+        host: 'https://www.youtube-nocookie.com',
         playerVars: current.playerVars,
         height: current.height ?? 390,
         width: current.width ?? 640,

@@ -214,6 +214,21 @@ const statements = [
     PRIMARY KEY ("user_id", "name")
   )`,
 
+  // Bug reports sent from inside the app, read by the operator. No mail is sent.
+  `CREATE TABLE IF NOT EXISTS "BugReports" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "user_id" INTEGER REFERENCES "Users" ("id") ON DELETE SET NULL,
+    "login" TEXT,
+    "area" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "page" TEXT,
+    "user_agent" TEXT,
+    "game_code" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'new',
+    "created_at" TEXT DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE INDEX IF NOT EXISTS "BugReports_status_idx" ON "BugReports" ("status")`,
+
   // Outstanding password-reset links. The token is only ever stored hashed.
   `CREATE TABLE IF NOT EXISTS "PasswordResets" (
     "token_hash" TEXT PRIMARY KEY,
