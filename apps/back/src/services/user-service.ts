@@ -177,11 +177,35 @@ export const userService = {
   },
 
   /**
+   * Sets a password with no proof of the old one.
+   *
+   * The proof happened elsewhere and has to have: this is the tail of the reset
+   * flow, where holding an unexpired token from `password-reset-service` is what
+   * stands in for knowing the current password. Nothing here checks that, so
+   * there is exactly one caller and it is the reset route.
+   *
+   * Kept apart from `changePassword` rather than folded into it behind an
+   * optional argument, because the two differ in the one way that matters — one
+   * verifies and one does not — and a flag that switches off the verification is
+   * a flag that eventually gets passed by accident.
+   */
+  async setPassword(userId: number, next: string): Promise<boolean> {
+    const user = await this.getById(userId);
+    if (!user) return false;
+
+    await db
+      .update(users)
+      .set({ password: await hash(next, HASH_OPTIONS), last_modified: new Date().toISOString() })
+      .where(eq(users.id, userId));
+
+    return true;
+  },
+
+  /**
    * Changes a password, the current one having been proven.
    *
-   * Not a password *reset*: there is no mail out of this deployment yet, so the
-   * only way to change a password is to already know it. The reset by e-mail is
-   * the missing half, and it needs an SMTP path before it needs code.
+   * The other way in is `setPassword` above, which a reset link authorises
+   * instead. This one stays the only route for somebody who is already signed in.
    */
   async changePassword(userId: number, current: string, next: string): Promise<boolean> {
     const user = await this.getById(userId);

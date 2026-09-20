@@ -394,6 +394,38 @@ export const mafiaTemplates = sqliteTable(
   (table) => [primaryKey({ columns: [table.user_id, table.name] })]
 );
 
+/**
+ * Outstanding "I forgot my password" links.
+ *
+ * The token is stored as a SHA-256 digest and never in the clear, for the reason
+ * passwords are: this table is one stolen backup away from being a list of
+ * working account takeovers otherwise, and the server never needs the original
+ * again — it only ever has to recognise one presented to it.
+ *
+ * SHA-256 rather than argon2 because the two are protecting different things. A
+ * password is short and guessable, so the hash has to be slow; a token is 32
+ * bytes of `randomBytes` and guessing it is not a strategy at any speed. Making
+ * this one slow would only buy an attacker a cheap way to load the server, since
+ * the digest is computed on every lookup of a value they choose.
+ *
+ * Rows are deleted rather than flagged once used, and expired ones are swept on
+ * the way past; see `password-reset-service`.
+ */
+export const passwordResets = sqliteTable(
+  'PasswordResets',
+  {
+    /** The SHA-256 of the token, hex. Primary key: a digest is already unique. */
+    token_hash: text('token_hash').primaryKey(),
+    user_id: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** Unix epoch milliseconds, like the session store's. */
+    expires_at: integer('expires_at').notNull(),
+    created_at: text('created_at').default(now)
+  },
+  (table) => [index('PasswordResets_user_id_idx').on(table.user_id)]
+);
+
 export type MediaRow = typeof media.$inferSelect;
 export type GameResultRow = typeof gameResults.$inferSelect;
 export type NewMediaRow = typeof media.$inferInsert;

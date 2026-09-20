@@ -1,9 +1,17 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 
-import { env } from '../env.js';
+import { env, frontOrigin } from '../env.js';
 import { loginBlockedFor, noteLoginFailure, noteLoginSuccess } from '../services/login-throttle.js';
+import { passwordResetService } from '../services/password-reset-service.js';
 import { userService } from '../services/user-service.js';
-import { changePasswordSchema, credentialsSchema, registerSchema } from './schemas.js';
+import {
+  changePasswordSchema,
+  credentialsSchema,
+  forgotPasswordSchema,
+  registerSchema,
+  resetPasswordSchema,
+  resetTokenSchema
+} from './schemas.js';
 
 /**
  * Ten attempts a minute from one address.
@@ -19,6 +27,25 @@ const registerLimit = { max: 5, timeWindow: '1 hour' };
 
 /** Changing a password is rarer still, and it verifies the old one to do it. */
 const passwordLimit = { max: 5, timeWindow: '15 minutes' };
+
+/**
+ * Asking for a reset link is cheap to request and not cheap to receive.
+ *
+ * Unauthenticated and it names somebody else's address, so without a cap it is a
+ * way to have this server mail a stranger repeatedly. Five an hour is more than
+ * anybody locked out of an account needs.
+ */
+const forgotLimit = { max: 5, timeWindow: '1 hour' };
+
+/**
+ * Spending a link, and checking one.
+ *
+ * Guessing a 256-bit token is not a threat this number exists for; it is here so
+ * that a script cannot sit on the endpoint burning server time for free. The
+ * check route shares it because the two are the same request as far as an
+ * attacker with a list of candidate tokens is concerned.
+ */
+const resetLimit = { max: 20, timeWindow: '15 minutes' };
 
 /**
  * Everything a session hands out is re-issued here.
@@ -159,6 +186,109 @@ const userRoutes: FastifyPluginAsyncZod = async (app) => {
       app.sessions.destroyForUser(me.id);
       await startSession(request, { id: me.id, login: me.login, role: me.role ?? 'member' });
       return reply.send({ message: 'Mot de passe modifié' });
+    }
+  );
+
+  /**
+   * Asks for a reset link.
+   *
+   * Answers the same thing whether or not the address is known here, and takes
+   * roughly as long either way: the work done for a hit is a `randomBytes` and
+   * two small writes, so there is no argon2-shaped pause to distinguish the two.
+   * Somebody probing a list of addresses learns nothing about which of them have
+   * an account on this box.
+   *
+   * **There is no SMTP path yet**, so the link is written to the server log and
+   * nothing is sent anywhere. That is the whole of the delivery for now, and it
+   * is deliberate rather than unfinished: a reset flow that works end to end
+   * except for the transport can be tested, reviewed and left in place, and the
+   * day a mailer exists it replaces one function call here.
+   */
+  app.post(
+    '/user/forgot-password',
+    { config: { rateLimit: forgotLimit }, schema: { body: forgotPasswordSchema } },
+    async (request, reply) => {
+      const issued = await passwordResetService.issueForEmail(request.body.email);
+
+      // Said before the branch below, so the two cases read alike from here on.
+      const answer = {
+        message: 'Si un compte utilise cette adresse, un lien de réinitialisation vient de lui être envoyé.'
+      };
+
+      if (!issued) {
+        request.log.info({ email: request.body.email }, 'password reset asked for an unknown address');
+        return reply.send(answer);
+      }
+
+      const link = `${frontOrigin}/nouveau-mot-de-passe?token=${encodeURIComponent(issued.token)}`;
+
+      /**
+       * At `warn` so it survives a production log level, and on its own line so
+       * it can be copied out of `docker compose logs` without ceremony. This is
+       * the mail, until there is a mailer.
+       */
+      app.log.warn(
+        { login: issued.user.login, expiresAt: new Date(issued.expiresAt).toISOString() },
+        `password reset link (no mailer configured): ${link}`
+      );
+
+      // Development only, and off unless asked for. See `PASSWORD_RESET_ECHO`.
+      if (env.PASSWORD_RESET_ECHO) {
+        return reply.send({ ...answer, link });
+      }
+
+      return reply.send(answer);
+    }
+  );
+
+  /**
+   * Whether a link is still good, so the page can say "expired" before asking
+   * somebody to think of a password it is then going to refuse.
+   *
+   * A POST rather than a GET with the token in the path: a token in a URL ends
+   * up in access logs and in `Referer` headers on the way to anything the page
+   * loads afterwards, and this one is a credential for as long as it lives.
+   */
+  app.post(
+    '/user/reset-password/check',
+    { config: { rateLimit: resetLimit }, schema: { body: resetTokenSchema } },
+    async (request, reply) => {
+      const userId = await passwordResetService.userIdFor(request.body.token);
+      return reply.send({ valid: userId !== undefined });
+    }
+  );
+
+  /**
+   * Spends a link and sets the password.
+   *
+   * The token is consumed before the write, not after: if setting the password
+   * somehow fails, a link that has already been presented once should not still
+   * be lying around working. Every session for the account goes too, on the same
+   * reasoning as a password change — somebody resetting a password they did not
+   * lose is somebody who thinks another person is in their account.
+   *
+   * No session is issued in return. A reset is the one password path where the
+   * person at the keyboard may not be the account's owner, so it ends at the
+   * login form rather than signing the browser straight in.
+   */
+  app.post(
+    '/user/reset-password',
+    { config: { rateLimit: resetLimit }, schema: { body: resetPasswordSchema } },
+    async (request, reply) => {
+      const userId = await passwordResetService.consume(request.body.token);
+      if (userId === undefined) {
+        return reply.code(400).send({ message: 'Ce lien est invalide ou a expiré' });
+      }
+
+      const changed = await userService.setPassword(userId, request.body.password);
+      if (!changed) {
+        return reply.code(400).send({ message: 'Ce lien est invalide ou a expiré' });
+      }
+
+      await passwordResetService.clearFor(userId);
+      app.sessions.destroyForUser(userId);
+
+      return reply.send({ message: 'Mot de passe réinitialisé' });
     }
   );
 

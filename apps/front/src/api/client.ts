@@ -280,6 +280,29 @@ export const api = {
   logout: () => request<{ message: string }>('/user/logout', { method: 'POST' }),
   changePassword: (current: string, next: string) =>
     request<{ message: string }>('/user/password', { method: 'POST', body: { current, next } }),
+  /**
+   * Asks for a reset link. Anonymous, because the whole point is being locked out.
+   *
+   * Answers the same way whether or not the address is known, so the screen has
+   * nothing to branch on and should not try. `link` comes back only on a
+   * deployment running with `PASSWORD_RESET_ECHO`, which exists because there is
+   * no mailer yet; normally the link is in the server log and this is undefined.
+   */
+  forgotPassword: (email: string) =>
+    request<{ message: string; link?: string }>('/user/forgot-password', {
+      method: 'POST',
+      body: { email }
+    }),
+  checkResetToken: (token: string) =>
+    request<{ valid: boolean }>('/user/reset-password/check', {
+      method: 'POST',
+      body: { token }
+    }),
+  resetPassword: (token: string, password: string) =>
+    request<{ message: string }>('/user/reset-password', {
+      method: 'POST',
+      body: { token, password }
+    }),
 
   /* media */
   kinds: () => request<KindDescriptor[]>('/media/kinds'),

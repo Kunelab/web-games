@@ -64,6 +64,23 @@ const envSchema = z.object({
     .optional()
     .transform((value) => value !== 'false'),
 
+  /**
+   * Returns the password-reset link in the HTTP response as well as logging it.
+   *
+   * Off by default, and it must stay off anywhere reachable: with it on, anyone
+   * who can name an account's e-mail address is handed a working link to take
+   * that account over, which is the whole of the authentication gone. It exists
+   * because there is no SMTP path yet, so the alternative while building and
+   * testing the flow is reading every link out of the server log.
+   *
+   * `buildApp` warns at every boot while it is on, rather than trusting anyone
+   * to re-read the `.env` they set it in.
+   */
+  PASSWORD_RESET_ECHO: z
+    .string()
+    .optional()
+    .transform((value) => value === 'true'),
+
   DATABASE_FILE: z.string().default('./kune.db'),
   DEBUG: z
     .string()

@@ -97,6 +97,30 @@
 }
 
 /*
+ * The reset link, shown in place of the mail nobody can send yet.
+ *
+ * Boxed and monospaced because its whole job is to be read and copied by hand: a
+ * long base64url token wrapping mid-word in body text is one transcription error
+ * away from a confusing "this link has expired". `anywhere` rather than
+ * `break-all` so the wrap prefers the punctuation in the URL.
+ */
+.reset-echo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+.reset-echo-link {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+/*
  * The account page's one section heading. Smaller than a page title because the
  * page already has one, and the form below it is the actual subject.
  */

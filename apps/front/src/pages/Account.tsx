@@ -173,7 +173,8 @@ export default function Account() {
       )}
 
       <p className="auth-alt">
-        {t(msg('account.forgot'))} <Link to="/">{t(msg('account.askForHelp'))}</Link>.
+        {t(msg('account.forgot'))}{' '}
+        <Link to="/mot-de-passe-oublie">{t(msg('account.resetByEmail'))}</Link>.
       </p>
     </div>
   );

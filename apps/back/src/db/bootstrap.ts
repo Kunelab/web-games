@@ -214,6 +214,15 @@ const statements = [
     PRIMARY KEY ("user_id", "name")
   )`,
 
+  // Outstanding password-reset links. The token is only ever stored hashed.
+  `CREATE TABLE IF NOT EXISTS "PasswordResets" (
+    "token_hash" TEXT PRIMARY KEY,
+    "user_id" INTEGER NOT NULL REFERENCES "Users" ("id") ON DELETE CASCADE,
+    "expires_at" INTEGER NOT NULL,
+    "created_at" TEXT DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE INDEX IF NOT EXISTS "PasswordResets_user_id_idx" ON "PasswordResets" ("user_id")`,
+
   `CREATE INDEX IF NOT EXISTS "Media_user_id_idx" ON "Media" ("user_id")`,
   `CREATE INDEX IF NOT EXISTS "Media_kind_idx" ON "Media" ("kind")`,
   `CREATE INDEX IF NOT EXISTS "Media_category_idx" ON "Media" ("category")`,

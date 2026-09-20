@@ -25,6 +25,29 @@ export const lobbyFr: Catalogue = {
   'auth.justPlaying': 'Vous venez jouer ?',
   'auth.joinGame': 'Rejoindre une partie',
 
+  /* --------------------------- password reset ------------------------------ */
+  'auth.forgotLink': 'Mot de passe oublié ?',
+  'auth.forgotTitle': 'Mot de passe oublié',
+  'auth.forgotIntro': 'Indiquez l’adresse de votre compte : nous vous enverrons un lien pour choisir un nouveau mot de passe.',
+  'auth.forgotSubmit': 'Envoyer le lien',
+  'auth.forgotSentTitle': 'C’est parti',
+  'auth.forgotSent': 'Si un compte utilise cette adresse, un lien vient de lui être envoyé. Il est valable une heure.',
+  'auth.forgotEcho': 'Aucune messagerie n’est configurée sur ce serveur : voici le lien qui aurait été envoyé.',
+  'auth.forgotFailed': 'L’envoi a échoué.',
+  'auth.forgotAgain': 'Demander un nouveau lien',
+  'auth.backToSignIn': 'Retour à la connexion',
+  'auth.resetTitle': 'Nouveau mot de passe',
+  'auth.resetIntro': 'Choisissez le mot de passe de votre compte.',
+  'auth.newPassword': 'Nouveau mot de passe',
+  'auth.confirmPassword': 'Confirmation',
+  'auth.passwordMismatch': 'Les deux mots de passe ne correspondent pas.',
+  'auth.resetSubmit': 'Enregistrer le mot de passe',
+  'auth.resetFailed': 'La réinitialisation a échoué.',
+  'auth.resetInvalidTitle': 'Lien expiré',
+  'auth.resetInvalid': 'Ce lien n’est plus valable. Les liens expirent au bout d’une heure, et ne servent qu’une fois.',
+  'auth.resetDoneTitle': 'Mot de passe modifié',
+  'auth.resetDone': 'Vous pouvez vous connecter avec votre nouveau mot de passe. Toutes les autres sessions de ce compte ont été fermées.',
+
   /* --------------------------------- le compte ------------------------------ */
   'account.title': 'Mon compte',
   'account.signedInAs': 'Connecté en tant que {login}.',
@@ -52,8 +75,8 @@ export const lobbyFr: Catalogue = {
   'account.doChange': 'Changer le mot de passe',
   'account.changed':
     'Mot de passe modifié. Les autres appareils connectés à ce compte devront se reconnecter.',
-  'account.forgot': 'Mot de passe oublié ? Il n’y a pas encore de réinitialisation automatique —',
-  'account.askForHelp': 'demandez de l’aide',
+  'account.forgot': 'Mot de passe oublié ?',
+  'account.resetByEmail': 'Réinitialisez-le par email',
 
   /* -------------------------------- l’entrée -------------------------------- */
   'join.title': 'Rejoindre une partie',

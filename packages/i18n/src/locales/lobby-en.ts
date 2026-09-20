@@ -30,6 +30,29 @@ export const lobbyEn: Catalogue = {
   'auth.justPlaying': 'Here to play?',
   'auth.joinGame': 'Join a game',
 
+  /* --------------------------- password reset ------------------------------ */
+  'auth.forgotLink': 'Forgotten your password?',
+  'auth.forgotTitle': 'Forgotten password',
+  'auth.forgotIntro': 'Give the address on your account and we will send a link to choose a new password.',
+  'auth.forgotSubmit': 'Send the link',
+  'auth.forgotSentTitle': 'On its way',
+  'auth.forgotSent': 'If an account uses that address, a link has just been sent to it. It is good for an hour.',
+  'auth.forgotEcho': 'No mailer is configured on this server, so here is the link that would have been sent.',
+  'auth.forgotFailed': 'Could not send the link.',
+  'auth.forgotAgain': 'Ask for a new link',
+  'auth.backToSignIn': 'Back to sign-in',
+  'auth.resetTitle': 'New password',
+  'auth.resetIntro': 'Choose the password for your account.',
+  'auth.newPassword': 'New password',
+  'auth.confirmPassword': 'Confirm',
+  'auth.passwordMismatch': 'The two passwords do not match.',
+  'auth.resetSubmit': 'Save the password',
+  'auth.resetFailed': 'The reset failed.',
+  'auth.resetInvalidTitle': 'Link expired',
+  'auth.resetInvalid': 'This link is no longer valid. Links expire after an hour, and work only once.',
+  'auth.resetDoneTitle': 'Password changed',
+  'auth.resetDone': 'You can sign in with your new password. Every other session on this account has been closed.',
+
   /* ------------------------------- your account ----------------------------- */
   'account.title': 'My account',
   'account.signedInAs': 'Signed in as {login}.',
@@ -56,8 +79,8 @@ export const lobbyEn: Catalogue = {
   'account.changeFailed': 'The change failed.',
   'account.doChange': 'Change the password',
   'account.changed': 'Password changed. Other devices signed into this account will have to sign in again.',
-  'account.forgot': 'Forgotten your password? There is no automatic reset yet —',
-  'account.askForHelp': 'ask for help',
+  'account.forgot': 'Forgotten your password?',
+  'account.resetByEmail': 'Reset it by email',
 
   /* -------------------------------- the way in ------------------------------ */
   'join.title': 'Join a game',

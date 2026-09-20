@@ -77,6 +77,9 @@ export default function Login() {
       </form>
 
       <p className="auth-alt">
+        <Link to="/mot-de-passe-oublie">{t(msg('auth.forgotLink'))}</Link>
+      </p>
+      <p className="auth-alt">
         {t(msg('auth.noAccount'))} <Link to="/inscription">{t(msg('auth.signUp'))}</Link>
       </p>
       <p className="auth-alt">

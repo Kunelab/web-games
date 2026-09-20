@@ -79,6 +79,18 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.log.info({ allowedOrigins }, 'CORS allow-list');
 
+  /**
+   * Said at boot rather than left in a `.env` nobody re-reads, because this one
+   * turns "forgot my password" into "take over any account whose e-mail address
+   * you can name". A deployment that has it on by accident should be told so
+   * every time it starts, not the once somebody set it.
+   */
+  if (env.PASSWORD_RESET_ECHO) {
+    app.log.warn(
+      'PASSWORD_RESET_ECHO is on: reset links are returned to the caller. Development only — turn it off on anything reachable.'
+    );
+  }
+
   await app.register(cors, {
     origin: allowedOrigins,
     credentials: true,

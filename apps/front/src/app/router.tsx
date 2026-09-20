@@ -10,6 +10,8 @@ import { AtelierShell, JeuShell } from './shells';
 const Home = lazy(() => import('../pages/Home'));
 const Login = lazy(() => import('../pages/Login'));
 const Register = lazy(() => import('../pages/Register'));
+const ForgotPassword = lazy(() => import('../pages/ForgotPassword'));
+const ResetPassword = lazy(() => import('../pages/ResetPassword'));
 const Account = lazy(() => import('../pages/Account'));
 const Library = lazy(() => import('../pages/Library'));
 const MediaEditor = lazy(() => import('../pages/MediaEditor'));
@@ -77,6 +79,8 @@ const router = createBrowserRouter([
       { path: '/', element: <Home /> },
       { path: '/connexion', element: <Login /> },
       { path: '/inscription', element: <Register /> },
+      { path: '/mot-de-passe-oublie', element: <ForgotPassword /> },
+      { path: '/nouveau-mot-de-passe', element: <ResetPassword /> },
       {
         path: '/compte',
         element: (

@@ -143,3 +143,22 @@ Bodies are parsed with unknown keys stripped, which is what stops a client from
 setting `user_id` or `id` by including them. Routes that need a session add
 `app.requireAuth` as a `preHandler`; it returns 401 and copies the session user to
 `request.currentUser`.
+
+### Password reset
+
+`POST /user/forgot-password` issues a single-use token, good for an hour, stored
+as a SHA-256 digest so the table is not a list of working account takeovers.
+Asking again retires the previous link. `POST /user/reset-password` spends it,
+sets the password and destroys every session for the account, then sends the
+browser to the login form rather than signing it in: a reset is the one password
+path where the person at the keyboard may not be the owner.
+
+The endpoint answers identically whether or not the address is known, so it
+cannot be used to test which addresses have an account here.
+
+**There is no mailer yet.** The link is written to the server log at `warn`, and
+that is the whole of the delivery. `PASSWORD_RESET_ECHO=true` additionally
+returns it in the response so the flow can be exercised from a browser; it is
+development only, it hands account takeover to anyone who can name an e-mail
+address, and the server warns at every boot while it is on. When SMTP exists it
+replaces one call in `routes/user.ts` and nothing else.

@@ -8,6 +8,8 @@
  */
 import assert from 'node:assert/strict';
 
+import { eq } from 'drizzle-orm';
+
 import {
   answerFieldSchema,
   blindtest,
@@ -31,7 +33,10 @@ import {
   trackKeyOf
 } from './services/blindtest-library.js';
 import { emptyHistory } from './services/blindtest-draw.js';
-import { closeDb } from './db/index.js';
+import { closeDb, db } from './db/index.js';
+import { passwordResets } from './db/schema.js';
+import { passwordResetService } from './services/password-reset-service.js';
+import { userService } from './services/user-service.js';
 import { clearAssets, resolveAsset } from './game/assets.js';
 import {
   advance,
@@ -1618,6 +1623,137 @@ const withNew = await app.inject({
   headers: { cookie: `kune.sid=${reissued}` }
 });
 check('which still works', withNew.statusCode === 200, withNew.statusCode);
+
+/* ----------------------------- password reset ----------------------------- */
+section('password reset');
+{
+  /**
+   * The link itself is never asserted over HTTP, because the route only returns
+   * it under `PASSWORD_RESET_ECHO` and that flag is off here, as it is in
+   * production. Tokens come from the service instead, which is also the half
+   * worth pinning: single use, one at a time, and dead on expiry.
+   */
+  const resetEmail = `${fresh}@example.com`;
+
+  /**
+   * An address nobody has and an address somebody has must be indistinguishable,
+   * or this endpoint is a way to test a list of addresses against the box.
+   */
+  const unknown = await app.inject({
+    method: 'POST',
+    url: '/api/user/forgot-password',
+    payload: { email: `nobody-${fresh}@example.com` }
+  });
+  const known = await app.inject({
+    method: 'POST',
+    url: '/api/user/forgot-password',
+    payload: { email: resetEmail }
+  });
+  check('an unknown address is accepted', unknown.statusCode === 200, unknown.statusCode);
+  check('and answers exactly as a known one does', unknown.body === known.body, {
+    unknown: unknown.body,
+    known: known.body
+  });
+  check('neither hands back the link', !unknown.body.includes('token') && !known.body.includes('token'), known.body);
+
+  /**
+   * Asking twice leaves one working link, not two. Somebody who asks again is
+   * somebody whose first mail did not arrive, and the old one should stop being
+   * a way into the account the moment a new one exists.
+   */
+  const first = await passwordResetService.issueForEmail(resetEmail);
+  const second = await passwordResetService.issueForEmail(resetEmail);
+  assert(first && second, 'the fixation account must be resettable by e-mail');
+
+  check(
+    'asking again retires the previous link',
+    (await passwordResetService.userIdFor(first.token)) === undefined
+  );
+  check('and the newest one works', (await passwordResetService.userIdFor(second.token)) !== undefined);
+
+  const badCheck = await app.inject({
+    method: 'POST',
+    url: '/api/user/reset-password/check',
+    payload: { token: 'not-a-real-token-at-all' }
+  });
+  check(
+    'a made-up token checks as invalid',
+    (JSON.parse(badCheck.body) as { valid: boolean }).valid === false,
+    badCheck.body
+  );
+
+  const goodCheck = await app.inject({
+    method: 'POST',
+    url: '/api/user/reset-password/check',
+    payload: { token: second.token }
+  });
+  check(
+    'a live token checks as valid',
+    (JSON.parse(goodCheck.body) as { valid: boolean }).valid === true,
+    goodCheck.body
+  );
+
+  const reset = await app.inject({
+    method: 'POST',
+    url: '/api/user/reset-password',
+    payload: { token: second.token, password: 'reset-by-the-link' }
+  });
+  check('the reset is accepted', reset.statusCode === 200, reset.body);
+
+  /*
+   * Checked through the service rather than over the login route, which by this
+   * point in the run has spent its ten-a-minute budget on the brute-force
+   * section above. The question here is whether the password was written, not
+   * whether logging in works; that has its own checks further up.
+   */
+  check('and the new password is the one stored', (await userService.authenticate(fresh, 'reset-by-the-link')) !== null);
+
+  /**
+   * The session that existed before the reset is gone. Somebody resetting a
+   * password they did not lose is somebody who believes another person is in
+   * their account, and leaving that person signed in defeats the whole exercise.
+   */
+  const sessionFromBefore = await app.inject({
+    method: 'GET',
+    url: '/api/media',
+    headers: { cookie: `kune.sid=${reissued}` }
+  });
+  check('every session from before it is revoked', sessionFromBefore.statusCode === 401, sessionFromBefore.statusCode);
+
+  /** A link is spent by using it. Replaying one must not work. */
+  const replayed = await app.inject({
+    method: 'POST',
+    url: '/api/user/reset-password',
+    payload: { token: second.token, password: 'a-third-password' }
+  });
+  check('the same link cannot be used twice', replayed.statusCode === 400, replayed.statusCode);
+
+  check(
+    'so the password it set is still the one',
+    (await userService.authenticate(fresh, 'reset-by-the-link')) !== null
+  );
+  check('and the replay set nothing', (await userService.authenticate(fresh, 'a-third-password')) === null);
+
+  /**
+   * Expiry, forced rather than waited for: the row is aged past its TTL by hand
+   * because the alternative is a test that sleeps for an hour.
+   */
+  const expiring = await passwordResetService.issueForEmail(resetEmail);
+  assert(expiring, 'issuing a link for expiry must succeed');
+  db.update(passwordResets)
+    .set({ expires_at: Date.now() - 1000 })
+    .where(eq(passwordResets.user_id, expiring.user.id))
+    .run();
+
+  check('an expired link opens nothing', (await passwordResetService.userIdFor(expiring.token)) === undefined);
+
+  const expiredReset = await app.inject({
+    method: 'POST',
+    url: '/api/user/reset-password',
+    payload: { token: expiring.token, password: 'too-late-for-this' }
+  });
+  check('and is refused by the route', expiredReset.statusCode === 400, expiredReset.statusCode);
+}
 
 /**
  * The Mafia bots are rate-limited by tokens per minute, so the size of a
