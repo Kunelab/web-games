@@ -42,6 +42,7 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import { db } from '../db/index.js';
 import { endTrace, forgetTrace, trace } from '../trace.js';
+import { say } from './say.js';
 import { mafiaSessions } from '../db/schema.js';
 import { mafiaCareerService, type MafiaGameReward } from '../services/mafia-career-service.js';
 import { MafiaBotDriver } from './bots.js';
@@ -125,6 +126,18 @@ export class MafiaManager {
    * and several times over.
    */
   private readonly logged = new Map<string, number>();
+  /**
+   * How much of the town crier the recorder has already written down.
+   *
+   * The flight recorder held every line a *player* typed and not one line the
+   * game itself said, so a trace could tell you who argued with whom and not
+   * that somebody had died, been revealed, been hanged or been announced as
+   * poisoned. Reading one back meant reconstructing the grey text from `phase`,
+   * `death` and `night` events and hoping the reconstruction matched what the
+   * room actually read. The room's own words are cheap to keep and they are
+   * half the conversation.
+   */
+  private readonly criedUpTo = new Map<string, number>();
   private messageListener: MafiaMessageListener | null = null;
   private rewardListener: MafiaRewardListener | null = null;
   private sweepTimer: NodeJS.Timeout | undefined;
@@ -482,6 +495,7 @@ export class MafiaManager {
     // Swept with the rest: a reused table code otherwise starts on a stale day
     // and swallows its first night trace event.
     this.logged.delete(code);
+    this.criedUpTo.delete(code);
     // A table swept mid-game still closes its log, or its last minutes sit in a
     // buffer that nothing will ever flush. A table that never started has no
     // log, and `endTrace` will not invent one to close.
@@ -570,6 +584,31 @@ export class MafiaManager {
     this.beats.set(state.code, signature);
 
     const log = trace('mafia', state.code);
+
+    /**
+     * What the town was told since the last beat, in the words it read.
+     *
+     * Rendered here rather than kept as a key, because the point of the file is
+     * to be read by a person tomorrow morning and a catalogue key is not a
+     * sentence. `reveals` is carried through: it is what separates "the sun
+     * rises" from "Woody is dead, he was the Sheriff", and a reader skimming a
+     * night wants the second kind.
+     */
+    const criedUpTo = this.criedUpTo.get(state.code) ?? 0;
+    const fresh = state.chat.messages.filter((message) => message.id > criedUpTo && !message.authorId);
+    if (fresh.length > 0) {
+      this.criedUpTo.set(state.code, fresh[fresh.length - 1].id);
+      const speak = say(state.config.locale ?? 'fr');
+      for (const message of fresh) {
+        log.event('announce', {
+          day: state.day,
+          phase: state.phase,
+          reveals: message.reveals === true,
+          text: message.msg ? speak(message.msg) : message.text
+        });
+      }
+    }
+
     log.event('phase', {
       phase: state.phase,
       day: state.day,
