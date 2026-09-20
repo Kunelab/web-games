@@ -6913,7 +6913,7 @@ export class MafiaBotDriver {
    * person in both catalogues; the other two needed saying a different way,
    * which is the whole reason this exists.
    */
-  private aloud(reason: Reason, botId: string, targetSlot: number): Msg | null {
+  private aloud(reason: Reason, botId: string, targetSlot: number, nameOf: (slot: number) => string): Msg | null {
     const seed = botId + ':w:' + targetSlot;
     switch (reason.code) {
       case 'confessed':
@@ -6930,11 +6930,11 @@ export class MafiaBotDriver {
         /** A vote is an act; this is the third-person half of `case.ledTownWagon`. */
         return reason.slot === undefined
           ? null
-          : vary('mafia.bot.why.ledTownWagon', 3, seed, { at: String(reason.slot), day: reason.day ?? 0 });
+          : vary('mafia.bot.why.ledTownWagon', 3, seed, { at: nameOf(reason.slot), day: reason.day ?? 0 });
       case 'accuser-silenced':
         return reason.slot === undefined
           ? null
-          : vary('mafia.bot.why.accuserSilenced', 3, seed, { other: String(reason.slot) });
+          : vary('mafia.bot.why.accuserSilenced', 3, seed, { other: nameOf(reason.slot) });
       default:
         return null;
     }
@@ -7178,7 +7178,7 @@ export class MafiaBotDriver {
       (reason) => reason.code === 'confessed' || reason.code === 'badge-unchallenged' || reason.code === 'saved-killers'
     );
     if (unsaid) {
-      const spoken = this.aloud(unsaid, botId, targetSlot);
+      const spoken = this.aloud(unsaid, botId, targetSlot, nameOf);
       if (spoken) return spoken;
     }
 
@@ -7400,7 +7400,7 @@ export class MafiaBotDriver {
       (reason) => reason.code === 'led-town-wagon' || reason.code === 'accuser-silenced'
     );
     if (tempo) {
-      const spoken = this.aloud(tempo, botId, targetSlot);
+      const spoken = this.aloud(tempo, botId, targetSlot, nameOf);
       if (spoken) return spoken;
     }
 
