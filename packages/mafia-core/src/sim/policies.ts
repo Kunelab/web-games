@@ -14,7 +14,8 @@ import {
 import type { SlotToken } from '../setups.js';
 import { beliefs, surestSuspect } from './beliefs.js';
 import { deductions, deductionWeight } from './deduce.js';
-import { bladesDealt, possibleRoles } from './slots.js';
+import { townClock } from './clock.js';
+import { possibleRoles } from './slots.js';
 export { QUIET_TRADE };
 import {
   advanceDesperation,
@@ -32,7 +33,8 @@ import {
   type IntelEntry,
   type MafiaPlayer,
   type MafiaState,
-  type SheriffVerdict
+  type SheriffVerdict,
+  type VoteNote
 } from '../state.js';
 export { sheriffSuspects, type SheriffVerdict };
 
@@ -490,6 +492,19 @@ export interface PublicInfo {
   trials: TrialRecord[];
   /** Final accusations of past days: who was pushing whom. */
   voteHistory: VoteRecord[];
+  /**
+   * Every move of every ballot, in the order the engine recorded it.
+   *
+   * `voteHistory` is one row per seat per day and is a *closing* position, so
+   * it cannot answer who opened a wagon, who joined it last, or who stepped off
+   * it at the edge of a rope. Those are the three things a person at the table
+   * watches most closely, and the record to answer them has been in
+   * `state.voteLog` all along. See `tempo.ts`.
+   *
+   * Optional because a hand-built test board has no engine behind it; absent
+   * reads as "nobody has voted yet", which costs the tempo rules nothing.
+   */
+  ballots?: readonly VoteNote[];
   revealedMayorSlot: number | null;
   /**
    * Every role the published list says this table could contain.
@@ -924,42 +939,16 @@ export function monomaniacScore(slot: number, info: PublicInfo): number {
 }
 
 /**
- * The parity clock. When the living evils are one bad day away from parity,
- * not lynching *is* losing: pressure rises from 0 (comfortable) to 1 (LyLo).
- * Evils-remaining is counted off the published roster, minus the confirmed evil
- * corpses.
+ * The parity clock, as the rest of the file has always asked for it.
+ *
+ * When the living killers are one bad day away from parity, not lynching *is*
+ * losing: 0 is comfortable and 1 is the last afternoon. What is behind it is no
+ * longer a head count against a fixed bar but a mislynch budget, so the rungs
+ * mean the same thing at every table size. `townClock` has the arithmetic and
+ * the reasoning; everything here reads the ladder.
  */
 export function parityPressure(info: PublicInfo): number {
-  const alive = info.aliveSlots.length;
-  const initial = alive + info.totalDead;
-  /**
-   * How many blades this table was dealt, counted rather than assumed.
-   *
-   * Thirty per cent of the seats, rounded, was the whole of the town's sense of
-   * time. On a roster of four mafia, one triad and two neutral killers that is
-   * four when the answer is seven, and a town that believes it has two spare
-   * days when it has none plays the entire midgame at the wrong speed.
-   *
-   * The list is on the wall and a person reads it on the first morning, which
-   * is what makes this the endgame arithmetic available from day two. A slot
-   * that must be a knife counts as one, and a slot that might be counts as the
-   * share of its pool that is, which is what a player means by "the random
-   * neutral is probably not a killer". See `bladesDealt`.
-   *
-   * The old guess stays for a board with no roster on it, which is every board
-   * a test builds by hand.
-   */
-  const dealt = info.roleSlots ? bladesDealt(info.roleSlots) : null;
-  const expectedEvils = dealt
-    ? Math.max(1, Math.round(dealt.expected))
-    : Math.max(1, Math.round(initial * 0.3));
-  const deadEvils = [...info.deadRoles.values()].filter((role) => isEvilRole(role)).length;
-  const evilsLeft = Math.max(info.lastNightDeathSlots.size > 0 ? 1 : 0, expectedEvils - deadEvils);
-  const margin = alive - 2 * evilsLeft;
-  if (margin <= 1) return 1;
-  if (margin <= 3) return 0.6;
-  if (margin <= 5) return 0.3;
-  return 0;
+  return townClock(info).pressure;
 }
 
 /* ----------------------------- desperation ------------------------------- */

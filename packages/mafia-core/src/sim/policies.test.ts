@@ -643,7 +643,17 @@ describe("a second look at the ballot", () => {
    * found nothing at all.
    */
   it("votes to hang nobody when the board holds no case against anyone", () => {
-    // Twelve alive, so the parity clock is not pressing and a skip is honest.
+    /**
+     * Fourteen alive, because twelve is no longer a quiet afternoon.
+     *
+     * A board built by hand has no roster on it, so the clock falls back to
+     * assuming three in ten of the seats are killers and that they are one
+     * bloc: four of twelve, which leaves the town exactly one wrong rope, which
+     * is a table that cannot afford to go home early. The old ladder read that
+     * same board as comfortable and it was simply wrong about it. Two more
+     * citizens buys the second mislynch that makes a skip honest. See
+     * `townClock`.
+     */
     const state = table([
       "sheriff",
       "citizen",
@@ -656,6 +666,8 @@ describe("a second look at the ballot", () => {
       "godfather",
       "citizen",
       "jailor",
+      "citizen",
+      "citizen",
       "citizen",
     ]);
     const self = seat(state, 1);

@@ -207,10 +207,28 @@ export function bladesDealt(roleSlots: readonly SlotToken[]): {
   sure: number;
   possible: number;
   expected: number;
+  /**
+   * The same expectation split by who it belongs to.
+   *
+   * Pooling every killer into one number answers the wrong question. A family
+   * wins by *reaching parity*, so what threatens the town is the size of the
+   * largest bloc; a lone killer at parity has won nothing and still has to cut
+   * its way through everybody, including the other killers. Four mafia is a
+   * clock. Four unrelated solo killers is a bloodbath, and it is a bloodbath
+   * the town has longer to solve, because they spend their nights on each
+   * other.
+   *
+   * Counted per camp with the same arithmetic as the total: a slot that must be
+   * a Mafioso is one mafioso, a slot that might be counts the share of its pool
+   * that is. `solo` is every lone blade added together, which is deliberately
+   * *not* a bloc: nothing in that number cooperates.
+   */
+  byCamp: Record<Camp, number>;
 } {
   let sure = 0;
   let possible = 0;
   let expected = 0;
+  const byCamp: Record<Camp, number> = { mafia: 0, triad: 0, cult: 0, solo: 0 };
   for (const token of roleSlots) {
     const pool = slotPool(token).filter((role) => role in ROLES);
     if (pool.length === 0) continue;
@@ -220,6 +238,15 @@ export function bladesDealt(roleSlots: readonly SlotToken[]): {
     if (blades.length === pool.length) sure++;
     if (blades.length > 0) possible++;
     expected += blades.length / pool.length;
+    for (const role of blades) byCamp[campOf(role)] += 1 / pool.length;
   }
-  return { sure, possible, expected };
+  return { sure, possible, expected, byCamp };
+}
+
+/** The four things a killer can belong to. `solo` is a label, not a bloc. */
+export type Camp = 'mafia' | 'triad' | 'cult' | 'solo';
+
+/** Which of them a role belongs to. Only ever asked about roles that kill. */
+export function campOf(role: RoleId): Camp {
+  return familyOf(role) ?? 'solo';
 }

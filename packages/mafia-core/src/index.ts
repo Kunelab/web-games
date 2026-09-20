@@ -236,3 +236,5 @@ export {
   type MafiaServerToClient,
   type MafiaBusy
 } from './protocol.js';
+export { tempoReads, wagonOpener, type TempoCode, type TempoRead } from './sim/tempo.js';
+export { townClock, soloEndgame, lonelyBlades, type TownClock } from './sim/clock.js';

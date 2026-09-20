@@ -1,6 +1,7 @@
 import type { RoleId } from '../roles.js';
 import { deductions, strongest, type Deduction } from './deduce.js';
 import { claimerWeight, isEvilRole, trustOf, uncontestedBadge, type PublicInfo } from './policies.js';
+import { tempoReads, type TempoCode } from './tempo.js';
 import { visitOdds, type VisitReason } from './visits.js';
 
 /**
@@ -62,6 +63,8 @@ export interface Reason {
    * and contest.
    */
   role?: RoleId;
+  /** The day the reason is about, for the tempo rules, which are about an afternoon. */
+  day?: number;
   /** For `record-broken`, exactly what the graveyard caught. */
   deduction?: Deduction;
 }
@@ -75,7 +78,8 @@ export type ReasonCode =
   | 'hanged-killers'
   | 'saved-killers'
   | 'badge-unchallenged'
-  | 'proven-town';
+  | 'proven-town'
+  | TempoCode;
 
 /**
  * How heavily the board's own opinions count, measured rather than argued.
@@ -265,6 +269,24 @@ export function rank(info: PublicInfo): Suspect[] {
         reasons.push({ code: 'proven-town', weight: SAID.provenTown, slot });
       }
 
+      /**
+       * And how this seat has handled its ballot, which is the one kind of
+       * evidence up here that nobody chose to produce.
+       *
+       * Every other rule in this block prices something somebody *said*. A vote
+       * is an act, the engine timestamped it, and no amount of arguing moves
+       * it. See `tempo.ts` for what each rule catches and why every one of them
+       * waits for the graveyard to settle the house it is about.
+       */
+      for (const read of tempoReads(slot, info)) {
+        reasons.push({
+          code: read.code,
+          weight: read.weight,
+          ...(read.day === undefined ? {} : { day: read.day }),
+          ...(read.at === undefined ? {} : { slot: read.at })
+        });
+      }
+
       const logOdds = (movement?.logOdds ?? 0) + reasons.filter(isSaid).reduce((sum, r) => sum + r.weight, 0);
 
       const against = reasons.filter((reason) => reason.weight > 0).sort((a, b) => b.weight - a.weight);
@@ -321,7 +343,10 @@ function isSaid(reason: Reason): boolean {
     reason.code === 'hanged-killers' ||
     reason.code === 'saved-killers' ||
     reason.code === 'badge-unchallenged' ||
-    reason.code === 'proven-town'
+    reason.code === 'proven-town' ||
+    reason.code === 'led-town-wagon' ||
+    reason.code === 'led-killer-wagon' ||
+    reason.code === 'saved-at-the-edge'
   );
 }
 

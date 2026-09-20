@@ -6681,6 +6681,18 @@ export class MafiaBotDriver {
           ? vary('mafia.bot.case.pushedByPlain', 2, seed, { other })
           : vary('mafia.bot.case.pushedBy', 2, seed, { other });
       }
+      case 'led-town-wagon':
+        /**
+         * The one thing in a case that the accused cannot answer with a story.
+         *
+         * Every other fragment here reports something somebody said, and a seat
+         * on the stand can call any of it a lie. This is a vote, the engine
+         * timestamped it, and the graveyard settled what the wagon was pointed
+         * at. See `tempo.ts`.
+         */
+        return other === null
+          ? null
+          : vary('mafia.bot.case.ledTownWagon', 2, seed, { at: other, day: reason.day ?? 0 });
       case 'record-broken':
         // The graveyard's catch already has twenty-seven ways of being said.
         return reason.deduction ? this.caughtOut(reason.deduction, nameOf, seed, 0) : null;
@@ -6741,6 +6753,11 @@ export class MafiaBotDriver {
           : vary('mafia.bot.for.vouched', 2, seed, { other: nameOf(reason.slot) });
       case 'hanged-killers':
         return vary('mafia.bot.for.hangedKillers', 2, seed, {});
+      case 'led-killer-wagon':
+        /** And the same act read the other way: they opened the case, and the case was right. */
+        return reason.slot === undefined
+          ? null
+          : vary('mafia.bot.for.ledKillerWagon', 2, seed, { at: nameOf(reason.slot), day: reason.day ?? 0 });
       default:
         return null;
     }

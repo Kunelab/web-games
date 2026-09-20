@@ -5,7 +5,7 @@ import {
   beliefs,
   contradicted,
   deductions,
-  parityPressure,
+  townClock,
   provenLiar,
   rank,
   trustOf,
@@ -395,28 +395,54 @@ function arithmetic(view: MafiaView, board: PublicInfo, self: MafiaPlayer): stri
   const lines: string[] = [];
 
   /**
-   * The parity clock, said out loud.
+   * The clock, said out loud as a quantity.
    *
    * It has always been the town's sense of how much time it has and it reached
    * the model as nothing at all, so a bot on the last afternoon before parity
-   * argued exactly as it had on day two.
+   * argued exactly as it had on day two. Then it reached the model as a mood,
+   * in two fixed sentences, and a mood is not something a player can reason
+   * with: "the killers are close to parity" is true on half the afternoons of
+   * every game and tells a model nothing it can act on.
+   *
+   * What a person says is a number. We can afford one more mistake. Hanging the
+   * wrong man today loses it and going home does not. Those are sentences with
+   * arithmetic behind them, they are the same arithmetic the played brain is
+   * using to decide, and they are available from the second morning because the
+   * roster is on the wall. See `townClock`.
    */
-  const clock = parityPressure(board);
-  if (clock >= 1) {
-    lines.push('THE CLOCK: one more wasted day and the killers have the numbers. Somebody has to hang today.');
-  } else if (clock >= 0.6) {
-    lines.push('THE CLOCK: the killers are close to parity. A day thrown away now is probably the game.');
+  /**
+   * Three lines, one of which is ever printed, and none of them longer than the
+   * mood they replace.
+   *
+   * The briefing is a budget (see `budget.ts`): every token here is one the next
+   * seat does not get to spend on thinking. So the arithmetic is said the way a
+   * person says it at a table, which happens also to be the short way, and the
+   * bell line carries the skip arithmetic rather than adding a fourth section
+   * for it.
+   */
+  const clock = townClock(board);
+  if (clock.blades > 0 && clock.mislynches === 0) {
+    lines.push(
+      'THE CLOCK: no wrong ropes left. Hanging a townsperson today loses it tonight; hanging nobody costs half that. ' +
+        'Be sure, or say you are not.'
+    );
+  } else if (clock.mislynches === 1) {
+    lines.push('THE CLOCK: one wrong rope left. Do not vote somebody just because the room is.');
+  } else if (clock.mislynches === 2) {
+    lines.push('THE CLOCK: two wrong ropes left before they have the numbers.');
   }
 
   /** And the night's own arithmetic, which nobody can talk their way out of. */
-  const counted = [...beliefs(self, board).values()]
-    .filter((belief) => belief.because.some((why) => why.code === 'only-one-left' || why.code === 'one-of-two'))
+  const NARROWED = new Set(['only-one-left', 'one-of-two', 'one-of-few']);
+  const read = [...beliefs(self, board).values()];
+  const counted = read
+    .filter((belief) => belief.because.some((why) => NARROWED.has(why.code)))
     .sort((left, right) => right.odds - left.odds)
     .slice(0, 2);
 
   for (const belief of counted) {
     const who = view.players.find((player) => player.slot === belief.slot);
-    const why = belief.because.find((entry) => entry.code === 'only-one-left' || entry.code === 'one-of-two');
+    const why = belief.because.find((entry) => NARROWED.has(entry.code));
     if (!who || !why) continue;
     if (why.code === 'only-one-left') {
       lines.push(
@@ -425,6 +451,30 @@ function arithmetic(view: MafiaView, board: PublicInfo, self: MafiaPlayer): stri
     } else if (why.code === 'one-of-two') {
       lines.push(
         `THE COUNTING: after night ${why.night} it is ${belief.slot}. ${who.name} or house ${why.other}, and nobody else. Say so.`
+      );
+    }
+  }
+
+  /**
+   * The shortlist, when it is a shortlist rather than a name.
+   *
+   * Said once for the whole list rather than once per seat, because that is
+   * what it is: one deduction about several houses. It carries no score (see
+   * `worth` in `beliefs.ts` for why the bench refused to price it) and it is
+   * still the most useful sentence a seat can say on a middle afternoon, since
+   * it tells the room where *not* to spend the day.
+   */
+  if (!counted.some((belief) => belief.because.some((why) => why.code !== 'one-of-few'))) {
+    const few = read.find((belief) => belief.because.some((why) => why.code === 'one-of-few'));
+    const why = few?.because.find((entry) => entry.code === 'one-of-few');
+    if (why?.code === 'one-of-few') {
+      const shortlist = read
+        .filter((belief) =>
+          belief.because.some((entry) => entry.code === 'one-of-few' && entry.count === why.count)
+        )
+        .map((belief) => `${belief.slot}. ${view.players.find((player) => player.slot === belief.slot)?.name ?? ''}`);
+      lines.push(
+        `THE COUNTING: night ${why.night} was one of these ${why.count}: ${shortlist.join(', ')}. Nobody else could have. Say so.`
       );
     }
   }

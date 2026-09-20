@@ -365,6 +365,18 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
     totalDead: grave.totalDead,
     trials: cache.trials,
     voteHistory,
+    /**
+     * The log itself, handed over by reference and never copied.
+     *
+     * `voteHistory` is the closing position of each seat on each day, which is
+     * what the pattern-readers wanted and is a summary. This is the record the
+     * engine has always kept: every move of every ballot in the order it was
+     * made. Read by `tempo.ts`, which is the only thing that needs the order,
+     * and passed as the live array because the board object is rebuilt the
+     * moment a vote moves — the two go stale together, so there is nothing to
+     * keep in step.
+     */
+    ballots: state.voteLog ?? [],
     rampage: grave.rampage,
     votes: cache.votes,
     rolesInPlay: cache.rolesInPlay,

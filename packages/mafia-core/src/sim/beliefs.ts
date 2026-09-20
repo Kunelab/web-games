@@ -41,6 +41,17 @@ export type BeliefWhy =
   | { code: 'only-one-left'; night: number }
   /** Two seats left who could have, and no way yet to tell which. */
   | { code: 'one-of-two'; night: number; other: number }
+  /**
+   * One of a handful, which is the reading that was being thrown away.
+   *
+   * The elimination only ever spoke when it collapsed to one name or two. At
+   * eleven alive it collapses to neither, and a list of four is not nothing: it
+   * is the difference between a room with eleven suspects and a room with four,
+   * and the seats it crossed off were crossed off for reasons nobody can argue
+   * with. A person at that table says "it is one of these four" and spends the
+   * afternoon on them, and this board could not say it.
+   */
+  | { code: 'one-of-few'; night: number; count: number }
   /** This seat's own investigation. */
   | { code: 'my-check'; evil: boolean }
   /** Somebody tried to kill this seat last night. */
@@ -309,12 +320,46 @@ export function beliefs(self: MafiaPlayer, info: PublicInfo): Map<number, Belief
   const tracked = acrossNights(self, info);
   const hunted = new Map<number, { hand: DeathSource; size: number }>();
   for (const [hand, seatsLeft] of tracked) {
-    if (seatsLeft.size > 2) continue;
     for (const slot of seatsLeft) {
       const known = hunted.get(slot);
       if (!known || seatsLeft.size < known.size) hunted.set(slot, { hand, size: seatsLeft.size });
     }
   }
+
+  /**
+   * What being one of `count` is worth, and why it is worth nothing past two.
+   *
+   * The elimination used to speak at one name and at two and be silent at every
+   * other size, and that looked like a gap: the cut from eleven suspects to
+   * four is the same deduction as the cut to two, made earlier, and "earlier"
+   * ought to be worth something. It is not, and the bench is unambiguous about
+   * why.
+   *
+   * A wider list lifts *every seat on it by the same amount*. There is no
+   * information inside it — that is what a list of four means, that the four
+   * are indistinguishable — so the lift cannot reorder anybody. What it does is
+   * raise the absolute number, and the absolute number is what the decisions
+   * downstream are tuned against: a floor of 0.43 across four seats makes a
+   * Vigilante shoot and a town hang on an elimination that has narrowed nothing
+   * anybody can act on. Priced properly at one in four plus the table's rate,
+   * measured over two thousand games, it cost the town 1.7 points of win rate
+   * and 0.9 of hanging the right person.
+   *
+   * So the sharp cases keep their numbers and the wide ones are reported
+   * without one. The reading is real and a person at the table says it out
+   * loud — "it is one of these four, and here is who it is not" — which is
+   * exactly what a briefing is for and exactly what a score is not. See the
+   * same split at `saved-at-the-edge` in `tempo.ts`.
+   */
+  const worth = (count: number): number => (count === 1 ? 0.93 : count === 2 ? 0.55 : 0);
+
+  /**
+   * And how wide a list is still worth saying out loud.
+   *
+   * "One of these four" is a sentence that changes an afternoon. "One of these
+   * nine, at a table of eleven" is a seat noticing that two people exist.
+   */
+  const sayable = (count: number): boolean => count <= Math.max(2, Math.floor(info.aliveSlots.length / 3));
   const out = new Map<number, Belief>();
 
   for (const slot of info.aliveSlots) {
@@ -376,29 +421,44 @@ export function beliefs(self: MafiaPlayer, info: PublicInfo): Map<number, Belief
      * that name is worth more than anything anybody has said all game.
      */
     const hunt = hunted.get(slot);
+
+    /**
+     * Last night's cut, said first so that the sharper multi-night one can land
+     * on top of it.
+     *
+     * Suppressed entirely when the tracked hand has already narrowed at least
+     * as far: the two are the same deduction from different amounts of
+     * evidence, and a seat that is one of two across four nights does not also
+     * need telling it is one of three from last night.
+     */
+    if (narrowed.candidates.has(slot) && !(hunt && hunt.size <= shortlist.length)) {
+      odds = Math.max(odds, worth(shortlist.length));
+      if (shortlist.length === 1) because.unshift({ code: 'only-one-left', night: narrowed.night });
+      else if (shortlist.length === 2) {
+        because.unshift({
+          code: 'one-of-two',
+          night: narrowed.night,
+          other: shortlist[0] === slot ? shortlist[1] : shortlist[0]
+        });
+      } else if (sayable(shortlist.length)) {
+        because.unshift({ code: 'one-of-few', night: narrowed.night, count: shortlist.length });
+      }
+    }
+
     if (hunt) {
-      odds = Math.max(odds, hunt.size === 1 ? 0.93 : 0.55);
+      odds = Math.max(odds, worth(hunt.size));
       because.unshift(
         hunt.size === 1
           ? { code: 'only-one-left', night: narrowed.night }
-          : {
-              code: 'one-of-two',
-              night: narrowed.night,
-              other: [...(tracked.get(hunt.hand) ?? [])].find((other) => other !== slot) ?? slot
-            }
+          : hunt.size === 2
+            ? {
+                code: 'one-of-two',
+                night: narrowed.night,
+                other: [...(tracked.get(hunt.hand) ?? [])].find((other) => other !== slot) ?? slot
+              }
+            : { code: 'one-of-few', night: narrowed.night, count: hunt.size }
       );
-    }
-
-    if (shortlist.length === 1 && shortlist[0] === slot) {
-      odds = Math.max(odds, 0.93);
-      because.unshift({ code: 'only-one-left', night: narrowed.night });
-    } else if (shortlist.length === 2 && narrowed.candidates.has(slot)) {
-      odds = Math.max(odds, 0.5);
-      because.unshift({
-        code: 'one-of-two',
-        night: narrowed.night,
-        other: shortlist[0] === slot ? shortlist[1] : shortlist[0]
-      });
+      if (hunt.size > 2 && !sayable(hunt.size)) because.shift();
     }
 
     out.set(slot, { slot, odds: clamp(odds), because });
