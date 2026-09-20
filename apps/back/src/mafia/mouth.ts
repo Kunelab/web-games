@@ -97,9 +97,9 @@ export interface Intent {
    * What this seat has already said out loud today, so it does not say it again.
    *
    * The newest couple of its own lines in this room. See the note at the foot
-   * of `mouthPrompt`: without them, roughly a line in five came back as a
-   * verbatim repeat, was refused by the room's own guard, and cost a request
-   * to produce a silence.
+   * of `mouthPrompt`: without them a model line can come back word for word
+   * identical to the seat's own last one, be refused by the room's guard, and
+   * cost a request to produce a silence. About one call in twelve.
    */
   said?: string[];
   /**
@@ -238,11 +238,17 @@ export function mouthPrompt(
    * And the one thing this sheet never showed the model: its own last line.
    *
    * `recent` is everybody *else*, deliberately, because the job is to answer
-   * the room. The consequence went unnoticed until a run of ten chaos games
-   * counted it: about one line in five came back word for word identical to
-   * something that seat had already said that day, was refused by the room's
-   * repeat guard, and cost a whole request to produce nothing. The seat is then
-   * silent in a round it had something to say in.
+   * the room. The consequence went unnoticed until a run of chaos games counted
+   * it: a line that comes back word for word identical to something that seat
+   * already said that day is refused by the room's repeat guard, and the seat
+   * is then silent in a round it had something to say in.
+   *
+   * The size of it, measured properly after a first pass overstated it. Ten
+   * refusals in a game sounds like a fifth of everything said, and eight of
+   * those ten were two bots reaching for the same "Bonjour" out of the
+   * phrasebook, which costs nothing and is the guard working. Two were model
+   * lines, against twenty-four calls that landed: call it one call in twelve.
+   * Worth twenty tokens to avoid, not worth claiming more than it is.
    *
    * It is not a temperature problem — the mouth runs at 0.9. It is that the
    * intent is often genuinely the same intent twice (the same vote, the same
