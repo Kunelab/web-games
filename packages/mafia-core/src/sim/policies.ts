@@ -1182,8 +1182,28 @@ export function possibilitySet(self: MafiaPlayer, info: PublicInfo): Set<number>
       remaining.delete(slot);
       continue;
     }
-    // Behavioral trust: someone who has repeatedly hanged evils isn't one.
-    if (trustOf(slot, info) >= 1.5) remaining.delete(slot);
+    /**
+     * And *not* for having voted well, which used to cross a seat off here.
+     *
+     * `beliefs.couldHaveKilled` does the same job — who could this have been —
+     * and its comment says why that rule is wrong, in the same words it has
+     * always been in: being liked, being quiet and having voted well are
+     * opinions, and an elimination built on opinions is how a town convinces
+     * itself of something false with great confidence. Two functions answering
+     * one question, and only one of them followed its own rule.
+     *
+     * It matters more here than almost anywhere, because this list is not a
+     * weight. It opens at the parity bell or at six seats and it *removes* a
+     * house from the pool the vote is chosen from: a seat crossed off cannot be
+     * hanged on the afternoon where hanging the right one is the whole game.
+     * And the meter it read is the one thing at this table a killer can farm on
+     * purpose, by voting with the room on a brother it could not save.
+     *
+     * Measured before removing it, over two thousand games: correct lynches
+     * 57.8 to 57.75 and town win 36.8 to 37.1, which is to say it did nothing
+     * whatever except leave that door open. Same verdict the fit reached about
+     * `provenTown`, which is the same bought reputation priced as a weight.
+     */
     // A role the record proved, and it is a town one.
     const proven = info.provenRoles.get(slot);
     if (proven && roleDef(proven).faction === 'town') remaining.delete(slot);

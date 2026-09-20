@@ -56,8 +56,6 @@ export interface BotMind {
   agenda: Agenda;
   /** Rolling stance, recomputed each dawn from the meter. */
   stance: Stance;
-  /** Speech budget for the round, so a think-loop cannot monologue. */
-  saidThisRound: number;
   /**
    * The face this seat has decided to wear if it ever has to, chosen once.
    *
@@ -268,7 +266,6 @@ export class BotMinds {
         brain,
         agenda,
         stance: stanceOf(agenda, brain.desperation, brain.personality),
-        saidThisRound: 0,
         mask: null,
         notes: [],
         went: [],
@@ -304,7 +301,6 @@ export class BotMinds {
       // Each seat's own board: a mafioso's dawn mood may know what the family
       // said in the night, and nobody else's may.
       const board = this.board(state, player.playerId);
-      mind.saidThisRound = 0;
       const allies = new Set(
         Object.values(state.players)
           .filter(

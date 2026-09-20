@@ -200,6 +200,22 @@ const SAID = {
  * So credibility decides *if* a voice is heard and the fitted ratio decides
  * what being heard is worth. Anybody the room has not written off entirely.
  */
+/**
+ * And how sure the *reader* was, which this half of the model was ignoring.
+ *
+ * A claim carries a confidence now: 1 when a bot files its own decision, 0.85
+ * when a model read it out of somebody's sentence, 0.65 when the cue-word
+ * parser did. `suspicionParts` has multiplied by it in four places since the
+ * day it existed and the ranking did not, so a half-typed human sentence that
+ * the quick reader guessed at counted here exactly as heavily as a bot stating
+ * its own decision — in the one half of the model that feeds the briefing, the
+ * heatmap and every seat's beliefs.
+ *
+ * Folded into the credibility test rather than into the weight, because the
+ * weights are fitted on *whether the rule fired* and scaling one would claim
+ * evidence that was never measured. A hedged reading now needs a better voice
+ * behind it to clear the bar, which is what being unsure should cost.
+ */
 const CREDIBLE_ENOUGH = 0.6;
 
 /**
@@ -248,7 +264,7 @@ export function rank(info: PublicInfo): Suspect[] {
         .filter(
           (claim) => claim.kind === 'accuse' && claim.targetSlot === slot && info.aliveSlots.includes(claim.claimerSlot)
         )
-        .map((claim) => ({ slot: claim.claimerSlot, heard: claimerWeight(claim.claimerSlot, info) }))
+        .map((claim) => ({ slot: claim.claimerSlot, heard: claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1) }))
         .sort((left, right) => right.heard - left.heard)[0];
       if (accusers && accusers.heard >= CREDIBLE_ENOUGH) {
         reasons.push({ code: 'accused-by', weight: SAID.accusedBy, slot: accusers.slot });
@@ -280,7 +296,7 @@ export function rank(info: PublicInfo): Suspect[] {
             !info.aliveSlots.includes(claim.claimerSlot) &&
             info.deadRoles.has(claim.claimerSlot)
         )
-        .map((claim) => ({ slot: claim.claimerSlot, heard: claimerWeight(claim.claimerSlot, info) }))
+        .map((claim) => ({ slot: claim.claimerSlot, heard: claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1) }))
         .sort((left, right) => right.heard - left.heard)[0];
       if (buried && buried.heard >= CREDIBLE_ENOUGH) {
         reasons.push({ code: 'named-in-a-will', weight: SAID.namedInAWill, slot: buried.slot });
@@ -290,7 +306,7 @@ export function rank(info: PublicInfo): Suspect[] {
         .filter(
           (claim) => claim.kind === 'clear' && claim.targetSlot === slot && info.aliveSlots.includes(claim.claimerSlot)
         )
-        .map((claim) => ({ slot: claim.claimerSlot, heard: claimerWeight(claim.claimerSlot, info) }))
+        .map((claim) => ({ slot: claim.claimerSlot, heard: claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1) }))
         .sort((left, right) => right.heard - left.heard)[0];
       if (voucher && voucher.heard >= CREDIBLE_ENOUGH) {
         reasons.push({ code: 'vouched-for', weight: SAID.vouchedFor, slot: voucher.slot });
