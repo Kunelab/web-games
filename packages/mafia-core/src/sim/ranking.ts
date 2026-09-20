@@ -79,6 +79,8 @@ export type ReasonCode =
   | 'saved-killers'
   | 'badge-unchallenged'
   | 'proven-town'
+  /** The seat that accused them did not see the morning. */
+  | 'accuser-silenced'
   | TempoCode;
 
 /**
@@ -144,7 +146,28 @@ const SAID = {
    * still read it as innocence. It is a bought reputation, and this is what a
    * bought reputation is worth as evidence.
    */
-  provenTown: -0.01
+  provenTown: -0.01,
+  /**
+   * The only rule in this table about *who died*, which is a whole half of the
+   * evidence in this game and had nothing reading it.
+   *
+   * Everything else here prices what somebody said and `visitOdds` prices where
+   * somebody went. Nobody was reading the other side of the night: the killers
+   * choose a house, and the choice is a decision made by somebody with a
+   * motive. The oldest read at any table is "you accused me yesterday and you
+   * are dead this morning", and the board could not make it.
+   *
+   * Attributable, which is what makes it usable. Most of what a victim list
+   * says is about the table rather than about a seat — the room's best voice
+   * went, the wagon's target went — and none of that can be pinned on anybody.
+   * An accuser dying on the night of their own accusation points at exactly one
+   * seat: the one they accused.
+   *
+   * Fires on 1.5% of killers against 1.0% of everybody else. Modest, real, and
+   * the right sign, which is more than two of the six rules in the first
+   * version of this table managed.
+   */
+  accuserSilenced: 0.385
 } as const;
 
 /**
@@ -270,6 +293,27 @@ export function rank(info: PublicInfo): Suspect[] {
       }
 
       /**
+       * Somebody pointed at this seat, and did not live to say it twice.
+       *
+       * The accusation has to have been made on the day before the night the
+       * accuser died: "you accused me on day two and were killed on night five"
+       * is four nights of the killers having other priorities, and reading it
+       * as a silencing would fire on half the table by the endgame.
+       */
+      const silencer = info.claims.find(
+        (claim) =>
+          claim.kind === 'accuse' &&
+          claim.targetSlot === slot &&
+          claim.claimerSlot !== slot &&
+          info.deaths.some(
+            (death) => death.slot === claim.claimerSlot && death.phase === 'night' && death.day === claim.day
+          )
+      );
+      if (silencer) {
+        reasons.push({ code: 'accuser-silenced', weight: SAID.accuserSilenced, slot: silencer.claimerSlot });
+      }
+
+      /**
        * And how this seat has handled its ballot, which is the one kind of
        * evidence up here that nobody chose to produce.
        *
@@ -344,6 +388,7 @@ function isSaid(reason: Reason): boolean {
     reason.code === 'saved-killers' ||
     reason.code === 'badge-unchallenged' ||
     reason.code === 'proven-town' ||
+    reason.code === 'accuser-silenced' ||
     reason.code === 'led-town-wagon' ||
     reason.code === 'led-killer-wagon' ||
     reason.code === 'saved-at-the-edge'

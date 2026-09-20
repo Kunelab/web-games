@@ -6526,6 +6526,19 @@ export class MafiaBotDriver {
         return vary('mafia.bot.why.roleNotInPlay', 3, seed, { role: ROLE.name(found.role) });
       case 'no-slot-left':
         return vary('mafia.bot.why.noSlotLeft', 3, seed, { role: ROLE.name(found.role) });
+      case 'no-room-for-all':
+        /**
+         * The group finding, said as a group.
+         *
+         * Naming the other claimants is the whole sentence: "one of you is
+         * lying" without saying who is a bot thinking out loud, and "you and 7
+         * both claim Doctor and the list has room for one" is an argument the
+         * room can finish by itself.
+         */
+        return vary('mafia.bot.why.noRoomForAll', 3, seed, {
+          role: ROLE.name(found.role),
+          who: found.others.map(nameOf).join(', ')
+        });
       case 'relay-denied':
         return vary('mafia.bot.why.relayDenied', 3, seed, { who: nameOf(found.otherSlot) });
       case 'broken-promise':
@@ -6681,6 +6694,9 @@ export class MafiaBotDriver {
           ? vary('mafia.bot.case.pushedByPlain', 2, seed, { other })
           : vary('mafia.bot.case.pushedBy', 2, seed, { other });
       }
+      case 'accuser-silenced':
+        /** The oldest read at any table, and the board could not make it until now. */
+        return other === null ? null : vary('mafia.bot.case.accuserSilenced', 2, seed, { other });
       case 'led-town-wagon':
         /**
          * The one thing in a case that the accused cannot answer with a story.

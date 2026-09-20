@@ -342,6 +342,8 @@ function caughtBy(finding: Deduction): string {
       return `claims ${finding.role}, which this game never dealt`;
     case 'no-slot-left':
       return `claims ${finding.role}, and every slot that could have been one is already in the graveyard`;
+    case 'no-room-for-all':
+      return `claims ${finding.role}, and so does ${finding.others.join(' and ')}, and the roster has room for fewer`;
     case 'relay-denied':
       return `quoted ${finding.otherSlot}, who denies saying it`;
     case 'broken-promise':

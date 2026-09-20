@@ -111,6 +111,27 @@ function seats(pools: readonly ReadonlySet<RoleId>[], wanted: readonly RoleId[])
 }
 
 /**
+ * Whether every one of these badges can be worn at once by this deal.
+ *
+ * `possibleRoles` asks it one role at a time against the graveyard, which
+ * answers "can there still be a Jester" and cannot answer the question a room
+ * full of claimants poses: three seats have stood up as investigators and the
+ * roster dealt two slots that could be one, so one of those three is lying and
+ * arithmetic says so without anybody having seen anything. See
+ * `deductions`' pigeonhole.
+ *
+ * An unknown roster fits everything, which is the same generosity the rest of
+ * this file is built on.
+ */
+export function roomForAll(roleSlots: readonly SlotToken[], wanted: readonly RoleId[]): boolean {
+  if (roleSlots.length === 0) return true;
+  return seats(
+    roleSlots.map((token) => new Set(slotPool(token))),
+    wanted.filter((role) => role in ROLES)
+  );
+}
+
+/**
  * Every role this table can still contain, given what the graveyard has named.
  *
  * `revealed` is the identified dead only. A cleaned corpse or a body the reveal

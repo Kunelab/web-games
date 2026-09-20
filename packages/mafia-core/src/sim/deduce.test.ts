@@ -258,3 +258,105 @@ describe('reading the night back to people', () => {
     assert.ok(several > one, 'but more of them is still worse than one');
   });
 });
+
+/**
+ * The pigeonhole, which is the one deduction in this file that convicts a group.
+ *
+ * Everything above catches a seat against the record. This catches several
+ * seats against the *deal*: the room has stood up more badges than the roster
+ * has slots to hold, so at least one of them is lying and arithmetic says so
+ * before anybody has seen anything.
+ */
+describe('more badges than the deal has room for', () => {
+  const claims = (...pairs: [number, RoleId][]): Claim[] =>
+    pairs.map(([claimerSlot, role]) =>
+      said({ claimerSlot, targetSlot: claimerSlot, kind: 'role-claim', claimedRole: role })
+    );
+
+  it('catches two seats claiming the one slot that could hold the badge', () => {
+    const info = board({
+      roleSlots: ['town-investigative', 'town-protective', 'mafia-random', 'citizen', 'citizen'],
+      claims: claims([1, 'doctor'], [2, 'doctor'])
+    });
+
+    const first = deductions(1, info).find((entry) => entry.kind === 'no-room-for-all');
+    assert.ok(first, 'one protective slot cannot hold two doctors');
+    assert.deepEqual(first.kind === 'no-room-for-all' ? first.others : [], [2]);
+    assert.ok(deductions(2, info).some((entry) => entry.kind === 'no-room-for-all'), 'and it names both of them');
+  });
+
+  /** Two badges that fit two different slots are two people telling the truth. */
+  it('says nothing when the roster has room for every badge standing up', () => {
+    const info = board({
+      roleSlots: ['town-investigative', 'town-protective', 'mafia-random', 'citizen', 'citizen'],
+      claims: claims([1, 'doctor'], [2, 'sheriff'])
+    });
+
+    assert.deepEqual(kinds(deductions(1, info)), []);
+    assert.deepEqual(kinds(deductions(2, info)), []);
+  });
+
+  /**
+   * The half that needs the graveyard: the roster had room for both until a
+   * corpse spent one of the slots.
+   */
+  it('counts the identified dead against the slots first', () => {
+    const roleSlots = ['town-investigative', 'town-random', 'mafia-random', 'citizen', 'citizen'] as const;
+    const roomy = board({ roleSlots: [...roleSlots], claims: claims([1, 'sheriff'], [2, 'sheriff']) });
+    assert.deepEqual(kinds(deductions(1, roomy)), [], 'two town slots, and either could have rolled a sheriff');
+
+    const spent = board({
+      roleSlots: [...roleSlots],
+      aliveSlots: [1, 2, 3],
+      totalDead: 1,
+      // The town-random slot went into the ground as an escort, so one is left.
+      deadRoles: new Map<number, RoleId>([[4, 'escort']]),
+      deaths: [{ slot: 4, day: 3, phase: 'night', source: 'mafia' }],
+      claims: claims([1, 'sheriff'], [2, 'sheriff'])
+    });
+    assert.ok(
+      deductions(1, spent).some((entry) => entry.kind === 'no-room-for-all'),
+      'the town-random slot went into the ground with the escort'
+    );
+  });
+
+  /** A seat that is not in the way is not in the conflict. */
+  it('leaves out the claimants whose removal would not help', () => {
+    const info = board({
+      roleSlots: ['town-investigative', 'town-protective', 'mafia-random', 'citizen', 'citizen'],
+      claims: claims([1, 'doctor'], [2, 'doctor'], [3, 'mafioso'])
+    });
+
+    assert.deepEqual(kinds(deductions(3, info)), [], 'the mafia slot is nobody else’s argument');
+  });
+
+  /** And a dead seat's badge is settled by its corpse, not argued about. */
+  it('only counts the living', () => {
+    const info = board({
+      roleSlots: ['town-protective', 'mafia-random', 'citizen', 'citizen', 'citizen'],
+      aliveSlots: [1, 3, 4, 5],
+      claims: claims([1, 'doctor'], [2, 'doctor'])
+    });
+
+    assert.deepEqual(kinds(deductions(1, info)), []);
+  });
+
+  /**
+   * The deal has stopped explaining the table: two cultists in the ground on a
+   * roster with one cult slot is a conversion, and every count built on the
+   * slots is void from that moment. Same guard as `possibleRoles`.
+   */
+  it('gives up when the graveyard itself no longer fits the roster', () => {
+    const info = board({
+      roleSlots: ['town-protective', 'neutral-evil', 'citizen', 'citizen', 'citizen'],
+      totalDead: 2,
+      deadRoles: new Map<number, RoleId>([
+        [6, 'cultist'],
+        [7, 'cultist']
+      ]),
+      claims: claims([1, 'doctor'], [2, 'doctor'])
+    });
+
+    assert.deepEqual(kinds(deductions(1, info)), []);
+  });
+});

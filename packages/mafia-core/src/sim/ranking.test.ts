@@ -204,3 +204,56 @@ describe('a badge is only unchallenged once it has had time to be challenged', (
     );
   });
 });
+
+/**
+ * The other half of the night, which nothing was reading.
+ *
+ * `visitOdds` prices where people *went*. Who they chose to kill is a decision
+ * with a motive behind it, and exactly one shape of it can be pinned on a seat.
+ */
+describe('who the night chose', () => {
+  it('reads an accuser killed on the night of their own accusation', () => {
+    const silenced = board({
+      day: 4,
+      claims: [said({ claimerSlot: 2, targetSlot: 4, kind: 'accuse', day: 3 })],
+      deaths: [{ slot: 2, day: 3, phase: 'night', source: 'mafia' }],
+      aliveSlots: [1, 3, 4, 5],
+      totalDead: 1
+    });
+
+    const found = rank(silenced).find((suspect) => suspect.slot === 4);
+    assert.ok(codes(found?.against ?? []).includes('accuser-silenced'));
+  });
+
+  /**
+   * And not an accusation from four days earlier. A killer with other
+   * priorities for three nights is not silencing anybody, and reading it that
+   * way would fire on half the table by the endgame.
+   */
+  it('does not read a death nights after the accusation', () => {
+    const later = board({
+      day: 6,
+      claims: [said({ claimerSlot: 2, targetSlot: 4, kind: 'accuse', day: 2 })],
+      deaths: [{ slot: 2, day: 5, phase: 'night', source: 'mafia' }],
+      aliveSlots: [1, 3, 4, 5],
+      totalDead: 1
+    });
+
+    const found = rank(later).find((suspect) => suspect.slot === 4);
+    assert.ok(!codes(found?.against ?? []).includes('accuser-silenced'));
+  });
+
+  /** A hanging is not a silencing: the room did that, in daylight, together. */
+  it('only counts a death in the dark', () => {
+    const hanged = board({
+      day: 4,
+      claims: [said({ claimerSlot: 2, targetSlot: 4, kind: 'accuse', day: 3 })],
+      deaths: [{ slot: 2, day: 3, phase: 'day', source: null }],
+      aliveSlots: [1, 3, 4, 5],
+      totalDead: 1
+    });
+
+    const found = rank(hanged).find((suspect) => suspect.slot === 4);
+    assert.ok(!codes(found?.against ?? []).includes('accuser-silenced'));
+  });
+});

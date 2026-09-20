@@ -1,5 +1,5 @@
 import { ROLES, roleDef, type RoleId } from '../roles.js';
-import { possibleRoles } from './slots.js';
+import { possibleRoles, roomForAll } from './slots.js';
 import type { Claim, PublicInfo } from './policies.js';
 
 /**
@@ -61,6 +61,27 @@ export type Deduction =
    * had no way to hold it. See `possibleRoles`.
    */
   | { kind: 'no-slot-left'; role: RoleId }
+  /**
+   * More badges standing up than the deal has room for.
+   *
+   * `no-slot-left` is this deduction against the *graveyard*: the corpses have
+   * used up every slot that could have held the badge. This is the same
+   * arithmetic against the *living*, and it is the half the room actually
+   * argues about, because the living answer back.
+   *
+   * Three seats claim an investigative badge; the roster dealt one Sheriff slot
+   * and one Random Town; the identified dead already spent the Random Town. One
+   * of those three is lying and nobody has seen anything. It is the plainest
+   * deduction in the game and it needed a matching to make, which is why no
+   * table ever made it: a person can just about do it by hand with two
+   * claimants, and never with four claimants across six category slots.
+   *
+   * Names the others on purpose. The finding convicts a *group* and not a seat,
+   * exactly like a shared cell, and a bot saying it has to be able to say who
+   * else is in it, because the answer is somebody in the room and the room can
+   * work out which.
+   */
+  | { kind: 'no-room-for-all'; role: RoleId; others: number[] }
   /** Put words in a living seat's mouth, and that seat never said them. */
   | { kind: 'relay-denied'; otherSlot: number }
   /** Bet their life on proving it by dawn, and dawn came. */
@@ -85,7 +106,16 @@ const WORTH: Record<Deduction['kind'], number> = {
   'poison-survived': 2,
   'impossible-ailment': 2,
   'relay-denied': 1.5,
-  'two-in-one-cell': 1.2
+  'two-in-one-cell': 1.2,
+  /**
+   * Priced at the shared cell, and for the same reason: it is certain that
+   * somebody in the group is lying and it does not say which one. A seat in a
+   * conflict of two carries half the blame of a proven liar; the pricing does
+   * not thin out further for a conflict of four, because the finding is capped
+   * at three claimants anyway (see the pigeonhole) and a wider one is not
+   * something a room can hold in its head or act on.
+   */
+  'no-room-for-all': 1.2
 };
 
 /**
@@ -101,6 +131,85 @@ function nightOf(claim: Claim): number {
 
 /** The slot accounting, kept per board. See `stillFits`. */
 const SLOT_FITS = new WeakMap<PublicInfo, Set<RoleId>>();
+
+/** The badges standing up in the room right now, and who is wearing each. */
+const CROWDED = new WeakMap<PublicInfo, Map<number, number[]>>();
+
+/**
+ * Too many badges for the deal, and who is in the conflict.
+ *
+ * Returns, per claiming seat, the other seats it cannot be telling the truth
+ * alongside. Empty for everybody when the room's claims all fit, which is the
+ * ordinary case and costs one matching.
+ *
+ * The method is the one a person would use if they could hold it in their head.
+ * Seat the identified dead and every living claim at once; if they all fit,
+ * nobody is caught. If they do not, take each claim out in turn and ask whether
+ * the rest fit without it: every claim that is *in* some minimal conflict is
+ * one the room may argue about, and the ones that could be dropped without
+ * helping are innocent of this particular arithmetic.
+ *
+ * Deliberately conservative in three ways, because the cost of being wrong here
+ * is calling an honest badge a lie:
+ *
+ *  - the newest claim per seat only, since people correct themselves;
+ *  - living claimants only, since a dead seat's badge is settled by its corpse
+ *    and is already counted among the identified dead;
+ *  - and nothing at all when the graveyard already fails to fit the roster,
+ *    because then the deal has stopped explaining the table (a conversion, a
+ *    promotion, an Amnesiac) and every count built on it is void. That check is
+ *    `possibleRoles`' own and it is repeated here for the same reason.
+ */
+function crowdedBadges(info: PublicInfo): Map<number, number[]> {
+  const cached = CROWDED.get(info);
+  if (cached) return cached;
+
+  const out = new Map<number, number[]>();
+  CROWDED.set(info, out);
+  if (!info.roleSlots) return out;
+
+  const buried = [...info.deadRoles.values()];
+  if (!roomForAll(info.roleSlots, buried)) return out;
+
+  /** One badge per living seat, the last one it stood behind. */
+  const claimed = new Map<number, RoleId>();
+  for (const claim of info.claims) {
+    if (claim.kind !== 'role-claim' || !claim.claimedRole) continue;
+    if (!info.aliveSlots.includes(claim.claimerSlot)) continue;
+    claimed.set(claim.claimerSlot, claim.claimedRole);
+  }
+  if (claimed.size < 2) return out;
+
+  const wearing = [...claimed.entries()];
+  if (roomForAll(info.roleSlots, [...buried, ...wearing.map(([, role]) => role)])) return out;
+
+  /**
+   * Which claims are actually in the way.
+   *
+   * A seat whose removal does not help is not part of the conflict: the room
+   * would still be over-subscribed without it, so nothing about it has been
+   * proved. This is the difference between naming two seats and accusing
+   * everybody who ever claimed anything.
+   */
+  const guilty: number[] = [];
+  for (const [slot] of wearing) {
+    const without = wearing.filter(([other]) => other !== slot).map(([, role]) => role);
+    if (roomForAll(info.roleSlots, [...buried, ...without])) guilty.push(slot);
+  }
+
+  /**
+   * Nobody's single removal fixes it, which means the room is over-subscribed
+   * by more than one badge. True, and not sayable: the conflict is every
+   * claimant at once, no smaller group is provably in it, and a bot announcing
+   * that six people cannot all be telling the truth has said something nobody
+   * can act on. Left for the wider count to catch a day later, when a corpse
+   * has narrowed it.
+   */
+  if (guilty.length < 2 || guilty.length > 3) return out;
+
+  for (const slot of guilty) out.set(slot, guilty.filter((other) => other !== slot));
+  return out;
+}
 
 /** Was this seat already buried before that night fell? */
 function buriedBefore(slot: number, night: number, info: PublicInfo): boolean {
@@ -225,6 +334,16 @@ export function deductions(slot: number, info: PublicInfo): Deduction[] {
        * contained is the simpler sentence and the one the room checks faster.
        */
       found.push({ kind: 'no-slot-left', role: claim.claimedRole });
+    } else if (claim.kind === 'role-claim' && claim.claimedRole && alive) {
+      /**
+       * And the same arithmetic against the living, which is the one the room
+       * can answer back to. Last, because both tests above are about this seat
+       * alone and this one is about a group.
+       */
+      const others = crowdedBadges(info).get(slot);
+      if (others && others.length > 0 && !found.some((entry) => entry.kind === 'no-room-for-all')) {
+        found.push({ kind: 'no-room-for-all', role: claim.claimedRole, others });
+      }
     }
 
     if (claim.kind === 'relay' && claim.relayedFrom !== undefined) {
