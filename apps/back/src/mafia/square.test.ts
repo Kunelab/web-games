@@ -564,3 +564,71 @@ describe('an afternoon somebody really typed', () => {
     assert.deepEqual(said('same for Saul Goodman.', 2), []);
   });
 });
+
+/**
+ * Three readings off one real afternoon on the mini PC, two of them backwards.
+ *
+ * A person spent a game telling the room, four times, which killer he had
+ * worked out. The board recorded it once, as the opposite. The trace is
+ * `mafia-2026-09-20T16-29-53-KYKY2`, and these are his sentences.
+ */
+describe('the afternoon the reader got backwards', () => {
+  const TABLE: Seat[] = [
+    { slot: 4, name: 'Eevee' },
+    { slot: 5, name: 'BradStallion' },
+    { slot: 20, name: 'Susanoo' }
+  ];
+
+  const filed = (text: string, speaker: number): { kind: string; targetSlot: number }[] =>
+    readSquare(text, speaker, TABLE).map((claim) => ({ kind: claim.kind, targetSlot: claim.targetSlot }));
+
+  /**
+   * The commonest accusation a person makes, and the reader had no word for it.
+   * `EVIL` knows "scum" and "liar" and every insult in two languages; it did not
+   * know the sixty-three role names the game is actually played with.
+   */
+  it('hears a killer named by its badge', () => {
+    assert.deepEqual(filed('Susanoo is Electromaniac', 5), [{ kind: 'accuse', targetSlot: 20 }]);
+  });
+
+  /**
+   * And the sentence that cost him the game: the same accusation with a
+   * friendly word in front of it came out as a clearing, because "trust" was
+   * the nearest verdict the reader recognised.
+   */
+  it('no longer clears the seat it is accusing', () => {
+    const read = filed('town trust me I am with you! Susanoo is the Electromaniac', 5);
+    assert.ok(
+      read.some((claim) => claim.kind === 'accuse' && claim.targetSlot === 20),
+      `expected an accusation on 20, got ${JSON.stringify(read)}`
+    );
+    assert.ok(!read.some((claim) => claim.kind === 'clear' && claim.targetSlot === 20));
+  });
+
+  /** A denial of the same badge is still a denial and must not become a rope. */
+  it('still reads a denial as a denial', () => {
+    const read = filed('Susanoo is not the Electromaniac', 5);
+    assert.ok(!read.some((claim) => claim.kind === 'accuse'));
+  });
+
+  /**
+   * A killer named in front of a house is somebody being quoted, not accused.
+   * Reading it the other way would hang the seat being vouched for.
+   */
+  it('does not accuse a house somebody else was quoted about', () => {
+    const read = filed('the consigliere said Eevee is clean', 5);
+    assert.ok(!read.some((claim) => claim.kind === 'accuse' && claim.targetSlot === 4));
+  });
+
+  /**
+   * And the third reading: a man counting the roster out loud, filed as a
+   * verdict on house 4 because "4" was a number and "town" was nearby.
+   */
+  it('knows a tally from a house', () => {
+    assert.deepEqual(filed('Lookout is possible, there is 4 random town slot', 5), []);
+  });
+
+  it('still reads a house that is only a number', () => {
+    assert.deepEqual(filed('4 is town', 5), [{ kind: 'clear', targetSlot: 4 }]);
+  });
+});

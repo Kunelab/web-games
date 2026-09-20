@@ -1346,7 +1346,10 @@ export class MafiaBotDriver {
    * refused here still votes, still files its claim and still acts — only the
    * sentence is dropped.
    */
-  private readonly floor = new Map<string, { key: string; substance: number; filler: number; said: Set<string> }>();
+  private readonly floor = new Map<
+    string,
+    { key: string; day: number; substance: number; filler: number; said: Set<string> }
+  >();
   /** The rungs, in order, as configured. */
   private readonly chain: Rung[];
   /** And the per-errand overrides, where any were configured. See `chainFor`. */
@@ -3337,11 +3340,27 @@ export class MafiaBotDriver {
   private openFloor(state: MafiaState, key: string): void {
     const alive = Object.values(state.players).filter((player) => player.alive).length;
     const firstDay = state.phase === 'day' && state.day === 1;
+    /**
+     * A new allowance, and the same memory of what has already been said.
+     *
+     * The budget is per stage and should be: an afternoon, a defence and a
+     * verdict are three different rooms and each deserves its own floor. The
+     * *repeats* are not. `maySpeak` says "somebody has already said this exact
+     * sentence today" and the set behind it was being emptied three times a
+     * day, so a seat could say one sentence in the debate, the identical
+     * sentence on the stand, and the identical sentence again at the vote.
+     *
+     * Reported by a run on the mini PC, where a bot on trial said "je suis le
+     * vote facile, pas le vote juste" twice in four lines. Which reads, from
+     * the outside, exactly like software with nothing to say.
+     */
+    const standing = this.floor.get(state.code);
     this.floor.set(state.code, {
       key,
+      day: state.day,
       substance: Math.max(3, Math.ceil(alive * 0.45)),
       filler: firstDay ? Math.max(4, Math.ceil(alive * 0.3)) : Math.max(2, Math.ceil(alive * 0.12)),
-      said: new Set()
+      said: standing && standing.day === state.day ? standing.said : new Set()
     });
   }
 
@@ -6597,7 +6616,37 @@ export class MafiaBotDriver {
 
     /** What this seat can actually offer back, in the order it is worth saying. */
     const mine: string[] = [];
-    if (me.role) mine.push(`you really are the ${me.role.id}`);
+    /**
+     * The face it is wearing, which for a killer is not the one it has.
+     *
+     * This said `you really are the ${me.role.id}` to everybody, and for a
+     * townsperson that is the best line it owns: an honest Doctor on the stand
+     * should say so. For anybody else it is a confession, handed to the model
+     * by the one part of this system that is supposed never to hold a decision.
+     *
+     * It reached a real table. Ganondorf, a Poisoner, opened his defence with
+     * "I am the Vigilante" out of the phrasebook, and the mouth's very next
+     * sentence was "I was the poisoner, as I claimed on Night 3 in house 14" —
+     * because the sheet handed to it said, in as many words, *what you have:
+     * you really are the poisoner*. The room hanged him twenty to nothing, and
+     * it was right to. Trace `mafia-2026-09-20T18-07-56-6QFZK`.
+     *
+     * So the truth goes to the seats whose interest it serves, and everybody
+     * else is reminded of the story they have already told the room instead.
+     * `maskOf` is the same face round one claimed and the same one the will is
+     * written from, which is the whole point of pinning it.
+     */
+    const self = state.players[botId];
+    const mind = this.minds.mind(state, botId);
+    const honest = self?.role ? ROLES[self.role].faction === 'town' : false;
+    const face = honest ? (self?.role ?? null) : mind ? this.maskOf(state, botId, mind) : null;
+    if (face) {
+      mine.push(
+        honest
+          ? `you really are the ${face}`
+          : `you have told this room you are the ${face}: keep to that and never name your real role`
+      );
+    }
     const went = board.claims.find(
       (claim) => claim.kind === 'account' && claim.claimerSlot === slot && claim.account === 'visited'
     );

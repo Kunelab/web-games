@@ -26,7 +26,7 @@
  * reasons from and what `contradicted` hangs people on. Everything here wants
  * an explicit cue. A sentence that merely mentions a house asserts nothing.
  */
-import type { Claim, ClaimKind, RoleId } from 'mafia-core';
+import { isEvilRole, type Claim, type ClaimKind, type RoleId } from 'mafia-core';
 
 import { fold, roleNamedAt, seatHits, selfClaim } from './asks.js';
 
@@ -599,6 +599,42 @@ export function readSquare(
       if (AGAINST.test(before.slice(-24)) && !NEGATED.test(before.slice(-18))) {
         add({ kind: 'accuse', targetSlot: hit.slot });
       }
+      continue;
+    }
+
+    /**
+     * "Susanoo is Electromaniac" — naming the badge instead of the camp.
+     *
+     * The commonest way a person accuses somebody, and the reader had no way to
+     * hear it. `EVIL` is a vocabulary of *words for being bad*: mafia, scum,
+     * liar, cult, arsonist. A player who has worked out which killer they are
+     * looking at does not say any of those, they say the role, and there are
+     * sixty-three of those in this game. "Susanoo is Electromaniac" was read as
+     * nothing three times in one afternoon, and the fourth time — "town trust
+     * me I am with you! Susanoo is the Electromaniac" — it was read as a
+     * *clearing* of Susanoo, because "trust" was the nearest word the reader
+     * knew. From a real table, and the accusation the board recorded was the
+     * exact opposite of the one the man made.
+     *
+     * Read off the role catalogue rather than off a word list, so it covers
+     * every killer in the game in both languages and cannot drift from the
+     * roles themselves. Only the killers: a Jester or an Executioner named at
+     * somebody is a suspicion and not an accusation of murder, and the words
+     * the room actually uses for those are in `EVIL` already.
+     *
+     * After the denial branch, which has first claim on the same sentence
+     * shape and has already consumed "7 is not the arsonist", and before the
+     * verdicts, which is the bug this fixes.
+     *
+     * The badge has to be named *after* the house, which is the shape people
+     * type and is the one that cannot be confused with attribution. "The
+     * consigliere said 3 is clean" names a killer in front of a house and
+     * accuses nobody of anything, and reading it the other way would hang the
+     * seat somebody was vouching for.
+     */
+    const named = roleNamedAt(after, 'first')?.role;
+    if (named && isEvilRole(named)) {
+      add({ kind: 'accuse', targetSlot: hit.slot });
       continue;
     }
 

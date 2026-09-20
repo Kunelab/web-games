@@ -107,7 +107,7 @@ export const notesEn: Catalogue = {
   /* The same finding, with the answer sheet the whole table shares. */
   'mafia.note.tradeLineRoles': '{name} {line}. At this table that means: {roles}.',
   'mafia.note.visitorsSeen': 'At {name}’s tonight: {names}.',
-  'mafia.note.visitorsNone': 'Nobody called on {name} tonight.',
+  'mafia.note.visitorsNone': 'Nobody visited {name} tonight.',
   'mafia.note.trackedTo': '{name} went out tonight: seen at {names}.',
   'mafia.note.trackedHome': '{name} never left their house tonight.',
   'mafia.note.autopsy': 'Under your scalpel, {name} gives up the secret: they were the {role}.',

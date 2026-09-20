@@ -138,6 +138,27 @@ const CORRECTION =
 const FIRST_PERSON = /\b(?:i'?m|i am|im|me|myself|je suis|j'?suis|c'?est moi|moi)\b[^.!?]{0,16}$/i;
 
 /**
+ * And the same claim in the past tense, which nothing was reading.
+ *
+ * "I am the Poisoner" was caught by the line above and "I was the Poisoner" was
+ * not, so the confession guard that compares what a model said against what the
+ * brain decided (see `confesses`) had a tense-shaped hole in it. A Poisoner on
+ * the stand walked through it on a real table: "I was the poisoner, as I
+ * claimed on Night 3 in house 14", published to the square, hanged twenty to
+ * nothing. Trace `mafia-2026-09-20T18-07-56-6QFZK`.
+ *
+ * Tighter than the present tense on purpose. The window above allows sixteen
+ * characters between the pronoun and the badge, which is generous enough to
+ * read "I'm with the sheriff" as a claim to be one; this allows an article and
+ * nothing else, so "I was with the sheriff" and "I was at the doctor's" are
+ * left alone. A person saying they *were* something says it the short way.
+ */
+const PAST_SELF = /\b(?:i was|i'?ve been|i have been|j'?etais|j'?ai ete)\s+(?:the|a|an|le|la|l'|un|une)?\s*$/i;
+
+/** Either tense, which is what every reader of a badge claim actually wants. */
+const claimsIt = (runUp: string): boolean => FIRST_PERSON.test(runUp) || PAST_SELF.test(runUp);
+
+/**
  * Saying what you think somebody else is, which is not a claim about yourself.
  *
  * "I think the sheriff is 7" puts a first-person marker twelve characters in
@@ -257,6 +278,26 @@ const NUMBER_WORDS: Record<string, number> = {
  */
 const NUMBER_CUE =
   /\b(?:house|seat|vote|votes|voting|take|takes|kill|kills|hang|lynch|target|trust|spare|save|skip|check|it'?s|maison|siege|vote[rz]?|tue[rz]?|prend|prends|prenez|pendre|lynche[rz]?|cible|confiance|epargne|verifie|c'?est)\b[^.!?]{0,12}$/i;
+
+/**
+ * A number that counts things rather than naming a house.
+ *
+ * Every digit in a line was read as a seat, and most of the time that is right,
+ * because people call each other by house number all day. It is wrong the
+ * moment somebody starts reasoning out loud about the roster, which is exactly
+ * when they are being most useful: "Lookout is possible, there is 4 random town
+ * slot" is a person counting the list on the wall, and the board read it as a
+ * verdict about house 4. From a real table, and the verdict it filed was a
+ * *clearing*, because "town" was the nearest word it recognised.
+ *
+ * Deliberately narrow, because the cost of being wrong the other way is losing
+ * a real accusation. Two shapes only: a quantity announced ("there are 4…",
+ * "il y a 4…") and a number sitting directly on a word that can only be
+ * counted. "4 is town" and "vote 4" are untouched, and so is every other way a
+ * person names a seat.
+ */
+const A_COUNT = /\b(?:there (?:is|are|was|were)|we have|il y a|on a|reste|restent)\s+$/i;
+const COUNTED = /^\s*(?:random|slots?|places?|seats? left|roles?|town slot|of them)\b/i;
 
 /** Words too common to be read as a misspelt name. */
 const NOT_A_NAME = new Set([
@@ -378,9 +419,13 @@ export function seatHits(text: string, seats: readonly { slot: number; name: str
   for (const seat of seats) {
     const digits = String(seat.slot);
     for (const match of line.matchAll(new RegExp(`(?<![0-9])${digits}(?![0-9])`, 'g'))) {
-      if (match.index !== undefined) {
-        hits.push({ slot: seat.slot, who: seat.name, at: match.index, end: match.index + digits.length, exact: true });
+      if (match.index === undefined) continue;
+      const end = match.index + digits.length;
+      // A tally, not a seat. See `A_COUNT`.
+      if (A_COUNT.test(line.slice(Math.max(0, match.index - 14), match.index)) || COUNTED.test(line.slice(end))) {
+        continue;
       }
+      hits.push({ slot: seat.slot, who: seat.name, at: match.index, end, exact: true });
     }
     const name = fold(seat.name);
     for (let at = line.indexOf(name); at >= 0; at = line.indexOf(name, at + 1)) {
@@ -628,14 +673,14 @@ export function selfClaim(text: string): RoleId | null {
     if (at < 0) continue;
     const runUp = line.slice(Math.max(0, at - 20), at);
     const clause = lastClause(runUp);
-    if (FIRST_PERSON.test(runUp) && !REPORTING.test(clause) && !NEGATED.test(clause)) return role;
+    if (claimsIt(runUp) && !REPORTING.test(clause) && !NEGATED.test(clause)) return role;
   }
   // And the same test against what people type instead of the name.
   const nick = nicknameAt(line);
   if (nick) {
     const runUp = line.slice(Math.max(0, nick.at - 20), nick.at);
     const clause = lastClause(runUp);
-    if (FIRST_PERSON.test(runUp) && !REPORTING.test(clause) && !NEGATED.test(clause)) return nick.role;
+    if (claimsIt(runUp) && !REPORTING.test(clause) && !NEGATED.test(clause)) return nick.role;
   }
   return null;
 }

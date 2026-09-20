@@ -103,3 +103,44 @@ describe('a confession is caught whichever apostrophe it is written with', () =>
     assert.equal(confesses('I’ll kill 7 tonight', "I'll kill 7 tonight"), false);
   });
 });
+
+/**
+ * The tense the guard could not read, and the afternoon it cost.
+ *
+ * A Poisoner on the stand said "I was the poisoner, as I claimed on Night 3 in
+ * house 14" into the square and the room hanged him twenty votes to nothing.
+ * Two things had to be wrong at once for that sentence to exist, and both were:
+ * the sheet handed to the mouth said "what you have: you really are the
+ * poisoner", and this guard, which exists to catch a model claiming a badge the
+ * brain never decided on, only knew the present tense.
+ *
+ * Trace `mafia-2026-09-20T18-07-56-6QFZK`, house 5, day 3.
+ */
+describe('a badge owned in the past tense', () => {
+  const nothing = '7, say something';
+
+  it('catches the sentence that reached a real square', () => {
+    assert.equal(confesses('I was the poisoner, as I claimed on Night 3 in house 14', nothing), true);
+  });
+
+  it('catches the other ways of saying it, in both languages', () => {
+    assert.equal(confesses('I have been the arsonist all game', nothing), true);
+    assert.equal(confesses('j’etais le parrain', nothing), true);
+  });
+
+  /**
+   * And leaves alone the sentences that merely mention a badge in the past. A
+   * guard that reads "I was with the sheriff" as a claim to be one would take
+   * the phrasebook line off an honest seat every time it described its night.
+   */
+  it('does not read standing next to a badge as wearing it', () => {
+    assert.equal(confesses('I was with the sheriff all night', nothing), false);
+    assert.equal(confesses('I was at the doctor’s house', nothing), false);
+    assert.equal(confesses('I was never the poisoner', nothing), false);
+  });
+
+  /** A badge the brain decided to claim is a bluff, not a slip. */
+  it('still allows the claim the brain chose', () => {
+    assert.equal(confesses('I was the vigilante, and you know it', 'I am the vigilante'), false);
+  });
+});

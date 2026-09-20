@@ -32,7 +32,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.detective.name': 'Detective',
   'mafia.role.detective.desc': 'Each night, tail a player and learn whose house they went to.',
   'mafia.role.lookout.name': 'Lookout',
-  'mafia.role.lookout.desc': 'Each night, watch a house and see who calls on it.',
+  'mafia.role.lookout.desc': 'Each night, watch a house and see who visits it.',
   'mafia.role.spy.name': 'Spy',
   'mafia.role.spy.desc':
     'Overhears the families conspiring at night — never seeing a face — and learns who they aimed at.',
