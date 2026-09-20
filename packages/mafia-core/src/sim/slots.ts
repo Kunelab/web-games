@@ -194,6 +194,11 @@ export function possibleRoles(roleSlots: readonly SlotToken[], revealed: readonl
  *  - `possible` also counts the slots that merely *might* have been one. A
  *    Neutral Benign slot is not a killer and a Neutral Random slot might be; Any
  *    Role might be anything.
+ *  - `expected` is the one to read, and it is the number a player reaches
+ *    without calling it arithmetic: a slot that could be six things of which two
+ *    are knives is worth a third of a knife. Splitting the difference between
+ *    the two bounds instead read every Random Neutral as half a killer, which is
+ *    roughly double what that pool holds.
  *
  * The Cult is counted with the knives. It does not kill every night, but it
  * takes seats off the town's side one at a time, which is the same clock.
@@ -201,9 +206,11 @@ export function possibleRoles(roleSlots: readonly SlotToken[], revealed: readonl
 export function bladesDealt(roleSlots: readonly SlotToken[]): {
   sure: number;
   possible: number;
+  expected: number;
 } {
   let sure = 0;
   let possible = 0;
+  let expected = 0;
   for (const token of roleSlots) {
     const pool = slotPool(token).filter((role) => role in ROLES);
     if (pool.length === 0) continue;
@@ -212,6 +219,7 @@ export function bladesDealt(roleSlots: readonly SlotToken[]): {
     );
     if (blades.length === pool.length) sure++;
     if (blades.length > 0) possible++;
+    expected += blades.length / pool.length;
   }
-  return { sure, possible };
+  return { sure, possible, expected };
 }

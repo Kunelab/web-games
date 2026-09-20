@@ -941,19 +941,17 @@ export function parityPressure(info: PublicInfo): number {
    * days when it has none plays the entire midgame at the wrong speed.
    *
    * The list is on the wall and a person reads it on the first morning, which
-   * is what makes this the endgame arithmetic available from day two. It comes
-   * back as a range, because a category slot is only known as far as its pool
-   * goes, and the reading sits between the two: every slot that must be a
-   * killer, plus half of the ones that merely might be. Erring upwards on a
-   * board full of Any Role slots would have the town at parity panic on day one
-   * at a table with nothing in it.
+   * is what makes this the endgame arithmetic available from day two. A slot
+   * that must be a knife counts as one, and a slot that might be counts as the
+   * share of its pool that is, which is what a player means by "the random
+   * neutral is probably not a killer". See `bladesDealt`.
    *
    * The old guess stays for a board with no roster on it, which is every board
    * a test builds by hand.
    */
   const dealt = info.roleSlots ? bladesDealt(info.roleSlots) : null;
   const expectedEvils = dealt
-    ? Math.max(1, Math.round(dealt.sure + (dealt.possible - dealt.sure) * 0.5))
+    ? Math.max(1, Math.round(dealt.expected))
     : Math.max(1, Math.round(initial * 0.3));
   const deadEvils = [...info.deadRoles.values()].filter((role) => isEvilRole(role)).length;
   const evilsLeft = Math.max(info.lastNightDeathSlots.size > 0 ? 1 : 0, expectedEvils - deadEvils);
