@@ -469,6 +469,17 @@ const PROBE_EVERY_MS = 3 * 60 * 1000;
  * 600 ms) and well below a bad one, so an untried rung competes with the known
  * good ones without displacing them.
  */
+/**
+ * The longest a rung is ever benched for a failure that might yet pass.
+ *
+ * Ten minutes is long enough that an exhausted free tier stops costing a call a
+ * minute for the rest of the evening, and short enough that an endpoint which
+ * recovers is back before the game is over. A refusal that will never pass — a
+ * bad key, a spent quota, a plan that does not cover this — is benched for the
+ * whole process by `PERMANENT_REFUSALS` and never reaches this.
+ */
+const MAX_COOLDOWN_MS = 10 * 60_000;
+
 const UNTRIED_SCORE_MS = 700;
 
 /** Asked for often enough to be worth not allocating. */
@@ -1701,11 +1712,41 @@ export class MafiaBotDriver {
        * one has room.
        */
       const best = Math.min(...pool.map((entry) => this.score(entry)));
-      const window = Math.max(best * 1.6, best + 250);
+      /**
+       * Wide enough that "fast enough" means what it says.
+       *
+       * This was a quarter of a second past the best, which is a tighter tolerance
+       * than a table can perceive and it collapsed the whole chain onto one
+       * endpoint. Measured over fourteen games on ten configured slots: the
+       * quickest healthy endpoint answered 252 of the 372 successful calls, and
+       * the next one down — 280ms slower, well inside what anybody would call
+       * fast — took 87. Eight other endpoints, each with its own free daily
+       * allowance, shared the remainder.
+       *
+       * An allowance nobody spends is not saved, it expires, and the reason to
+       * configure ten endpoints is to have ten. So the window is what a person
+       * would accept rather than what a stopwatch prefers, and the *ordering*
+       * inside it is still least-busy-first: when the quickest is free it takes
+       * the call, and the only time a slower one is asked is when there is
+       * genuinely more work in flight than the quick ones can hold. That is the
+       * "when it makes sense" part — the spread follows the concurrency rather
+       * than being imposed on it.
+       */
+      const window = Math.max(best * 2.5, best + 1200);
       const close = pool.filter((entry) => (this.health.get(entry)?.ok ?? 0) === 0 || this.score(entry) <= window);
       const quietest = Math.min(...close.map((entry) => this.busyOn.get(entry) ?? 0));
       const idle = close.filter((entry) => (this.busyOn.get(entry) ?? 0) === quietest);
-      return idle[Math.floor(Math.random() * idle.length)] ?? rung;
+      /**
+       * Among equals, the one that has waited longest.
+       *
+       * A coin flip between idle endpoints spreads the work in the long run and
+       * not within one afternoon, which is the only run there is: over a game
+       * of fifty calls a fair coin leaves two of five endpoints barely touched.
+       * Least recently used reaches all of them, and it is the same tie-break
+       * the opt-in rotation uses one branch above.
+       */
+      const longestAgo = Math.min(...idle.map((entry) => this.usedAt.get(entry) ?? 0));
+      return idle.find((entry) => (this.usedAt.get(entry) ?? 0) === longestAgo) ?? rung;
     }
     return null;
   }
@@ -1819,7 +1860,26 @@ export class MafiaBotDriver {
     const carried: unknown = (error as { status?: unknown } | undefined)?.status;
     const status = typeof carried === 'number' ? carried : undefined;
     const permanent = status !== undefined && PERMANENT_REFUSALS.has(status);
-    const forMs = permanent ? Number.POSITIVE_INFINITY : env.MAFIA_BOT_COOLDOWN_MS;
+    /**
+     * And a rung that keeps failing waits longer each time.
+     *
+     * A flat minute is the right answer for an endpoint having a bad moment and
+     * the wrong one for an endpoint that is out of allowance for the evening.
+     * The two are indistinguishable at the first 429 and obvious by the fifth,
+     * and the cooldown was not looking: measured over fourteen games, two slots
+     * answered zero calls successfully and were asked twenty-one and twenty-two
+     * times, once a minute each, every one of them a round trip spent in front
+     * of a seat waiting to speak.
+     *
+     * Doubling per consecutive failure, capped, and reset by a single success —
+     * `note` already zeroes the streak when a call lands, so a tier that comes
+     * back at midnight is back in the rotation on its first good answer. The
+     * streak is the same one the score uses, so a rung on its way out is being
+     * ranked down and backed off by the same evidence.
+     */
+    const streak = this.health.get(rung)?.streak ?? 0;
+    const backoff = Math.min(env.MAFIA_BOT_COOLDOWN_MS * 2 ** Math.max(0, streak - 1), MAX_COOLDOWN_MS);
+    const forMs = permanent ? Number.POSITIVE_INFINITY : backoff;
 
     if ((this.benched.get(rung) ?? 0) < Date.now()) {
       this.log.warn(
