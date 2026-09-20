@@ -288,6 +288,24 @@ export function mouthPrompt(
 const MEANS_SILENCE = /^(?:null|nil|n\/?a|\(\s*(?:silence|silent|nothing|none)\s*\)|-{1,3})$/i;
 
 /**
+ * A stage direction written as prose, which the bracket test cannot see.
+ *
+ * `readLine` already throws away a line that opens with a bracket or a star,
+ * because a small model asked to be in character writes `*whispers*` or
+ * `(leaning back)`. It writes the same thing without the punctuation just as
+ * readily, and that walked straight through: a Crier put `chuchote: " Le foot,
+ * parce qu'on marque des buts...` into the square, attribution, quotation mark
+ * and all, in a chaos run.
+ *
+ * Stripped rather than refused, because what follows the colon is the line the
+ * model meant to write and it is usually fine. Deliberately a closed list of
+ * speech verbs and not "any word before a colon": a bot opening with "Zenitsu:
+ * ta nuit" is addressing somebody by name, which is exactly how people type.
+ */
+const ATTRIBUTION =
+  /^\s*(?:(?:il|elle|je|he|she|i)\s+)?(?:chuchote|chuchotant|murmure|souffle|dit|déclare|declare|crie|hurle|annonce|répond|repond|whispers?|whispering|says?|saying|shouts?|mutters?|muttering|replies|announces)\s*:\s*["'«»]?\s*/i;
+
+/**
  * The line to say, or `null` to say nothing at all.
  *
  * The distinction this returns is between a seat that *chose* not to speak and
@@ -368,7 +386,7 @@ export function readLine(
 
   // Stage directions and self-narration, which small models produce when asked
   // to be in character. A line that is mostly one of these is not a line.
-  const cleaned = asTyped(line.replace(/^["'«»\s]+|["'«»\s]+$/g, ''));
+  const cleaned = asTyped(line.replace(/^["'«»\s]+|["'«»\s]+$/g, '').replace(ATTRIBUTION, ''));
   if (!cleaned || cleaned.length > SAY_CHARS) return intent.fallback;
   // "null" in quotes is still the model saying nothing.
   if (MEANS_SILENCE.test(cleaned)) return null;

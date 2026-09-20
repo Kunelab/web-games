@@ -175,3 +175,34 @@ describe('the shapes the chain asks for', () => {
     assert.deepEqual([...line.type], ['string', 'null'], 'the mouth must be able to decline');
   });
 });
+
+/**
+ * A stage direction the bracket test could not see.
+ *
+ * `readLine` throws away a line opening with a bracket or a star, because a
+ * small model asked to be in character writes `*whispers*` or `(leaning back)`.
+ * It writes the same thing in plain prose just as readily, and that walked
+ * through: a Crier put `chuchote: " Le foot, parce qu'on marque des buts...`
+ * into the square, attribution and quotation mark included. From a chaos run.
+ */
+describe('a line that narrates itself', () => {
+  const intent = { act: 'say something', mood: 'dry', fallback: 'FALLBACK' };
+  const self = { name: 'Lugh', slot: 8 };
+  const said = (line: string) => readLine({ line }, intent, self);
+
+  it('strips a spoken attribution and keeps the line', () => {
+    assert.equal(said('chuchote: " Le foot, parce qu’on marque des buts'), 'Le foot, parce qu’on marque des buts');
+    assert.equal(said('whispers: 7 is lying'), '7 is lying');
+    assert.equal(said('Il murmure : personne ne me croit'), 'personne ne me croit');
+  });
+
+  /**
+   * And leaves a name alone. "Zenitsu: ta nuit" is how people address each
+   * other, and a rule that read any word before a colon as an attribution would
+   * eat the name off every one of those.
+   */
+  it('does not mistake a name for a verb', () => {
+    assert.equal(said('Zenitsu: ta nuit ?'), 'Zenitsu: ta nuit?');
+    assert.equal(said('7: explique-toi'), '7: explique-toi');
+  });
+});
