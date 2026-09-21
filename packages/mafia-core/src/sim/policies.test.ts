@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { toPublicInfo } from "../observe.js";
-import type { RoleId } from "../roles.js";
+import { familyOf, type RoleId } from "../roles.js";
+import { sameCause } from "./simulate.js";
+
 import {
   createMafiaGame,
   playerBySlot,
@@ -29,6 +31,8 @@ import {
   steadyVote,
   styleOf,
   suspicionParts,
+  isEvilRole,
+  ALLY_TRUST,
   tide,
   tradeSuspects,
   tradeVerdict,
@@ -1151,7 +1155,7 @@ describe("what the killers leave standing", () => {
         accusedId: "s2",
         lynched: false,
         guiltyIds: ["s4"],
-        innocentIds: ["s3"],
+        innocentIds: ["s3"], abstainIds: [],
       },
     ];
     const info = toPublicInfo(state, [], []);
@@ -1176,7 +1180,7 @@ describe("what the killers leave standing", () => {
         accusedId: "s2",
         lynched: false,
         guiltyIds: [],
-        innocentIds: ["s3"],
+        innocentIds: ["s3"], abstainIds: [],
       },
     ];
     const claims: Claim[] = [
@@ -1207,7 +1211,7 @@ describe("what the killers leave standing", () => {
         accusedId: "s1",
         lynched: false,
         guiltyIds: ["s3"],
-        innocentIds: ["s2"],
+        innocentIds: ["s2"], abstainIds: [],
       },
     ];
     const info = toPublicInfo(state, [], []);
@@ -1514,7 +1518,7 @@ describe("a style, chosen once", () => {
           accusedSlot: first,
           lynched: false,
           guiltySlots: [],
-          innocentSlots: [1, 2, 3],
+          innocentSlots: [1, 2, 3], abstainSlots: [],
         },
       ],
     };
@@ -1667,7 +1671,7 @@ describe("the bell overrides the acquittal filter, but only when it must", () =>
         accusedSlot: slot,
         lynched: false,
         guiltySlots: [],
-        innocentSlots: [...board.aliveSlots],
+        innocentSlots: [...board.aliveSlots], abstainSlots: [],
       })),
     };
 
@@ -2004,5 +2008,152 @@ describe("the blades that are not ours", () => {
     const nearly = wagonOf([5, 6, 7]);
     nearly.self.bounced = [3];
     assert.equal(votes(nearly), 4);
+  });
+});
+
+/**
+ * What a seat gets for free from the people it already knows about.
+ *
+ * `pickVote` refused to nominate a teammate and `decideBallot` acquitted one, so
+ * the ballot was always safe. Everything in between was not: a mason would name
+ * his brother in the square, argue against him and rank him top of the night
+ * list, then decline to vote for the seat he had spent the afternoon accusing.
+ */
+describe("the trust a seat does not have to earn", () => {
+  const board = (state: MafiaState) => toPublicInfo(state, [], []);
+
+  function reading(allies: number[], bond: "lover" | "charm" | null = null): number {
+    const state = table(["mason-leader", "mason", "citizen", "citizen", "godfather"]);
+    const judge = playerBySlot(state, 1)!;
+    judge.bondKind = bond;
+    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
+    return suspicionParts(2, judge, board(state), () => 0, new Set(allies)).evidence;
+  }
+
+  it("hands a known brother a flat credit a stranger does not get", () => {
+    const stranger = reading([]);
+    const brother = reading([2]);
+    assert.ok(brother < stranger - 4, `the lodge should be worth ${ALLY_TRUST}, got ${stranger - brother}`);
+  });
+
+  /**
+   * A lover wins with their partner whoever else wins, so the side they were
+   * dealt stops being the side they are certainly playing for. Read off the
+   * seat's own bond, which is the only one it can honestly know about.
+   */
+  it("withholds it from a seat whose heart is in another room", () => {
+    assert.equal(reading([2], "lover"), reading([], "lover"), "a bonded seat extends nothing for free");
+    assert.ok(reading([2], "charm") < reading([], "charm"), "a charm is not a bond");
+  });
+
+  it("gives the same credit to a sash the engine vouched for", () => {
+    const state = table(["sheriff", "mayor", "citizen", "citizen", "godfather"]);
+    const judge = playerBySlot(state, 1)!;
+    const mayor = playerBySlot(state, 2)!;
+    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
+
+    const before = suspicionParts(2, judge, board(state), () => 0).evidence;
+    mayor.revealed = true;
+    const after = suspicionParts(2, judge, board(state), () => 0).evidence;
+    assert.ok(after < before, "a revealed sash cannot be faked, and the square should stop hunting it");
+  });
+});
+
+/**
+ * A verdict is a reading of a case, not a doorway you are either side of.
+ *
+ * The booth used to hold two hard thresholds with a coin flip between them: at
+ * or above 1.2 a juror hanged you every time, at or below 0.4 it acquitted you
+ * every time, and in between it ignored the score entirely and rolled against
+ * its own temperament. So 1.19 and 1.21 were different games, while 0.45 and
+ * 1.19 — nothing like the same case — were treated identically.
+ */
+describe("the jury reads a spectrum", () => {
+  const always = (value: number) => () => value;
+
+  /** How often a juror convicts on a case of this weight, over the whole dial. */
+  function convictions(accusers: number): number {
+    const state = table(["citizen", "citizen", "citizen", "citizen", "godfather"], 3);
+    const juror = playerBySlot(state, 1)!;
+    bindPersonalities([makeBrain(juror.slot, HERD_HALF)]);
+
+    // A wagon of the given size, which is the cheapest way to move the score.
+    const claims: Claim[] = [];
+    for (let accuser = 0; accuser < accusers; accuser++) {
+      claims.push(claim({ claimerSlot: 3 + (accuser % 2), targetSlot: 2, kind: "accuse", day: 3 + accuser }));
+    }
+    const board = toPublicInfo(state, claims, []);
+
+    let guilty = 0;
+    const rolls = 400;
+    for (let roll = 0; roll < rolls; roll++) {
+      const at = (roll + 0.5) / rolls;
+      if (decideBallot(juror, makeBrain(1, DEFAULT_PROFILE), board, 2, new Set(), always(at)) === "guilty") guilty++;
+    }
+    return guilty / rolls;
+  }
+
+  it("moves the odds by degrees instead of crossing a line", () => {
+    const thin = convictions(0);
+    const some = convictions(1);
+    const plenty = convictions(3);
+
+    assert.ok(thin <= some, `a bigger case should not convict less: ${thin} then ${some}`);
+    assert.ok(some <= plenty, `and more of it should convict more: ${some} then ${plenty}`);
+    assert.ok(plenty > thin, `the dial has to actually move, got ${thin} to ${plenty}`);
+    // The point of the curve: neither end is a certainty the moment it is crossed.
+    assert.ok(plenty < 1 || thin > 0, "a spectrum has somewhere in the middle");
+  });
+});
+
+/**
+ * The Triad is the Mafia in a different coat, and hostile to it.
+ *
+ * Nothing in the policy names either family: everything routes through
+ * `familyOf`, which answers the same way for `mafia`, `triad` and `cult`. That
+ * is the design, and this holds it down, because the cheapest way to break it
+ * is to write one branch that says `'mafia'` somewhere and never notice that
+ * half the roster now plays differently.
+ */
+describe("the triad is a family like the other one", () => {
+  const board = (state: MafiaState) => toPublicInfo(state, [], []);
+
+  /** What one seat's arithmetic makes of another, given who it knows. */
+  function reading(roles: RoleId[], judgeSlot: number, aboutSlot: number, allies: number[]): number {
+    const state = table(roles, 3);
+    const judge = playerBySlot(state, judgeSlot)!;
+    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
+    return suspicionParts(aboutSlot, judge, board(state), () => 0, new Set(allies)).evidence;
+  }
+
+  const cast: RoleId[] = ['godfather', 'mafioso', 'dragon-head', 'enforcer', 'citizen', 'sheriff'];
+
+  it("gives a brother the same free trust either family gets", () => {
+    const mafiaOnBrother = reading(cast, 1, 2, [2]) - reading(cast, 1, 2, []);
+    const triadOnBrother = reading(cast, 3, 4, [4]) - reading(cast, 3, 4, []);
+    assert.ok(mafiaOnBrother < -4, `the family should be worth ${ALLY_TRUST}, got ${-mafiaOnBrother}`);
+    assert.ok(
+      Math.abs(mafiaOnBrother - triadOnBrother) < 0.001,
+      `the two families must price a brother identically: ${mafiaOnBrother} against ${triadOnBrother}`
+    );
+  });
+
+  it("does not hand the other family a brother's credit", () => {
+    // A Dragon Head is not on the Godfather's list, and knows it is not.
+    assert.equal(reading(cast, 1, 3, [2]), reading(cast, 1, 3, []), 'the triad is not the mafia');
+    assert.equal(reading(cast, 3, 1, [4]), reading(cast, 3, 1, []), 'and the mafia is not the triad');
+  });
+
+  it("reads both families as their own side, and neither as town", () => {
+    for (const role of ['godfather', 'mafioso', 'dragon-head', 'enforcer'] as RoleId[]) {
+      assert.equal(familyOf(role) !== null, true, `${role} belongs to a family`);
+      assert.equal(isEvilRole(role), true, `${role} is evil`);
+    }
+    assert.equal(familyOf('godfather'), 'mafia');
+    assert.equal(familyOf('dragon-head'), 'triad');
+    // Same side as their own, opposite sides to each other. See `sameCause`.
+    assert.equal(sameCause('godfather', 'mafioso'), true);
+    assert.equal(sameCause('dragon-head', 'enforcer'), true);
+    assert.equal(sameCause('godfather', 'dragon-head'), false);
   });
 });

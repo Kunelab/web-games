@@ -2,7 +2,7 @@
 import { SETUPS, setupById } from '../setups.js';
 import type { Personality } from './policies.js';
 import { simulateGame, type Calibration, type SimResult, type TrialAutopsy } from './simulate.js';
-import { roleDef } from '../roles.js';
+import { roleDef, type RoleId } from '../roles.js';
 
 /**
  * Batch runner for the fast simulation.
@@ -130,6 +130,15 @@ interface Aggregate {
   botAnswered: number;
   botAccusations: number;
   botFollowed: number;
+  /**
+   * Every knife swung, by the role that swung it. See `SimResult.strikes`.
+   *
+   * Two numbers the bench never had: how often a killer lands the knife at all,
+   * and how often it lands it in somebody playing for the same result. The
+   * second is the one worth watching — a town killer that shoots town is not a
+   * balance problem, it is the town losing to itself.
+   */
+  kills: Map<RoleId, { swings: number; landed: number; allyLanded: number }>;
 }
 
 function aggregate(results: SimResult[]): Aggregate {
@@ -170,7 +179,8 @@ function aggregate(results: SimResult[]): Aggregate {
     botAsked: 0,
     botAnswered: 0,
     botAccusations: 0,
-    botFollowed: 0
+    botFollowed: 0,
+    kills: new Map()
   };
   for (const result of results) {
     agg[result.winner] += 1;
@@ -202,6 +212,13 @@ function aggregate(results: SimResult[]): Aggregate {
     agg.botAnswered += result.human.botAnswered;
     agg.botAccusations += result.human.botAccusations;
     agg.botFollowed += result.human.botFollowed;
+    for (const strike of result.strikes) {
+      const row = agg.kills.get(strike.by) ?? { swings: 0, landed: 0, allyLanded: 0 };
+      row.swings += 1;
+      if (strike.landed) row.landed += 1;
+      if (strike.landed && strike.ally) row.allyLanded += 1;
+      agg.kills.set(strike.by, row);
+    }
   }
   return agg;
 }
@@ -433,6 +450,46 @@ if (asJson) {
       pct(agg.wrongExecutions, agg.executions).padStart(12)
     ];
     console.log(cells.join(' | '));
+  }
+
+  /**
+   * Every killer's aim, pooled across the sizes.
+   *
+   * Per size it is too thin to read: a Vigilante appears in a fraction of the
+   * tables and fires three bullets when it does. Pooled, the two columns answer
+   * the two questions worth asking about a killing role. "réussis" is how often
+   * a swing produces a body at all, which is the role's throughput against
+   * every doctor, jail and vest in the game. "sur les siens" is how many of
+   * those bodies were playing for the same result as the killer, which for a
+   * town gun is the whole question: a Vigilante with a high one is not a strong
+   * role, it is the town shooting itself and calling it a power.
+   *
+   * Solo killers are in the table and their ally column is structurally zero,
+   * because a seat with no side cannot betray one. See `sameCause`.
+   */
+  const guns = new Map<RoleId, { swings: number; landed: number; allyLanded: number }>();
+  for (const agg of tables) {
+    for (const [role, row] of agg.kills) {
+      const into = guns.get(role) ?? { swings: 0, landed: 0, allyLanded: 0 };
+      into.swings += row.swings;
+      into.landed += row.landed;
+      into.allyLanded += row.allyLanded;
+      guns.set(role, into);
+    }
+  }
+  if (guns.size > 0) {
+    console.log('\nrôle             | coups | réussis | sur les siens');
+    const rows = [...guns].sort((left, right) => right[1].landed - left[1].landed);
+    for (const [role, row] of rows) {
+      console.log(
+        [
+          role.padEnd(16),
+          String(row.swings).padStart(5),
+          pct(row.landed, row.swings).padStart(7),
+          pct(row.allyLanded, row.landed).padStart(13)
+        ].join(' | ')
+      );
+    }
   }
 
   /**

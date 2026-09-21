@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { RoleId } from '../roles.js';
-import { trustOf, type Claim, type PublicInfo } from './policies.js';
+import { trustOf, type Claim, type PublicInfo, type TrialRecord } from './policies.js';
 import { caseFor, defenceFor, rank } from './ranking.js';
 import { visitOdds } from './visits.js';
 
@@ -321,7 +321,7 @@ describe('the price of voting innocent on a killer', () => {
       totalDead: 1,
       deadRoles: new Map<number, RoleId>([[5, 'mafioso']]),
       deaths: [{ slot: 5, day, phase: 'day', source: null }],
-      trials: [{ day, accusedSlot: 5, lynched: true, guiltySlots: [2], innocentSlots: [1] }],
+      trials: [{ day, accusedSlot: 5, lynched: true, guiltySlots: [2], innocentSlots: [1], abstainSlots: [] }],
       claims: extra
     });
 
@@ -357,5 +357,63 @@ describe('the price of voting innocent on a killer', () => {
   it('does not charge for a case made after the verdict', () => {
     const later = trustOf(1, trial(2, [said({ claimerSlot: 2, targetSlot: 5, kind: 'accuse', day: 4 })]));
     assert.equal(later, trustOf(1, trial(2)));
+  });
+});
+
+/**
+ * The third hand, which the meter could not see.
+ *
+ * A ballot has three faces and `trustOf` counted two, so sitting a trial out
+ * was the one perfectly safe thing a seat could do: decline every afternoon a
+ * brother stood on the stand and arrive at the end with a clean record, while
+ * the seat beside you that actually answered paid for being wrong. It was
+ * invisible in the square too, which is the other half of the same hole.
+ */
+describe('the hand that stayed down', () => {
+  const trial = (parts: Partial<TrialRecord> = {}): PublicInfo =>
+    board({
+      day: 4,
+      aliveSlots: [1, 2, 3, 4],
+      totalDead: 1,
+      deadRoles: new Map<number, RoleId>([[5, 'mafioso']]),
+      deaths: [{ slot: 5, day: 3, phase: 'day', source: null }],
+      trials: [
+        {
+          day: 3,
+          accusedSlot: 5,
+          lynched: true,
+          guiltySlots: [2],
+          innocentSlots: [3],
+          abstainSlots: [1],
+          ...parts
+        }
+      ]
+    });
+
+  it('charges an abstention on a killer, and less than mercy', () => {
+    const sat = trustOf(1, trial());
+    const spared = trustOf(3, trial());
+    assert.ok(sat < 0, `declining to help catch a killer is not free, got ${sat}`);
+    assert.ok(sat > spared, 'but it is not the same act as standing up for one');
+    assert.ok(Math.abs(sat - spared / 3) < 0.2, `about a third of the price, got ${sat} against ${spared}`);
+  });
+
+  it('never pays an abstention the credit a guilty ballot earns', () => {
+    const sat = trustOf(1, trial());
+    const hanged = trustOf(2, trial());
+    assert.ok(hanged > 0 && sat < 0, 'or sitting out would be the cheapest way to look trustworthy');
+  });
+
+  /** Staying out of a bad rope is worth a little, and only a little. */
+  it('credits an abstention on a townsperson below an innocent vote', () => {
+    const townie = (): PublicInfo => {
+      const info = trial();
+      info.deadRoles = new Map<number, RoleId>([[5, 'citizen']]);
+      return info;
+    };
+    const sat = trustOf(1, townie());
+    const saved = trustOf(3, townie());
+    assert.ok(sat > 0, 'not helping to hang a townsperson counts for something');
+    assert.ok(sat < saved, 'but standing up for them counts for more');
   });
 });

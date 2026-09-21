@@ -463,6 +463,13 @@ export const screenEn: Catalogue = {
     'they said poisoned on night {night}, and poison kills the next night. They are here',
   'mafia.bot.why.poisonSurvived.3': 'nobody says they healed them, and the poison they claimed never killed them',
   'mafia.bot.why.visitedCorpse.1': 'they say they visited {who} on night {night}, and {who} was already dead by then',
+  /** The same contradiction the other way up: a morgue badge, out among the living. */
+  'mafia.bot.why.visitedTheLiving.1':
+    'they claim to be the {role}, then put themselves at {who}’s house on night {night}, and {who} is sitting right there alive',
+  'mafia.bot.why.visitedTheLiving.2':
+    'the {role} only ever works on a body, and they say they went to {who} on night {night}. {who} is still with us',
+  'mafia.bot.why.visitedTheLiving.3':
+    'a {role} has no business on a living doorstep, and theirs was {who}’s on night {night}',
   'mafia.bot.why.visitedCorpse.2': 'they claim a visit to {who} on night {night}, but {who} had already been killed',
   'mafia.bot.why.visitedCorpse.3': 'their own account has them visiting a house whose owner was already dead',
   'mafia.bot.why.guardedNoDeath.1':
@@ -601,9 +608,17 @@ export const screenEn: Catalogue = {
   'mafia.bot.why.checkNamed.1': 'I checked them on night {night} and the result was {what}',
   'mafia.bot.why.checkNamed.2': 'my night {night} check on them came back {what}',
   'mafia.bot.why.checkNamed.3': 'I investigated them on night {night} and found {what}',
-  'mafia.bot.why.admitted.1': 'they told us themselves they visited {who} on night {night}',
-  'mafia.bot.why.admitted.2': 'by their own account they went to {who}’s house on night {night}',
-  'mafia.bot.why.admitted.3': 'they admitted visiting {who} on night {night}',
+  /**
+   * Only said where the house produced a body. See the rung that builds it.
+   *
+   * These used to be the bare fact — "they visited {who} on night {night}" —
+   * offered as a reason to hang somebody, on nights where {who} was alive and
+   * nothing at all had happened at that address. Now the death is in the
+   * sentence, because the death is the entire reason the sentence exists.
+   */
+  'mafia.bot.why.admitted.1': 'they put themselves at {who}’s house on night {night}, the night {who} died',
+  'mafia.bot.why.admitted.2': 'by their own account they were at {who}’s door on night {night}, and {who} did not see the morning',
+  'mafia.bot.why.admitted.3': 'they admitted visiting {who} on night {night}, which is the night {who} was killed',
   'mafia.bot.why.doubleClaim.1': 'they and {who} both claim to be the {role}, so one of them is lying',
   'mafia.bot.why.doubleClaim.2': 'two people claim to be the {role}: them and {who}',
   'mafia.bot.why.doubleClaim.3': 'they claim {role} and so does {who}, and there is only one',
@@ -1137,6 +1152,14 @@ export const screenEn: Catalogue = {
   'mafia.bot.fact.claimerDied.2': '{who} said {role} in the square and was dead by morning.',
   'mafia.bot.fact.claimerDied.3': 'The night after {who} claimed {role}, {who} died.',
   'mafia.bot.fact.votersWrong.1': '{names} voted guilty on {who}, who was town.',
+  /** Said by a seat that voted guilty itself, instead of pointing at others. */
+  'mafia.bot.fact.votersWrongMine.1': 'I voted guilty on {who}, and {who} was town. That one is on me.',
+  'mafia.bot.fact.votersWrongMine.2': 'I helped hang {who}, who turned out to be town. I got that wrong.',
+  'mafia.bot.fact.votersWrongMine.3': 'my ballot went guilty on {who}, and {who} was one of ours.',
+  /** When the room was all but unanimous, naming three of them is a lie. */
+  'mafia.bot.fact.votersWrongMany.1': '{count} of us voted guilty on {who}, who was town.',
+  'mafia.bot.fact.votersWrongMany.2': 'we hanged {who} {count} votes to nearly none, and {who} was town.',
+  'mafia.bot.fact.votersWrongMany.3': '{count} guilty ballots on {who}, and {who} was one of ours.',
   'mafia.bot.fact.votersWrong.2': '{who} was town, and {names} pulled the rope.',
   'mafia.bot.fact.votersWrong.3': '{names} put a hand up for {who}. {who} was town.',
 

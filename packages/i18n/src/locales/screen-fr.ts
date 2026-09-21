@@ -439,6 +439,13 @@ export const screenFr: Catalogue = {
   'mafia.bot.why.poisonSurvived.2': 'empoisonné la nuit {night}, dit-il, et le poison tue la nuit suivante. Il est là',
   'mafia.bot.why.poisonSurvived.3': 'personne ne dit l’avoir soigné, et le poison annoncé ne l’a jamais tué',
   'mafia.bot.why.visitedCorpse.1': 'il dit être allé chez {who} la nuit {night}, et {who} était déjà mort',
+  // La même contradiction dans l'autre sens : un insigne de morgue, chez les vivants.
+  'mafia.bot.why.visitedTheLiving.1':
+    'il se dit {role}, puis se place chez {who} la nuit {night}, et {who} est assis là bien vivant',
+  'mafia.bot.why.visitedTheLiving.2':
+    'le {role} ne travaille que sur un corps, et il dit être allé chez {who} la nuit {night}. {who} est toujours parmi nous',
+  'mafia.bot.why.visitedTheLiving.3':
+    'un {role} n’a rien à faire sur le pas d’une porte vivante, et la sienne était celle de {who} la nuit {night}',
   'mafia.bot.why.visitedCorpse.2': 'il annonce une visite chez {who} la nuit {night}, mais {who} avait déjà été tué',
   'mafia.bot.why.visitedCorpse.3': 'son propre récit le place chez quelqu’un qui était déjà mort',
   'mafia.bot.why.guardedNoDeath.1':
@@ -579,9 +586,10 @@ export const screenFr: Catalogue = {
   'mafia.bot.why.checkNamed.1': 'je l’ai vérifié la nuit {night} et le résultat était {what}',
   'mafia.bot.why.checkNamed.2': 'ma vérification de la nuit {night} est revenue {what}',
   'mafia.bot.why.checkNamed.3': 'je l’ai enquêté la nuit {night} et j’ai trouvé {what}',
-  'mafia.bot.why.admitted.1': 'il nous a dit lui-même être allé chez {who} la nuit {night}',
-  'mafia.bot.why.admitted.2': 'de son propre aveu il était chez {who} la nuit {night}',
-  'mafia.bot.why.admitted.3': 'il a reconnu être allé chez {who} la nuit {night}',
+  // Dit seulement quand la maison a rendu un corps. Voir le barreau qui la construit.
+  'mafia.bot.why.admitted.1': 'il se place lui-même chez {who} la nuit {night}, la nuit où {who} est mort',
+  'mafia.bot.why.admitted.2': 'de son propre aveu il était devant la porte de {who} la nuit {night}, et {who} n’a pas vu le matin',
+  'mafia.bot.why.admitted.3': 'il a reconnu être allé chez {who} la nuit {night}, c’est-à-dire la nuit où {who} a été tué',
   'mafia.bot.why.doubleClaim.1': 'lui et {who} prétendent tous les deux être le {role}, donc l’un des deux ment',
   'mafia.bot.why.doubleClaim.2': 'deux personnes se disent {role} : lui et {who}',
   'mafia.bot.why.doubleClaim.3': 'il se dit {role} et {who} aussi, et il n’y en a qu’un',
@@ -1037,6 +1045,14 @@ export const screenFr: Catalogue = {
   'mafia.bot.fact.claimerDied.2': '{who} a dit {role} sur la place et était mort au matin.',
   'mafia.bot.fact.claimerDied.3': 'La nuit après que {who} s’est dit {role}, {who} est mort.',
   'mafia.bot.fact.votersWrong.1': '{names} ont voté coupable sur {who}, qui était de la ville.',
+  // Dit par un siège qui a voté coupable lui-même, plutôt que de désigner les autres.
+  'mafia.bot.fact.votersWrongMine.1': 'j’ai voté coupable sur {who}, et {who} était de la ville. Celle-là est pour moi.',
+  'mafia.bot.fact.votersWrongMine.2': 'j’ai aidé à pendre {who}, qui était de la ville. Je me suis trompé.',
+  'mafia.bot.fact.votersWrongMine.3': 'mon bulletin disait coupable sur {who}, et {who} était des nôtres.',
+  // Quand la salle était quasi unanime, en nommer trois est un mensonge.
+  'mafia.bot.fact.votersWrongMany.1': 'nous étions {count} à voter coupable sur {who}, qui était de la ville.',
+  'mafia.bot.fact.votersWrongMany.2': 'on a pendu {who} à {count} voix contre presque rien, et {who} était de la ville.',
+  'mafia.bot.fact.votersWrongMany.3': '{count} bulletins coupables sur {who}, et {who} était des nôtres.',
   'mafia.bot.fact.votersWrong.2': '{who} était de la ville, et {names} ont tiré la corde.',
   'mafia.bot.fact.votersWrong.3': '{names} ont levé la main sur {who}. {who} était de la ville.',
 

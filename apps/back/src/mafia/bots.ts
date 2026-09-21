@@ -52,6 +52,7 @@ import {
   type MafiaBusy,
   type MafiaState,
   isMason,
+  isLodgeMate,
   type IntelEntry,
   type MafiaView,
   type PublicInfo,
@@ -201,6 +202,8 @@ export interface Decision {
     ailment?: Claim['ailment'];
     /** Built from a night this seat actually worked. See `Claim.worked`. */
     worked?: boolean;
+    /** And which power produced it, which is what corroborates. See `Claim.from`. */
+    from?: Claim['from'];
   } | null;
   /**
    * What this turn means, for the mouth to phrase.
@@ -604,6 +607,17 @@ const AILMENT_VALUE: Record<string, number> = {
   douse: 2.5,
   survived: 2
 };
+
+/**
+ * The nights the morning reported nothing, which is what makes a roleblock
+ * evidence. See `claimFor`'s `blocked` branch.
+ */
+function quietNights(board: PublicInfo): Set<number> {
+  const loud = new Set(board.deaths.filter((death) => death.phase === 'night').map((death) => death.day));
+  const quiet = new Set<number>();
+  for (let night = 1; night < board.day; night++) if (!loud.has(night)) quiet.add(night);
+  return quiet;
+}
 
 function claimValue(claim: { kind: ClaimKind; ailment?: Claim['ailment'] }): number {
   if (claim.kind !== 'ailing') return CLAIM_VALUE[claim.kind];
@@ -4958,10 +4972,19 @@ export class MafiaBotDriver {
     if (!self?.role) return null;
     const board = this.minds.board(state, botId);
     const rng = Math.random;
+    // The same set the decisions are handed, so the recorder prints the numbers
+    // the seat actually reasoned on rather than a stranger's view of the table.
+    const allies = new Set(
+      Object.values(state.players)
+        .filter((other) => other.playerId !== self.playerId && isLodgeMate(self, other))
+        .map((other) => other.slot)
+    );
+    const bonded = self.bondPartnerId ? state.players[self.bondPartnerId] : null;
+    if (bonded?.alive) allies.add(bonded.slot);
     const seats = board.aliveSlots
       .filter((slot) => slot !== self.slot)
       .map((slot) => {
-        const parts = suspicionParts(slot, self, board, rng);
+        const parts = suspicionParts(slot, self, board, rng, allies);
         return {
           slot,
           evidence: Math.round(parts.evidence * 100) / 100,
@@ -5070,7 +5093,8 @@ export class MafiaBotDriver {
       ...(claim.kind === 'role-claim' && claim.role ? { claimedRole: claim.role as RoleId } : {}),
       ...(claim.account ? { account: claim.account } : {}),
       ...(claim.ailment ? { ailment: claim.ailment } : {}),
-      ...(claim.worked ? { worked: true } : {})
+      ...(claim.worked ? { worked: true } : {}),
+      ...(claim.from ? { from: claim.from } : {})
     });
   }
 
@@ -5561,10 +5585,45 @@ export class MafiaBotDriver {
       const lean = read?.leans.find((entry) => entry.slot === me.slot);
       let cast = verdict;
       if (lean && !allies.has(accused) && ROLES[self.role].faction === 'town') {
-        // Only where the brain was not already sure: a firm read outranks a
-        // reading of the room.
-        const firm = Math.abs(suspicion(accused, self, board, rng) - 0.8) > 0.7;
-        if (!firm) cast = lean.lean;
+        /**
+         * The argument may outrank the arithmetic, but never an eyewitness.
+         *
+         * The gate here used to be "unless the brain is already sure", where
+         * sure meant a *suspicion score* past a threshold — so a seat whose
+         * certainty was built entirely out of other people repeating each other
+         * was immune to having the trial explained to it. That is backwards.
+         * The score is a summary of the board, and the whole reason a trial
+         * exists is that the board does not hold how well anything was argued:
+         * a seat gave the defence of the evening and was hanged by numbers that
+         * had not moved, which is what the jury reader was written for.
+         *
+         * So the reading now wins by default, and yields to exactly one thing:
+         * this juror holding hard evidence of its own. A check it ran, a
+         * doorstep it stood on, a contradiction the record proves. An argument,
+         * however good, does not talk a Sheriff out of what the Sheriff saw —
+         * and that is also the safety rail, because a model that hallucinates a
+         * juror or a verdict can now move a ballot, and the seats it must never
+         * move are precisely the ones that know something.
+         */
+        /**
+         * "Something of its own" means its own notebook, not the room's.
+         *
+         * This was `suspicionParts(...).hard < 1`, which reads as the right
+         * test and is not: `hard` also collects every credible `worked`
+         * accusation *other* seats have published. So a juror holding nothing
+         * whatsoever, sitting at a table with two loud investigators, scored
+         * well past the bar and became immune to having the trial explained to
+         * it — which is precisely the seat the jury reader exists for.
+         *
+         * The honest question is whether this juror spent a night on the seat
+         * in front of it. A check it ran, a doorstep it stood on, a house it
+         * watched. That is the thing an argument cannot talk anybody out of,
+         * and it is the only thing that should hold the reading off.
+         */
+        const sawItMyself = self.intel.some(
+          (entry) => entry.targetSlot === accused || (entry.slots?.includes(accused) ?? false)
+        );
+        if (!sawItMyself) cast = lean.lean;
       }
 
       /**
@@ -6653,6 +6712,14 @@ export class MafiaBotDriver {
         return vary('mafia.bot.why.poisonSurvived', 3, seed, { night: found.night });
       case 'visited-a-corpse':
         return vary('mafia.bot.why.visitedCorpse', 3, seed, { night: found.night, who: nameOf(found.otherSlot) });
+      // The badge is half the sentence here: the visit is only damning because
+      // of what they said they were when they made it.
+      case 'visited-the-living':
+        return vary('mafia.bot.why.visitedTheLiving', 3, seed, {
+          night: found.night,
+          who: nameOf(found.otherSlot),
+          role: ROLE.name(found.role)
+        });
       case 'guarded-nobody-died':
         return vary('mafia.bot.why.guardedNoDeath', 3, seed, { night: found.night });
       case 'two-in-one-cell':
@@ -7404,9 +7471,35 @@ export class MafiaBotDriver {
       if (spoken) return spoken;
     }
 
-    // 7. Their own words, quoted back at them.
+    /**
+     * 7. Their own words, quoted back at them — where the words are damning.
+     *
+     * This rung took *any* account of a night out and read it aloud as a
+     * reason, which it is not: "I was at Littlefinger's on night two" is an
+     * alibi, and Littlefinger was alive, well, and entirely beside the point.
+     * A real table watched three seats convict a man with it in a row — "I am
+     * voting guilty, because they told us themselves they visited Littlefinger
+     * on night two" — and the human in the room asked the obvious question,
+     * which nobody at the table could answer, because there was no answer. The
+     * vote came from the ranking; only the sentence was nonsense, and the
+     * sentence is the whole of what a player hears.
+     *
+     * A night out is evidence when the house it names produced a body that
+     * morning. Standing on a doorstep somebody died behind is a thing a room
+     * can argue about. Anything else falls through to the rungs below, which
+     * are at least honest about holding nothing.
+     */
     const visit = board.claims.find(
-      (claim) => claim.kind === 'account' && claim.claimerSlot === targetSlot && claim.account === 'visited'
+      (claim) =>
+        claim.kind === 'account' &&
+        claim.claimerSlot === targetSlot &&
+        claim.account === 'visited' &&
+        board.deaths.some(
+          (death) =>
+            death.slot === claim.targetSlot &&
+            death.phase === 'night' &&
+            death.day === (claim.night ?? Math.max(1, claim.day - 1))
+        )
     );
     if (visit) {
       return vary('mafia.bot.why.admitted', 3, botId + ':w:' + targetSlot, {
@@ -7599,11 +7692,38 @@ export class MafiaBotDriver {
           })
         );
       }
-      if (town && hanged.guiltySlots.length > 0) {
+      /**
+       * Who pulled it, said by somebody who was not holding the rope.
+       *
+       * This named the first three guilty ballots and never checked whether the
+       * speaker's own was among them. On a real table a Caporegime opened the
+       * afternoon with "Xavier, Meliodas, Lisa Simpson voted guilty on Gaston,
+       * who was town" — a verdict of eleven to nothing that she had voted for
+       * herself. Two separate lies in one sentence: three names for a room that
+       * was unanimous, and an accusation from one of the accused.
+       *
+       * So a seat that voted guilty says so instead. It is the better line
+       * anyway: admitting a bad rope you helped pull is the thing that buys a
+       * town back its credibility, and it is the one version of this remark
+       * nobody can throw back at the speaker.
+       */
+      const mySlot = state.players[botId]?.slot ?? null;
+      const others = hanged.guiltySlots.filter((slot) => slot !== mySlot);
+      if (town && mySlot !== null && hanged.guiltySlots.includes(mySlot)) {
+        options.push(vary('mafia.bot.fact.votersWrongMine', 3, salt, { who: nameOf(hanged.accusedSlot) }));
+      } else if (town && others.length > 3) {
+        // Naming three of nine reads as an accusation of three. It was the room.
+        options.push(
+          vary('mafia.bot.fact.votersWrongMany', 3, salt, {
+            who: nameOf(hanged.accusedSlot),
+            count: String(others.length)
+          })
+        );
+      } else if (town && others.length > 0) {
         options.push(
           vary('mafia.bot.fact.votersWrong', 3, salt, {
             who: nameOf(hanged.accusedSlot),
-            names: hanged.guiltySlots.slice(0, 3).map(nameOf).join(', ')
+            names: others.map(nameOf).join(', ')
           })
         );
       }
@@ -8649,7 +8769,7 @@ export class MafiaBotDriver {
       // notebook its will is written from, so the stand and the will agree.
       const entry = town ? this.realNight(state, me.intel, botId) : this.inventedNight(state, botId, view);
       const dump = entry ? this.nightLine(state, entry, botId) : null;
-      if (entry && dump) return { text: dump, claim: this.claimFor(entry, board.rolesInPlay) };
+      if (entry && dump) return { text: dump, claim: this.claimFor(entry, board.rolesInPlay, quietNights(board)) };
       /**
        * Nothing to read out, so the seat falls back on where it was.
        *
@@ -9543,16 +9663,43 @@ export class MafiaBotDriver {
    * "never given an account of a single night" by jurors who had just heard
    * four of them.
    */
-  private claimFor(entry: IntelEntry, rolesInPlay?: ReadonlySet<RoleId>): Decision['claim'] {
+  private claimFor(
+    entry: IntelEntry,
+    rolesInPlay?: ReadonlySet<RoleId>,
+    quietNights?: ReadonlySet<number>
+  ): Decision['claim'] {
     const worked = true;
+    const from = entry.kind;
     switch (entry.kind) {
       case 'sheriff':
         return {
           kind: sheriffSuspects(entry.value) ? 'accuse' : 'clear',
           slot: entry.targetSlot,
           role: null,
-          worked
+          worked,
+          from
         };
+      /**
+       * "I held them at home, and nobody died."
+       *
+       * A roleblock on its own says nothing about anybody: the Escort holds a
+       * seat in and learns only that it was in. What makes it evidence is the
+       * *morning* — a night the town's killing stopped while one named seat was
+       * kept indoors is a narrow, checkable observation about that seat, and it
+       * is the cheapest corroboration in the game because the Escort visits
+       * somebody every night anyway.
+       *
+       * Light on its own and deliberately so. Its whole value is that it is a
+       * second instrument: beside a Sheriff's check on the same house it is the
+       * difference between one voice and a case. See `evidenceLines`.
+       *
+       * On a night that did have a body it stays an account of where the seat
+       * was, which is all it is.
+       */
+      case 'blocked':
+        return quietNights?.has(entry.night)
+          ? { kind: 'accuse', slot: entry.targetSlot, role: null, worked, from }
+          : { kind: 'account', slot: entry.targetSlot, role: null, account: 'visited', worked, from };
       case 'trade': {
         // A smell is a verdict once the roster has been crossed off it.
         const verdict = tradeVerdict(entry.value, rolesInPlay);
@@ -9560,17 +9707,18 @@ export class MafiaBotDriver {
           kind: verdict === 'damning' ? 'accuse' : verdict === 'clean' ? 'clear' : 'hint',
           slot: entry.targetSlot,
           role: null,
-          worked
+          worked,
+          from
         };
       }
       case 'visitors':
         return entry.slots && entry.slots.length > 0
-          ? { kind: 'sighting', slot: entry.slots[0], role: null, worked }
-          : { kind: 'account', slot: entry.targetSlot, role: null, account: 'visited', worked };
+          ? { kind: 'sighting', slot: entry.slots[0], role: null, worked, from }
+          : { kind: 'account', slot: entry.targetSlot, role: null, account: 'visited', worked, from };
       case 'tracked':
-        return { kind: 'sighting', slot: entry.targetSlot, role: null, worked };
+        return { kind: 'sighting', slot: entry.targetSlot, role: null, worked, from };
       default:
-        return { kind: 'account', slot: entry.targetSlot, role: null, account: 'visited', worked };
+        return { kind: 'account', slot: entry.targetSlot, role: null, account: 'visited', worked, from };
     }
   }
 

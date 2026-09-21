@@ -112,11 +112,11 @@ describe('the trust meter', () => {
   /** Voting to spare somebody the graveyard then proved evil is the loudest tell. */
   const sparedAnEvil = board({
     deadRoles: new Map([[2, 'mafioso']]),
-    trials: [{ day: 2, accusedSlot: 2, lynched: false, guiltySlots: [], innocentSlots: [4] }]
+    trials: [{ day: 2, accusedSlot: 2, lynched: false, guiltySlots: [], innocentSlots: [4], abstainSlots: [] }]
   });
   const hangedAnEvil = board({
     deadRoles: new Map([[2, 'mafioso']]),
-    trials: [{ day: 2, accusedSlot: 2, lynched: true, guiltySlots: [4], innocentSlots: [] }]
+    trials: [{ day: 2, accusedSlot: 2, lynched: true, guiltySlots: [4], innocentSlots: [], abstainSlots: [] }]
   });
 
   it('is neutral about a seat with no record', () => {

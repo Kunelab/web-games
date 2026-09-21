@@ -573,6 +573,17 @@ export interface NightOutcome {
   targetSlot: number;
   source: DeathSource;
   outcome: 'killed' | 'healed' | 'guarded' | 'immune' | 'vested' | 'jailed' | 'sheltered' | 'too-late';
+  /**
+   * What the two of them were when the knife was swung, not at dawn.
+   *
+   * Roles move inside a single night: an Amnesiac remembers, the cult takes
+   * somebody, the lodge initiates. Anything reading this record afterwards sees
+   * the morning's roster and files the swing under whatever the seat has since
+   * become, which is how a kill gets attributed to a role that cannot kill.
+   * Captured here, where it is still true.
+   */
+  attackerRole?: RoleId;
+  targetRole?: RoleId;
 }
 
 export interface NightAction {
@@ -749,6 +760,18 @@ export interface MafiaState {
     lynched: boolean;
     guiltyIds: string[];
     innocentIds: string[];
+    /**
+     * The third hand, which was not being counted at all.
+     *
+     * A ballot has three faces and only two of them were written down, so a
+     * juror who sat one out was indistinguishable from a juror who was never
+     * there. It cost nothing in `trustOf`, it appeared in no announcement, and
+     * no bot could see it — a seat could decline every trial in the game and
+     * arrive at the end with a spotless record. Explicit abstentions and
+     * silence land here together, because from the square's side of the room
+     * they are the same act: the town asked and got no answer.
+     */
+    abstainIds: string[];
   }[];
   /** The public graveyard, in order of death. `hidden` = cleaned by a janitor. */
   deaths: {

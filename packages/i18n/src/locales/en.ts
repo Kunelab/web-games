@@ -52,7 +52,7 @@ export const en: Catalogue = {
   'mafia.trial.judging': 'The town judges {name}: guilty or innocent?',
   'mafia.trial.court': 'A voice booms: “EXCEPTIONAL COURT!” {name} is judged on the spot, without a defence.',
   'mafia.trial.verdict': 'Verdict: {guilty} guilty, {innocent} innocent.',
-  'mafia.trial.ballots': 'Voted guilty: {guilty}. Voted innocent: {innocent}.',
+  'mafia.trial.ballots': 'Voted guilty: {guilty}. Voted innocent: {innocent}. Did not vote: {abstained}.',
   'mafia.trial.secret': 'The exceptional court voted by secret ballot: no name leaves this room.',
   'mafia.trial.spared': '{name} is spared.',
   'mafia.trial.nobody': 'nobody',

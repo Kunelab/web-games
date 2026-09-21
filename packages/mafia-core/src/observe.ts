@@ -308,7 +308,8 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
       accusedSlot: slotOf(trial.accusedId) ?? 0,
       lynched: trial.lynched,
       guiltySlots: trial.guiltyIds.map(slotOf).filter((slot): slot is number => slot !== undefined),
-      innocentSlots: trial.innocentIds.map(slotOf).filter((slot): slot is number => slot !== undefined)
+      innocentSlots: trial.innocentIds.map(slotOf).filter((slot): slot is number => slot !== undefined),
+      abstainSlots: (trial.abstainIds ?? []).map(slotOf).filter((slot): slot is number => slot !== undefined)
     }));
   }
 

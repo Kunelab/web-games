@@ -309,7 +309,8 @@ export const M = {
   trialJudging: (name: string): Msg => msg('mafia.trial.judging', { name }),
   trialCourt: (name: string): Msg => msg('mafia.trial.court', { name }),
   trialVerdict: (guilty: number, innocent: number): Msg => msg('mafia.trial.verdict', { guilty, innocent }),
-  trialBallots: (guilty: string | Msg, innocent: string | Msg): Msg => msg('mafia.trial.ballots', { guilty, innocent }),
+  trialBallots: (guilty: string | Msg, innocent: string | Msg, abstained: string | Msg): Msg =>
+    msg('mafia.trial.ballots', { guilty, innocent, abstained }),
   trialSecret: (): Msg => msg('mafia.trial.secret'),
   trialSpared: (name: string): Msg => msg('mafia.trial.spared', { name }),
   /** The town used its day to decide it would rather not hang anybody. */
@@ -342,7 +343,18 @@ export const M = {
   /* -------------------------------- the night ------------------------------ */
   jailLocked: (name: string): Msg => msg('mafia.jail.locked', { name }),
   cultChant: (): Msg => msg('mafia.cult.chant'),
-  amnesiacRemembered: (role: string, name: string): Msg => msg('mafia.amnesiac.remembered', { role, name }),
+  /**
+   * The one announcement that was still handing out a French role name.
+   *
+   * It took a `string` and the engine fed it `roleDef(role).name`, which is the
+   * French field this file's header warns about: an English table was told "The
+   * Amnesiac remembered: they were the Shérif". The private note to the seat
+   * that did the remembering got it right one line away, which is what kept it
+   * hidden. Nested like every other role name now, so the reader's own
+   * catalogue resolves it.
+   */
+  amnesiacRemembered: (role: RoleId, name: string): Msg =>
+    msg('mafia.amnesiac.remembered', { role: ROLE.name(role), name }),
 
   /* --------------------------------- endings ------------------------------- */
   winTown: (): Msg => msg('mafia.win.town'),

@@ -12,6 +12,7 @@ import {
   startMafia
 } from '../engine.js';
 import { ROLES, roleDef, type RoleId } from '../roles.js';
+import type { DeathSource } from '../messages.js';
 import {
   createMafiaGame,
   isLodgeMate,
@@ -192,6 +193,42 @@ export interface NightChoice {
   choices: number;
 }
 
+/**
+ * Are these two playing for the same result?
+ *
+ * The question a "killed one of your own" count has to answer, and it is not
+ * "same faction": a Vigilante and a Doctor are both town and both lose if the
+ * town loses, so a bullet between them is a friendly-fire incident however the
+ * roster files them. A family is a side. A solo killer has no side at all, so
+ * nothing it does can be counted against it here.
+ */
+export function sameCause(one: RoleId, other: RoleId): boolean {
+  const left = roleDef(one).faction;
+  const right = roleDef(other).faction;
+  if (left !== right) return false;
+  /**
+   * `neutral` is a filing cabinet, not a side.
+   *
+   * The first cut of this said "same faction, and town counts as one", which
+   * made an Arsonist burning a Serial Killer a friendly-fire incident: they are
+   * both `neutral` and they are both trying to be the last one standing. It put
+   * the Arsonist's ally rate at 39% in the first run, which is the number that
+   * caught it. Town is a side and each family is a side; everybody else is
+   * alone, and a seat with no side cannot betray one.
+   */
+  return left !== 'neutral';
+}
+
+/** One swing of one knife, landed or not. See `SimResult.strikes`. */
+export interface Strike {
+  by: RoleId;
+  on: RoleId;
+  source: DeathSource;
+  landed: boolean;
+  /** The victim was playing for the same result as the killer. See `sameCause`. */
+  ally: boolean;
+}
+
 export interface SimResult {
   seed: number;
   players: number;
@@ -233,6 +270,16 @@ export interface SimResult {
   claimsTrue: number;
   claimsFalse: number;
   finalAlive: RoleId[];
+  /**
+   * Every attempt on a life, by role. See `Strike`.
+   *
+   * Two questions the bench could not answer and the table kept asking: how
+   * often does each killer actually land the knife, and how often does it land
+   * it in one of its own. A Vigilante is the standing suspicion — it is the one
+   * town role that can lose the game for the town by working — and "vigMisfires"
+   * counted the bodies without ever counting the shots.
+   */
+  strikes: Strike[];
   /**
    * What the table did with the person at it. See `SimOptions.humans`.
    *
@@ -547,6 +594,51 @@ export function simulateGame(options: SimOptions): SimResult {
     advanceMafia(state, now, rng);
   };
 
+  /**
+   * Every knife swung this game, whether or not it landed.
+   *
+   * `state.deaths` answers "who died and to what", which is the wrong question
+   * for a killer: a Vigilante who fires four times and is healed, jailed and
+   * bounced off a Godfather looks identical there to one who never left home.
+   * `state.nightLog` holds the other half — the attempts, and what stopped
+   * them — but it is overwritten at every dawn, so it has to be taken as it
+   * goes past.
+   *
+   * Roles are read *now* rather than at the end, because they move: an Amnesiac
+   * becomes somebody, a townsperson joins the cult, and a kill has to be
+   * counted against whoever was holding the knife on the night.
+   */
+  const strikes: Strike[] = [];
+  const recordStrikes = () => {
+    for (const outcome of state.nightLog ?? []) {
+      // Roles as they were when the knife was swung, which the engine records
+      // alongside the swing precisely because the night can change them.
+      const by = outcome.attackerRole;
+      const on = outcome.targetRole;
+      if (outcome.attackerSlot === null || !by || !on) continue;
+      /**
+       * A seat is not its own killer.
+       *
+       * Poison outlives the poisoner: when the hand that administered it is
+       * already in the ground the engine has nobody to bill, and the attack
+       * falls back to the victim's own id. Counted naively that reads as a
+       * Citizen who killed a Citizen, which is both a killer that does not
+       * exist and a 100% friendly-fire rate — and it produced a tail of twenty
+       * "killing roles" in the first run of this table, every one of them a
+       * corpse listed as its own murderer.
+       */
+      if (outcome.attackerSlot === outcome.targetSlot) continue;
+      strikes.push({
+        by,
+        on,
+        source: outcome.source,
+        landed: outcome.outcome === 'killed',
+        ally: sameCause(by, on)
+      });
+    }
+    state.nightLog = [];
+  };
+
   while (state.phase !== 'ended' && guard++ < 600) {
     if (state.phase === 'day' && state.stage === 'discussion') {
       // Once per dawn: claims land, the jailor picks, the mayor weighs his sash.
@@ -764,6 +856,7 @@ export function simulateGame(options: SimOptions): SimResult {
         brain.wentTo = target !== null && target !== player.slot && legal.targets.length > 0 ? target : null;
       }
       advance();
+      recordStrikes();
       continue;
     }
 
@@ -804,14 +897,15 @@ export function simulateGame(options: SimOptions): SimResult {
     };
   }
 
-  return tally(state, options, claims, voteHistory);
+  return tally(state, options, claims, voteHistory, strikes);
 }
 
 function tally(
   state: MafiaState,
   options: SimOptions,
   claims: Claim[],
-  voteHistory: { day: number; voterSlot: number; targetSlot: number }[]
+  voteHistory: { day: number; voterSlot: number; targetSlot: number }[],
+  strikes: Strike[]
 ): SimResult {
   const players = Object.values(state.players);
 
@@ -881,6 +975,7 @@ function tally(
     claimsTrue: claims.filter((claim) => claim.truthful).length,
     claimsFalse: claims.filter((claim) => !claim.truthful).length,
     finalAlive: players.filter((player) => player.alive).map((player) => player.role!),
+    strikes,
     ...(state.drawReason ? { drawReason: state.drawReason } : {}),
     aliveAtEnd: players.filter((player) => player.alive).map((player) => ({ slot: player.slot, role: player.role! })),
     human: humanReport(players, claims, voteHistory)

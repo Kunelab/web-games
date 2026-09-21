@@ -129,6 +129,82 @@ describe('reading the night back to people', () => {
     assert.deepEqual(kinds(deductions(2, diedThatNight)), [], 'calling on somebody the night they died explains it');
   });
 
+  /**
+   * The finding that hanged an honest Amnesiac, from a real table.
+   *
+   * Two Amnesiacs took the dead Sheriff's badge on night two and the dawn report
+   * announced it. One of them said where he had been — a house whose owner was
+   * already dead, the only place his power can be used — and three seats read it
+   * back to him as proof of lying. With a role in play whose whole job is on a
+   * slab, this is a narrowing and not an impossibility.
+   */
+  it('lets a corpse be called on while anybody in play can call on corpses', () => {
+    const visited = said({ claimerSlot: 2, targetSlot: 4, kind: 'account', account: 'visited', day: 4, night: 3 });
+    const deaths = [{ slot: 4, day: 2, phase: 'night' as const, source: 'mafia' as const }];
+
+    for (const role of ['amnesiac', 'coroner', 'janitor', 'incense-master'] as RoleId[]) {
+      const withRole = board({
+        claims: [visited],
+        deaths,
+        rolesInPlay: new Set<RoleId>(['mafioso', 'citizen', role])
+      });
+      assert.deepEqual(kinds(deductions(2, withRole)), [], `${role} makes the visit explicable`);
+    }
+
+    // And the moment the record buries the only one of them, it is a lie again.
+    const buriedCoroner = board({
+      claims: [visited],
+      deaths: [...deaths, { slot: 7, day: 1, phase: 'night' as const, source: 'mafia' as const }],
+      deadRoles: new Map<number, RoleId>([[7, 'coroner']]),
+      rolesInPlay: new Set<RoleId>(['mafioso', 'citizen', 'coroner'])
+    });
+    assert.deepEqual(kinds(deductions(2, buriedCoroner)), ['visited-a-corpse']);
+  });
+
+  /**
+   * The contradiction Tiamat got away with, from a real table.
+   *
+   * A Framer claimed the Coroner's badge and then accounted for its nights with
+   * "Littlefinger, night two, that is where I was" — Littlefinger being alive
+   * and four seats away. Three seats voted guilty and every one of them gave
+   * the visit itself as the reason, which is no reason: going to a living man's
+   * house is what most of this game does. The badge is what made it a lie.
+   */
+  it('will not let a morgue badge stand on a living doorstep', () => {
+    const badge = said({ claimerSlot: 2, targetSlot: 2, kind: 'role-claim', claimedRole: 'coroner', day: 3 });
+    const visited = said({ claimerSlot: 2, targetSlot: 4, kind: 'account', account: 'visited', day: 4, night: 3 });
+    const inPlay = new Set<RoleId>(['mafioso', 'citizen', 'coroner']);
+
+    const caught = board({ claims: [badge, visited], rolesInPlay: inPlay });
+    assert.deepEqual(kinds(deductions(2, caught)), ['visited-the-living']);
+
+    // A body is where a coroner belongs, and that is the other finding's job.
+    const onASlab = board({
+      claims: [badge, visited],
+      deaths: [{ slot: 4, day: 2, phase: 'night', source: 'mafia' }],
+      rolesInPlay: inPlay
+    });
+    assert.deepEqual(kinds(deductions(2, onASlab)), [], 'the coroner explains both halves of this one');
+
+    // And without the badge it is an ordinary night out, which is not evidence.
+    const noBadge = board({ claims: [visited], rolesInPlay: inPlay });
+    assert.deepEqual(kinds(deductions(2, noBadge)), []);
+
+    /**
+     * The Amnesiac is exempt on purpose: it stops being one the moment it
+     * remembers, so the badge it claimed on day three says nothing about what
+     * it could do on night three.
+     */
+    const amnesiac = board({
+      claims: [
+        said({ claimerSlot: 2, targetSlot: 2, kind: 'role-claim', claimedRole: 'amnesiac', day: 3 }),
+        visited
+      ],
+      rolesInPlay: new Set<RoleId>(['mafioso', 'citizen', 'amnesiac'])
+    });
+    assert.deepEqual(kinds(deductions(2, amnesiac)), []);
+  });
+
   it('holds two seats to one cell', () => {
     const one = said({ claimerSlot: 2, targetSlot: 2, kind: 'ailing', ailment: 'jailed', day: 3, night: 2 });
     const other = said({ claimerSlot: 5, targetSlot: 5, kind: 'ailing', ailment: 'jailed', day: 3, night: 2 });

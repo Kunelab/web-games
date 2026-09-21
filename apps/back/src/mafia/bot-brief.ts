@@ -360,6 +360,8 @@ function caughtBy(finding: Deduction): string {
       return `said poisoned on night ${finding.night} and is still alive`;
     case 'visited-a-corpse':
       return `claims a visit to ${finding.otherSlot} on night ${finding.night}, who was already dead`;
+    case 'visited-the-living':
+      return `claims to be the ${finding.role}, which only ever acts on a corpse, and claims a visit to ${finding.otherSlot} on night ${finding.night}, who is alive`;
     case 'guarded-nobody-died':
       return `claims a bodyguard died for them on night ${finding.night}, when nobody died`;
     case 'two-in-one-cell':
@@ -798,7 +800,18 @@ function stamps(chat: MafiaView['chat']): Map<number, string> {
 function transcript(view: MafiaView, window: number, humansPresent: boolean): string {
   // Authored lines only: the game's own announcements are already summarised
   // above, so this needs no renderer.
-  const spoken = view.chat.filter((message) => message.authorId);
+  /**
+   * Anything somebody said, which is not the same test as "has an author id".
+   *
+   * It used to be `message.authorId`, and that quietly meant "has a byline the
+   * reader is allowed to see". The moment a line is anonymised — the spy at the
+   * family's wall, the jailor's voice through the cell door — the id comes off
+   * with the name, and the whole line vanished from the transcript. A jailed bot
+   * would have been handed a sheet with the interrogation missing from it and
+   * asked why it had nothing to say. `kind` is the real question: the engine's
+   * own announcements are `system`, everything else came out of a mouth.
+   */
+  const spoken = view.chat.filter((message) => message.kind !== 'system');
   const humanNames = new Set(view.players.filter((player) => !player.isBot).map((player) => player.name));
 
   /**
@@ -873,7 +886,11 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
    */
   const room = (channel: string): string => {
     if (channel === 'day') return '';
-    if (channel === 'jail') return ' (in the cell, private)';
+    // `jailChannel` is `jail:<day>`, so an equality test here never matched and
+    // the cell fell through to the family-room line below — a briefing telling a
+    // jailed seat that the interrogation it was sitting in was its own secret
+    // channel, which the town "must never learn what is in it".
+    if (channel.startsWith('jail:')) return ' (in the cell, private)';
     if (channel === 'dead') return ' (graveyard, the living cannot hear this)';
     if (channel.startsWith('pm:')) return ' (whispered to you)';
     return ' (YOUR SECRET CHANNEL — the town cannot see this, and must never learn what is in it)';
@@ -1107,7 +1124,10 @@ export function dossier(
   const chat = view.chat
     .slice(-50)
     .map((message) =>
-      message.authorId
+      // Same distinction as `transcript`: an anonymised line is still a line
+      // somebody said, and printing it as `[town] ...` made the cell's questions
+      // look like announcements from the square.
+      message.kind !== 'system'
         ? `${message.authorName}${humanNames.has(message.authorName) ? ' [HUMAN PLAYER]' : ''}: ${message.text}`
         : `[town] ${message.msg ? say(locale)(message.msg) : message.text}`
     );

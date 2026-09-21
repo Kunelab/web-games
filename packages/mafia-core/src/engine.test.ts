@@ -30,6 +30,7 @@ import {
   chatRules,
   ANONYMOUS,
   createMafiaGame,
+  jailChannel,
   playerBySlot,
   type MafiaState,
 } from "./state.js";
@@ -2123,6 +2124,52 @@ describe("mafia engine", () => {
     assert.equal(judge.charges, 0);
   });
 
+  /**
+   * The one door in this file that was left open.
+   *
+   * The cell's *channel* was private and that read as enough, but the byline
+   * travels with the message: the prisoner read the jailor's name at the top of
+   * every question it was asked, and so did a prisoner that happened to be a
+   * bot, whose brief renders the same projection. The jailor is the one town
+   * role whose whole value is that nobody knows who holds it.
+   */
+  it("keeps the jailor faceless to the seat in the cell", () => {
+    const state = table(["jailor", "godfather", "mafioso", "citizen", "doctor", "escort"]);
+    const jailor = bySlot(state, 1);
+    const prisoner = bySlot(state, 4);
+
+    assert.equal(jailTarget(state, jailor.playerId, prisoner.slot).ok, true);
+    advanceMafia(state, 0, lcg(1)); // night: the cell locks
+    const channel = jailChannel(state.day);
+    assert.equal(sayInChat(state, jailor.playerId, channel, "qui es-tu ?", 10).ok, true);
+    assert.equal(sayInChat(state, prisoner.playerId, channel, "garde du corps", 20).ok, true);
+
+    const asked = state.chat.messages.find(
+      (message) => message.channel === channel && message.authorId === jailor.playerId
+    )!;
+    const answered = state.chat.messages.find(
+      (message) => message.channel === channel && message.authorId === prisoner.playerId
+    )!;
+
+    assert.equal(chatLineFor(state, prisoner.playerId, asked).authorName, ANONYMOUS);
+    assert.equal(chatLineFor(state, prisoner.playerId, asked).authorId, null, "no face and no id");
+    assert.equal(
+      chatLineFor(state, jailor.playerId, answered).authorName,
+      prisoner.name,
+      "the jailor chose the cell and knows who is in it"
+    );
+    assert.equal(
+      chatLineFor(state, prisoner.playerId, answered).authorName,
+      prisoner.name,
+      "and the prisoner still sees its own words as its own"
+    );
+
+    // The broadcast path is the one a phone actually reads. Same answer.
+    const seen = chatVisibleTo(state, prisoner.playerId).filter((message) => message.channel === channel);
+    assert.ok(seen.some((message) => message.authorName === ANONYMOUS));
+    assert.ok(!seen.some((message) => message.authorName === jailor.name));
+  });
+
   it("the spy hears the family without a byline, and not at all once dead", () => {
     const state = table([
       "spy",
@@ -2660,6 +2707,56 @@ describe("the mass murderer", () => {
     );
   });
 
+  /**
+   * An empty house is an empty house.
+   *
+   * The knife for the owner used to be thrown in the movement pass, before
+   * anybody's journey was known, which made this the one killer in the game
+   * that could not miss: he emptied a house whether or not there was anyone
+   * standing in it. It ended a real game — a Mason Leader walked out to
+   * initiate somebody, the rampage came through her own front door, and she
+   * died in a room her own will placed her nowhere near.
+   */
+  it("misses the owner who was out, and takes whoever called", () => {
+    const state = table(
+      ["mass-murderer", "sheriff", "citizen", "citizen", "godfather"],
+      3,
+    );
+    const killer = bySlot(state, 1);
+    const away = bySlot(state, 2);
+    const caller = bySlot(state, 3);
+    const elsewhere = bySlot(state, 4);
+
+    advanceMafia(state, 1_000, lcg(1));
+    assert.equal(state.phase, "night");
+    // The sheriff is raided, and is out doing his rounds two doors down.
+    assert.equal(setNightAction(state, killer.playerId, away.slot).ok, true);
+    assert.equal(
+      setNightAction(state, away.playerId, elsewhere.slot).ok,
+      true,
+    );
+    advanceMafia(state, 2_000, lcg(1));
+
+    assert.equal(away.alive, true, "he was not behind the door");
+    assert.equal(caller.alive, true, "and a seat that stayed at its own house is nobody's business");
+    assert.equal(elsewhere.alive, true, "the house he went to is not the raided one");
+  });
+
+  /** And the owner who stayed in is exactly who the role is for. */
+  it("takes the owner who stayed home", () => {
+    const state = table(
+      ["mass-murderer", "citizen", "citizen", "citizen", "godfather"],
+      3,
+    );
+    const killer = bySlot(state, 1);
+    const home = bySlot(state, 2);
+
+    advanceMafia(state, 1_000, lcg(1));
+    assert.equal(setNightAction(state, killer.playerId, home.slot).ok, true);
+    advanceMafia(state, 2_000, lcg(1));
+    assert.equal(home.alive, false);
+  });
+
   /** Spending the night for nothing is already the price of being unlucky. */
   it("is not locked when the massacre killed nobody", () => {
     const state = table(
@@ -2902,6 +2999,45 @@ describe("the lodge and the cult", () => {
     );
     assert.equal(master.alive, true, "the lodge does not convert");
     assert.equal(master.role, "mason-leader");
+  });
+
+  /**
+   * And the morning says so, which it did not.
+   *
+   * The clash used to be settled in the conversion pass, which runs after the
+   * dawn report has already been assembled: the body was real and the square
+   * was never told. Seen on a real table — three seats died overnight, the town
+   * heard two names, and the missing one was the Cultist struck down at the
+   * lodge door, which is the single piece of news that would have told the town
+   * the cult existed and was losing.
+   */
+  it("reads the lodge's body out with the rest of the dawn report", () => {
+    const state = table(
+      ["mason-leader", "cultist", "citizen", "citizen", "godfather"],
+      3,
+    );
+    const master = bySlot(state, 1);
+    const preacher = bySlot(state, 2);
+
+    advanceMafia(state, 1_000, lcg(1));
+    assert.equal(
+      setNightAction(state, preacher.playerId, master.slot).ok,
+      true,
+    );
+    advanceMafia(state, 2_000, lcg(1));
+
+    assert.equal(preacher.alive, false);
+    const morning = said(state);
+    assert.ok(
+      morning.includes(preacher.name),
+      `the dawn report never named the body:\n${morning}`,
+    );
+    assert.ok(
+      !state.chat.messages.some(
+        (message) => message.msg?.k === "mafia.night.quiet",
+      ),
+      "and a night with a body in it is not a quiet one",
+    );
   });
 
   /** The lodge still does what it is for on anybody who is not the cult. */

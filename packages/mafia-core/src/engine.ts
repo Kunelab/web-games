@@ -565,7 +565,36 @@ export function chatLineFor(
   // At the whistle the masks come off, transcript included.
   if (state.phase === "ended") return message;
   const reader = state.players[playerId];
-  if (reader?.role !== "spy" || !message.authorId) return message;
+  if (!reader || !message.authorId) return message;
+
+  /**
+   * The voice through the cell door has no face.
+   *
+   * The jailor is the one town role whose whole value is that nobody knows who
+   * holds it: it cannot be healed, it executes from inside the cell, and a
+   * family that learns the name buys it a knife that same night. Every other
+   * door in this file was locked and this one was left open, because the
+   * *channel* was private and that read as enough. But the byline travels with
+   * the message, so the prisoner read the jailor's name at the top of every
+   * question it was asked, and so did a prisoner that happened to be a bot,
+   * whose brief renders this same projection as "slot name: text".
+   *
+   * Seen on a real table: a bodyguard spent night two being questioned by a
+   * jailor it could name, and the model in the jailor's chair even tried to
+   * sign its own line. That got caught by the guard on the *text* — which is
+   * the check this one made pointless for as long as the label stayed attached.
+   *
+   * The prisoner keeps its own byline: the jailor chose the cell and knows
+   * perfectly well who is sitting in it.
+   */
+  if (
+    message.channel.startsWith("jail:") &&
+    reader.role !== "jailor" &&
+    message.authorId !== playerId
+  )
+    return { ...message, authorId: null, authorName: ANONYMOUS };
+
+  if (reader.role !== "spy") return message;
   if (
     message.channel !== "mafia" &&
     message.channel !== "triad" &&
@@ -1856,6 +1885,17 @@ function concludeTrial(state: MafiaState, now: number): void {
       .map(([voterId]) => voterId);
   const guiltyIds = votersWho("guilty");
   const innocentIds = votersWho("innocent");
+  // Everyone else who was alive to raise a hand and did not, whether they
+  // pressed abstain or simply let the clock run out. See `trialLog`.
+  const abstainIds = Object.values(state.players)
+    .filter(
+      (player) =>
+        player.alive &&
+        player.playerId !== accused.playerId &&
+        trial.ballots[player.playerId] !== "guilty" &&
+        trial.ballots[player.playerId] !== "innocent",
+    )
+    .map((player) => player.playerId);
   // Recorded either way: the end-of-game replay shows every hand that was raised.
   (state.trialLog ??= []).push({
     day: state.day,
@@ -1863,6 +1903,7 @@ function concludeTrial(state: MafiaState, now: number): void {
     lynched: guilty > innocent,
     guiltyIds,
     innocentIds,
+    abstainIds,
   });
 
   /**
@@ -1890,7 +1931,13 @@ function concludeTrial(state: MafiaState, now: number): void {
       // "nobody" is a word, so it travels as a fragment rather than a literal.
       return listed || M.nobody();
     };
-    announce(state, M.trialBallots(names(guiltyIds), names(innocentIds)), now);
+    // The third list, so a seat that sat it out is a seat the room can see
+    // sitting it out. "Nobody" is said explicitly for the same reason.
+    announce(
+      state,
+      M.trialBallots(names(guiltyIds), names(innocentIds), names(abstainIds)),
+      now,
+    );
   }
 
   if (guilty > innocent) {
@@ -2571,6 +2618,33 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         cleanTargets.set(player.playerId, target.playerId);
         visit(player.playerId, target.playerId);
         break;
+      /**
+       * The two recruiters walk the same street as everybody else.
+       *
+       * Their journeys used to be declared in the conversion pass at the very
+       * bottom of this function, which is after the lookout's list is drawn,
+       * after the veteran's porch, and after the mass murderer's collateral —
+       * so a Cultist could knock on any door in town and no watcher ever saw
+       * him do it. The cult is the faction the town has the least information
+       * about and the doorstep was the one place it could be caught; it was
+       * the only visit in the game that cost nothing.
+       *
+       * Declared here, with the rest of the traffic. What still happens at the
+       * bottom is the *outcome* — who opens the door, who is turned away —
+       * because that depends on the night's one conversion budget. The visit
+       * does not: it happened whether or not the door opened, which is what
+       * the note down there already said and could not deliver.
+       */
+      case "recruit":
+      case "convert":
+        visit(player.playerId, target.playerId);
+        break;
+      // The auditor walks to the door like everybody else, and for the same
+      // reason: his journey was declared at the bottom of the function too, so
+      // no lookout ever saw him and no porch ever shot him.
+      case "audit":
+        if (player.charges > 0) visit(player.playerId, target.playerId);
+        break;
       default:
         break;
     }
@@ -2810,12 +2884,8 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     // The massacre: the house, and everyone unlucky enough to be in it. Who was
     // in it is settled below, once every journey has been declared.
     if (action.type === "rampage" && player.role === "mass-murderer") {
-      attacks.push({
-        attackerId: player.playerId,
-        targetId: target.playerId,
-        power: 1,
-        source: "massMurderer",
-      });
+      // The knife for the owner is not swung here: whether he is behind the
+      // door is not known until every journey has been declared. See below.
       visit(player.playerId, target.playerId);
       rampages.push({ attackerId: player.playerId, houseId: target.playerId });
     }
@@ -2838,6 +2908,24 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         )
         .map((entry) => entry.visitorId),
     );
+    /**
+     * And the owner, if the owner was in.
+     *
+     * This knife used to be thrown in the movement pass, unconditionally, which
+     * made the Mass Murderer the only killer in the game who could not miss:
+     * he emptied a house whether or not anybody was standing in it. On a real
+     * table that ended the game — a Mason Leader walked out to initiate
+     * somebody, the rampage came through her own front door, and she died in a
+     * room she was demonstrably not in, on a night her will named the house she
+     * had gone to.
+     *
+     * A seat is out if it went anywhere, which is what `visits` records for
+     * every power that leaves the porch. The ones that do not leave it — the
+     * veteran's alert, a vest, an autopsy on a slab — are at home and in the
+     * way, which is exactly right: this is the role that punishes staying in.
+     */
+    const wentOut = visits.some((entry) => entry.visitorId === houseId);
+    if (!wentOut) caught.add(houseId);
     for (const visitorId of caught) {
       attacks.push({
         attackerId,
@@ -2956,6 +3044,68 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
    * life were used on the first attack, and they do not stretch to the second.
    */
   const diedTonight = new Set<string>();
+
+  /**
+   * The doorstep between the lodge and the cult, settled with the night's other
+   * deaths instead of long after them.
+   *
+   * A Mason Leader who knocks on a Cultist has found the thing his whole role
+   * exists to stop, and a Cultist who knocks on a Mason Leader has walked into
+   * the one house on the board that cannot be preached to. Both end the same
+   * way, and that is the only counter the town has to conversion: without it
+   * the cult grows and nothing on the board can shrink it except the rope.
+   *
+   * This used to be resolved in the conversion pass at the bottom of the
+   * function, which is after the dawn report has already been assembled — so
+   * the body was real, the seat was dead, the graveyard knew, and the morning
+   * never said a word about it. On a real table the town watched three seats
+   * die overnight and heard two names; the third was a Cultist struck down at
+   * the lodge door, and the one piece of news that would have told the town the
+   * cult existed and was losing simply never left the room.
+   *
+   * Killed here, before `diedTonight` closes, so the report names it like any
+   * other body and its will is read out with the rest. The conversion pass
+   * below is left the outcomes it is actually for: who opened a door, and who
+   * was turned away.
+   */
+  for (const player of players) {
+    if (!player.alive || blocked.has(player.playerId)) continue;
+    const action = actionOf(player);
+    if (!action?.targetId) continue;
+    const target = state.players[action.targetId];
+    if (!target?.alive) continue;
+    /**
+     * Neither door is answered from inside a cell.
+     *
+     * The clash is a doorstep meeting, and a seat spent the night in the
+     * jailor's cell or a kidnapper's cellar is not standing behind its own
+     * door: the rest of this function is emphatic that only the keeper reaches
+     * a prisoner, and this kill went around `attacks` entirely and so went
+     * around that rule with it. A jailed Cultist could be struck down at a
+     * lodge door it never walked to.
+     *
+     * Invisible until now, because the body was never announced. It is
+     * announced from this pass on, which would have made it a rule the square
+     * could watch being broken.
+     */
+    const away = (seat: MafiaPlayer): boolean =>
+      seat.playerId === jailedId || sheltered.has(seat.playerId);
+    if (away(player) || away(target)) continue;
+    const struck =
+      action.type === "recruit" &&
+      player.role === "mason-leader" &&
+      isCultist(target)
+        ? { victim: target, brother: player, note: NOTE.lodgeStruck(target.name) }
+        : action.type === "convert" &&
+            player.role === "cultist" &&
+            target.role === "mason-leader"
+          ? { victim: player, brother: target, note: NOTE.lodgeHeld(player.name) }
+          : null;
+    if (!struck) continue;
+    kill(state, struck.victim, "night", CAUSE.killedBy("lodge"), "lodge");
+    diedTonight.add(struck.victim.playerId);
+    notify(struck.brother, struck.note);
+  }
   /** Knives that reached a body somebody else had already made. See the fix-up below. */
   const alsoStruck = new Map<string, DeathSource[]>();
   /** What every attack actually did, for the flight recorder. */
@@ -2977,6 +3127,8 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         targetSlot: target.slot,
         source: attack.source,
         outcome,
+        ...(attacker?.role ? { attackerRole: attacker.role } : {}),
+        ...(target.role ? { targetRole: target.role } : {}),
       });
     };
 
@@ -3538,21 +3690,13 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       player.role === "mason-leader" &&
       target.alive
     ) {
-      visit(player.playerId, target.playerId);
       /**
-       * The lodge and the cult recruit from the same room, and only one of them
-       * walks away from meeting the other.
-       *
-       * A Mason Leader who knocks on a Cultist has found the thing his whole role
-       * exists to stop, and a Cultist who knocks on a Mason Leader has walked into
-       * the one house on the board that cannot be preached to. Both end the same
-       * way. It is the only counter the town has to conversion: without it the
-       * cult grows and nothing on the board can shrink it except the rope.
+       * The journey was declared in the movement pass and the doorstep clash
+       * with a Cultist was settled with the night's other deaths, so a Cultist
+       * who answered this door is not alive to reach here. What is left is the
+       * half of the power that is not a fight.
        */
-      if (isCultist(target)) {
-        kill(state, target, "night", CAUSE.killedBy("lodge"), "lodge");
-        notify(player, NOTE.lodgeStruck(target.name));
-      } else if (convertible(target)) {
+      if (convertible(target)) {
         /**
          * Anybody the cult could have taken, the lodge can take first.
          *
@@ -3582,22 +3726,19 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
 
     if (action.type === "convert" && player.role === "cultist" && target.alive) {
       /**
-       * The visit happens whether or not the door opens.
+       * The visit happens whether or not the door opens, and it is declared in
+       * the movement pass so a Lookout sees the knock even when nobody answers.
        *
        * `convertedTonight` used to sit in the condition above, so the second
-       * cultist of a night was skipped entirely: no `visit`, so a Lookout
-       * watching that house saw nobody though somebody had knocked, and no
+       * cultist of a night was skipped entirely: no `visit`, and no
        * notification at all, so the player pressed convert and observed
        * nothing. That is the same silent no-op as the kidnapper's, and it is
        * read the same way — as a power that does not work.
        */
-      visit(player.playerId, target.playerId);
       // A sash is not a soul to be bought. See `keepsRole`.
-      // The other side of the same doorstep. See the note in `recruit`.
-      if (target.role === "mason-leader") {
-        kill(state, player, "night", CAUSE.killedBy("lodge"), "lodge");
-        notify(target, NOTE.lodgeHeld(player.name));
-      } else if (convertedTonight) {
+      // A Mason Leader's door was answered before the knives were counted, so
+      // a cultist that knocked on one is already in the ground by now.
+      if (convertedTonight) {
         notify(player, NOTE.convertCrowded(target.name));
       } else if (convertible(target)) {
         const converted: RoleId =
@@ -3635,7 +3776,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       player.charges = roleDef(remembered).charges ?? 0;
       notify(player, NOTE.remembered(remembered));
       announcements.push({
-        line: M.amnesiacRemembered(roleDef(remembered).name, target.name),
+        line: M.amnesiacRemembered(remembered, target.name),
         reveals: true,
       });
     }
@@ -3646,7 +3787,6 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       target.alive &&
       player.charges > 0
     ) {
-      visit(player.playerId, target.playerId);
       const targetDef = roleDef(target.role!);
       let audited: RoleId | null = null;
       // The same seat the cult may not have. See `keepsItsRole`.

@@ -39,6 +39,8 @@ export type Deduction =
   | { kind: 'poison-survived'; night: number }
   /** Called on a house whose owner was already in the ground. */
   | { kind: 'visited-a-corpse'; night: number; otherSlot: number }
+  /** Wears a badge that only ever works on a corpse, and called on the living. */
+  | { kind: 'visited-the-living'; night: number; otherSlot: number; role: RoleId }
   /** A bodyguard died for them on a night the report records no death. */
   | { kind: 'guarded-nobody-died'; night: number }
   /** Two seats, one cell, one night. */
@@ -98,6 +100,7 @@ export type Deduction =
  */
 const WORTH: Record<Deduction['kind'], number> = {
   'visited-a-corpse': 2.5,
+  'visited-the-living': 2.5,
   'guarded-nobody-died': 2.5,
   'acted-from-the-cell': 2.5,
   'role-not-in-play': 3,
@@ -265,9 +268,21 @@ const CAUSED_BY: Partial<Record<NonNullable<Claim['ailment']>, RoleId[]>> = {
  * not by this function being out of date.
  */
 function nobodyCouldHave(ailment: NonNullable<Claim['ailment']>, night: number, info: PublicInfo): boolean {
-  const causes = CAUSED_BY[ailment];
-  if (!causes || !info.rolesInPlay) return false;
-  const known = causes.filter((role) => role in ROLES);
+  return nobodyLeftWith(CAUSED_BY[ailment], night, info);
+}
+
+/**
+ * Of a set of roles that could explain a claim, is every one of them off the
+ * board by that night?
+ *
+ * The shared half of `nobodyCouldHave` and `nobodyCouldVisitTheDead`, and the
+ * generosity is the point: an unknown roster explains everything, and so does a
+ * role that was merely *possible* at the time. Only when the record leaves no
+ * candidate standing is a claim an impossibility rather than a narrowing.
+ */
+function nobodyLeftWith(candidates: readonly RoleId[] | undefined, night: number, info: PublicInfo): boolean {
+  if (!candidates || !info.rolesInPlay) return false;
+  const known = candidates.filter((role) => role in ROLES);
   if (known.length === 0) return false;
   const possible = known.filter((role) => info.rolesInPlay!.has(role));
   if (possible.length === 0) return true;
@@ -278,6 +293,49 @@ function nobodyCouldHave(ailment: NonNullable<Claim['ailment']>, night: number, 
     if (death && death.day < night) alreadyBuried.add(role);
   }
   return possible.every((role) => alreadyBuried.has(role));
+}
+
+/**
+ * The four badges whose whole job is on a slab.
+ *
+ * The Amnesiac takes a dead seat's role, the Coroner performs the autopsy, the
+ * Janitor and the Incense Master clean the body. For all four, "I went to a
+ * house whose owner was dead" is not a slip, it is the power working.
+ */
+const VISITS_THE_DEAD: readonly RoleId[] = ['amnesiac', 'coroner', 'janitor', 'incense-master'];
+
+/**
+ * The three of those four that can *only* ever work on a corpse.
+ *
+ * The Amnesiac is deliberately not here: it stops being an Amnesiac the moment
+ * it remembers, so a seat that claimed the badge on day two and describes an
+ * ordinary visit on night four is describing whatever it turned into. The other
+ * three keep their badge all game and their power never has anywhere to go but
+ * the morgue, so for them a night out among the living is not a slip of
+ * phrasing, it is two claims that cannot both be true.
+ */
+const CORPSE_ONLY: readonly RoleId[] = ['coroner', 'janitor', 'incense-master'];
+
+/**
+ * Could anybody at all have called on a corpse that night?
+ *
+ * `visited-a-corpse` was unconditional, and it hanged an honest man in front of
+ * us. Two Amnesiacs woke on night two, both took the dead Sheriff's badge, and
+ * the square was *told* so: "The Amnesiac remembered" went out with the dawn
+ * report. One of them then answered the question every seat is asked — where
+ * were you — with the truth, that he had gone to a house whose owner was
+ * already dead, because that is the only place his power can be used. Three
+ * seats read it back to him as proof of lying and the town hanged him for
+ * describing his own role correctly, with the exonerating announcement sitting
+ * two hours up the same log.
+ *
+ * So the finding now requires what the rest of this file requires: that the
+ * record leave no innocent explanation. With any of the four in play the claim
+ * is a narrowing and not an impossibility, which is a thing for the suspicion
+ * model to weigh, not for the deduction layer to certify.
+ */
+function nobodyCouldVisitTheDead(night: number, info: PublicInfo): boolean {
+  return nobodyLeftWith(VISITS_THE_DEAD, night, info);
 }
 
 /**
@@ -311,11 +369,53 @@ export function deductions(slot: number, info: PublicInfo): Deduction[] {
 
   const alive = info.aliveSlots.includes(slot);
 
+  /**
+   * A badge this seat has worn that only ever works on a corpse.
+   *
+   * Taken across every claim rather than the latest, because these three roles
+   * do not change: a seat that said "Coroner" on day five was a Coroner on
+   * night two as well, or it was never one at all.
+   */
+  const corpseOnly = mine.find(
+    (claim) => claim.kind === 'role-claim' && claim.claimedRole && CORPSE_ONLY.includes(claim.claimedRole)
+  )?.claimedRole;
+
   for (const claim of mine) {
     const night = nightOf(claim);
 
-    if (claim.kind === 'account' && claim.account === 'visited' && buriedBefore(claim.targetSlot, night, info)) {
+    if (
+      claim.kind === 'account' &&
+      claim.account === 'visited' &&
+      buriedBefore(claim.targetSlot, night, info) &&
+      nobodyCouldVisitTheDead(night, info)
+    ) {
       found.push({ kind: 'visited-a-corpse', night, otherSlot: claim.targetSlot });
+    }
+
+    /**
+     * The same contradiction from the other end, which nothing was catching.
+     *
+     * A real table watched a Framer claim the Coroner's badge and then account
+     * for its nights with "Littlefinger, night two, that is where I was" —
+     * Littlefinger being alive, well and sitting four seats away. Three people
+     * voted guilty and every one of them gave the visit itself as the reason,
+     * which is no reason at all: going to a living man's house is what almost
+     * every role in this game does. The actual contradiction was that a Coroner
+     * cannot go there, and nobody said it, because nothing could see it.
+     *
+     * Only against a seat that has never been in the ground at all, which is as
+     * generous as this gets: a corpse might have been made on the very night it
+     * was called on, and the two claims are then a sequence rather than a clash.
+     * Read off `deaths` rather than the living roster so it shares one source
+     * with `buriedBefore` above, and the two findings can never both fire.
+     */
+    if (
+      claim.kind === 'account' &&
+      claim.account === 'visited' &&
+      corpseOnly &&
+      !info.deaths.some((death) => death.slot === claim.targetSlot)
+    ) {
+      found.push({ kind: 'visited-the-living', night, otherSlot: claim.targetSlot, role: corpseOnly });
     }
 
     if (

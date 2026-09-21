@@ -48,7 +48,7 @@ export const fr: Catalogue = {
   'mafia.trial.judging': 'La ville juge {name} : coupable ou innocent ?',
   'mafia.trial.court': 'Une voix tonne : « TRIBUNAL D’EXCEPTION ! » {name} est jugé séance tenante, sans défense.',
   'mafia.trial.verdict': 'Verdict : {guilty} coupable, {innocent} innocent.',
-  'mafia.trial.ballots': 'Ont voté coupable : {guilty}. Ont voté innocent : {innocent}.',
+  'mafia.trial.ballots': 'Ont voté coupable : {guilty}. Ont voté innocent : {innocent}. N’ont pas voté : {abstained}.',
   'mafia.trial.secret': 'Le tribunal d’exception a voté à bulletin secret : aucun nom ne sortira de cette salle.',
   'mafia.trial.spared': '{name} est épargné.',
   'mafia.trial.nobody': 'personne',
