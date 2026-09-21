@@ -3472,13 +3472,33 @@ export class MafiaBotDriver {
     urgent: boolean,
     reserved = false
   ): 'ok' | 'repeat' | 'budget' {
-    if (channel !== 'day') return 'ok';
     const floor = this.floor.get(state.code);
     if (!floor) return 'ok';
 
-    // Verbatim repeats read as a bug even when they are statistically fair.
-    const fingerprint = text.toLowerCase();
+    /**
+     * Verbatim repeats read as a bug even when they are statistically fair —
+     * and they were only ever checked in the square.
+     *
+     * `channel !== 'day'` returned early, which meant the cell, the family
+     * rooms and the whispers had no deduplication at all. That is where it
+     * shows worst, because those rooms hold two people and a repeated line has
+     * nowhere to hide: a jailor asked "Who are you, and who else knows?" three
+     * times in one night, twice after the prisoner had answered, because the
+     * model's own line was refused twice and the fallback is the same sentence
+     * every time. A human sat through that and reported it as the bots being
+     * broken, which is exactly what it looks like.
+     *
+     * Keyed by room, so the same phrase in two different rooms is two different
+     * acts rather than one repeat. The *budget* below stays where it was: the
+     * floor exists to stop fifteen seats flooding the square, and a private
+     * room of two has nothing to ration.
+     */
+    const fingerprint = `${channel}|${text.toLowerCase()}`;
     if (floor.said.has(fingerprint)) return 'repeat';
+    if (channel !== 'day') {
+      floor.said.add(fingerprint);
+      return 'ok';
+    }
 
     // Urgent lines are still deduplicated; they simply do not queue. A line
     // whose slot was reserved before the mouth was asked has already paid.
@@ -4213,8 +4233,11 @@ export class MafiaBotDriver {
      * ear and the brain report it exactly as the mouth does.
      */
     const seats = new Set(Object.values(state.players).map((player) => player.name.toLowerCase()));
+    // Every door on the board, living or not: a seat naming yesterday's corpse
+    // is recalling, a seat naming a number nobody was ever dealt is inventing.
+    const houses = new Set(Object.values(state.players).map((player) => player.slot));
     const spoken = answer
-      ? readLine(answer, intent, { name: self.name, slot: self.slot }, seats, state.day)
+      ? readLine(answer, intent, { name: self.name, slot: self.slot }, seats, state.day, houses)
       : intent.fallback;
     // In a hushed family room the phrasebook line is the ceiling as well as the floor. See `Intent.hushed`.
     const hushedLeak = intent.hushed === true && spoken !== null && leaks(spoken, state);

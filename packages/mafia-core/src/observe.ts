@@ -575,7 +575,17 @@ function readTestaments(state: MafiaState): Claim[] {
          * town's own corpses ended up counting as hearsay in the one place it
          * matters, the half of the score a juror is allowed to point at.
          */
-        worked: true
+        worked: true,
+        /**
+         * And which instrument wrote it, which is what corroborates.
+         *
+         * `worked` says this came out of a night; `from` says which power, and
+         * two different powers pointing at one house is the strongest thing the
+         * board can hold. A dead investigator's testimony arrived carrying the
+         * first and not the second, so a Sheriff's check read from a will
+         * counted as an ungrounded hunch the moment `grounding` started asking.
+         */
+        from: entry.kind
       } as const;
       switch (entry.kind) {
         case 'sheriff':

@@ -146,11 +146,14 @@ You will be told what you have already decided to say, and why. Your only job is
 
 Rules:
 - ONE line. Short. Somebody typing quickly on their phone, not writing prose. Often under ten words.
-- Say only what you were told to say. Invent nothing: no extra suspicions, no evidence, no names you were not given, no change of mind. Given no reason, do not manufacture one. "17, you're up to something" is fine; "17 was seen at 4's door" is a lie you were not told to tell.
-- Given a reason, SAY IT. "17, you said you were home and Ana saw you out" is the line; "17 is lying" is half of it and convinces nobody. What you think, and why, in one breath.
+- Say only what you were told to say. Invent nothing: no extra suspicions, no evidence, no names you were not given, no change of mind. "Ana was seen at Vito's door" is a lie you were not told to tell.
+- Given a reason, SAY IT, and the reason is most of the line. "Ana, you said you were home and Vito saw you out" is the line; "Ana is lying" is half of it and convinces nobody. What you think, and why, in one breath.
+- Given NO reason, do not manufacture an accusation out of nothing. "Ana, you're up to something" is the worst line at this table: it asks the room to hang somebody on a feeling, it costs you the room's trust and it says nothing about Ana. If you have nothing, say you have nothing and ask for something — "nobody has given me anything on Ana" — or say nothing at all.
+- Use the NAME you were given, not a number. Never invent a number for anybody: the examples on this sheet are examples, and Ana and Vito are not at this table.
+- Use the NAME you were given, not a number. Never invent a number for anybody: the examples on this sheet are examples, and Ana and Vito are not at this table.
 - Given somebody's words to answer, answer THEM: not an easier version of them, and not a stock phrase when they said something specific.
 - Told you are voting for somebody, your line may be reluctant but must never deny it, hedge it or promise to spare them.
-- Call people by their name, or by their number alone ("6"). NEVER write "house" or "maison" in front of a number: the chat prints it beside every line already, and nobody at a table talks that way.
+- Call people by their name. A number alone ("6") is acceptable if you were given it, but the name is always better and never wrong. NEVER write "house" or "maison" in front of a number: the chat prints it beside every line already, and nobody at a table talks that way.
 - This table has no calendar. There are no weekdays, no dates, no weeks: there are numbered days and the nights between them, and tonight is the only night there is. Never write Monday, samedi, "last Tuesday" or "the weekend", and never name a night that has not happened yet.
 - Never name your own side. Whatever you are, you do not say "I am the cult", "my mafia", "cult business" or "I was whispering to the family": a room hangs whoever says it, and you were not told to say it. Talking ABOUT the cult or the mafia as a thing in the game is ordinary and fine; putting yourself in one is not.
 - No preamble, no quotation marks, no narration, no explaining yourself. Never say you are an AI.
@@ -230,7 +233,10 @@ export function mouthPrompt(
   if (recent.length > 0) {
     lines.push(
       'The last things said in the room (context only — do not answer them unless it fits what you decided):',
-      ...recent.slice(-4).map((line) => `${line.slot} ${line.name}: ${line.text}`)
+      // Names, not "12 Ganesha:". A number in the context is a number the model
+      // will copy into its own line, and the only numbers it should ever type
+      // are ones it was actually given. See `houseFromNowhere`.
+      ...recent.slice(-4).map((line) => `${line.name}: ${line.text}`)
     );
   }
 
@@ -372,6 +378,69 @@ function nightFromNowhere(text: string, day: number): boolean {
   return false;
 }
 
+/**
+ * A number that is doing something other than naming a door.
+ *
+ * "night 3", "day 5", "3 of us", "at 4" after a night word — the sheet is full
+ * of numbers that are not houses, and a rule that cannot tell them apart would
+ * throw away good lines for counting. Blanked before the house check rather
+ * than enumerated inside it, because the list of things a number can mean is
+ * open and the list of shapes it takes is not.
+ */
+const NOT_A_HOUSE =
+  /\b(?:night|nuit|day|jour|round|tour)s?\s*(?:du\s*)?\d{1,3}\b|\b\d{1,3}\s*(?:of us|d['’]entre nous|votes?|voix|points?)\b/gi;
+
+/**
+ * A house this table does not have, named as though it did.
+ *
+ * The sibling of `nightFromNowhere`, and it was missing. Two seats in one
+ * afternoon said "17" at a table of fifteen — both of them copying, word for
+ * word, the example that used to sit in `MOUTH_RULES` — and both were voting
+ * for house 10 at the time. The ballots were right and the square watched two
+ * players name a door that is not on the board.
+ *
+ * Returned as the offending numbers rather than a yes, because the caller can
+ * usually mend this instead of throwing the line away. See `repairHouses`.
+ */
+function housesFromNowhere(text: string, houses: ReadonlySet<number>): number[] {
+  if (houses.size === 0) return [];
+  const rest = text.replace(NOT_A_HOUSE, ' ');
+  const bad: number[] = [];
+  for (const found of rest.matchAll(/(?<![\p{L}\d])(\d{1,3})(?![\p{L}\d])/gu)) {
+    const slot = Number(found[1]);
+    if (!houses.has(slot)) bad.push(slot);
+  }
+  return bad;
+}
+
+/**
+ * Mending a line instead of binning it.
+ *
+ * Every rejection in this file costs the seat its voice: the caller falls back
+ * to the phrasebook sentence the brain had already picked, which is often the
+ * sentence the seat has *just said*. That is where the stutter comes from — a
+ * jailor asked the same question three nights running because the model twice
+ * wrote something the guard would not pass, and the fallback was the same line
+ * each time. So every guard added here makes the table repeat itself more,
+ * unless it can mend what it caught.
+ *
+ * Only the unambiguous mend: one wrong number, and a decision that says which
+ * number was meant. The model's phrasing survives, the house becomes the one
+ * the seat is actually voting for, and the room gets a sentence instead of an
+ * echo. Anything less clear-cut still falls back, because a line repaired into
+ * a different claim is worse than no line.
+ */
+function repairHouses(line: string, wrong: readonly number[], meant: number): string | null {
+  if (wrong.length !== 1) return null;
+  // `String.raw`, because a plain template literal eats the backslashes and the
+  // boundary becomes a class of four letters rather than "not a letter or digit".
+  const edge = String.raw`[\p{L}\d]`;
+  const once = new RegExp(`(?<!${edge})${wrong[0]}(?!${edge})`, 'gu');
+  const hits = line.match(once);
+  if (!hits || hits.length !== 1) return null;
+  return line.replace(once, String(meant));
+}
+
 export const SAY_CHARS = 140;
 
 export function readLine(
@@ -381,7 +450,9 @@ export function readLine(
   /** The names on the doors, so a one-letter one is not read as a slip. */
   seats: ReadonlySet<string> = new Set(),
   /** Which day it is, so a night that has not happened can be spotted. */
-  day = Number.POSITIVE_INFINITY
+  day = Number.POSITIVE_INFINITY,
+  /** The doors that exist, so one that does not can be spotted. Empty = do not check. */
+  houses: ReadonlySet<number> = new Set()
 ): string | null {
   // A missing field is a malformed answer; a present but empty one is a choice.
   if (!('line' in raw)) return intent.fallback;
@@ -392,7 +463,7 @@ export function readLine(
 
   // Stage directions and self-narration, which small models produce when asked
   // to be in character. A line that is mostly one of these is not a line.
-  const cleaned = asTyped(line.replace(/^["'«»\s]+|["'«»\s]+$/g, '').replace(ATTRIBUTION, ''));
+  let cleaned = asTyped(line.replace(/^["'«»\s]+|["'«»\s]+$/g, '').replace(ATTRIBUTION, ''));
   if (!cleaned || cleaned.length > SAY_CHARS) return intent.fallback;
   // "null" in quotes is still the model saying nothing.
   if (MEANS_SILENCE.test(cleaned)) return null;
@@ -403,6 +474,32 @@ export function readLine(
   // A calendar this game does not have, and a night it has not had. See `WEEKDAY`.
   if (WEEKDAY.test(cleaned)) return intent.fallback;
   if (nightFromNowhere(cleaned, day)) return intent.fallback;
+
+  /**
+   * A door that is not on the board, and the door this seat is actually at.
+   *
+   * Two faults with one answer. A number nobody lives at is an invented fact of
+   * exactly the kind the two rules above catch. A number that *is* a house but
+   * is not the one being voted for is the line contradicting the ballot the
+   * engine has already cast — the comment on `denies` used to call that "a
+   * different fault, one the room can adjudicate", and a room cannot adjudicate
+   * a seat that says one number and votes another.
+   *
+   * Mended where the intent says what was meant, thrown away where it does not.
+   */
+  const stray = housesFromNowhere(cleaned, houses);
+  const wrongTarget =
+    intent.vote && houses.size > 0
+      ? [...cleaned.replace(NOT_A_HOUSE, ' ').matchAll(/(?<![\p{L}\d])(\d{1,3})(?![\p{L}\d])/gu)]
+          .map((found) => Number(found[1]))
+          .filter((slot) => houses.has(slot) && slot !== intent.vote!.slot && slot !== self.slot)
+      : [];
+  const misnamed = [...new Set([...stray, ...wrongTarget])];
+  if (misnamed.length > 0) {
+    const mended = intent.vote ? repairHouses(cleaned, misnamed, intent.vote.slot) : null;
+    if (!mended) return intent.fallback;
+    cleaned = mended;
+  }
 
   /**
    * The seat signing a line the chat already signs for it.

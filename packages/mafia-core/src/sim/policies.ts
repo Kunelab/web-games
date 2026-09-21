@@ -1070,6 +1070,28 @@ export function trustOf(slot: number, info: PublicInfo, through: Temperament = E
 
   trust += accuserLedger(slot, info);
 
+  /**
+   * And the running tab for throwing names at the room with nothing behind them.
+   *
+   * `accuserLedger` bills the ropes that actually fell. This bills the habit —
+   * the seat that names somebody every afternoon on a feeling, never brings a
+   * fact, and is usually wrong because nothing was ever pointing anywhere. On a
+   * table of fifteen that seat is either a killer manufacturing wagons or a
+   * townsperson doing the killers' work for free, and the room should be able
+   * to notice the pattern before the graveyard settles it.
+   *
+   * Deliberately small and deliberately cumulative, which is the shape asked
+   * for: one hunch is how people play and costs almost nothing, five hunches in
+   * five days is a tell. Capped, because the point is to make a habit visible
+   * and not to make speaking dangerous — a town that cannot float a read is a
+   * town that sits in silence, which is the other failure this file spends its
+   * length avoiding.
+   */
+  const hunches = info.claims.filter(
+    (claim) => claim.kind === 'accuse' && claim.claimerSlot === slot && !grounded(claim, info)
+  ).length;
+  trust -= Math.min(1.5, hunches * 0.3);
+
   // Read through the reader: the meter is public, how much it moves you is not.
   return trust * through.suspicion;
 }
@@ -1307,6 +1329,55 @@ const CREDIBLE = 0.6;
  * Hunches count for nothing here. A seat with no night behind it is agreement,
  * however loudly it agrees.
  */
+/**
+ * Does this accusation stand on anything the room can look at?
+ *
+ * "17, you're up to something" was, until recently, an example in the mouth's
+ * own rulebook, and a model copied it word for word onto a table of fifteen.
+ * It is the worst sentence in the game: it asks the room to hang somebody on a
+ * feeling, and the board used to price it as a full voice in the chorus — so a
+ * seat with nothing could start a wagon, and four more seats with nothing could
+ * finish it. That is the mechanism behind almost every complaint about these
+ * bots hanging people for no reason.
+ *
+ * Grounded means one of four things, all of them checkable by anybody:
+ * a night's work behind it (`from`), a contradiction the record proves, a badge
+ * the record settled, or somebody having put the seat on a doorstep. A seat
+ * citing any of those is making an argument. A seat citing none of them is
+ * having a feeling out loud.
+ */
+function grounded(claim: Claim, info: PublicInfo): boolean {
+  // `worked` as well as `from`: any path that marks a claim as a night's work
+  // counts, even one that has not been taught to name the instrument yet.
+  if (claim.from !== undefined || claim.worked === true) return true;
+  const proven = info.provenRoles.get(claim.targetSlot);
+  if (proven && isEvilRole(proven)) return true;
+  if (deductions(claim.targetSlot, info).length > 0) return true;
+  return info.claims.some(
+    (other) => other.kind === 'sighting' && other.targetSlot === claim.targetSlot && other.day <= claim.day
+  );
+}
+
+/**
+ * What an ungrounded accusation is worth, and how fast it stops being worth it.
+ *
+ * Nearly nothing, and then nothing. A hunch said this afternoon is a nudge —
+ * people do read each other, and a room where suspicion carries literally zero
+ * weight is a room that never opens a trial — but it is a fifth of a voice
+ * rather than a whole one, and it fades within a couple of days.
+ *
+ * The fading is the part worth stating plainly. An accusation nobody ever
+ * committed to, nobody ever backed, and nobody ever brought a fact to should
+ * not still be sitting on the board on day nine, quietly holding a seat's
+ * number up. It has had two afternoons to become an argument. If it has not, it
+ * goes away.
+ */
+function grounding(claim: Claim, info: PublicInfo): number {
+  if (grounded(claim, info)) return 1;
+  const age = Math.max(0, info.day - claim.day);
+  return 0.2 * Math.max(0, 1 - age / 2);
+}
+
 export function evidenceLines(targetSlot: number, info: PublicInfo, excluding: number): number {
   const instruments = new Map<number, Set<string>>();
   for (const claim of info.claims) {
@@ -2401,11 +2472,11 @@ export function suspicionParts(
      */
     const firsthand = info.claims
       .filter((claim) => claim.kind === kind && claim.targetSlot === targetSlot && claim.claimerSlot !== self.slot)
-      .map((claim) =>
-        kind === 'accuse' && dodgedTheQuestion(claim.claimerSlot, targetSlot, info)
-          ? claimerWeight(claim.claimerSlot, info) * 0.5 * (claim.confidence ?? 1)
-          : claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1)
-      );
+      .map((claim) => {
+        const heard = claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1);
+        const dodged = kind === 'accuse' && dodgedTheQuestion(claim.claimerSlot, targetSlot, info) ? 0.5 : 1;
+        return heard * dodged * (kind === 'accuse' ? grounding(claim, info) : 1);
+      });
 
     const repeated = info.claims
       .filter(

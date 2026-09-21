@@ -602,7 +602,9 @@ describe("a second look at the ballot", () => {
     const state = table(["sheriff", "citizen", "mafioso", "doctor", "citizen"]);
     const self = seat(state, 1);
     const claims: Claim[] = [
-      claim({ claimerSlot: 2, targetSlot: 3, kind: "accuse" }),
+      // Grounded on purpose: a bare hunch is worth almost nothing to the
+      // accused now, so "a real case" has to actually be one. See `grounding`.
+      claim({ claimerSlot: 2, targetSlot: 3, kind: "accuse", from: "sheriff", worked: true }),
       claim({ claimerSlot: 5, targetSlot: 3, kind: "accuse" }),
     ];
     assert.deepEqual(
@@ -619,7 +621,7 @@ describe("a second look at the ballot", () => {
     const state = table(["sheriff", "citizen", "mafioso", "doctor", "citizen"]);
     const self = seat(state, 1);
     const claims: Claim[] = [
-      claim({ claimerSlot: 2, targetSlot: 3, kind: "accuse" }),
+      claim({ claimerSlot: 2, targetSlot: 3, kind: "accuse", from: "sheriff", worked: true }),
       claim({ claimerSlot: 5, targetSlot: 3, kind: "accuse" }),
     ];
     // 3 and 4 are level on two votes each, and only 3 has a case against it.
@@ -1958,8 +1960,17 @@ describe("the blades that are not ours", () => {
       4,
     );
     for (const voter of voters) state.votes[`s${voter}`] = "s4";
+    // The room built this wagon on something: one of the three read out a
+    // night. A wagon of pure hunches is worth almost nothing now, which is the
+    // point of `grounding` and not what this fixture is about.
     const claims = [5, 6, 7].map((accuser) =>
-      claim({ day: 4, claimerSlot: accuser, targetSlot: 4, kind: "accuse" }),
+      claim({
+        day: 4,
+        claimerSlot: accuser,
+        targetSlot: 4,
+        kind: "accuse",
+        ...(accuser === 5 ? { from: "sheriff" as const, worked: true } : {}),
+      }),
     );
     return { state, self: playerBySlot(state, 2)!, claims };
   };

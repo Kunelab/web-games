@@ -48,6 +48,8 @@ import {
   type NightActionType,
   type RoleId,
 } from "./roles.js";
+import { tooAlike } from 'lobby-core';
+
 import {
   ANONYMOUS,
   DEFAULT_CONFIG,
@@ -292,12 +294,122 @@ const ORDINARY_WORDS = new Set([
  * same claim and only one of them is hard to type. Digits are kept, so
  * "Mafioso2" is a name somebody chose and "Mafioso" is a claim they are making.
  */
-function soundsLikeARole(name: string): boolean {
-  const folded = name
+/**
+ * Words that are not roles but decide things, and read as verdicts.
+ *
+ * "Innocent" is the one a person actually reaches for, and it is worse than a
+ * role name: every trial in the game ends with the square printing the word
+ * beside a list of seats, so a player called Innocent turns "Voted innocent:
+ * Innocent" into a sentence nobody can parse — model, deterministic reader or
+ * human. The rest are the same shape: the words the chat itself uses about
+ * guilt, death and sides.
+ */
+const VERDICT_WORDS = new Set([
+  "innocent",
+  "innocente",
+  "guilty",
+  "coupable",
+  "evil",
+  "scum",
+  "killer",
+  "tueur",
+  "lynch",
+  "pendu",
+  "dead",
+  "mort",
+  "alive",
+  "vivant",
+  "skip",
+  "abstain",
+  "nobody",
+  "personne",
+]);
+
+/**
+ * The join between a name and a claim: "JesterIsMe", "I am mafia", "jesuisle".
+ *
+ * On its own a connective means nothing — "Charisme" and "Prisme" end in one —
+ * so it only counts when the name *also* carries a game word. That pairing is
+ * what turns a nickname into a sentence: the connective supplies the verb and
+ * the game word supplies the claim, and the chat then prints it beside every
+ * line the seat says for the rest of the evening.
+ */
+const CLAIM_JOINS = ["iam", "imthe", "isme", "jesuis", "suisle", "suisla", "jesuisla", "amthe"];
+
+/** Both halves of the fold used everywhere here: accents off, letters only. */
+function fold(text: string): string {
+  return text
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Every word this table uses to mean a role or a side, folded once.
+ *
+ * Built lazily and kept, because it is the same sixty-three roles every time
+ * and this runs on a keystroke in the lobby.
+ */
+let GAME_WORDS: Set<string> | null = null;
+function gameWords(): Set<string> {
+  if (GAME_WORDS) return GAME_WORDS;
+  const words = new Set<string>([
+    "mafia",
+    "town",
+    "ville",
+    "triad",
+    "triade",
+    "cult",
+    "secte",
+    "neutral",
+    "neutre",
+    "coven",
+    "famiglia",
+    ...VERDICT_WORDS
+  ]);
+  for (const id of Object.keys(ROLES) as RoleId[]) {
+    words.add(id.replace(/-/g, ""));
+    const french = fold(roleDef(id).name);
+    if (french) words.add(french);
+  }
+  GAME_WORDS = words;
+  return words;
+}
+
+/**
+ * Two names the table cannot reliably tell apart.
+ *
+ * Exact matching was the whole test here, and exact is not the problem: nobody
+ * picks "Gamora" twice, they pick "Gamora" and "Gam0ra". Every reader in this
+ * game resolves a spoken name back to a seat — the ear, the room reader, the
+ * claims board, and the people — and two names a letter apart make each of
+ * those a coin flip. The bots then argue about a seat nobody can identify.
+ *
+ * The comparison itself is `lobby-core`'s `tooAlike`, which the bot draw has
+ * used all along for exactly this question and which is already stricter than
+ * anything worth writing twice. This adds the one exception a *person* gets
+ * and a bot does not.
+ *
+ * A trailing number is always deliberate. "Joueur1" and "Joueur2", "Max" and
+ * "Max2": people number themselves when they want the same name, every table
+ * understands it, and this game already calls seats by number. A bot that
+ * collides simply draws again from a cast of hundreds, so `pickBotName` can
+ * afford to refuse it; a person has asked for that name, and telling them to
+ * invent a different one makes a worse table than one with a 2 in it.
+ *
+ * Where the digit sits is the whole distinction: a number on the end is a
+ * label, and a digit swapped into the middle of a word is a disguise.
+ */
+export function tooCloseToSeat(candidate: string, taken: string): boolean {
+  const stem = (word: string): string => fold(word).replace(/\d+$/, '');
+  const tail = (word: string): string => fold(word).slice(stem(word).length);
+  if (stem(candidate) === stem(taken) && tail(candidate) !== tail(taken)) return false;
+  return tooAlike(candidate, taken);
+}
+
+function soundsLikeARole(name: string): boolean {
+  const folded = fold(name);
   if (!folded) return false;
 
   const factions = [
@@ -314,7 +426,33 @@ function soundsLikeARole(name: string): boolean {
     "famiglia",
   ];
   if (factions.includes(folded)) return true;
+  if (VERDICT_WORDS.has(folded)) return true;
+
+  /**
+   * A game word with a sentence built round it.
+   *
+   * "Mafia" was refused and "I am mafia" was not, which is the same claim with
+   * three more letters in front of it. Checked before `ORDINARY_WORDS`, because
+   * "Jester" is a name somebody might genuinely pick and "JesterIsMe" is not.
+   */
+  if (CLAIM_JOINS.some((join) => folded.includes(join))) {
+    for (const word of gameWords()) {
+      if (word.length >= 4 && folded.includes(word)) return true;
+    }
+  }
+
   if (ORDINARY_WORDS.has(folded)) return false;
+
+  /**
+   * Deliberately *not* a containment rule.
+   *
+   * The obvious next step is to refuse any name with a role word inside it, and
+   * it is wrong: "Sheriffa", "Villeneuve" and "Mafioso2" are names somebody
+   * chose and the suite has said so since this function was written. A word
+   * inside a nickname is a coincidence; a word with a verb attached to it is a
+   * claim, which is what `CLAIM_JOINS` above is for and why it is checked
+   * before the ordinary words rather than after.
+   */
 
   /**
    * Both languages, without reaching for the catalogue.
@@ -375,11 +513,10 @@ export function joinMafia(
 
   const trimmed = name.trim().slice(0, 20);
   if (!trimmed) throw new MafiaError(NO.nameRequired(), "Il faut un nom");
-  if (
-    Object.values(state.players).some(
-      (player) => player.name.toLowerCase() === trimmed.toLowerCase(),
-    )
-  ) {
+  const clash = Object.values(state.players).find((player) =>
+    tooCloseToSeat(trimmed, player.name),
+  );
+  if (clash) {
     throw new MafiaError(NO.nameTaken(), "Ce nom est déjà pris");
   }
   // A name that is really a claim. See `soundsLikeARole`.

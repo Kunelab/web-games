@@ -20,6 +20,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { traceDir } from '../env.js';
+import { emptyStats, foldTrace, renderStats } from '../mafia/table-stats.js';
 
 /* eslint-disable no-console */
 
@@ -293,6 +294,38 @@ async function main(): Promise<void> {
     return;
   }
 
+  /**
+   * `stats [n]` — the bench's table across the last n games, newest first.
+   *
+   * Pooled rather than per game, because the interesting rates are per *role*
+   * and a role appears in a fraction of the tables. One game says whether the
+   * Vigilante fired; five say whether it hits its own side. See `table-stats`.
+   */
+  if (wanted === 'stats') {
+    /**
+     * The last n *games*, not the last n files.
+     *
+     * The directory also collects the unit suite's own recorder output, which
+     * is a handful of lines with no `deal` in it. Slicing by file quietly
+     * spends the pool on those and reports one game where five were asked for —
+     * which it did, the first time this was run.
+     */
+    const count = Number(args.find((arg) => /^\d+$/.test(arg)) ?? 10);
+    const stats = emptyStats();
+    const pool: string[] = [];
+    for (const row of rows) {
+      if (pool.length >= Math.max(1, count)) break;
+      const lines = await read(row.name);
+      if (!lines.some((line) => line.ev === 'deal')) continue;
+      foldTrace(lines, stats);
+      pool.push(row.name);
+    }
+    console.log(`${BOLD}${pool.length} games${OFF}  ${pool.map((name) => name.slice(-11, -6)).join(' ')}\n`);
+    console.log(renderStats(stats));
+    console.log('');
+    return;
+  }
+
   const name = wanted === 'latest' ? rows[0]?.name : rows.find((row) => row.name.includes(wanted))?.name;
   if (!name) {
     console.error(`no trace matching "${wanted}"`);
@@ -333,6 +366,20 @@ async function main(): Promise<void> {
     console.log(`  ended ${text(closed?.phase)} on turn ${text(closed?.turn)}`);
     if (args.includes('--talk')) talk(lines);
     return;
+  }
+
+  /**
+   * The bench's table, for a game that actually happened.
+   *
+   * `--stats` on one file, or `stats [n]` across the last n, which is the form
+   * worth having: nobody plays a thousand LLM games, so the only way to read a
+   * killing rate off real play is to pool the handful that exist. See
+   * `table-stats`.
+   */
+  if (args.includes('--stats')) {
+    console.log(renderStats(foldTrace(lines, emptyStats())));
+    console.log('');
+    if (!args.includes('--talk')) return;
   }
 
   reactions(lines);

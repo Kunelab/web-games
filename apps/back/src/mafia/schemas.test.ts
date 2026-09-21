@@ -138,6 +138,54 @@ describe('the shapes the chain asks for', () => {
     assert.equal(said('Rien fait du week-end.'), 'FALLBACK');
   });
 
+  /**
+   * A door that is not on the board, which is the same hallucination one step
+   * sideways from a night that never happened.
+   *
+   * From a real table of fifteen: two seats said "17" in the same afternoon,
+   * both while voting for house 10, and both copying word for word the example
+   * that used to sit in `MOUTH_RULES`. The ballots were right and the square
+   * watched two players name a door that does not exist.
+   */
+  it('refuses a house this table does not have', () => {
+    const intent = { act: 'accuse', mood: 'blunt', fallback: 'FALLBACK' };
+    const self = { name: 'Totoro', slot: 13 };
+    const houses = new Set([1, 2, 10, 13, 15]);
+    const said = (line: string) => readLine({ line }, intent, self, new Set<string>(), 9, houses);
+
+    assert.equal(said("17, you're up to something."), 'FALLBACK', 'the line that started this');
+    assert.equal(said('I was with 99 all night.'), 'FALLBACK');
+    // Doors that exist are ordinary, and so are numbers that are not doors.
+    assert.equal(said('10 has not answered anybody.'), '10 has not answered anybody.');
+    assert.equal(said('Night 3 I was at 2.'), 'Night 3 I was at 2.');
+    assert.equal(said('There are 3 of us left.'), 'There are 3 of us left.');
+    // No roster given is the old behaviour: nothing to check against.
+    assert.equal(readLine({ line: '17 is lying.' }, intent, self, new Set<string>(), 9), '17 is lying.');
+  });
+
+  /**
+   * And a line that names a door other than the one the ballot went to.
+   *
+   * The engine votes from `decision.voteSlot` and the mouth only phrases it, so
+   * a model that swaps the number leaves the seat saying one house and voting
+   * another. `denies` deliberately only caught a flat refusal; this is the half
+   * it left out.
+   */
+  it('mends a vote line that names the wrong door, and keeps the voice', () => {
+    const intent = { act: 'vote', mood: 'blunt', fallback: 'FALLBACK', vote: { slot: 10, label: 'Ana' } };
+    const self = { name: 'Totoro', slot: 13 };
+    const houses = new Set([1, 2, 10, 13, 15]);
+    const said = (line: string) => readLine({ line }, intent, self, new Set<string>(), 9, houses);
+
+    // One wrong number and a decision that says what was meant: mend it.
+    assert.equal(said('17, you are up to something.'), '10, you are up to something.');
+    assert.equal(said('Voting 2, no debate.'), 'Voting 10, no debate.');
+    // The seat's own number is a signature, not a target, and is left alone.
+    assert.equal(said('13 here, and I am voting 10.'), '13 here, and I am voting 10.');
+    // Two different wrong doors is not a slip, it is a different sentence.
+    assert.equal(said('2 and 15 are both in this.'), 'FALLBACK');
+  });
+
   /** A night that *has* happened is the whole point of asking where somebody was. */
   it('still lets a seat account for a night it actually lived', () => {
     const intent = { act: 'defend', mood: 'blunt', fallback: 'FALLBACK' };

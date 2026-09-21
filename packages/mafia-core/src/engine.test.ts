@@ -2898,6 +2898,81 @@ describe("names that are roles", () => {
       assert.equal(tryName(fine), true, `"${fine}" should be allowed`);
     }
   });
+
+  /**
+   * A verdict is not a name either.
+   *
+   * "Innocent" is the one somebody actually picks, and it is worse than a role:
+   * every trial ends with the square printing that word beside a list of seats,
+   * so the tally becomes "Voted innocent: Innocent" and no reader in the game,
+   * model or otherwise, can take it apart.
+   */
+  it("refuses the words a verdict is made of", () => {
+    for (const taken of ["Innocent", "coupable", "Guilty", "scum", "Mort", "nobody"]) {
+      assert.equal(tryName(taken), false, `"${taken}" should be refused`);
+    }
+  });
+
+  /**
+   * And a name with a verb in it, which is a sentence rather than a nickname.
+   *
+   * The bare word was already refused and the claim was not, which is the same
+   * assertion with three more letters in front of it. A game word on its own
+   * inside a longer name stays allowed — see "Sheriffa" above — because a word
+   * inside a nickname is a coincidence and a word with a verb attached is not.
+   */
+  it("refuses a name that is a claim", () => {
+    for (const taken of ["I am mafia", "JesterIsMe", "jesuislesherif", "ImTheDoctor"]) {
+      assert.equal(tryName(taken), false, `"${taken}" should be refused`);
+    }
+    // The connective alone means nothing: plenty of words end in one.
+    for (const fine of ["Charisme", "Prisme", "Iambic"]) {
+      assert.equal(tryName(fine), true, `"${fine}" should be allowed`);
+    }
+  });
+
+  /**
+   * Two names the table cannot tell apart.
+   *
+   * Every reader here resolves a spoken name back to a seat, so "Gamora" and
+   * "Gam0ra" make each of them a coin flip and the square becomes an argument
+   * about somebody nobody can identify.
+   */
+  it("refuses a name a letter away from somebody already seated", () => {
+    const state = createMafiaGame({ code: "NAMES", hostToken: "h", hostUserId: null, now: 0 });
+    joinMafia(state, "Gamora", "tokA", "a");
+    const near = (name: string): boolean => {
+      try {
+        joinMafia(state, name, `tok-${name}`, `id-${name}`);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    assert.equal(near("Gam0ra"), false, "a digit swapped into the middle is a disguise");
+    assert.equal(near("gamora"), false, "case is not a difference");
+    assert.equal(near("Gamorra"), false, "one letter is not a difference");
+    // One name sitting inside another is how nicknames go wrong, and the bot
+    // draw has refused it since it was written. See `tooAlike`.
+    assert.equal(near("TheGamora"), false, "a name wrapped around another is not a different name");
+    assert.equal(near("Gandalf"), true, "and an ordinary name still seats");
+  });
+
+  /**
+   * A number on the end is the one difference that is always deliberate.
+   *
+   * People number themselves when they want the same name, every table
+   * understands it, and this game already calls seats by number. Refusing it
+   * would mean the second person to like a name has to invent a different one.
+   */
+  it("still lets a table number itself", () => {
+    const state = createMafiaGame({ code: "NUMS", hostToken: "h", hostUserId: null, now: 0 });
+    for (let index = 0; index < 5; index++) {
+      assert.doesNotThrow(() => joinMafia(state, `Joueur${index}`, `tok${index}`, `id${index}`));
+    }
+    assert.doesNotThrow(() => joinMafia(state, "Joueur", "tokP", "idP"));
+  });
 });
 
 /**

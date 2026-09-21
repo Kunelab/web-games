@@ -1,7 +1,11 @@
 /* eslint-disable no-console */
 import type { FastifyBaseLogger } from 'fastify';
 
-import { env } from '../env.js';
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import { env, traceDir } from '../env.js';
+import { foldTrace, renderStats, emptyStats, type TraceLine } from './table-stats.js';
 import { MafiaManager } from './manager.js';
 import { say } from './say.js';
 
@@ -173,8 +177,11 @@ const watcher = setInterval(() => {
   if (seen.length > 0) lastLedger = [...seen];
 
   if (current.phase === 'ended') {
-    report(current);
-    return exit(0);
+    // `report` reads the trace back off disk for the bench table, and `exit`
+    // calls `process.exit`. Sequenced, or the process is gone before the last
+    // and most useful block of the output is printed.
+    void report(current).finally(() => exit(0));
+    return;
   }
 
   if (Date.now() - startedAt > watchdogMs) {
@@ -207,7 +214,7 @@ function printLedger(code: string): void {
 }
 
 /** What happened, and what the bots thought was happening. */
-function report(final: NonNullable<ReturnType<typeof manager.get>>): void {
+async function report(final: NonNullable<ReturnType<typeof manager.get>>): Promise<void> {
   const seconds = Math.round((Date.now() - startedAt) / 1000);
   console.log(`\n${'─'.repeat(66)}`);
   console.log(`terminé au jour ${final.day} en ${seconds}s (${tempo}/${provider})`);
@@ -248,6 +255,20 @@ function report(final: NonNullable<ReturnType<typeof manager.get>>): void {
    */
   printLedger(final.code);
 
+  /**
+   * And the bench's own numbers, for a table that actually ran.
+   *
+   * Read back out of the trace this run just wrote rather than computed here,
+   * so one implementation answers for LLM runs, for a night with people at the
+   * table, and for anything else the recorder was open for. See `table-stats`.
+   *
+   * One game is one sample and the counts are printed beside every rate for
+   * exactly that reason. What it is for is not win rates — it is whether the
+   * gun ever fired, whether it hit its own side when it did, and whether the
+   * model got a turn at all.
+   */
+  await printStats(final.code);
+
   const tail = Number(process.env.SIM_TAIL ?? 0);
   if (tail > 0) {
     console.log('\nfin de partie :');
@@ -263,4 +284,34 @@ function exit(code: number, reason?: string): void {
   clearInterval(watcher);
   manager.stopSweeping();
   void manager.destroy(state.code).finally(() => process.exit(code));
+}
+
+/**
+ * The bench table for the game that just finished.
+ *
+ * Found by table code rather than by newest file, because a run started while
+ * another is still going would otherwise report the wrong game — which is not
+ * hypothetical: two of these were running side by side an hour ago, competing
+ * for the same local model, and the one that finished first read the other's
+ * trace.
+ */
+async function printStats(code: string): Promise<void> {
+  try {
+    const names = await readdir(traceDir);
+    const name = names.filter((entry) => entry.includes(`-${code}.jsonl`)).sort().at(-1);
+    if (!name) return;
+    const lines = (await readFile(join(traceDir, name), 'utf8'))
+      .trim()
+      .split('\n')
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line) as TraceLine];
+        } catch {
+          return [];
+        }
+      });
+    console.log(`\n${renderStats(foldTrace(lines, emptyStats()))}\n`);
+  } catch {
+    // A missing or unreadable trace is not worth failing a finished game over.
+  }
 }
