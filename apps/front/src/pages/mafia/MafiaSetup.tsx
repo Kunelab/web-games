@@ -6,8 +6,10 @@ import { useNavigate } from 'react-router';
 
 import { api } from '../../api/client';
 import { useAsync } from '../../hooks/useAsync';
+import { mafiaKeys } from '../../tools/mafiaKeys';
 import { Autocomplete, Button, Field, Input, Select } from '../../ui';
 import { PublicSwitch } from '../../ui/PublicSwitch';
+import { ShareLink } from '../../ui/ShareLink';
 import { useT } from '../../i18n/locale-context';
 import './mafia.css';
 
@@ -113,7 +115,7 @@ export default function MafiaSetup() {
         setup: choice,
         public: isPublic
       });
-      sessionStorage.setItem(`mafia:host:${session.code}`, session.hostToken);
+      sessionStorage.setItem(mafiaKeys.host(session.code), session.hostToken);
       setCreated(session);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : tk('mafia.setup.createFailed'));
@@ -134,7 +136,7 @@ export default function MafiaSetup() {
   }
 
   function reattach(code: string, hostToken: string) {
-    sessionStorage.setItem(`mafia:host:${code}`, hostToken);
+    sessionStorage.setItem(mafiaKeys.host(code), hostToken);
     void navigate(`/mafia/rejoindre/${code}`);
   }
 
@@ -391,7 +393,7 @@ export default function MafiaSetup() {
           <div className="mz-qr">
             <QRCode value={joinUrl} size={140} />
           </div>
-          <p className="mz-join-url">{joinUrl}</p>
+          <ShareLink url={joinUrl} title="Mafia" />
           <Button onClick={() => void navigate(`/mafia/rejoindre/${created.code}`)}>{tk('mafia.setup.goSit')}</Button>
 
           {/**
@@ -410,7 +412,7 @@ export default function MafiaSetup() {
             <div className="mz-qr">
               <QRCode value={tvUrl} size={110} />
             </div>
-            <p className="mz-join-url">{tvUrl}</p>
+            <ShareLink url={tvUrl} title="Mafia" />
             <Button variant="ghost" onClick={() => window.open(tvUrl, '_blank', 'noopener')}>
               {tk('mafia.setup.openTv')}
             </Button>

@@ -34,6 +34,10 @@ import { useCountdown } from '../../hooks/useGameSocket';
 import { PauseOverlay } from '../../components/presence/PauseOverlay';
 import { useCzSocket } from '../../hooks/useCzSocket';
 import { useHeartbeat } from '../../hooks/useHeartbeat';
+import { useWakeLock } from '../../hooks/useWakeLock';
+import { buzz } from '../../tools/haptics';
+import { NICKNAME_MAX, rememberNickname, storedNickname } from '../../tools/nickname';
+import { forgetSeat, noteSeat } from '../../tools/seats';
 import { itemSprite } from './czAssets';
 import { neighbourRooms, sightRooms } from './czBoard';
 import { czNextGoal } from './czGoals';
@@ -60,7 +64,8 @@ export default function CoronaZPlayer() {
   const { code = '' } = useParams<{ code: string }>();
   const { socket, connected, view, rewards, error, serverNow, applyView } = useCzSocket();
 
-  const [name, setName] = useState('');
+  /** The name this phone last played under, in any of the three games. */
+  const [name, setName] = useState(storedNickname);
   const [joined, setJoined] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -97,6 +102,8 @@ export default function CoronaZPlayer() {
           if (ack.playerToken) localStorage.setItem(tokenKey, ack.playerToken);
           if (ack.playerId) localStorage.setItem(`${tokenKey}.id`, ack.playerId);
           localStorage.setItem(`${tokenKey}.name`, actualName);
+          rememberNickname(actualName);
+          noteSeat('coronaz', code, actualName);
           if (ack.view) applyView(ack.view);
           if (ack.career) setCareer(ack.career);
           setAccount(ack.account ?? null);
@@ -165,6 +172,39 @@ export default function CoronaZPlayer() {
     [socket]
   );
 
+  /**
+   * A raid is mostly other people's turns, which is exactly as long as a phone
+   * waits before locking itself and taking the socket with it.
+   */
+  useWakeLock(joined);
+
+  /**
+   * Your turn, and the horde's, in the pocket.
+   *
+   * The hero phase is the game asking this player for something, and the one
+   * before it is four other people doing things this phone showed silently. A
+   * table waits on whoever did not notice their turn started, so it gets the
+   * long pattern; the horde moving gets a tap.
+   *
+   * Not on the first view: arriving at a raid is not an interruption, and this
+   * runs again on every silent reconnect.
+   */
+  const phase = view?.phase ?? null;
+  const mine = phase === 'heroes';
+  const lastPhase = useRef<string | null>(null);
+  useEffect(() => {
+    if (phase === null) return;
+    const previous = lastPhase.current;
+    lastPhase.current = phase;
+    if (previous === null || previous === phase) return;
+    buzz(mine ? 'turn' : 'phase');
+  }, [phase, mine]);
+
+  /** A won or lost raid is not somewhere the front page should offer to return to. */
+  useEffect(() => {
+    if (phase === 'won' || phase === 'lost') forgetSeat('coronaz', code);
+  }, [phase, code]);
+
   const send = useCallback(
     async (action: HeroAction): Promise<CzActionAck> => {
       if (!socket) return { ok: false, error: t(msg('cz.play.offline')) };
@@ -200,7 +240,7 @@ export default function CoronaZPlayer() {
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder={t(msg('cz.play.yourName'))}
-            maxLength={24}
+            maxLength={NICKNAME_MAX}
             aria-label={t(msg('cz.play.yourName'))}
             autoFocus
           />

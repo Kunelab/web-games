@@ -43,6 +43,22 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(initialLocale);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
+  /**
+   * Tell the *document* which language it turned out to be in.
+   *
+   * `index.html` ships `lang="en"` because a static file has to guess, and for
+   * a long time nothing corrected it: a French evening was served to screen
+   * readers as English, which pronounces it through English phonemes and makes
+   * it close to unusable, and to Chrome as a page already in your language,
+   * which is why it never offered to translate the one page that needed it.
+   *
+   * Stamped from `locale` rather than from `loaded`, so it is right during the
+   * moment a switch is still fetching its catalogue.
+   */
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
   useEffect(() => {
     let live = true;
     void (async () => {

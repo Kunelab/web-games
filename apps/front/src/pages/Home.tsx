@@ -5,6 +5,7 @@ import { GAMES } from '../app/games';
 import { useAuth } from '../hooks/useAuth';
 import { useT } from '../i18n/locale-context';
 import { Button } from '../ui';
+import { ResumeSeats } from '../ui/ResumeSeats';
 import './home.css';
 
 /**
@@ -25,6 +26,10 @@ export default function Home() {
 
   return (
     <div className="home">
+      {/* First thing on the front page, when there is one. A player who reopened
+          the site mid-game is not browsing the catalogue. */}
+      <ResumeSeats />
+
       <section className="home-hero">
         <h1 className="home-title">{t(msg('site.home.title'))}</h1>
         <p className="home-lede">{t(msg('site.home.lede'))}</p>

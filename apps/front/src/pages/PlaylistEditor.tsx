@@ -239,6 +239,24 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
     setDirty(true);
   }
 
+  /**
+   * Everything the filters are currently showing, in one press.
+   *
+   * Building a thirty-item blind test was thirty presses, each of which removed
+   * the row from under the cursor and moved the next one up into it. The search
+   * box and the kind chips above are already the selection — "every 90s clip",
+   * "everything with 'Queen' in the title" — so this only had to act on what
+   * they had narrowed the list to rather than grow a second way of choosing.
+   *
+   * Appended in the order shown, which is the order the list is sorted in, and
+   * the whole point of the panel to the left is that it can then be rearranged.
+   */
+  function addAll() {
+    if (available.length === 0) return;
+    setOrder([...order, ...available.map((item) => item.id)]);
+    setDirty(true);
+  }
+
   function remove(mediaId: number) {
     setOrder(order.filter((candidate) => candidate !== mediaId));
     setDirty(true);
@@ -372,6 +390,14 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                 </Chip>
               ))}
             </div>
+
+            {/* Offered only when it would do something more than the row buttons
+                already do: for one item it is the same press with a longer walk. */}
+            {available.length > 1 && (
+              <Button variant="secondary" size="sm" onClick={addAll}>
+                {t(msg('ple.addAll', { count: available.length }))}
+              </Button>
+            )}
           </div>
 
           {libraryLoading && <Loading />}

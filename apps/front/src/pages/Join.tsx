@@ -3,11 +3,13 @@ import { isLobbyGame, quickJoinPath, type LobbyCard, type LobbyGame } from 'lobb
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 
-import { api, ApiError } from '../api/client';
+import { api } from '../api/client';
 import { GAMES, gameEntry } from '../app/games';
 import { useAsync } from '../hooks/useAsync';
 import { useT } from '../i18n/locale-context';
+import { gameForCode } from '../tools/seats';
 import { Button, Chip, Field, Input, Loading } from '../ui';
+import { ResumeSeats } from '../ui/ResumeSeats';
 import './play.css';
 
 /**
@@ -51,9 +53,10 @@ export default function Join() {
    * A code names a game without saying which game it belongs to.
    *
    * Codes share one namespace across all three engines precisely so a player can
-   * type one without knowing, so this asks each summary endpoint in turn and
-   * sends them wherever it lands. Four hundred and four everywhere means the code
-   * is wrong, which is the one answer worth reporting.
+   * type one without knowing, so `gameForCode` asks each summary endpoint in
+   * turn and this sends them wherever it lands. Four hundred and four everywhere
+   * means the code is wrong; anything else means the server is unwell, and the
+   * two get different sentences because they need different reactions.
    */
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -62,34 +65,29 @@ export default function Join() {
     setBusy(true);
     setError(null);
 
-    const probes: { game: LobbyGame; ask: () => Promise<unknown> }[] = [
-      { game: 'quiz', ask: () => api.sessionSummary(normalised) },
-      { game: 'coronaz', ask: () => api.czSummary(normalised) },
-      { game: 'mafia', ask: () => api.mafiaSummary(normalised) }
-    ];
-
-    for (const probe of probes) {
-      try {
-        await probe.ask();
-        void navigate(quickJoinPath(probe.game, normalised));
+    try {
+      const game = await gameForCode(normalised);
+      if (game === null) {
+        setError(t(msg('join.noSuchGame')));
+        setBusy(false);
         return;
-      } catch (cause) {
-        if (!(cause instanceof ApiError) || cause.status !== 404) {
-          setError(t(msg('join.checkFailed')));
-          setBusy(false);
-          return;
-        }
       }
+      void navigate(quickJoinPath(game, normalised));
+    } catch {
+      setError(t(msg('join.checkFailed')));
+      setBusy(false);
     }
-
-    setError(t(msg('join.noSuchGame')));
-    setBusy(false);
   }
 
   const cards = board.data ?? [];
 
   return (
     <div className="jeu-screen join-page">
+      {/* Above the code box, because somebody who is already in a game did not
+          come here to type a code — they came here because it was the only way
+          back they could find. */}
+      <ResumeSeats />
+
       <form className="join-form" onSubmit={(event) => void submit(event)}>
         <h1 className="join-title">{t(msg('join.title'))}</h1>
 

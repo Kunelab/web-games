@@ -32,6 +32,19 @@ const DEFAULT_PREFERENCE: ThemePreference = 'dark';
  */
 const LIGHT_QUERY = '(prefers-color-scheme: light)';
 
+/**
+ * The two grounds, as the browser's own chrome needs them.
+ *
+ * These are the `body` backgrounds from `base.css`, repeated here because a
+ * `<meta>` cannot read a custom property. That duplication is the one thing to
+ * watch: change a ground in the stylesheet and this has to follow, or an
+ * Android tab bar sits a shade off the page it is supposed to continue.
+ */
+const GROUND: Record<ResolvedTheme, string> = {
+  dark: '#0a0b0f',
+  light: '#faf8f4'
+};
+
 function storedPreference(): ThemePreference {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
@@ -70,6 +83,9 @@ export function useTheme(): {
   // The one genuine side effect: telling the page what it turned out to be.
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    // And telling the browser, which paints the strip above the page and the
+    // task switcher card, neither of which the stylesheet can reach.
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', GROUND[theme]);
   }, [theme]);
 
   const setPreference = useCallback((next: ThemePreference) => {

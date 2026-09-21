@@ -5,6 +5,31 @@
     <link rel="icon" type="image/svg+xml" href="/KuneLab.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kune</title>
+
+    <!--
+      Installable, because the players are the same people on the same phones at
+      the same address every game night. Added to a home screen it opens without
+      a URL bar, which on the smallest screen in the room is a visible amount of
+      the screen back.
+
+      There is deliberately no service worker. This is a live socket game: there
+      is nothing meaningful to do offline, and a stale cached bundle talking to
+      a newer server is a far worse evening than a page that simply needs the
+      network. The manifest alone is enough for the install prompt.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+
+    <!--
+      The browser's own chrome, painted to match the page under it.
+
+      One tag, not a pair of `prefers-color-scheme` ones, because the theme here
+      is a stored *choice* and need not agree with the machine: somebody reading
+      in light mode on a dark laptop would get a black bar over a cream page.
+      `useTheme` rewrites this from the theme it resolved, and the value here is
+      only what the first paint uses, kept in step with the script below.
+    -->
+    <meta name="theme-color" content="#0a0b0f" />
     <script>
       /*
         Resolved before the first paint, which is the whole reason it is inline
@@ -23,6 +48,12 @@
             preference === 'dark' ||
             (preference === 'system' && !window.matchMedia('(prefers-color-scheme: light)').matches);
           document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+          if (!dark) {
+            // The tag above defaults to the dark ground; correct it before the
+            // first paint too, or a light reader gets one frame of black chrome.
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute('content', '#faf8f4');
+          }
         } catch (error) {
           // Storage refused, or an ancient browser. The house look is dark.
           document.documentElement.dataset.theme = 'dark';

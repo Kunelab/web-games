@@ -232,7 +232,6 @@ export const screenFr: Catalogue = {
   'mafia.tv.code': 'Code {code}',
   'mafia.tv.hideRoles': '🙈 Masquer les rôles',
   'mafia.tv.showRoles': '👁️ Révéler les rôles',
-  'mafia.tv.fullscreen': 'Plein écran',
   'mafia.tv.joinAt': 'Rejoignez la table sur',
   'mafia.tv.noSpoilers':
     'Mode sans spoiler : cet écran ne montre aucun rôle. Les identités restent sur les téléphones.',

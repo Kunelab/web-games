@@ -21,6 +21,7 @@ import { api, ApiError } from '../../api/client';
 import { useAsync } from '../../hooks/useAsync';
 import { buzzerOrigin } from '../../tools/api-url';
 import { Badge, Button, Field, Input } from '../../ui';
+import { ShareLink } from '../../ui/ShareLink';
 import { PublicSwitch } from '../../ui/PublicSwitch';
 import { useT } from '../../i18n/locale-context';
 import './coronaz.css';
@@ -137,13 +138,13 @@ export default function CoronaZSetup() {
           <div className="stack-5">
             <div className="editor-section">
               <p className="join-code">{started.code}</p>
-              <p className="join-url">{joinUrl}</p>
+              <ShareLink url={joinUrl} title="CoronaZ" />
             </div>
 
             {gmUrl && (
               <div className="editor-section">
                 <h2 className="editor-section-title">{t(msg('cz.setup.gmLink'))}</h2>
-                <p className="join-url">{gmUrl}</p>
+                <ShareLink url={gmUrl} title="CoronaZ" />
                 <p className="field-hint">{t(msg('cz.setup.gmLinkNote'))}</p>
               </div>
             )}

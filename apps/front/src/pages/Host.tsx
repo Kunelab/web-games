@@ -7,7 +7,9 @@ import { api } from '../api/client';
 import { badgeMeta } from '../app/badges';
 import { fieldText } from '../forms/fieldText';
 import { isAdmin, useAuth } from '../hooks/useAuth';
+import { useFullscreen } from '../hooks/useFullscreen';
 import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
+import { useWakeLock } from '../hooks/useWakeLock';
 import { useLocale } from '../i18n/locale-context';
 import { RoundPanel } from './Player';
 import { joinUrl } from '../tools/api-url';
@@ -160,6 +162,69 @@ export default function Host() {
   // and a stock one from the kind arrives as a catalogue key.
   const prompts = (round?.answers ?? []).map((answer) => fieldText(t, answer.label).trim()).filter(Boolean);
 
+  /** Nothing is pressed here for minutes at a time, and the room is watching it. */
+  useWakeLock();
+  const { ref: shellRef, active: isFullscreen, toggle: toggleFullscreen } = useFullscreen<HTMLDivElement>();
+
+  /**
+   * The keys, because the host is standing at a laptop, not sitting at one.
+   *
+   * Everything on this screen was a mouse target, and the mouse is on a table
+   * behind whoever is running the evening. One hand on the space bar is how a
+   * quiz is actually hosted: press, read the answer out, press again.
+   *
+   * The guards are the whole of the difficulty. A key must not be stolen from
+   * anything being typed into — the correction form lives on this screen — and
+   * must not be stolen from a focused button either, where the browser already
+   * turns Space and Enter into a click and would otherwise fire twice. Any
+   * modifier means the press belongs to the browser: Ctrl-P is printing.
+   */
+  useEffect(() => {
+    if (!socket || !hostToken) return;
+
+    function onKey(event: KeyboardEvent) {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.repeat) return;
+      if (correcting !== null) return;
+
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable) return;
+      if (target && ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(target.tagName)) return;
+
+      const press = () => event.preventDefault();
+
+      switch (event.key) {
+        case ' ':
+        case 'Enter':
+          press();
+          // In the lobby the one thing to do is begin; after it, move on.
+          if (session?.phase === 'lobby') socket?.emit('host:start', { hostToken });
+          else if (round) socket?.emit('host:advance', { hostToken });
+          return;
+        case 'p':
+        case 'P':
+          if (!round) return;
+          press();
+          socket?.emit('host:holdRound', { hostToken, hold: !round.held });
+          return;
+        case 'c':
+        case 'C':
+          if (round?.phase !== 'answering') return;
+          press();
+          socket?.emit('host:closeAnswers', { hostToken });
+          return;
+        case 'f':
+        case 'F':
+          press();
+          toggleFullscreen();
+          return;
+        default:
+      }
+    }
+
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [socket, hostToken, session?.phase, round, correcting, toggleFullscreen]);
+
   if (!hostToken) {
     return (
       <div className="jeu-screen jeu-center">
@@ -193,7 +258,7 @@ export default function Host() {
   const url = joinUrl(code);
 
   return (
-    <div className="jeu-screen jeu-fixed">
+    <div ref={shellRef} className="jeu-screen jeu-fixed">
       <header className="host-top">
         <span className="host-code">{code}</span>
         <span className="host-progress tabular">
@@ -232,6 +297,17 @@ export default function Host() {
             {t(msg('host.stopAfterRound'))}
           </Button>
         )}
+        {/* A quiz on a television, under a tab strip, with a mouse pointer parked
+            over the question. The room is looking at this screen and at nothing
+            else, so everything that is not the game should go. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggleFullscreen}
+          aria-label={t(msg(isFullscreen ? 'site.fullscreen.exit' : 'site.fullscreen'))}
+        >
+          ⛶
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -745,6 +821,10 @@ export default function Host() {
                 {t(msg(round.phase === 'reveal' ? 'host.next' : 'host.skip'))}
               </Button>
             </div>
+
+            {/* Said out loud, under the buttons they duplicate. A host who never
+                learns the keys keeps clicking and loses nothing. */}
+            <p className="host-shortcuts">{t(msg('host.shortcuts'))}</p>
           </div>
         </>
       )}

@@ -29,9 +29,25 @@ export default function Library() {
   const kinds = useAsync(() => api.kinds(), []);
   const media = useAsync(() => api.listMedia({ kind: kind || undefined, search: search || undefined }), [kind, search]);
 
-  const [pendingDelete, setPendingDelete] = useState<MediaItem | null>(null);
+  /**
+   * What the confirm dialog is about: one row, or a whole selection.
+   *
+   * A list rather than an item, because the two deletions are the same
+   * deletion. Keeping a second dialog for the bulk case would mean two places
+   * to remember that this is the operation which quietly empties playlists.
+   */
+  const [pendingDelete, setPendingDelete] = useState<MediaItem[] | null>(null);
   const [usage, setUsage] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
+  /**
+   * The rows ticked, by id.
+   *
+   * Ids and not items, so a reload of the list does not strand the selection on
+   * stale copies. Anything ticked and then filtered out of view stays ticked —
+   * which is why the bar says how many there are, and why "select all" says
+   * "shown".
+   */
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [importOpen, setImportOpen] = useState(false);
   /** The item being copied, so only its own button shows the pending state. */
   const [duplicating, setDuplicating] = useState<number | null>(null);
@@ -54,15 +70,33 @@ export default function Library() {
     return result;
   }, [media.data]);
 
-  async function askDelete(item: MediaItem) {
-    setPendingDelete(item);
+  /**
+   * Opens the confirmation, then goes and finds out what it will break.
+   *
+   * The dialog is up before the answer arrives, because the question is already
+   * answerable without it — the count of playlists is what turns a confirm into
+   * an informed one, not what makes it a confirm. Asked per media because that
+   * is the endpoint there is; a selection of thirty is thirty small requests,
+   * which is acceptable for something a person pressed once.
+   */
+  async function askDelete(targets: MediaItem[]) {
+    if (targets.length === 0) return;
+    setPendingDelete(targets);
     setUsage(null);
     try {
-      const result = await api.mediaUsage(item.id);
-      setUsage(result.playlists);
+      const counts = await Promise.all(targets.map((item) => api.mediaUsage(item.id)));
+      setUsage(counts.reduce((total, result) => total + result.playlists, 0));
     } catch {
       setUsage(null);
     }
+  }
+
+  function toggleSelected(id: number) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   }
 
   /**
@@ -86,7 +120,18 @@ export default function Library() {
     if (!pendingDelete) return;
     setDeleting(true);
     try {
-      await api.deleteMedia(pendingDelete.id);
+      // One at a time and in order: there is no bulk endpoint, and firing thirty
+      // deletes at once at a small box is not worth the tenth of a second.
+      for (const item of pendingDelete) {
+        await api.deleteMedia(item.id);
+      }
+      // Only what was actually deleted leaves the selection, so a failure
+      // half-way through leaves the rest of it ticked and retryable.
+      setSelected((current) => {
+        const next = new Set(current);
+        for (const item of pendingDelete) next.delete(item.id);
+        return next;
+      });
       setPendingDelete(null);
       media.reload();
     } finally {
@@ -96,6 +141,9 @@ export default function Library() {
 
   const items = media.data ?? [];
   const notReady = items.filter((item) => !item.readiness.ready).length;
+  const selectedItems = items.filter((item) => selected.has(item.id));
+  const allShownSelected = items.length > 0 && items.every((item) => selected.has(item.id));
+  const many = (pendingDelete?.length ?? 0) > 1;
 
   return (
     <>
@@ -162,6 +210,38 @@ export default function Library() {
         </div>
       </div>
 
+      {/*
+        The selection bar, which exists only while there is a selection.
+
+        Not a permanent toolbar with dead buttons in it: the library is a list
+        you read far more often than you tidy, and a row of greyed-out actions
+        at the top of it every single visit is the cost of a feature used on a
+        wet Sunday. Ticking the first box is what summons it.
+      */}
+      {selected.size > 0 && (
+        <div className="lib-selection" role="status">
+          <span className="lib-selection-count">{t(msg('lib.selected', { count: selected.size }))}</span>
+
+          {!allShownSelected && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelected(new Set([...selected, ...items.map((item) => item.id)]))}
+            >
+              {t(msg('lib.selectAll'))}
+            </Button>
+          )}
+
+          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+            {t(msg('lib.clearSelection'))}
+          </Button>
+
+          <Button variant="danger" size="sm" onClick={() => void askDelete(selectedItems)}>
+            {t(msg('lib.deleteSelected'))}
+          </Button>
+        </div>
+      )}
+
       {media.loading && <Loading />}
       {media.error && <p className="field-error">{media.error}</p>}
 
@@ -195,6 +275,16 @@ export default function Library() {
           {items.map((item) => (
             <li key={item.id} className="media-row">
               <span className="kind-bar" style={{ background: kindColor(item.kind) }} aria-hidden="true" />
+
+              {/* Named after the row it ticks, because "checkbox" read out forty
+                  times in a row tells somebody nothing about which one is which. */}
+              <input
+                type="checkbox"
+                className="media-tick"
+                checked={selected.has(item.id)}
+                aria-label={t(msg('lib.select', { title: item.title }))}
+                onChange={() => toggleSelected(item.id)}
+              />
 
               <Link to={`/bibliotheque/${item.id}`} className="media-main">
                 <span className="media-title">{item.title}</span>
@@ -237,7 +327,7 @@ export default function Library() {
               <IconButton
                 icon={<TrashIcon />}
                 label={t(msg('lib.delete', { title: item.title }))}
-                onClick={() => void askDelete(item)}
+                onClick={() => void askDelete([item])}
               />
             </li>
           ))}
@@ -247,8 +337,8 @@ export default function Library() {
       <Dialog
         open={pendingDelete !== null}
         onOpenChange={(open) => !open && setPendingDelete(null)}
-        title={t(msg('lib.deleteTitle'))}
-        description={pendingDelete?.title}
+        title={t(many ? msg('lib.deleteManyTitle', { count: pendingDelete?.length ?? 0 }) : msg('lib.deleteTitle'))}
+        description={many ? t(msg('lib.deleteManyDesc')) : pendingDelete?.[0]?.title}
         actions={
           <>
             <Button variant="ghost" onClick={() => setPendingDelete(null)}>
@@ -266,8 +356,8 @@ export default function Library() {
           {usage === null
             ? t(msg('lib.checkingUsage'))
             : usage === 0
-              ? t(msg('lib.usedNowhere'))
-              : t(msg('lib.willBeRemoved', { count: usage }))}
+              ? t(msg(many ? 'lib.usedNowhereMany' : 'lib.usedNowhere'))
+              : t(msg(many ? 'lib.willBeRemovedMany' : 'lib.willBeRemoved', { count: usage }))}
         </p>
       </Dialog>
 

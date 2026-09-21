@@ -4,7 +4,12 @@ import { createRoot } from 'react-dom/client';
 import { AppRouter } from './app/router';
 import { AuthProvider } from './hooks/AuthProvider';
 import { LocaleProvider } from './i18n/LocaleProvider';
+import { migrateMafiaKeys } from './tools/mafiaKeys';
 import './styles/base.css';
+
+// Before React, and before any screen reads a token: a phone that reloads into
+// the new build mid-game must find its seat where the new keys say it is.
+migrateMafiaKeys();
 
 const container = document.getElementById('root');
 

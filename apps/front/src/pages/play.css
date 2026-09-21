@@ -129,6 +129,25 @@
 }
 
 /*
+ * The keyboard hint under the host's buttons.
+ *
+ * Quiet on purpose: it is read once, on the first evening, and is furniture
+ * every evening after that. It sits with the controls rather than in the
+ * header because it describes them, and it is aligned to the same edge so it
+ * reads as their caption rather than as a message about the game.
+ */
+.host-shortcuts {
+  /* A third item in the `.host-bottom` row, told to take the whole width so it
+     always wraps onto its own line under the buttons rather than squeezing in
+     beside them on a wide screen. */
+  flex-basis: 100%;
+  margin: var(--space-2) 0 0;
+  text-align: right;
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+}
+
+/*
  * The clip is audible during the guess phase but must not be visible.
  *
  * Invisible, not shrunk. It used to be squeezed into a one-pixel box with
@@ -389,6 +408,18 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-3);
+}
+
+/*
+ * The live region under an answer box.
+ *
+ * It is in the DOM on every round whether or not there is anything to say,
+ * because a region that is mounted at the moment it fills is a region screen
+ * readers may not announce at all. Collapsed while empty so the box does not
+ * carry a blank line and a flex gap around waiting for one.
+ */
+.answer-box-feedback:empty {
+  display: none;
 }
 
 .choice-grid {
@@ -918,6 +949,33 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+/*
+ * The join link and the button that passes it on, as one line that wraps.
+ *
+ * The URL keeps `.join-url`'s treatment — it is still the thing to read off a
+ * screen across a room — and the button sits with it rather than under it, so
+ * the two read as one control rather than as a link and an unrelated action.
+ */
+.share-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/*
+ * The resume panel borrows the join board's cards, and adds only the two
+ * things that differ: it appears on the front page too, where there is no
+ * column to inherit a width from, and it wants air under it rather than the
+ * gap of whichever page it landed on.
+ */
+.resume-seats {
+  width: 100%;
+  max-width: 34rem;
+  margin: 0 auto var(--space-6);
 }
 
 .join-board-head h2 {

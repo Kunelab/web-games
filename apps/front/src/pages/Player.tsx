@@ -7,8 +7,12 @@ import { awardMeta } from '../app/awards';
 import { badgeMeta } from '../app/badges';
 import { fieldText } from '../forms/fieldText';
 import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
+import { useWakeLock } from '../hooks/useWakeLock';
 import { useLocale } from '../i18n/locale-context';
 import { assetUrl } from '../tools/api-url';
+import { buzz as haptic } from '../tools/haptics';
+import { NICKNAME_MAX, rememberNickname, storedNickname } from '../tools/nickname';
+import { forgetSeat, noteSeat } from '../tools/seats';
 import { BlindtestAudio } from '../ui/BlindtestAudio';
 import { QuickEnd } from '../ui/QuickEnd';
 import { RevealImage } from '../ui/RevealImage';
@@ -30,7 +34,14 @@ export default function Player() {
   const { socket, connected, session, error, serverNow, clock } = useGameSocket();
   const { t, locale } = useLocale();
 
-  const [name, setName] = useState('');
+  /**
+   * Filled from the name this phone last played under, whatever the game was.
+   *
+   * Not from the per-code name: that one is read inside `join` and is what a
+   * silent rejoin sends back, but it is empty the first time this phone meets
+   * this code, which is exactly when the box is shown.
+   */
+  const [name, setName] = useState(storedNickname);
   const [joined, setJoined] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -60,6 +71,11 @@ export default function Player() {
           if (ack.playerToken) localStorage.setItem(tokenKey, ack.playerToken);
           if (ack.playerId) localStorage.setItem(`${tokenKey}.id`, ack.playerId);
           localStorage.setItem(`${tokenKey}.name`, actualName);
+          // The name this phone plays under generally, and the seat it can be
+          // offered a way back into. Both are written on the silent rejoins too:
+          // they cost nothing and they keep the seat's timestamp honest.
+          rememberNickname(actualName);
+          noteSeat('quiz', code, actualName);
           setJoined(true);
         } else {
           setJoinError(ack.error ?? t(msg('play.joinFailed')));
@@ -110,6 +126,25 @@ export default function Player() {
     void join('');
   }, [connected, joined, join]);
 
+  /**
+   * Lit for as long as there is a seat here.
+   *
+   * A blind test is thirty seconds of listening with nothing to touch, which is
+   * also how long a phone waits before locking itself. The player then misses
+   * the buzzer, and the socket goes with the screen.
+   */
+  useWakeLock(joined);
+
+  /**
+   * A finished game is not somewhere to send anybody back to.
+   *
+   * The token stays where it is — it is what keeps this screen showing the final
+   * standings — but the seat leaves the index behind the front page's shortcut.
+   */
+  useEffect(() => {
+    if (session?.phase === 'finished') forgetSeat('quiz', code);
+  }, [session?.phase, code]);
+
   if (!connected) {
     return (
       <div className="jeu-screen jeu-center">
@@ -133,7 +168,7 @@ export default function Player() {
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder={t(msg('play.yourNickname'))}
-            maxLength={24}
+            maxLength={NICKNAME_MAX}
             aria-label={t(msg('play.yourNickname'))}
             autoFocus
           />
@@ -574,6 +609,31 @@ function Buzzer({
   const window = useCountdown(buzz.windowEndsAt, serverNow);
   const mine = buzz.holderId !== null && buzz.holderId === myId;
 
+  /**
+   * The one moment in a quiz worth interrupting somebody for.
+   *
+   * A race is settled by the server some tens of milliseconds after the thumb
+   * lands, and the whole room is looking at the television when it is. Winning
+   * it means answering *now*, so it gets the long pattern; losing it gets a
+   * short one, because knowing you are out is also worth not having to look.
+   *
+   * Only on the transition, and only for somebody who actually pressed. That
+   * last part is why this tracks the press itself rather than reading `racing`
+   * off the view: `racing` is true for the whole room while a race is being
+   * settled, so keying off it would buzz every phone in the house to announce
+   * that somebody else got there first.
+   *
+   * The refs need no resetting between rounds. `RoundPanel` is keyed by round
+   * id, so each round arrives with a freshly mounted buzzer.
+   */
+  const pressed = useRef(false);
+  const wasMine = useRef(mine);
+  useEffect(() => {
+    if (mine && !wasMine.current) haptic('won');
+    else if (buzz.holderId !== null && !mine && pressed.current) haptic('lost');
+    wasMine.current = mine;
+  }, [mine, buzz.holderId]);
+
   if (mine) {
     return (
       <p className="play-buzz play-buzz-mine">
@@ -607,6 +667,7 @@ function Buzzer({
       className="play-buzz-button"
       onClick={() => {
         setBusy(true);
+        pressed.current = true;
         void onBuzz().finally(() => setBusy(false));
       }}
     >
@@ -954,6 +1015,9 @@ function AnswerBox({
     setBusy(true);
     try {
       await onSubmit(answer.trim(), direct);
+      // A full stop, not a verdict: the box emptying is the only other sign
+      // that anything left the phone, and it is easy to miss mid-round.
+      haptic('sent');
       setValue('');
     } finally {
       setBusy(false);
@@ -1027,7 +1091,21 @@ function AnswerBox({
         </>
       )}
 
-      {feedback && <p className={feedback.good ? 'play-good' : 'play-error'}>{feedback.text}</p>}
+      {/*
+        Announced, not merely coloured.
+
+        "Trouvé" and "plus que deux essais" are the only answer this screen ever
+        gives, and green versus red carries all of it — which for a player using
+        a screen reader means the round is silent. `polite` rather than
+        `assertive`: it should follow what they were typing, not cut across it.
+      */}
+      <p
+        className={cx('answer-box-feedback', feedback && (feedback.good ? 'play-good' : 'play-error'))}
+        role="status"
+        aria-live="polite"
+      >
+        {feedback?.text ?? ''}
+      </p>
     </div>
   );
 }

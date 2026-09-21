@@ -89,6 +89,7 @@ export const playFr: Catalogue = {
   "host.skip": "Passer",
   "host.hold": "Pause",
   "host.resume": "Reprendre",
+  "host.shortcuts": "Espace : suivant · P : pause · C : clore · F : plein écran",
   "host.heldNote":
     "Le chrono est arr\u00eat\u00e9. Personne ne peut r\u00e9pondre tant que vous n\u2019avez pas repris.",
   "host.heldPlayer": "Pause demand\u00e9e par l\u2019animateur",

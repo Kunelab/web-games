@@ -234,7 +234,6 @@ export const screenEn: Catalogue = {
   'mafia.tv.code': 'Code {code}',
   'mafia.tv.hideRoles': '🙈 Hide the roles',
   'mafia.tv.showRoles': '👁️ Reveal the roles',
-  'mafia.tv.fullscreen': 'Full screen',
   'mafia.tv.joinAt': 'Join the table at',
   'mafia.tv.noSpoilers': 'Spoiler-free: this screen shows no role at all. Identities stay on the phones.',
   'mafia.tv.unrecognisable': 'Unrecognisable body',

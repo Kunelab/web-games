@@ -129,6 +129,19 @@ export const siteEn: Catalogue = {
   "site.tile.guide.mafia.hint":
     "The camps, the roles, how a day and a night play out.",
 
+  /* --------------------------------- passing it on --------------------------- */
+  /* The join link, as a button. "Send" when the device has a share sheet,
+     "Copy" when the clipboard is all there is. */
+  "share.send": "Send",
+  "share.copy": "Copy",
+  "share.copied": "Copied",
+
+  /* --------------------------------- the big screen -------------------------- */
+  /* One label for all three televisions: Mafia had its own, which is one
+     translation of two words too many. */
+  "site.fullscreen": "Full screen",
+  "site.fullscreen.exit": "Leave full screen",
+
   /* ------------------------------- nowhere at all --------------------------- */
   "site.notFound.title": "Page not found",
   "site.notFound.lede":

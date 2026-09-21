@@ -115,6 +115,11 @@ export const lobbyEn: Catalogue = {
   'join.continue': 'Continue',
   'join.checkFailed': 'Could not check that.',
   'join.noSuchGame': 'No game with that code.',
+  /* The shortcut back into a game this phone is already in. Drawn only when
+     there is one, and only when the server still has it. */
+  'join.resume.title': 'You are already in a game',
+  'join.resume.as': 'as {name}',
+  'join.resume.enter': 'Go back',
   'join.openRooms': 'Open rooms',
   'join.all': 'All',
   'join.empty': 'No public room right now. Open one from a game’s menu, or start a quick match.',

@@ -127,6 +127,15 @@ export const siteFr: Catalogue = {
   "site.tile.guide.mafia.hint":
     "Les camps, les rôles, le déroulé d’un jour et d’une nuit.",
 
+  /* --------------------------------- faire passer ---------------------------- */
+  "share.send": "Envoyer",
+  "share.copy": "Copier",
+  "share.copied": "Copié",
+
+  /* --------------------------------- le grand écran -------------------------- */
+  "site.fullscreen": "Plein écran",
+  "site.fullscreen.exit": "Quitter le plein écran",
+
   /* --------------------------------- nulle part ----------------------------- */
   "site.notFound.title": "Page introuvable",
   "site.notFound.lede":

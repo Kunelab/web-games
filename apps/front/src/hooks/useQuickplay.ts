@@ -33,24 +33,14 @@ function tokenKey(game: LobbyGame): string {
   return `kune.quick.${game}.member`;
 }
 
-/** The nickname a phone last used. Asked once, remembered everywhere. */
-export const NICKNAME_KEY = 'kune.nickname';
-
-export function storedNickname(): string {
-  try {
-    return localStorage.getItem(NICKNAME_KEY) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-export function rememberNickname(name: string): void {
-  try {
-    localStorage.setItem(NICKNAME_KEY, name);
-  } catch {
-    // A phone with storage disabled just gets asked again. Not worth failing over.
-  }
-}
+/**
+ * The nickname a phone last used. Asked once, remembered everywhere.
+ *
+ * It lives in `tools/nickname` now, because the three join screens want it too
+ * and none of them has any business importing the quick-lobby socket to get at
+ * it. Re-exported here so nothing that already asked this module has to change.
+ */
+export { NICKNAME_KEY, rememberNickname, storedNickname } from '../tools/nickname';
 
 export interface QuickplayOptions {
   game: LobbyGame;

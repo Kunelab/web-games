@@ -8,10 +8,10 @@
   background: var(--bg-raised);
 }
 
-/* Bar, title, answers, readiness, then the two row actions. */
+/* Bar, tick, title, answers, readiness, then the two row actions. */
 .media-row {
   display: grid;
-  grid-template-columns: 3px minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: 3px auto minmax(0, 1fr) auto auto auto auto;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3) var(--space-2) 0;
@@ -26,6 +26,51 @@
 }
 .media-row:hover {
   background: var(--bg-hover);
+}
+
+/*
+ * The tick that puts a row in a selection.
+ *
+ * Left at the browser's own control rather than drawn from scratch: it is the
+ * one widget every reader already recognises and every assistive technology
+ * already understands, and a custom one would have to earn all of that back.
+ * `accent-color` is enough to stop it being the only blue thing on the page.
+ */
+.media-tick {
+  accent-color: var(--accent);
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0 0 0 var(--space-3);
+  cursor: pointer;
+  flex: none;
+}
+
+/*
+ * The bar above the list, while anything is ticked.
+ *
+ * Sticky, because a selection is made by scrolling down a long list and the
+ * button that acts on it must not be somewhere above the top of the screen by
+ * the time it is wanted.
+ */
+.lib-selection {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+}
+
+.lib-selection-count {
+  margin-right: auto;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
 }
 
 /* The kind bar is the whole reason a long list stays scannable. */
@@ -72,7 +117,7 @@
 
 @media (max-width: 860px) {
   .media-row {
-    grid-template-columns: 3px minmax(0, 1fr) auto auto auto;
+    grid-template-columns: 3px auto minmax(0, 1fr) auto auto auto;
   }
   .media-answers {
     display: none;

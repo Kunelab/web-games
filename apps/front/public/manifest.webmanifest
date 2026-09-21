@@ -1,0 +1,25 @@
+{
+  "name": "KuneLab Games",
+  "short_name": "Kune",
+  "description": "A party quiz you host on a television while everyone answers from their phone.",
+  "start_url": "/rejoindre",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0b0f",
+  "theme_color": "#0a0b0f",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "402x402",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/KuneLab.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

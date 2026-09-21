@@ -36,6 +36,18 @@ export const atelierEn: Catalogue = {
   "lib.checkingUsage": "Checking which playlists use it…",
   "lib.usedNowhere": "This media is in no playlist.",
   "lib.willBeRemoved": "It will be removed from {count} playlist(s).",
+
+  /* Choosing several rows at once. The bar only exists while something is
+     chosen, so its labels never have to describe an empty selection. */
+  "lib.select": "Select {title}",
+  "lib.selected": "{count} selected",
+  "lib.selectAll": "Select all shown",
+  "lib.clearSelection": "Clear",
+  "lib.deleteSelected": "Delete the selection",
+  "lib.deleteManyTitle": "Delete {count} media?",
+  "lib.deleteManyDesc": "This cannot be undone.",
+  "lib.usedNowhereMany": "None of them is in a playlist.",
+  "lib.willBeRemovedMany": "They will be removed from {count} playlist(s) between them.",
   "lib.import.title": "Import a YouTube playlist",
   "lib.import.desc":
     "Every video becomes a blind test. The title and the artist are guessed from the video title, so read them over afterwards.",
@@ -288,6 +300,8 @@ export const atelierEn: Catalogue = {
   "ple.inPlaylist": "In the playlist",
   "ple.allReady": "all ready",
   "ple.addFromLibrary": "Add media from the library on the right.",
+  /* One press for everything the search and the chips are showing. */
+  "ple.addAll": "Add all {count}",
   "ple.library": "Library",
   "ple.available": "{count} available",
   "ple.search": "Search…",

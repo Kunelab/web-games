@@ -4,8 +4,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 
 import { PauseOverlay } from '../../components/presence/PauseOverlay';
+import { useFullscreen } from '../../hooks/useFullscreen';
 import { useMafiaSocket } from '../../hooks/useMafiaSocket';
 import { useCountdown } from '../../hooks/useServerClock';
+import { useWakeLock } from '../../hooks/useWakeLock';
+import { mafiaKeys } from '../../tools/mafiaKeys';
 import { cx } from '../../ui/cx';
 import { Loading } from '../../ui';
 import { useT } from '../../i18n/locale-context';
@@ -76,12 +79,12 @@ export default function MafiaTv() {
    */
   const [hostToken] = useState<string | null>(() => {
     const handed = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('host');
-    if (handed) sessionStorage.setItem(`mafia:host:${code}`, handed);
-    return handed ?? sessionStorage.getItem(`mafia:host:${code}`);
+    if (handed) sessionStorage.setItem(mafiaKeys.host(code), handed);
+    return handed ?? sessionStorage.getItem(mafiaKeys.host(code));
   });
   /** Off means "reveal nothing". Remembered per table so a reload keeps the choice. */
-  const [spoilers, setSpoilers] = useState(() => localStorage.getItem(`mafia:tv:spoilers:${code}`) === 'on');
-  const shellRef = useRef<HTMLDivElement>(null);
+  const [spoilers, setSpoilers] = useState(() => localStorage.getItem(mafiaKeys.spoilers(code)) === 'on');
+  const { ref: shellRef, active: isFullscreen, toggle: toggleFullscreen } = useFullscreen<HTMLDivElement>();
   const remaining = useCountdown(view?.phaseEndsAt ?? null, serverNow);
 
   // And out of sight: a token left in an address bar in front of a room is a
@@ -100,18 +103,17 @@ export default function MafiaTv() {
   }, [socket, connected, code]);
 
   useEffect(() => {
-    localStorage.setItem(`mafia:tv:spoilers:${code}`, spoilers ? 'on' : 'off');
+    localStorage.setItem(mafiaKeys.spoilers(code), spoilers ? 'on' : 'off');
   }, [spoilers, code]);
+
+  /**
+   * The television is the one screen nobody touches all evening, which makes it
+   * the one screen certain to go dark mid-phase.
+   */
+  useWakeLock();
 
   // The room's ears. Above the early returns, because a hook is a hook.
   useMafiaSound(view);
-
-  function toggleFullscreen() {
-    const node = shellRef.current;
-    if (!node) return;
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void node.requestFullscreen().catch(() => undefined);
-  }
 
   if (claimError) {
     return (
@@ -230,7 +232,15 @@ export default function MafiaTv() {
         <button type="button" className="mz-tv-btn" onClick={() => setSpoilers((on) => !on)}>
           {t(msg(spoilers ? 'mafia.tv.hideRoles' : 'mafia.tv.showRoles'))}
         </button>
-        <button type="button" className="mz-tv-btn" onClick={toggleFullscreen} title={t(msg('mafia.tv.fullscreen'))}>
+        {/* The label is the *other* state, because that is what pressing it does.
+            Also the accessible name: the glyph reads as nothing at all. */}
+        <button
+          type="button"
+          className="mz-tv-btn"
+          onClick={toggleFullscreen}
+          title={t(msg(isFullscreen ? 'site.fullscreen.exit' : 'site.fullscreen'))}
+          aria-label={t(msg(isFullscreen ? 'site.fullscreen.exit' : 'site.fullscreen'))}
+        >
           ⛶
         </button>
       </header>

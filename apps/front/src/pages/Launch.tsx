@@ -11,6 +11,7 @@ import { useT } from '../i18n/locale-context';
 import { joinUrl } from '../tools/api-url';
 import { Badge, Button, Field, Input, Loading, Select, Switch } from '../ui';
 import { PublicSwitch } from '../ui/PublicSwitch';
+import { ShareLink } from '../ui/ShareLink';
 import './playlists.css';
 
 /**
@@ -85,7 +86,9 @@ export default function Launch() {
             {!config.oral && (
               <div className="editor-section">
                 <p className="join-code">{started.code}</p>
-                <p className="join-url">{url}</p>
+                {/* The QR beside this covers the room; this covers the group chat,
+                    which is where at least half of an evening's players are. */}
+                <ShareLink url={url} title={playlist.data.name ?? undefined} />
               </div>
             )}
 

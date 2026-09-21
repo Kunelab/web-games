@@ -14,7 +14,7 @@ import {
   type SlotToken
 } from 'mafia-core';
 import { msg, type Msg } from 'i18n';
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 import { api } from '../../api/client';
@@ -24,6 +24,11 @@ import { PauseOverlay, RecoveringMark } from '../../components/presence/PauseOve
 import { useHeartbeat } from '../../hooks/useHeartbeat';
 import { useMafiaSocket } from '../../hooks/useMafiaSocket';
 import { useCountdown } from '../../hooks/useServerClock';
+import { useWakeLock } from '../../hooks/useWakeLock';
+import { buzz } from '../../tools/haptics';
+import { mafiaKeys } from '../../tools/mafiaKeys';
+import { rememberNickname, storedNickname } from '../../tools/nickname';
+import { noteSeat, forgetSeat } from '../../tools/seats';
 import { authorColour } from '../../ui/authorHue';
 import { cx } from '../../ui/cx';
 import { Button, Field, Input, Loading } from '../../ui';
@@ -159,7 +164,16 @@ export default function MafiaPlayer() {
   /** Sugar: almost every string on this screen is a key with no parameters. */
   const tk = useCallback((key: string, params?: Record<string, string | number | Msg>) => t(msg(key, params)), [t]);
 
-  const [name, setName] = useState(() => localStorage.getItem(`mafia:name:${code}`) ?? '');
+  /**
+   * The seat's own name first, then the one this phone plays under generally.
+   *
+   * The per-code name is the authority when there is one, because it is what the
+   * server has on the seat and a silent rejoin has to match it. The shared
+   * nickname is what fills the box the *first* time this phone meets this code,
+   * which is the whole point: a player types their name once, not once per game
+   * and again per evening.
+   */
+  const [name, setName] = useState(() => localStorage.getItem(mafiaKeys.name(code)) ?? storedNickname());
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -214,10 +228,10 @@ export default function MafiaPlayer() {
    * far side of it is a row of roofs. Pulling back is a preference rather than a
    * moment, so it survives a reload.
    */
-  const [zoom, setZoom] = useState(() => Number(localStorage.getItem('mafia:zoom')) || 1);
+  const [zoom, setZoom] = useState(() => Number(localStorage.getItem(mafiaKeys.zoom)) || 1);
   const setCamera = (next: number) => {
     const clamped = Math.min(2, Math.max(1, Number(next.toFixed(2))));
-    localStorage.setItem('mafia:zoom', String(clamped));
+    localStorage.setItem(mafiaKeys.zoom, String(clamped));
     setZoom(clamped);
   };
 
@@ -225,7 +239,7 @@ export default function MafiaPlayer() {
   const remaining = useCountdown(view?.phaseEndsAt ?? null, serverNow);
 
   const navigate = useNavigate();
-  const hostToken = sessionStorage.getItem(`mafia:host:${code}`);
+  const hostToken = sessionStorage.getItem(mafiaKeys.host(code));
 
   /**
    * Reclaims the seat with the stored token, on a refresh and on every reconnect.
@@ -238,8 +252,8 @@ export default function MafiaPlayer() {
    * refresh and never on a reconnect, which is the one case it exists for.
    */
   const reclaim = useCallback(() => {
-    const token = localStorage.getItem(`mafia:token:${code}`);
-    const storedName = localStorage.getItem(`mafia:name:${code}`);
+    const token = localStorage.getItem(mafiaKeys.token(code));
+    const storedName = localStorage.getItem(mafiaKeys.name(code));
     if (!socket || !token || !storedName) return;
     socket.emit('mafia:join', { code, name: storedName, playerToken: token, locale }, (ack) => {
       if (ack.ok && ack.view) applyView(ack.view);
@@ -290,7 +304,7 @@ export default function MafiaPlayer() {
   useEffect(() => {
     if (!rewards || !view?.me) return;
     const mine = rewards.find((reward) => reward.playerId === view.me?.playerId);
-    if (mine?.total != null) localStorage.setItem('mafia:points', String(mine.total));
+    if (mine?.total != null) localStorage.setItem(mafiaKeys.points, String(mine.total));
   }, [rewards, view?.me]);
 
   /**
@@ -333,8 +347,11 @@ export default function MafiaPlayer() {
         setJoinError(ack.error ? t(ack.error) : tk('mafia.ui.joinFailed'));
         return;
       }
-      localStorage.setItem(`mafia:token:${code}`, ack.playerToken ?? '');
-      localStorage.setItem(`mafia:name:${code}`, name.trim());
+      localStorage.setItem(mafiaKeys.token(code), ack.playerToken ?? '');
+      localStorage.setItem(mafiaKeys.name(code), name.trim());
+      rememberNickname(name);
+      noteSeat('mafia', code, name.trim());
+      buzz('joined');
       applyView(ack.view);
     });
   }
@@ -345,6 +362,53 @@ export default function MafiaPlayer() {
   const inJudgement = view?.phase === 'day' && view.stage === 'judgement';
   const inDefense = view?.phase === 'day' && view.stage === 'defense';
   const canVote = inDiscussion && (view?.day ?? 0) > 1;
+
+  /**
+   * The screen stays lit for as long as there is a seat on it.
+   *
+   * A Mafia night is several minutes in which most of the table does nothing at
+   * all, which is precisely how long a phone waits before locking. The player
+   * then misses the phase they were waiting for, and — worse, because the clock
+   * does not care — the table's vote to carry on without them starts running
+   * against somebody who is sitting right there.
+   */
+  useWakeLock(view !== null);
+
+  /**
+   * A finished table is not somewhere to go back to.
+   *
+   * The seat index on the front page offers a way back into whatever this phone
+   * was in, and an ended game is exactly the entry that would send somebody to
+   * an error screen. The token is deliberately left alone: it is what lets this
+   * screen keep showing the results.
+   */
+  useEffect(() => {
+    if (view?.phase === 'ended') forgetSeat('mafia', code);
+  }, [view?.phase, code]);
+
+  /**
+   * Vibration, for the two things a pocket needs to be told.
+   *
+   * The table is loud and the phone is face down on a knee, so a phase that
+   * changes silently changes without you. Two strengths, because they are not
+   * the same news: a phase turning over is worth a tap, and the game waiting on
+   * *you specifically* is worth the pattern nobody sleeps through.
+   *
+   * Deliberately not fired on the first view. Arriving at a seat is not an
+   * interruption, and buzzing on mount would buzz on every reconnect too.
+   */
+  const owed =
+    me?.alive === true &&
+    ((isNight && me.action !== null && me.actionTargetSlot === null) || (inJudgement && me.ballot === null));
+  const lastPulse = useRef<{ phase: string; owed: boolean } | null>(null);
+  useEffect(() => {
+    if (view === null) return;
+    const previous = lastPulse.current;
+    lastPulse.current = { phase: phaseKey, owed };
+    if (previous === null) return;
+    if (owed && !previous.owed) buzz('turn');
+    else if (phaseKey !== previous.phase) buzz('phase');
+  }, [phaseKey, owed, view]);
 
   /**
    * The seconds before the room may vote, counted down on the button.

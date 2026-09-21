@@ -7,6 +7,8 @@ import { api } from '../../api/client';
 import { useCountdown } from '../../hooks/useGameSocket';
 import { PauseOverlay } from '../../components/presence/PauseOverlay';
 import { useCzSocket } from '../../hooks/useCzSocket';
+import { useFullscreen } from '../../hooks/useFullscreen';
+import { useWakeLock } from '../../hooks/useWakeLock';
 import { buzzerOrigin } from '../../tools/api-url';
 import { Button, Loading } from '../../ui';
 import { awardMeta } from '../../app/awards';
@@ -86,6 +88,10 @@ export default function CoronaZTv() {
   const remaining = useCountdown(view?.phaseEndsAt ?? null, serverNow);
   useTvSounds(view);
 
+  /** Nobody touches the television all evening, so nothing else keeps it lit. */
+  useWakeLock();
+  const { ref: shellRef, active: isFullscreen, toggle: toggleFullscreen } = useFullscreen<HTMLDivElement>();
+
   if (!hostToken) {
     return (
       <div className="jeu-screen jeu-center">
@@ -119,7 +125,7 @@ export default function CoronaZTv() {
   const ended = view.phase === 'won' || view.phase === 'lost';
 
   return (
-    <div className="jeu-screen jeu-fixed">
+    <div ref={shellRef} className="jeu-screen jeu-fixed">
       {/*
         Shown here and resolvable only on a phone: this screen holds no seat, so
         the server refuses every mutation from it, a ballot included.
@@ -161,6 +167,16 @@ export default function CoronaZTv() {
           {LAYOUTS.find((layout) => layout.id === view.layout)?.name ?? view.layout}
         </span>
         <MuteButton />
+        {/* A raid on a television, with a browser's tab strip and a parked mouse
+            pointer over the board, is the one thing this screen is not for. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggleFullscreen}
+          aria-label={t(msg(isFullscreen ? 'site.fullscreen.exit' : 'site.fullscreen'))}
+        >
+          ⛶
+        </Button>
         <Button
           variant="ghost"
           size="sm"

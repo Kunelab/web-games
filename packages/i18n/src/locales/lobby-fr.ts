@@ -111,6 +111,9 @@ export const lobbyFr: Catalogue = {
   'join.continue': 'Continuer',
   'join.checkFailed': 'Vérification impossible.',
   'join.noSuchGame': 'Aucune partie avec ce code.',
+  'join.resume.title': 'Vous êtes déjà dans une partie',
+  'join.resume.as': 'en {name}',
+  'join.resume.enter': 'Y retourner',
   'join.openRooms': 'Salons ouverts',
   'join.all': 'Tous',
   'join.empty':

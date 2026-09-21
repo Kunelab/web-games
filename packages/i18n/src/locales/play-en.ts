@@ -95,6 +95,9 @@ export const playEn: Catalogue = {
   "host.skip": "Skip",
   "host.hold": "Pause",
   "host.resume": "Resume",
+  /* The keys the host screen listens for, written out once under the buttons:
+     a shortcut nobody is told about is a shortcut nobody uses. */
+  "host.shortcuts": "Space: next · P: pause · C: close · F: full screen",
   "host.heldNote": "The clock is stopped. Nothing can be answered until you resume.",
   "host.heldPlayer": "Paused by the host",
   "host.correct": "Correct the answer",
