@@ -53,6 +53,9 @@ export const quizFr: Catalogue = {
   'quiz.create.lede':
     'Choisissez le quiz à jouer. L’écran suivant règle la partie — ordre, chrono, points — et décide si le salon est public ou privé.',
   'quiz.create.mine': 'Mes quiz',
+  'quiz.create.generated': 'Sans rien préparer',
+  'quiz.create.generatedHint':
+    'Le serveur trouve les extraits au fil de la soirée, à partir des genres que vous cochez. Rien à écrire, rien à enregistrer.',
   'quiz.create.mineEmpty': 'Vous n’avez pas encore de quiz. Un quiz est un groupe de questions.',
   'quiz.create.makeOne': 'Créer un quiz',
   'quiz.create.public': 'Quiz publics',
