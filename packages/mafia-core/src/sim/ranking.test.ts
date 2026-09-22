@@ -429,3 +429,73 @@ describe('the hand that stayed down', () => {
     assert.ok(sat < saved, 'but standing up for them counts for more');
   });
 });
+
+/**
+ * What a killer's corpse says about the people who argued with it.
+ *
+ * The rope was the only thing the meter read. A Mafioso shot by the Vigilante or
+ * caught on a Veteran's porch settles exactly the same question about who was
+ * right, and settled it for nobody, because no trial was ever opened. And it
+ * only ever looked at one direction of the argument: a killer spends its
+ * afternoons pointing at people, and the graveyard eventually says those were a
+ * killer's accusations.
+ */
+describe('the credit a killer leaves behind', () => {
+  const nightKill = (claims: Claim[]): PublicInfo =>
+    board({
+      day: 5,
+      aliveSlots: [1, 2, 3, 4],
+      totalDead: 1,
+      deadRoles: new Map<number, RoleId>([[5, 'mafioso']]),
+      deaths: [{ slot: 5, day: 4, phase: 'night', source: 'vigilante' }],
+      claims
+    });
+
+  it('pays the seat that named a killer the rope never reached', () => {
+    const quiet = trustOf(1, nightKill([]));
+    const named = trustOf(1, nightKill([said({ claimerSlot: 1, targetSlot: 5, kind: 'accuse', day: 3 })]));
+    assert.ok(named > quiet, `naming a killer should be worth something, got ${named} against ${quiet}`);
+  });
+
+  /** First, with a night's work behind it, beats first with a feeling. */
+  it('pays more for the first voice with real clues', () => {
+    const hunch = trustOf(1, nightKill([said({ claimerSlot: 1, targetSlot: 5, kind: 'accuse', day: 3 })]));
+    const worked = trustOf(
+      1,
+      nightKill([said({ claimerSlot: 1, targetSlot: 5, kind: 'accuse', day: 3, from: 'sheriff' })])
+    );
+    assert.ok(worked > hunch, `a grounded first accusation outranks a hunch, got ${worked} against ${hunch}`);
+  });
+
+  /** And the second voice is following, so it earns the ordinary share. */
+  it('does not pay the follower what it pays the first', () => {
+    const claims = [
+      said({ claimerSlot: 2, targetSlot: 5, kind: 'accuse', day: 2, from: 'sheriff' }),
+      said({ claimerSlot: 1, targetSlot: 5, kind: 'accuse', day: 3, from: 'sheriff' })
+    ];
+    assert.ok(trustOf(2, nightKill(claims)) > trustOf(1, nightKill(claims)));
+  });
+
+  /**
+   * The other direction, which nothing read at all: a killer that went after you
+   * while it was alive is a killer that wanted you gone.
+   */
+  it('pays the seat the killer was pointing at', () => {
+    const quiet = trustOf(1, nightKill([]));
+    const hunted = trustOf(1, nightKill([said({ claimerSlot: 5, targetSlot: 1, kind: 'accuse', day: 3 })]));
+    assert.ok(hunted > quiet, `being hunted by a killer says something, got ${hunted} against ${quiet}`);
+  });
+
+  /** A Jester or a Survivor in the ground settles nothing about anybody. */
+  it('says nothing about a corpse that was not a killer', () => {
+    const harmless = board({
+      day: 5,
+      aliveSlots: [1, 2, 3, 4],
+      totalDead: 1,
+      deadRoles: new Map<number, RoleId>([[5, 'jester']]),
+      deaths: [{ slot: 5, day: 4, phase: 'night', source: 'mafia' }],
+      claims: [said({ claimerSlot: 1, targetSlot: 5, kind: 'accuse', day: 3, from: 'sheriff' })]
+    });
+    assert.equal(trustOf(1, harmless), 0);
+  });
+});

@@ -636,7 +636,7 @@ export function privateWeight(mind: BotMind, slot: number): number {
  * the behaviour the ledger exists to make possible: the point of earning trust
  * is that it can also be spent.
  */
-export function willHeed(mind: BotMind, fromSlot: number, roll: number): boolean {
+export function willHeed(mind: BotMind, fromSlot: number, roll: number, human = true): boolean {
   const credit = mind.privateTrust.get(fromSlot) ?? 0;
   if (credit <= -2) return false; // burned: this voice does not move this seat
   /**
@@ -656,7 +656,19 @@ export function willHeed(mind: BotMind, fromSlot: number, roll: number): boolean
    * time, so a person still has to be worth listening to rather than merely
    * loud.
    */
-  const base = 0.5 + mind.brain.personality.herd * 0.4;
+  /**
+   * And a person is worth exactly twice an ally.
+   *
+   * The numbers here were set when only people could reach this function, so
+   * they already describe how much a *person* moves a seat. Allies reach it
+   * now too — a Consigliere naming a house to its own family used to be talking
+   * to nobody — and they should not arrive at the same weight: one ally is
+   * another copy of the same policy, and a room where every bot heeds every
+   * other bot is a family that locks onto whatever the first one said.
+   *
+   * So the half of it is the ally rate and the whole of it is the person's.
+   */
+  const base = (0.25 + mind.brain.personality.herd * 0.2) * (human ? 2 : 1);
   const earned = 0.2 * Math.tanh(credit * 0.6);
   return roll < Math.max(0.05, Math.min(0.95, base + earned));
 }

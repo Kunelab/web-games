@@ -176,7 +176,17 @@ export function ChatPanel({
                 <span className="chat-author" style={{ color: authorColour(message.authorName) }}>
                   {message.authorName}
                 </span>
-                <span className="chat-text">{message.text}</span>
+                {/*
+                  A player's own text, or the key when the game spoke for them.
+
+                  Almost every authored line is typed, and typed text is never
+                  translated. The exception is the sentence a gagged seat has
+                  said on its behalf at the stand: those words belong to the
+                  reader's language like any other line the engine writes, and
+                  they still belong to the seat that was silenced. See
+                  `voicePost`. Text first, so nothing typed can ever be replaced.
+                */}
+                <span className="chat-text">{message.text || (message.msg ? t(message.msg) : '')}</span>
               </p>
             )
           )}

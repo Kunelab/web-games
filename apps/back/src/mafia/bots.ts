@@ -1341,6 +1341,66 @@ const CLUE_WINDOW_MS = 15_000;
 const STIR_GAP_MS = 3000;
 
 /**
+ * How far apart two seats of one wave move, and why a wave needs spacing.
+ *
+ * Both places that reconsider the whole room at once used to schedule every
+ * bot inside the same second or so — dawn within 900ms, a stir within 1500ms —
+ * which on a table of twenty-four is sixteen ballots a second. A revote is
+ * silent by design, so what a person saw was the tally rearranging itself in
+ * one burst with nobody saying anything, and on the afternoon this was
+ * reported it put a seat on the stand 610ms after the first of ten votes
+ * moved. Nothing had been said in the square for three minutes.
+ *
+ * Worse, the spacing is what makes the room legible at all: a seat whose
+ * ballot moves owes the square a sentence and schedules one 400 to 1300ms
+ * behind itself, and a wave that completes a wagon inside that window opens
+ * the trial before a single one of those sentences can land. Spread out, the
+ * reasons interleave with the votes and the wagon takes long enough to read.
+ *
+ * Per seat rather than a fixed window, so a big table moves at the same pace
+ * as a small one instead of proportionally faster.
+ */
+const WAVE_STEP_MS = 420;
+
+/**
+ * The floor between any two bot ballots at one table.
+ *
+ * `WAVE_STEP_MS` spaces the *thinking*, which is most of the job, and it is not
+ * a guarantee: each seat carries its own jitter, so two neighbours in a wave
+ * can still land a millisecond apart, and a seat on its own scheduled turn can
+ * land on top of a wave that was already rolling. What a person sees in that
+ * case is the same thing they saw before — a tally that moves in one jump.
+ *
+ * So the ballots themselves are paced, whichever path they arrive from. This is
+ * a queue rather than a drop: nothing is ever refused, it is only held until
+ * the table has had four hundred milliseconds to show the last one.
+ *
+ * Accusations and skips only. A guilty or innocent ballot is cast inside a
+ * booth on a question the room has already been asked, everybody answers it at
+ * once by design, and pacing those would just make the verdict crawl.
+ */
+const MIN_VOTE_GAP_MS = 400;
+
+/**
+ * A wave in a different order every time it rolls.
+ *
+ * The spacing above decides how fast the room turns; this decides who turns
+ * first. Without it the order is seat order, so the same few seats always lead
+ * every wagon and the same few always arrive last, which is a pattern a table
+ * learns in one evening and is not a property of anybody's play.
+ */
+function spread<T>(list: readonly T[]): T[] {
+  const out = [...list];
+  for (let index = out.length - 1; index > 0; index--) {
+    const other = Math.floor(Math.random() * (index + 1));
+    const held = out[index];
+    out[index] = out[other]!;
+    out[other] = held;
+  }
+  return out;
+}
+
+/**
  * How long after a person's last line a seat answers them.
  *
  * Long enough to be a reply rather than a reflex, short enough that the person
@@ -1483,6 +1543,8 @@ export class MafiaBotDriver {
   private readonly woke = new Map<string, Set<string>>();
   /** When this table last reconsidered as a whole. See `STIR_GAP_MS`. */
   private readonly stirredAt = new Map<string, number>();
+  /** When the next bot ballot at this table may land. See `MIN_VOTE_GAP_MS`. */
+  private readonly voteFloor = new Map<string, number>();
   /** Human wills this table's parser has already read. See `readTestaments`. */
   private readonly parsedWills = new Map<string, Set<string>>();
   /** Lines already given a second chance after a closed room, per table. See `sayLater`. */
@@ -2037,6 +2099,7 @@ export class MafiaBotDriver {
     this.earSince.delete(code);
     this.woke.delete(code);
     this.stirredAt.delete(code);
+    this.voteFloor.delete(code);
     this.parsedWills.delete(code);
     for (const waiting of this.replies.get(code)?.values() ?? []) clearTimeout(waiting.timer);
     this.replies.delete(code);
@@ -2332,9 +2395,11 @@ export class MafiaBotDriver {
        * nothing.
        */
       if (state.day > 1 && state.trialsToday === 0) {
-        for (const bot of bots) {
-          this.later(code, 150 + Math.random() * 900, () => this.decide(code, bot.playerId, 'revote'));
-        }
+        spread(bots).forEach((bot, index) => {
+          this.later(code, 150 + index * WAVE_STEP_MS + Math.random() * 400, () =>
+            this.decide(code, bot.playerId, 'revote')
+          );
+        });
       }
 
       for (const bot of bots) {
@@ -2905,22 +2970,35 @@ export class MafiaBotDriver {
     const lastWave = this.stirredAt.get(code) ?? 0;
     if (Date.now() - lastWave > STIR_GAP_MS) {
       this.stirredAt.set(code, Date.now());
-      for (const bot of Object.values(state.players)) {
-        if (!bot.isBot || !bot.alive) continue;
-        /**
-         * Long enough that the person has finished the thought.
-         *
-         * This wave used to land within a second of a human pressing enter, and
-         * the tally moved before the sentence had a reply to it — at three
-         * seats alive, where two votes open a trial, a person was put on the
-         * stand in the middle of their own argument, repeatedly. It is also
-         * faster than anything the table can say back: the mouth's median is
-         * about a second, so a wave at three seconds is a room that read the
-         * line, thought about it and then moved, which is what it looks like
-         * from the outside and what it now is.
-         */
-        this.later(code, 2500 + Math.random() * 1500, () => this.decide(code, bot.playerId, 'revote'));
-      }
+      /**
+       * Long enough that the person has finished the thought, and spread out
+       * far enough that the room can be read while it moves.
+       *
+       * This wave used to land within a second of a human pressing enter, and
+       * the tally moved before the sentence had a reply to it — at three
+       * seats alive, where two votes open a trial, a person was put on the
+       * stand in the middle of their own argument, repeatedly. Waiting three
+       * seconds fixed the first half of that and left the second: every seat
+       * still moved inside the same 1500ms, so the whole table turned at once.
+       *
+       * Reported from a real afternoon, and it is worth stating exactly. A
+       * person typed one line. Nothing else had been said in the square for
+       * three minutes. Two and a half seconds later ten silent ballots landed
+       * in 610ms, a seat nobody had mentioned was dragged to the stand, and
+       * the sentences those seats owed the room — scheduled 400 to 1300ms
+       * behind each ballot — were all still pending when the trial opened and
+       * were dropped, because only the accused may speak from there.
+       *
+       * So the wave is spaced per seat rather than crammed into a fixed
+       * window. The reasons interleave with the ballots, the wagon takes long
+       * enough to argue with, and a table of twenty-four moves at the same
+       * pace as a table of six instead of four times faster.
+       */
+      spread(Object.values(state.players).filter((bot) => bot.isBot && bot.alive)).forEach((bot, index) => {
+        this.later(code, 2500 + index * WAVE_STEP_MS + Math.random() * 400, () =>
+          this.decide(code, bot.playerId, 'revote')
+        );
+      });
     }
 
     /**
@@ -3277,7 +3355,13 @@ export class MafiaBotDriver {
         const from = fresh.players[entry.claimerId];
         if (!from) continue;
         if (entry.kind === 'target' || entry.kind === 'spare') {
-          const ask = { kind: entry.kind, slot: entry.targetSlot, who: nameOf(entry.targetSlot), fromSlot: from.slot };
+          const ask = {
+            kind: entry.kind,
+            slot: entry.targetSlot,
+            who: nameOf(entry.targetSlot),
+            fromSlot: from.slot,
+            human: !from.isBot
+          };
           if (entry.kind === 'spare') asks.spared.push(ask);
           else asks.ask = ask;
           // A request is also an opinion about a house, and the room is
@@ -3798,6 +3882,24 @@ export class MafiaBotDriver {
     waiting.add(timer);
   }
 
+  /**
+   * One bot ballot at a time, spaced so the room can be read while it moves.
+   *
+   * Every path that accuses or skips goes through here. See `MIN_VOTE_GAP_MS`
+   * for why, and `castBallot` on the hooks for the one kind of vote that does
+   * not: the verdict in the booth, which the whole room answers at once.
+   */
+  private castVote(code: string, botId: string, target: number | 'skip'): void {
+    const now = Date.now();
+    const at = Math.max(now, this.voteFloor.get(code) ?? 0);
+    this.voteFloor.set(code, at + MIN_VOTE_GAP_MS);
+    if (at <= now) {
+      this.hooks.vote(code, botId, target);
+      return;
+    }
+    this.later(code, at - now, () => this.hooks.vote(code, botId, target));
+  }
+
   private later(code: string, delayMs: number, run: () => void): void {
     const timer = setTimeout(() => {
       try {
@@ -4039,7 +4141,7 @@ export class MafiaBotDriver {
         const fresh = this.hooks.get(code);
         if (!fresh) return;
         if (decision.targetSlot !== null) {
-          this.hooks.vote(code, botId, decision.targetSlot);
+          this.castVote(code, botId, decision.targetSlot);
           return;
         }
         /**
@@ -4052,7 +4154,7 @@ export class MafiaBotDriver {
          * that has found something is answering the question rather than
          * ignoring it. See `holdingForClues`, and the same branch in `apply`.
          */
-        if (decision.skipVote && !this.holdingForClues(fresh)) this.hooks.vote(code, botId, 'skip');
+        if (decision.skipVote && !this.holdingForClues(fresh)) this.castVote(code, botId, 'skip');
       };
 
       this.apply(state, botId, task, channel, decision, 'act', false, !holdsBallot);
@@ -4867,8 +4969,8 @@ export class MafiaBotDriver {
          * lands leaves the clock to run, which is the same night one argument
          * later.
          */
-        if (!this.holdingForClues(state)) this.hooks.vote(code, botId, 'skip');
-      } else if (decision.targetSlot !== null) this.hooks.vote(code, botId, decision.targetSlot);
+        if (!this.holdingForClues(state)) this.castVote(code, botId, 'skip');
+      } else if (decision.targetSlot !== null) this.castVote(code, botId, decision.targetSlot);
     }
 
     /**
@@ -4922,14 +5024,50 @@ export class MafiaBotDriver {
        * policy brain decides both; this is what carries them out.
        */
       if (decision.jailSlot !== undefined && decision.jailSlot !== null) {
-        this.hooks.dayAction(code, botId, { type: 'jail', targetSlot: decision.jailSlot });
+        /**
+         * And somebody else gets a turn if that house is already taken.
+         *
+         * One seat cannot be in two cells, so the engine refuses the second
+         * keeper to name a house — see `jailTarget`. A bot that took the refusal
+         * and stopped would spend the night with an empty cell, which is the
+         * whole of what that change was meant to prevent: on a real table two
+         * Ravisseurs picked the same house two days running and half the
+         * family's cell power did nothing both nights.
+         *
+         * A person would simply pick somebody else, so this does. Down the same
+         * list the brain already ranked, most suspicious first, and it stops at
+         * the first door that opens.
+         */
+        const first = this.hooks.dayAction(code, botId, { type: 'jail', targetSlot: decision.jailSlot });
+        if (!first.ok) {
+          const mine = state.players[botId];
+          const board = this.minds.board(state, botId);
+          if (mine) {
+            const spare = Object.values(state.players)
+              .filter(
+                (player) =>
+                  player.alive &&
+                  player.playerId !== botId &&
+                  player.slot !== decision.jailSlot &&
+                  // A family keeper has no reason to lock up one of its own.
+                  !isLodgeMate(mine, player)
+              )
+              .sort(
+                (left, right) =>
+                  suspicion(right.slot, mine, board, () => 0.5) - suspicion(left.slot, mine, board, () => 0.5)
+              );
+            for (const candidate of spare) {
+              if (this.hooks.dayAction(code, botId, { type: 'jail', targetSlot: candidate.slot }).ok) break;
+            }
+          }
+        }
       }
       if (decision.revealMayor) this.hooks.dayAction(code, botId, { type: 'reveal' });
 
       if (!castBallot) {
         // The words first; `decide` casts this seat's real ballot behind them.
       } else if (decision.targetSlot !== null) {
-        this.hooks.vote(code, botId, decision.targetSlot);
+        this.castVote(code, botId, decision.targetSlot);
       } else if (decision.skipVote && this.holdingForClues(state)) {
         /**
          * Asked and not yet answered: the ballot waits rather than closing the
@@ -4947,7 +5085,7 @@ export class MafiaBotDriver {
          * remains for the softer case of joining a skip the room has already
          * opened.
          */
-        this.hooks.vote(code, botId, 'skip');
+        this.castVote(code, botId, 'skip');
       } else if (state.day > 1 && state.votes[botId] === undefined && Object.values(state.votes).includes(SKIP_VOTE)) {
         /**
          * A bot with nobody to accuse follows the room rather than abstaining.
@@ -4977,7 +5115,7 @@ export class MafiaBotDriver {
         const clock = townish && brain && parityPressure(this.minds.board(state, botId)) >= 0.6;
         // And nobody piles onto a skip while the room is waiting for an answer.
         if (!clock && !this.holdingForClues(state)) {
-          this.hooks.vote(code, botId, 'skip');
+          this.castVote(code, botId, 'skip');
         }
       }
     }
@@ -5240,6 +5378,47 @@ export class MafiaBotDriver {
 
     if (task === 'night') {
       const action = me.action;
+
+      /**
+       * The cell, answered before anything asks whether this seat has a power.
+       *
+       * This branch used to sit below the guard on the next line, and the guard
+       * is the reason a prisoner never once replied to anybody. A seat in a cell
+       * is roleblocked by definition, so `me.action` is null and `me.jailed` is
+       * true, and the turn returned `EMPTY` before it could reach the one thing
+       * that turn was scheduled to do. A person typed "who are you?" into the
+       * cell three times on a real night and got silence, because the bot on the
+       * other side was structurally incapable of speaking: it was being asked to
+       * talk and being told it had no move to make, and those were the same
+       * question.
+       *
+       * The same ordering fixes the keeper's half. A turn held *in* a room is a
+       * conversation and never a decision — the seat's own night turn submits
+       * its power, which is what the comment on the family room already says —
+       * and the execution block below had no guard saying so. Once every keeper
+       * shared `jail-execute`, a Ravisseur asked to answer its captor in the
+       * *Jailor's* cell fell into the block that decides its own execution,
+       * returned a target with nothing to say, and was silent too.
+       */
+      if (channel.startsWith('jail:')) {
+        const line = this.cellLine(state, botId, view, channel);
+        if (!line) return EMPTY;
+        const heard = this.answering(state, botId, channel);
+        return {
+          ...EMPTY,
+          say: line,
+          intent: {
+            act:
+              heard.length > 0
+                ? 'answer the other voice in the cell, where only the two of you can hear'
+                : `speak privately in the cell, where only the two of you can hear — say this and only this: "${line}"`,
+            mood: moodOf(mind.brain.personality),
+            fallback: line,
+            ...(heard.length > 0 ? { answering: heard } : {})
+          }
+        };
+      }
+
       if (!action || me.jailed) return EMPTY;
       /**
        * A power used at home is still a decision.
@@ -5319,7 +5498,12 @@ export class MafiaBotDriver {
       const heeded =
         ask !== null &&
         targets.includes(ask.slot) &&
-        willHeed(mind, ask.fromSlot, (hashCode(botId + ':ask:' + state.day + ':' + ask.slot) % 1000) / 1000);
+        willHeed(
+          mind,
+          ask.fromSlot,
+          (hashCode(botId + ':ask:' + state.day + ':' + ask.slot) % 1000) / 1000,
+          ask.human
+        );
 
       /**
        * And the other half of a request, which is the houses not to touch.
@@ -5449,25 +5633,6 @@ export class MafiaBotDriver {
        * from writing anything else. When there are words to answer, the act
        * describes the move and the model is allowed to actually reply.
        */
-      if (channel.startsWith('jail:')) {
-        const line = this.cellLine(state, botId, view);
-        if (!line) return EMPTY;
-        const heard = this.answering(state, botId, channel);
-        return {
-          ...EMPTY,
-          say: line,
-          intent: {
-            act:
-              heard.length > 0
-                ? 'answer the other voice in the cell, where only the two of you can hear'
-                : `speak privately in the cell, where only the two of you can hear — say this and only this: "${line}"`,
-            mood: moodOf(mind.brain.personality),
-            fallback: line,
-            ...(heard.length > 0 ? { answering: heard } : {})
-          }
-        };
-      }
-
       /**
        * The lodge, where the only thing worth saying is what you know.
        *
@@ -7893,22 +8058,29 @@ export class MafiaBotDriver {
    * A very quiet temperament says nothing at all, which is a personality and
    * also, in this room, a decision: silence is what gets people executed.
    */
-  private cellLine(state: MafiaState, botId: string, view: MafiaView): string | null {
+  private cellLine(state: MafiaState, botId: string, view: MafiaView, room: string): string | null {
     const t = say(spokenLocale(state));
     const self = state.players[botId];
     const me = view.me;
     if (!self?.role || !me) return null;
 
     /**
-     * The cell, from the keeper's end, whichever cell it is.
+     * The cell, from the keeper's end, and only in the room it keeps.
      *
-     * Gated on the Jailor alone, so the two keepers that were rebuilt to play
-     * exactly like one sat in their cellars all night saying nothing. The
-     * questions, the threat and the vouch are the same three moves for all
-     * three of them, which is the point: a captive must not be able to tell
-     * from the conversation whose room it is in.
+     * Gated on the Jailor alone once, so the two keepers rebuilt to play exactly
+     * like one sat in their cellars all night saying nothing. The questions, the
+     * threat and the vouch are the same three moves for all three of them, which
+     * is the point: a captive must not be able to tell from the conversation
+     * whose room it is in.
+     *
+     * But "is a keeper" is not "is *this* room's keeper", and the difference is
+     * a whole role. A Ravisseur holding somebody in its own cellar can itself be
+     * sitting in the Jailor's cell that same night, and asked to speak there it
+     * would have interrogated its own captor: the wrong half of the script, in
+     * the wrong room, about a prisoner the other seat cannot see. It is the
+     * captive in that room and it pleads like one.
      */
-    if (isKeeper(self)) {
+    if (isKeeper(self) && room === jailChannel(state.day, botId)) {
       /**
        * The one thing a Jailor has that nobody else does: a room that cannot leak.
        *
@@ -8280,6 +8452,17 @@ export class MafiaBotDriver {
      * own night, which is real, checkable by tomorrow and nobody else's to
      * announce.
      */
+    /**
+     * The cellar is on the roster, not in the room's one line.
+     *
+     * A keeper used to announce its captive here, which was right about the
+     * fact and wrong about the place: the family reads the roster while it
+     * plans, the captive holds all night whether or not anybody was listening
+     * when it was said, and a line spent on it is a line not spent on the
+     * knife. It rides on the ally row instead — see `allyIntent` in the view,
+     * which now reports the cell rather than an empty night.
+     */
+
     if (aim === null) {
       if (job === null || job === me.slot) return null;
       return t(vary('mafia.bot.family.mine', 3, botId + ':job:' + state.day, { who: nameOf(job) }));

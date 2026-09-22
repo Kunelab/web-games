@@ -1093,6 +1093,8 @@ export function trustOf(slot: number, info: PublicInfo, through: Temperament = E
   }
 
   trust += accuserLedger(slot, info);
+  // And every other way a killer stops breathing. See `gravesideCredit`.
+  trust += gravesideCredit(slot, info);
 
   /**
    * And the running tab for throwing names at the room with nothing behind them.
@@ -1187,6 +1189,86 @@ function accuserLedger(slot: number, info: PublicInfo): number {
   }
   return ledger;
 }
+
+/**
+ * What a killer's corpse says about the people who argued with it.
+ *
+ * `accuserLedger` above prices the rope: it pays the seats that named an evil
+ * the town then hanged, and bills the ones that named a townsperson. What it
+ * cannot see is every other way a killer stops breathing. A Mafioso shot by the
+ * Vigilante, burned by a rival, or caught on a Veteran's porch settles exactly
+ * the same question about who was right about it, and settled it for nobody,
+ * because no trial was ever opened.
+ *
+ * And it only ever looked at one direction of the argument. A killer spends its
+ * afternoons pointing at people, and the graveyard eventually says those were a
+ * killer's accusations: the seats it went after are, on balance, the ones it
+ * most wanted gone, which is a thing a town can read off a body and never did.
+ *
+ * Both halves are small, because neither is proof. Being named by somebody who
+ * turned out evil is weak evidence of being town — killers accuse their own to
+ * look useful, and they accuse at random to make noise — and having named them
+ * first is only worth much if there was something behind it. So the first voice
+ * with an instrument under it earns a decent share, and everything else earns a
+ * fraction of that. It ages like the rest of the meter, through `stillSpeaks`:
+ * being right about a corpse from day two is worth less on day nine.
+ */
+function gravesideCredit(slot: number, info: PublicInfo): number {
+  let credit = 0;
+  for (const death of info.deaths) {
+    if (death.slot === slot) continue;
+    const revealed = info.deadRoles.get(death.slot);
+    if (!revealed || !isEvilRole(revealed)) continue;
+    const heard = stillSpeaks(death.day, info);
+
+    /**
+     * Named them while they were still answering back.
+     *
+     * Skipped where a rope settled it, because `accuserLedger` has already
+     * paid that afternoon and paying it twice would make hanging a killer the
+     * only thing the meter measures.
+     */
+    const hanged = info.trials.some((trial) => trial.lynched && trial.accusedSlot === death.slot);
+    if (!hanged) {
+      const against = info.claims
+        .filter(
+          (claim) => claim.kind === 'accuse' && claim.targetSlot === death.slot && claim.day <= death.day
+        )
+        .sort((left, right) => left.day - right.day);
+      const rank = against.findIndex((claim) => claim.claimerSlot === slot);
+      const mine = rank >= 0 ? against[rank] : null;
+      if (mine) {
+        // Real clues, on the same test the accusation weights already use.
+        const worked = mine.from !== undefined || mine.worked === true;
+        credit += (rank === 0 && worked ? FIRST_AND_RIGHT : NAMED_A_KILLER) * heard;
+      }
+    }
+
+    /**
+     * And the seats it spent its afternoons pointing at.
+     *
+     * Whichever way it died: a killer that went after you while it was alive
+     * is a killer that wanted you gone, and that is worth something about you
+     * however it ended up on the slab.
+     */
+    const itNamedMe = info.claims.some(
+      (claim) =>
+        claim.kind === 'accuse' &&
+        claim.claimerSlot === death.slot &&
+        claim.targetSlot === slot &&
+        claim.day <= death.day
+    );
+    if (itNamedMe) credit += ACCUSED_BY_A_KILLER * heard;
+  }
+  return credit;
+}
+
+/** Being named by a seat the graveyard called evil. Small: killers accuse everybody. */
+const ACCUSED_BY_A_KILLER = 0.2;
+/** Having named one, where a rope did not already settle the afternoon. */
+const NAMED_A_KILLER = 0.2;
+/** The first voice against one, with a night's work behind it rather than a feeling. */
+const FIRST_AND_RIGHT = 0.55;
 
 /**
  * Tunnel vision is a tell: someone voting the same head day after day with
@@ -1376,6 +1458,21 @@ function grounded(claim: Claim, info: PublicInfo): boolean {
   if (claim.from !== undefined || claim.worked === true) return true;
   const proven = info.provenRoles.get(claim.targetSlot);
   if (proven && isEvilRole(proven)) return true;
+  /**
+   * And an accusation the graveyard has since vindicated was never a hunch.
+   *
+   * The idle-name tab bills every accusation with nothing under it, which is
+   * the right instinct and was applied without ever asking how the name turned
+   * out. So a seat that read somebody correctly on day two, said so, and
+   * watched the body come back a Mafioso went on paying for the sentence for
+   * the rest of the game — and paying slightly more than the graveyard credit
+   * for having been right, which made being right about a killer a net loss.
+   *
+   * `provenRoles` above is the record settling a role about the *living*. This
+   * is the simpler half: there is a body, and it was a killer.
+   */
+  const buried = info.deadRoles.get(claim.targetSlot);
+  if (buried && isEvilRole(buried)) return true;
   if (deductions(claim.targetSlot, info).length > 0) return true;
   /**
    * A doorstep only grounds an accusation while it is telling the room
@@ -6848,6 +6945,40 @@ export function decideNightTarget(
   if (actionType === 'jail-execute') {
     const prisoner = legalTargets[0];
     if (prisoner === undefined) return null;
+
+    /**
+     * The families' keeper is not judging a suspect. It is choosing a head.
+     *
+     * Everything below this is the Jailor's question — "is the seat in my cell
+     * evil enough to be worth a charge" — and it was being asked of the
+     * Ravisseur and the Interrogateur too, which is exactly backwards. A family
+     * keeper does not want to execute a killer; it wants to execute a *town
+     * power*, and the more the square trusts its captive the more it wants to.
+     * Asked the town's question, it spent every game waiting for a suspicion
+     * score its own side had no reason to want, and the answer was almost
+     * always no: two Ravisseurs on a real table, both alive for most of the
+     * game, executed nobody at all between them.
+     *
+     * So it prices the captive by what the town would lose. An uncontested
+     * investigative badge is the whole reason this role holds a lever. A seat
+     * the record has settled as town is the same thing one step harder. Trust
+     * is the soft version of both: the square's own idea of who is leading it.
+     *
+     * And the clock pushes. One charge that reaches the end of the game unspent
+     * is a charge that was never real, so as the board closes the bar drops to
+     * whoever happens to be in the cellar — which is also when a wasted night
+     * costs most.
+     */
+    if (roleDef(role).faction !== 'town') {
+      const badge = uncontestedBadge(prisoner, info) !== null ? 1.2 : 0;
+      const settled = info.provenRoles.get(prisoner);
+      const proven = settled && roleDef(settled).faction === 'town' ? 1.2 : 0;
+      const liked = Math.max(0, trustOf(prisoner, info)) * 0.5;
+      const clock = parityPressure(info) * 1.6;
+      const worth = badge + proven + liked + clock;
+      return worth >= 1.2 - brain.personality.courage * 0.4 ? prisoner : null;
+    }
+
     /**
      * What the room thinks, plus the one thing only this seat knows.
      *

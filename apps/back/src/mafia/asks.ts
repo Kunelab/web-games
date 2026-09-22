@@ -36,6 +36,14 @@ export interface RoomAsk {
   who: string;
   /** Who asked. */
   fromSlot: number;
+  /**
+   * Whether a person asked, or another bot.
+   *
+   * A person's request in a private room is the one thing at this table that
+   * did not come out of the same policy as the listener, so it is worth twice
+   * what an ally's is. See `willHeed`, which is where that price is paid.
+   */
+  human: boolean;
 }
 
 /** Everything one room has been told since a given moment. */
@@ -730,9 +738,20 @@ export function roleNamedAt(text: string, pick: 'first' | 'last' = 'first'): { r
  * One room, read: what it wants done, what it wants left alone, who it says it
  * is.
  *
- * People only. A bot's line is a phrasebook entry or a paraphrase of something
- * the board already holds, so reading one back in is a bot agreeing with itself
- * in a circle — the same reason `answering` takes human lines only.
+ * Everybody in the room, not only the people in it.
+ *
+ * This read people only, on the reasoning that a bot's line is a paraphrase of
+ * something the board already holds and reading it back in is a bot agreeing
+ * with itself in a circle. That is true of the *square*, where every seat is
+ * reasoning from the same public board. It is not true of a family room or a
+ * lodge, which is the one place where allies are supposed to coordinate, and
+ * the cost of the rule was that a Consigliere naming a house to its own family
+ * was talking to nobody: only a person could move anything.
+ *
+ * The circle is closed by price rather than by silence. A person's request is
+ * worth twice an ally's — see `RoomAsk.human` and `willHeed` — and the caller
+ * always excludes the listener's own lines, so no seat can talk itself into
+ * anything.
  *
  * Newest first, and only since the moment the caller names: yesterday's
  * argument was settled by yesterday's corpse.
@@ -746,7 +765,7 @@ export function readRoom(
   const lines = state.chat.messages.filter((message) => {
     if (message.channel !== room || message.at < since || !message.authorId) return false;
     const author = state.players[message.authorId];
-    return !!author && !author.isBot && message.text.trim().length > 0;
+    return !!author && message.text.trim().length > 0;
   });
   if (lines.length === 0) return EMPTY;
 
@@ -763,7 +782,13 @@ export function readRoom(
     const role = selfClaim(message.text);
     if (role) claimed = { role, fromSlot: from.slot };
     for (const mention of mentions(message.text, seats)) {
-      said.push({ kind: mention.kind, slot: mention.slot, who: mention.who, fromSlot: from.slot });
+      said.push({
+        kind: mention.kind,
+        slot: mention.slot,
+        who: mention.who,
+        fromSlot: from.slot,
+        human: !from.isBot
+      });
     }
   }
 

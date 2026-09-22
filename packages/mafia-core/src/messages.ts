@@ -308,7 +308,7 @@ export const M = {
    * seat is allowed to have said — which is also, deliberately, a sentence any
    * seat that *can* speak may choose to say and then fall silent behind.
    */
-  trialMuted: (name: string): Msg => msg('mafia.trial.muted', { name }),
+  trialMuted: (): Msg => msg('mafia.trial.muted'),
   trialNoDefence: (name: string): Msg => msg('mafia.trial.noDefence', { name }),
   trialJudging: (name: string): Msg => msg('mafia.trial.judging', { name }),
   trialCourt: (name: string): Msg => msg('mafia.trial.court', { name }),

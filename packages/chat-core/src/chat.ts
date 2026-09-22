@@ -172,6 +172,43 @@ export function post(state: ChatState, input: PostInput): PostResult {
  * signature — there is no way to put an untranslatable sentence into the log,
  * because the parameter will not accept one.
  */
+/**
+ * A line the game says *in somebody's voice*, rather than in its own.
+ *
+ * Almost everything the engine writes is the square talking: no author, grey,
+ * italic. This is the exception, and there is one of it — the sentence a gagged
+ * seat gets said for it when it is dragged to the stand. That is not the game
+ * narrating, it is the accused answering, and it read as narration because it
+ * was posted as narration: a system line, in quotation marks, with the name
+ * folded into the sentence.
+ *
+ * Carries a `Msg` rather than text, like the system lines do, because the
+ * words still belong to the reader's language; it simply carries an author
+ * with them. Renderers show `text` first and fall back to the key, so a line
+ * with an author and no text comes out looking exactly like somebody typed it.
+ */
+export function voicePost(
+  state: ChatState,
+  channel: string,
+  author: { id: string; name: string },
+  message_: Msg,
+  at: number
+): ChatMessage {
+  const message: ChatMessage = {
+    id: state.nextId++,
+    channel,
+    authorId: author.id,
+    authorName: author.name,
+    kind: 'text',
+    text: '',
+    msg: message_,
+    at
+  };
+  state.messages.push(message);
+  trim(state);
+  return message;
+}
+
 export function systemPost(
   state: ChatState,
   channel: string,

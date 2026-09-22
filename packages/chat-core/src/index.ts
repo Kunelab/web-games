@@ -2,6 +2,7 @@ export {
   createChat,
   post,
   systemPost,
+  voicePost,
   visibleTo,
   DEFAULT_LIMITS,
   DEFAULT_RETENTION,

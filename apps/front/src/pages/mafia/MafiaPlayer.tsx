@@ -381,6 +381,8 @@ export default function MafiaPlayer() {
   const me = view?.me ?? null;
   const isNight = view?.phase === 'night';
   const inDiscussion = view?.phase === 'day' && view.stage === 'discussion';
+  /** The whole day, trial included: the cell is picked in daylight. See `jailTarget`. */
+  const inDay = view?.phase === 'day';
   const inJudgement = view?.phase === 'day' && view.stage === 'judgement';
   const inDefense = view?.phase === 'day' && view.stage === 'defense';
   const canVote = inDiscussion && (view?.day ?? 0) > 1;
@@ -599,7 +601,18 @@ export default function MafiaPlayer() {
       };
     }
 
-    if (inDiscussion && jailMode && KEEPER_IDS.has(me.role?.id ?? '')) {
+    /**
+     * The cell is chosen during the day, and a trial is still the day.
+     *
+     * The button that opens this picker already knew that — it is offered
+     * through the defence and the verdict on purpose, because watching somebody
+     * argue for their life and deciding *because of it* who to lock up is the
+     * keeper playing well. The rows did not: gated on the discussion stage, so
+     * the moment a trial opened the picker turned on and every seat in the list
+     * offered nothing. The engine never had the rule; `jailTarget` asks only
+     * that it is daytime.
+     */
+    if (inDay && jailMode && KEEPER_IDS.has(me.role?.id ?? '')) {
       if (player.slot === me.slot) return null;
       const chosen = me.jailTargetSlot === player.slot;
       return {
@@ -1283,9 +1296,17 @@ export default function MafiaPlayer() {
             {folded.players ? '▣' : '▁'}
           </button>
           {prompt && <p className="mz-prompt">{prompt}</p>}
+          {/*
+            The words alone. The ear came off the front of this line.
+
+            `reading` goes true while the ear parses the square, which is
+            precisely the moment after somebody has typed something, so the
+            glyph appeared next to your own sentence every time you spoke and
+            read as a mark on the sentence rather than as the table thinking.
+          */}
           {busy.reading && (
             <p className="mz-listening" aria-live="polite">
-              👂 {tk('mafia.ui.bot.reading')}
+              {tk('mafia.ui.bot.reading')}
             </p>
           )}
           {actionError && <p className="mz-error">{actionError}</p>}

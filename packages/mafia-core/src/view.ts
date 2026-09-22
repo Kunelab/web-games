@@ -391,6 +391,32 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
         const slotOf = (id: string | null | undefined): number | null =>
           id ? (state.players[id]?.slot ?? null) : null;
 
+        /**
+         * A keeper's row says who is in its cell, not what it is aiming at.
+         *
+         * The cell is filled in daylight, so it is not in `nightActions` and this
+         * row showed the Ravisseur as having decided nothing all night — while
+         * the single most useful fact in the room was that it had somebody
+         * locked up. It matters to every other hand: a captive is blocked and
+         * sheltered, so a knife sent to that house spends the evening killing
+         * nobody and a Consort sent there roleblocks somebody already in a
+         * cellar.
+         *
+         * On the row rather than in the chat on purpose. The family reads the
+         * roster while it plans, the fact holds all night whether or not
+         * anybody was listening when it was said, and it does not cost the room
+         * one of its lines.
+         */
+        const held = captiveOf(state, other.playerId);
+        if (held !== null) {
+          intent.set(other.playerId, {
+            action: ACTION(power),
+            targetSlot: slotOf(held),
+            secondSlot: null
+          });
+          continue;
+        }
+
         intent.set(other.playerId, {
           action: ACTION(power),
           targetSlot: slotOf(chosen?.targetId),

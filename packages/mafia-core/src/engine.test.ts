@@ -3191,10 +3191,15 @@ describe("the cellar is a cell", () => {
   });
 
   /**
-   * Two keepers, one name, and neither is told in daylight: refusing the second
-   * pick would answer a question the families are not entitled to ask.
+   * One seat cannot be in two cells, and the second keeper is told while there
+   * is still time to choose somebody else.
+   *
+   * This used to be settled silently at night so that nobody could learn a
+   * house was taken. It played badly: on a real table two Ravisseurs picked
+   * the same house two days running and one of the two cells simply did not
+   * open either night, which is half the family's cell power spent on nothing.
    */
-  it("settles two keepers wanting the same seat without telling either", () => {
+  it("refuses a second keeper the house somebody already sent for", () => {
     const state = table([
       "jailor",
       "kidnapper",
@@ -3209,13 +3214,25 @@ describe("the cellar is a cell", () => {
     assert.equal(jailTarget(state, jailor.playerId, doctor.slot).ok, true);
     assert.equal(
       jailTarget(state, boss.playerId, doctor.slot).ok,
-      true,
-      "the second pick is accepted, not refused",
+      false,
+      "the house is taken, and the asker finds out now rather than at dawn",
     );
+
+    // And the keeper that was refused is free to take anybody else.
+    assert.equal(jailTarget(state, boss.playerId, bySlot(state, 5).slot).ok, true);
+
     advanceMafia(state, 0, lcg(1));
     advanceMafia(state, 1, lcg(1));
-
     assert.equal(doctor.alive, true, "one cell held them, and only one");
+  });
+
+  /** Naming the same house again is this keeper changing its own mind, not a clash. */
+  it("still lets a keeper re-pick the house it already holds", () => {
+    const state = table(["kidnapper", "mafioso", "doctor", "sheriff", "escort"]);
+    const boss = bySlot(state, 1);
+    const doctor = bySlot(state, 3);
+    assert.equal(jailTarget(state, boss.playerId, doctor.slot).ok, true);
+    assert.equal(jailTarget(state, boss.playerId, doctor.slot).ok, true);
   });
 });
 

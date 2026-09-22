@@ -133,7 +133,7 @@ describe('a ballot held back for the sentence', () => {
    * So a skip waits while the question is open. Only a skip: an accusation is
    * somebody answering it.
    */
-  it('holds every skip while the room is waiting on an answer', () => {
+  it('holds every skip while the room is waiting on an answer', async () => {
     const { state, cast, driver } = table();
     const speaker = playerBySlot(state, 2)!;
     const other = playerBySlot(state, 4)!;
@@ -156,6 +156,16 @@ describe('a ballot held back for the sentence', () => {
     // And once the window has run, the day may end as it always could.
     waiting.clueCall.set(state.code, Date.now() - 20_000);
     waiting.apply(state, speaker.playerId, 'day', 'day', shrug, 'act');
+    /**
+     * Awaited, because ballots are paced apart now.
+     *
+     * The accusation above landed on an empty table and went straight out; this
+     * skip arrives behind it and is held so the two do not appear in the same
+     * instant. See `MIN_VOTE_GAP_MS` — the rule this test is about is which
+     * ballots are allowed at all, and the spacing is a separate promise about
+     * how fast they are allowed to arrive.
+     */
+    await new Promise((resolve) => setTimeout(resolve, 600));
     assert.deepEqual(cast, [5, 'skip'], 'nobody answered, so the afternoon is spent');
     driver.stop();
   });

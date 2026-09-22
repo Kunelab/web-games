@@ -1,6 +1,7 @@
 import {
   post,
   systemPost,
+  voicePost,
   visibleTo,
   type ChatMessage,
   type PostRefusal,
@@ -835,9 +836,26 @@ function openTrial(state: MafiaState, target: MafiaPlayer, now: number): void {
     state.stage = "defense";
     state.phaseEndsAt = now + state.config.defenseMs;
     announce(state, M.trialDragged(target.name), now);
-    // A gagged mouth gets its one sentence said for it; see `trialMuted`.
-    if (target.silencedDay === state.day)
-      announce(state, M.trialMuted(target.name), now);
+    /**
+     * A gagged mouth gets its one sentence said for it, in its own voice.
+     *
+     * This was an announcement, which is the game narrating, and it read as
+     * one: grey, italic, in quotation marks, with the name folded into the
+     * sentence as `Max: "I am muted."`. But the accused is not being narrated
+     * about, it is answering the room with the only thing the Blackmailer left
+     * it, and on the one afternoon it matters most that ought to look exactly
+     * like anybody else speaking. Posted as their line now, so it comes out
+     * with their number, their colour and no quotation marks.
+     */
+    if (target.silencedDay === state.day) {
+      voicePost(
+        state.chat,
+        'day',
+        { id: target.playerId, name: target.name },
+        M.trialMuted(),
+        now
+      );
+    }
   }
 }
 
@@ -981,11 +999,19 @@ export function callCourt(
  * in daylight is what makes the cell a place rather than an effect, and it is
  * the whole of the difference between the Mafia's keeper and a roleblock.
  *
- * Two keepers may name the same seat, and neither is told. Refusing the second
- * pick would answer a question the families are not entitled to ask — "has the
- * Jailor already taken this one?" — for the price of one tap, so the clash is
- * left to the night, where `resolveNight` settles it without telling anybody
- * more than that their own cell turned out to be empty.
+ * One seat cannot be in two cells, and the second keeper is told so now.
+ *
+ * This used to accept both picks and settle the clash silently at night, so that
+ * no keeper could learn "somebody already has this one". It reads well and it
+ * played badly: on a real table two Ravisseurs picked the same house on day four
+ * and the same house again on day five, and both nights one of the two cells
+ * simply did not open. Half the family's cell power, spent on nothing, twice,
+ * with nobody able to see why.
+ *
+ * So the pick is refused while there is still time to choose somebody else. It
+ * does tell the asker that this house is taken — and nothing else: not by whom,
+ * not by which side, and not whether the seat asking is even the reason. That is
+ * a real price and a small one against a power that quietly did nothing.
  */
 export function jailTarget(
   state: MafiaState,
@@ -1006,6 +1032,11 @@ export function jailTarget(
   const target = playerBySlot(state, targetSlot);
   if (!target?.alive || target.playerId === playerId)
     return { ok: false, error: NO.badTarget() };
+  // Somebody else already sent for this house tonight. See the note above.
+  const taken = Object.entries(state.captives).some(
+    ([keeperId, heldId]) => keeperId !== playerId && heldId === target.playerId,
+  );
+  if (taken) return { ok: false, error: NO.badTarget() };
   state.captives[playerId] = target.playerId;
   return { ok: true };
 }
@@ -1757,11 +1788,36 @@ function promoteCarriers(state: MafiaState): void {
     });
     if (armed) continue;
 
+    /**
+     * And never the seat holding the keys, unless there is nobody else at all.
+     *
+     * `members[0]` is object order, so the family's Ravisseur was as likely an
+     * heir as anybody, and promoting it deletes a whole mechanic: the cell stops
+     * existing for the rest of the game, and the captive it had already chosen
+     * that afternoon is quietly dropped, because `resolveNight` only opens cells
+     * whose keeper is still a keeper.
+     *
+     * Observed end to end on a real table. A Ravisseur picked house 1 in
+     * daylight, the succession made him a Mafioso the moment night fell, the
+     * cell never opened, house 1 spent an ordinary night, and the seat's own
+     * player saw a captive chosen and nothing whatever happen. Two Ravisseurs on
+     * that table between them executed nobody all game, and this is most of why:
+     * they kept being promoted out of the role.
+     *
+     * So the knife goes to somebody who is not already running a room, and only
+     * falls to a keeper when the family has nobody else left. In that last case
+     * the cell it was holding is released rather than left pointing at a seat
+     * that can no longer open it.
+     */
+    const free = members.filter((member) => !isKeeper(member));
+    const pool = free.length > 0 ? free : members;
     const heir =
-      members.find(
+      pool.find(
         (member) =>
           member.role === "consigliere" || member.role === "administrator",
-      ) ?? members[0];
+      ) ?? pool[0];
+    if (!heir) continue;
+    if (isKeeper(heir) && state.captives) delete state.captives[heir.playerId];
     heir.role = knife;
     heir.charges = roleDef(knife).charges ?? 0;
     notify(heir, NOTE.promoted(knife));
