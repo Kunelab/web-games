@@ -624,9 +624,9 @@ export const ROLES: Record<RoleId, RoleDef> = {
     id: 'kidnapper',
     name: 'Ravisseur',
     faction: 'mafia',
-    nightAction: 'kidnap',
+    nightAction: 'jail-execute',
     /**
-     * One execution; the abduction itself is unlimited. See `optionalCharges`.
+     * One execution; the cell itself is unlimited. See `optionalCharges`.
      *
      * Three made the cellar the mafia's second knife rather than its threat: a
      * Ravisseur who blocks *and* kills three times over is doing the Parrain's
@@ -638,7 +638,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     charges: 1,
     optionalCharges: true,
     description:
-      'Enlève un joueur pour la nuit : injoignable, inoffensif, furieux — et peut l’exécuter dans sa cave.',
+      'Le jour, choisit un captif ; la nuit, l’interroge dans sa cave et peut l’exécuter.',
     investigated: L.rope
   }),
   heartbreaker: def({
@@ -756,12 +756,12 @@ export const ROLES: Record<RoleId, RoleDef> = {
     id: 'interrogator',
     name: 'Interrogateur',
     faction: 'triad',
-    nightAction: 'kidnap',
-    // The Triad's cell, and the same three executions the Ravisseur holds.
-    charges: 3,
+    nightAction: 'jail-execute',
+    // The Triad's cell, and the same single execution the Ravisseur holds.
+    charges: 1,
     optionalCharges: true,
     description:
-      'Enlève un joueur pour la nuit : injoignable, inoffensif, terrifié — et peut ne pas le relâcher.',
+      'Le jour, choisit un captif ; la nuit, l’interroge dans sa cave et peut ne pas le relâcher.',
     investigated: L.rope
   }),
   diva: def({
@@ -1063,28 +1063,76 @@ export function isSoloKiller(role: RoleId): boolean {
 export const CORPSE_ONLY: readonly RoleId[] = ['coroner', 'janitor', 'incense-master'];
 
 /**
- * Badges a liar cannot hold up, whatever the room already believes.
+ * Badges a liar may wear, but should reach for last.
  *
- * `CORPSE_ONLY` refutes itself against the seat's own movements. The Crier
- * fails a cheaper test than that: his power is a voice in the square at night
- * and the square either heard one or it did not, so "I am the Crier" is checked
- * by every person present remembering the last three nights. Worse, it is
- * checked *for free* and by everybody at once, which is the one property a
- * bluff must not have — the point of a mask is to cost the room a day.
+ * None of these is forbidden: any of them can be the right lie on the right
+ * afternoon, and a seat with nothing better left should still say something.
+ * What they share is that the square can check them cheaply, which is the one
+ * property a bluff most wants to avoid.
  *
- * Note this is about *claiming* the badge falsely. All of these are perfectly
- * good roles to be dealt, and a real one says so and is believed.
+ *  - The **Coroner** works on corpses, so the notebook has to be autopsies of
+ *    actual bodies on the nights they actually fell. A liar that describes an
+ *    ordinary evening in that badge refutes itself inside its own will, which
+ *    is what `visited-the-living` catches and what hanged a Mafioso on day four
+ *    of a real game. `fakeIntel` now writes it correctly; it is still a thin
+ *    claim, because an autopsy only ever repeats what the dawn report said.
+ *  - The **Crier** is a voice in the square after dark, so the room either
+ *    heard one or it did not, and every person present already knows.
+ *  - The **Mayor** and the **Marshall** are badges whose whole point is to be
+ *    revealed. A seat claiming one and never standing up is answering the
+ *    question it was trying to avoid.
+ *
+ * Read by `maskRank`, which sorts the pool rather than filtering it.
  */
-export const TOO_CHECKABLE: readonly RoleId[] = [...CORPSE_ONLY, 'crier'];
+export const LOW_PRIORITY_MASKS: readonly RoleId[] = ['coroner', 'crier', 'mayor', 'marshall'];
 
 /**
- * Whether a role is a face a liar could keep up all game.
+ * Whether a role is a face worth wearing at all.
  *
- * Town, because a mask is only worth wearing if it buys the room's benefit of
- * the doubt, and not one of the badges the square can check on the spot.
+ * Town, and only town: a mask exists to buy the room's benefit of the doubt,
+ * and no other camp's badge does that. The Survivor is the one deliberate
+ * exception and it is handled at the call site, because "I am just trying to
+ * live through this" is a neutral claim that still buys a little mercy.
  */
 export function wearableMask(role: RoleId): boolean {
-  return ROLES[role].faction === 'town' && !TOO_CHECKABLE.includes(role);
+  return ROLES[role].faction === 'town';
+}
+
+/**
+ * The town badge that does what this seat's own power does.
+ *
+ * The natural cover, and the only one a liar can wear without having to invent
+ * a second life: a Consort spends its nights holding somebody at home, which is
+ * an Escort's night exactly; a Kidnapper takes a seat out of the evening and
+ * interrogates it in a cell, which is the Jailor's night exactly. Claiming the
+ * twin means every true thing the seat did is also a true thing the mask does,
+ * so there is no story to keep straight and nothing for the record to catch.
+ *
+ * Derived from the night action rather than listed, so it stays correct as
+ * roles are added or re-pointed: the day the Kidnapper was rebuilt as the
+ * family's Jailor, the pairing appeared here on its own.
+ */
+export function twinMasks(role: RoleId): RoleId[] {
+  const action = ROLES[role].nightAction;
+  if (action === null) return [];
+  return (Object.keys(ROLES) as RoleId[]).filter(
+    (other) => other !== role && ROLES[other].faction === 'town' && ROLES[other].nightAction === action
+  );
+}
+
+/**
+ * How badly a liar wants a given face, higher first.
+ *
+ * Three tiers and a floor. The twin is decided by the caller, which is the only
+ * part that depends on who is asking; everything here is about the badge alone.
+ * A powered badge beats a bare one because the town loses something by hanging
+ * it, which is the whole reason to claim one — `defenceStrength` prices "I am a
+ * citizen" at 0.08 against 0.4 precisely because it survives every check and
+ * proves nothing.
+ */
+export function maskRank(role: RoleId): number {
+  if (LOW_PRIORITY_MASKS.includes(role)) return 0;
+  return ROLES[role].nightAction !== null ? 2 : 1;
 }
 
 /** Neutral roles that block nobody's victory: they win alongside, never against. */

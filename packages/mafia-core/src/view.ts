@@ -17,6 +17,9 @@ import {
   isLodgeMate,
   isMason,
   jailChannel,
+  isKeeper,
+  captiveOf,
+  keeperHolding,
   playerFamily,
   pmParticipants,
   pointsFor,
@@ -490,7 +493,18 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
 
       // Whisper threads this player is part of surface as their own tabs.
       const pmIds = [...used].filter((channel) => pmParticipants(channel)?.includes(self.playerId));
-      const channelIds = ['day', 'dead', 'mafia', 'triad', 'cult', 'mason', jailChannel(state.day), ...pmIds];
+      /**
+       * Tonight's cell, from whichever end of it this seat is on.
+       *
+       * One id rather than every keeper's, because a seat is in at most one
+       * cell and `canRead` would refuse the others anyway — offering them would
+       * only tell the reader how many cells exist. A keeper sees the room it
+       * keeps; a captive sees the room it is in; everybody else has no cell tab
+       * at all.
+       */
+      const ownCellKeeper = isKeeper(self) ? self.playerId : keeperHolding(state, self.playerId);
+      const cellIds = ownCellKeeper ? [jailChannel(state.day, ownCellKeeper)] : [];
+      const channelIds = ['day', 'dead', 'mafia', 'triad', 'cult', 'mason', ...cellIds, ...pmIds];
 
       /**
        * At the end every door opens — but only onto rooms that were ever used.
@@ -549,8 +563,19 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
           return mates.map((other) => ({ slot: other.slot, name: other.name, roleName: ROLE.name(other.role!) }));
         })(),
         obsessionSlot: obsession?.slot ?? null,
-        jailed: state.jailedId === self.playerId && state.phase === 'night',
-        jailTargetSlot: self.role === 'jailor' && state.jailedId ? (state.players[state.jailedId]?.slot ?? null) : null,
+        jailed: keeperHolding(state, self.playerId) !== null && state.phase === 'night',
+        /**
+         * The seat this keeper has picked, whichever cell it keeps.
+         *
+         * Gated on the Jailor alone before, so the Ravisseur and the
+         * Interrogateur had no way to see or clear their own pick: the screen
+         * showed them nothing and the row offered no way to take it back.
+         */
+        jailTargetSlot: (() => {
+          if (!isKeeper(self)) return null;
+          const heldId = captiveOf(state, self.playerId);
+          return heldId ? (state.players[heldId]?.slot ?? null) : null;
+        })(),
         action: legalNightAction(state, self.playerId),
         actionTargetSlot: submittedSlot,
         actionSecondTargetSlot: submittedSecondSlot,

@@ -591,3 +591,69 @@ export function strongest(found: readonly Deduction[]): Deduction | null {
   }
   return best;
 }
+
+/**
+ * The count a seat can only do because it knows what it is itself.
+ *
+ * Everything above this line reads the public board, which is right: a finding
+ * the room cannot check is a finding a bot must not say out loud as though it
+ * could. But there is one fact every seat holds that the board does not, and it
+ * is the single most useful fact at the table — its own badge. The roster
+ * arithmetic was run over the identified dead and the living *claims*, and the
+ * observer's own role was seated nowhere, so a real Sheriff listening to
+ * somebody else claim Sheriff had to work out from public evidence what it
+ * already knew for certain.
+ *
+ * The method is the double count the question asks for. Run the same deduction
+ * pass twice: once over the board as it stands, and once over a board where the
+ * observer has claimed its own real badge. Anything that appears only in the
+ * second run is true, is not derivable from what has been said, and is exactly
+ * what this seat knows and nobody else does. In the common case that is "there
+ * is no room left for your Sheriff, because I am the Sheriff"; in the wider one
+ * it is a slot the roster had left open and the observer's badge has just
+ * spent.
+ *
+ * Seated by *pretending the observer claimed it*, rather than by threading a
+ * second parameter through the whole pass, because those are the same statement
+ * and the first costs nothing: every count here already knows how to weigh a
+ * living seat's claim. It also gets the honesty right. Announcing one of these
+ * means claiming the badge out loud, and the board the bot reasons from is then
+ * the board the room will actually have.
+ *
+ * Nothing is returned when the observer has already claimed its badge in
+ * public, because then the two runs are the same run and there is no private
+ * knowledge left to spend.
+ */
+export function privateFindings(
+  mine: { slot: number; role: RoleId },
+  info: PublicInfo
+): { slot: number; found: Deduction[] }[] {
+  const spokenAlready = info.claims.some(
+    (claim) => claim.kind === 'role-claim' && claim.claimerSlot === mine.slot && claim.claimedRole === mine.role
+  );
+  if (spokenAlready) return [];
+
+  const seated: PublicInfo = {
+    ...info,
+    claims: [
+      ...info.claims,
+      {
+        kind: 'role-claim',
+        claimerSlot: mine.slot,
+        targetSlot: mine.slot,
+        claimedRole: mine.role,
+        day: info.day,
+        truthful: true
+      }
+    ]
+  };
+
+  const out: { slot: number; found: Deduction[] }[] = [];
+  for (const slot of info.aliveSlots) {
+    if (slot === mine.slot) continue;
+    const before = new Set(deductions(slot, info).map((entry) => JSON.stringify(entry)));
+    const after = deductions(slot, seated).filter((entry) => !before.has(JSON.stringify(entry)));
+    if (after.length > 0) out.push({ slot, found: after });
+  }
+  return out;
+}

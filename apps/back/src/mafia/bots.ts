@@ -6,6 +6,8 @@ import {
   deductions,
   strongest,
   wearableMask,
+  twinMasks,
+  maskRank,
   caseFor,
   defenceFor,
   type Deduction,
@@ -19,6 +21,8 @@ import {
   cellProves,
   chatRules,
   jailChannel,
+  isKeeper,
+  captiveOf,
   legalNightAction,
   needsSecondTarget,
   parityPressure,
@@ -2168,19 +2172,31 @@ export class MafiaBotDriver {
        * that the second is plainly a reply. Either end may be a person, in which
        * case their half simply does not get scheduled.
        */
-      const cell = jailChannel(state.day);
-      const jailor = bots.find((bot) => bot.role === 'jailor');
-      const prisoner = state.jailedId ? state.players[state.jailedId] : null;
-
-      if (state.jailedId && jailor) {
-        this.later(code, within(0.05, 0.15, state.config.nightMs), () =>
-          this.decide(code, jailor.playerId, 'night', cell)
-        );
-      }
-      if (prisoner?.isBot && prisoner.alive) {
-        this.later(code, within(0.35, 0.5, state.config.nightMs), () =>
-          this.decide(code, prisoner.playerId, 'night', cell)
-        );
+      /**
+       * Every cell, not only the town's.
+       *
+       * There are up to three of them now and each is its own room, so the
+       * interrogation is scheduled per keeper rather than once for the Jailor.
+       * A Ravisseur that never got a turn here is a Ravisseur that sits in a
+       * cellar with somebody all night and says nothing, which is the whole of
+       * what the role was missing.
+       */
+      for (const keeper of Object.values(state.players)) {
+        if (!keeper.alive || !isKeeper(keeper)) continue;
+        const heldId = captiveOf(state, keeper.playerId);
+        if (!heldId) continue;
+        const cell = jailChannel(state.day, keeper.playerId);
+        const prisoner = state.players[heldId];
+        if (keeper.isBot) {
+          this.later(code, within(0.05, 0.15, state.config.nightMs), () =>
+            this.decide(code, keeper.playerId, 'night', cell)
+          );
+        }
+        if (prisoner?.isBot && prisoner.alive) {
+          this.later(code, within(0.35, 0.5, state.config.nightMs), () =>
+            this.decide(code, prisoner.playerId, 'night', cell)
+          );
+        }
       }
       /**
        * Everybody acts at once, immediately, and may change their mind later.
@@ -5337,12 +5353,13 @@ export class MafiaBotDriver {
        * and silence — which is what a bot with nothing to lose used to give —
        * remains the surest way to die in that cell.
        */
-      if (action.type === 'jail-execute' && slot !== null && state.jailedId) {
-        const cell = jailChannel(state.day);
+      const heldId = captiveOf(state, self.playerId);
+      if (action.type === 'jail-execute' && slot !== null && heldId) {
+        const cell = jailChannel(state.day, self.playerId);
         const pleaded = state.chat.messages.some(
-          (message) => message.channel === cell && message.authorId === state.jailedId
+          (message) => message.channel === cell && message.authorId === heldId
         );
-        const prisoner = state.players[state.jailedId];
+        const prisoner = state.players[heldId];
         const suspected = prisoner ? suspicion(prisoner.slot, self, board, rng) : 0;
 
         /**
@@ -7882,7 +7899,16 @@ export class MafiaBotDriver {
     const me = view.me;
     if (!self?.role || !me) return null;
 
-    if (self.role === 'jailor') {
+    /**
+     * The cell, from the keeper's end, whichever cell it is.
+     *
+     * Gated on the Jailor alone, so the two keepers that were rebuilt to play
+     * exactly like one sat in their cellars all night saying nothing. The
+     * questions, the threat and the vouch are the same three moves for all
+     * three of them, which is the point: a captive must not be able to tell
+     * from the conversation whose room it is in.
+     */
+    if (isKeeper(self)) {
       /**
        * The one thing a Jailor has that nobody else does: a room that cannot leak.
        *
@@ -7906,11 +7932,12 @@ export class MafiaBotDriver {
        * Once per prisoner, and never while there is an execution pending on
        * them: a seat does not introduce itself to somebody it is about to empty.
        */
-      const held = state.jailedId ? state.players[state.jailedId] : null;
+      const heldId = captiveOf(state, botId);
+      const held = heldId ? state.players[heldId] : null;
       const mine = this.minds.mind(state, botId);
       if (held && mine && !mine.namedSelfTo?.includes(held.playerId)) {
         const board = this.minds.board(state, botId);
-        const cellNow = jailChannel(state.day);
+        const cellNow = jailChannel(state.day, botId);
         const told = readRoom(state, cellNow, 0).claimed;
         const contested =
           told !== null &&
@@ -9470,11 +9497,55 @@ export class MafiaBotDriver {
         !buried.has(role as RoleId) &&
         !worn.has(role as RoleId)
     );
-    if (candidates.length === 0) return null;
     /**
-     * A bluff the room would miss, when there is one.
+     * The badge that does what this seat already does, first of all.
      *
-     * The filter above asks only whether a role is town and unclaimed, so the
+     * A Consort spends its nights holding somebody at home, which is an
+     * Escort's night exactly; a Kidnapper takes a seat out of the evening and
+     * talks to it in a cell, which is the Jailor's night exactly. Wearing the
+     * twin means the liar has no second life to keep straight: every true thing
+     * it did is a true thing the mask does, so the cell, the stand and the will
+     * agree without anybody having to invent anything, and the record has
+     * nothing to catch it on.
+     *
+     * Subject to every filter above, which is the whole of "if it is still
+     * possible and nobody has taken it": the roster has to allow it, the
+     * graveyard must not hold it, and no living seat may already be wearing it.
+     * `twinMasks` can name more than one, so the best-ranked free one wins.
+     */
+    const twin = (self.role === null ? [] : twinMasks(self.role))
+      .filter((role) => candidates.includes(role))
+      .sort((left, right) => maskRank(right) - maskRank(left))[0];
+    if (twin) return twin;
+
+    /**
+     * And, now and then, a badge that is not the town's at all.
+     *
+     * "I am just trying to see the end of this" is the Survivor's claim, and it
+     * is the one non-town sentence that still buys mercy: it explains being
+     * quiet, explains being useless, and asks the room for the one thing it
+     * costs nothing to give. It is deliberately occasional — a table where
+     * every cornered killer is a Survivor has learned the tell in one evening —
+     * and it is drawn on the same fixed hash as the rest, so a seat that
+     * reaches for it reaches for it consistently all game.
+     */
+    if (
+      claimableRoles(state).has('survivor') &&
+      !spoken.has('survivor') &&
+      !buried.has('survivor') &&
+      !worn.has('survivor') &&
+      self.role !== 'survivor' &&
+      hashCode(botId + ':survivor') % 6 === 0
+    ) {
+      return 'survivor';
+    }
+
+    if (candidates.length === 0) return null;
+
+    /**
+     * Otherwise the best-ranked face still free, and the rank is the argument.
+     *
+     * This used to ask only whether a role was town and unclaimed, so the
      * Citizen was as good a lie as the Doctor — and it is the worst one
      * available. `defenceStrength` prices it at 0.08 against 0.4 precisely
      * because "I am a citizen" survives every check and proves nothing, so the
@@ -9482,13 +9553,15 @@ export class MafiaBotDriver {
      * stand, where it produced "Hang me and the town loses its Citizen", which
      * is a sentence with no threat in it at all.
      *
-     * A role with a night action is a role the town loses something by hanging,
-     * which is the only reason to claim one. Falls back to the whole list when
-     * every powered badge is already spoken for, because a weak bluff still
-     * beats saying nothing on the stand.
+     * `maskRank` puts a powered badge above a bare one and the four cheaply
+     * checkable ones — Coroner, Crier, Mayor, Marshall — below both. They are
+     * still reachable, because a seat with nothing else left should say
+     * something rather than stand there, and because any of them is the right
+     * lie on some afternoon.
      */
-    const worthWearing = candidates.filter((role) => ROLES[role].nightAction !== null);
-    const pool = worthWearing.length > 0 ? worthWearing : candidates;
+    const ranked = candidates.map((role) => maskRank(role));
+    const best = Math.max(...ranked);
+    const pool = candidates.filter((role) => maskRank(role) === best);
     return pool[hashCode(botId + ':bluff') % pool.length];
   }
 
@@ -9632,7 +9705,20 @@ export class MafiaBotDriver {
       shadow: 'tracked',
       block: 'blocked',
       kidnap: 'blocked',
-      'jail-execute': 'blocked'
+      'jail-execute': 'blocked',
+      /**
+       * The Coroner reads bodies, and his page has to be one.
+       *
+       * Missing, so `autopsy` fell through to the `went` default below and a
+       * seat wearing the Coroner published an ordinary evening of house calls
+       * on living people. That is the badge refuting itself inside its own
+       * will, and `visited-the-living` is built to catch exactly it: a Mafioso
+       * wore the Coroner on day three of a real game, filed three visits to
+       * seats sitting in the room, and the room read it straight back to her.
+       *
+       * A corpse-only badge gets a corpse-only notebook. See the `role` case.
+       */
+      autopsy: 'role'
     };
     const kind = traces[def.nightAction] ?? 'went';
 
@@ -9757,6 +9843,47 @@ export class MafiaBotDriver {
         case 'blocked': {
           const held = innocent;
           if (held !== undefined) entries.push({ night, kind: 'blocked', targetSlot: held, value: 'blocked' });
+          break;
+        }
+        case 'role': {
+          /**
+           * An autopsy, which means a body that was already in the ground.
+           *
+           * `nightLine` decides between "I examined X's body" and "X is the Y"
+           * by asking whether that seat was dead when the night fell, so the
+           * page only reads as a Coroner's if the corpse predates the night.
+           * A body that fell *on* that night was still upright while it was
+           * being examined, which is the same contradiction one step smaller.
+           *
+           * What it says about the body is whatever the square already
+           * settled, when the square settled it. That is a weak claim and
+           * deliberately so — an autopsy mostly repeats the dawn report, which
+           * is why the Coroner is a thin badge to wear and ranks last in
+           * `maskRank` — but it is a claim nothing can contradict. Only a body
+           * the report never identified is worth inventing a role for, and
+           * that is exactly the case a real Coroner exists to cover.
+           */
+          const buriedBefore = board.deaths
+            .filter((death) => death.day < night || (death.day === night && death.phase === 'day'))
+            .map((death) => death.slot)
+            .filter((slot) => !entries.some((entry) => entry.targetSlot === slot));
+          const body = buriedBefore[hashCode(botId + ':slab:' + night) % Math.max(1, buriedBefore.length)];
+          if (body === undefined) break;
+          const settled = board.deadRoles.get(body);
+          if (settled) {
+            entries.push({ night, kind: 'role', targetSlot: body, value: settled });
+            break;
+          }
+          /**
+           * A cleaned corpse, which is the one body worth reading. The role
+           * named has to be one the roster could still contain, or the room
+           * checks it against the list in the corner of its own screen.
+           */
+          const open = [...(board.rolesInPlay ?? [])].filter(
+            (role) => isEvilRole(role) && ![...board.deadRoles.values()].includes(role)
+          );
+          const named = open[hashCode(botId + ':slab-role:' + night) % Math.max(1, open.length)];
+          if (named) entries.push({ night, kind: 'role', targetSlot: body, value: named });
           break;
         }
         default: {

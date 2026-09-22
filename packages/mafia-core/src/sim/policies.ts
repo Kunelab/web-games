@@ -9,11 +9,12 @@ import {
   roleDef,
   ROLES,
   staysHome,
+  twinMasks,
   tradeSuspects
 } from '../roles.js';
 import type { SlotToken } from '../setups.js';
 import { beliefs, surestSuspect } from './beliefs.js';
-import { deductions, deductionWeight } from './deduce.js';
+import { deductions, deductionWeight, privateFindings } from './deduce.js';
 import { townClock } from './clock.js';
 import { possibleRoles } from './slots.js';
 export { QUIET_TRADE };
@@ -29,6 +30,7 @@ import {
 } from '../social.js';
 import {
   isMason,
+  KEEPER_ROLES,
   sheriffSuspects,
   type IntelEntry,
   type MafiaPlayer,
@@ -4772,6 +4774,48 @@ export function decideDay(
     );
 
     /**
+     * The badge in your own hand, spent on the seat that just claimed it.
+     *
+     * A real Sheriff hearing somebody else claim Sheriff knows that seat is
+     * lying, with a certainty nothing on the public board can match, and had no
+     * way to act on it: every count in `deduce` reads the record, the record
+     * does not know what this seat is, and so the one fact the seat holds that
+     * nobody else does was the one fact it never used. `privateFindings` is the
+     * double count that surfaces it — the same pass run over the board as it
+     * stands and over the board with this badge seated, and the difference is
+     * knowledge rather than inference.
+     *
+     * Announcing it means claiming the badge out loud, which is a real price:
+     * a named investigator is a named target, and the room now has two seats
+     * wearing one face and has to pick. It is worth paying, because the
+     * alternative is sitting on a certainty while the liar collects the room's
+     * trust with it, and because the counter-claim is the move a person makes
+     * here without hesitating.
+     *
+     * Town only, and obviously: the same arithmetic in a Consigliere's hands
+     * would have it announce its own badge to the square. Once per seat, like
+     * every other claim, and never by a seat that has already put a face on.
+     */
+    if (agenda === 'town' && self.role !== null && !wornAFaceAlready) {
+      const stolen = privateFindings({ slot: self.slot, role: self.role }, info).find((entry) =>
+        info.aliveSlots.includes(entry.slot)
+      );
+      if (stolen) {
+        publish(self.slot, 'role-claim', self.role);
+        publish(stolen.slot, 'accuse');
+      }
+    }
+
+    /**
+     * The town badge that does what this seat's own power does.
+     *
+     * Filtered to what the roster could still hold, because `burnedFaces` is
+     * what `pickMask` checks and this is offered ahead of its own lists: a twin
+     * the deal cannot contain is not a cover, it is a tell. See `twinMasks`.
+     */
+    const ownTwins = self.role === null ? [] : twinMasks(self.role);
+
+    /**
      * And the mirror of it: a cornered villain claiming to *be* the Jester,
      * because hanging a jester hands him the game and the whole room knows it.
      * The best sentence available to a mafioso with three votes on his head.
@@ -4789,7 +4833,7 @@ export function decideDay(
       info.claims.some((claim) => claim.kind === 'accuse' && claim.targetSlot === self.slot);
 
     if (agenda !== 'jester' && agenda !== 'town' && !wornAFaceAlready && underFire && stance.jesterGambit > 0) {
-      const mask = pickMask(agenda, stance, rng, burnedFaces(info));
+      const mask = pickMask(agenda, stance, rng, burnedFaces(info), ownTwins);
       if (mask) publish(self.slot, 'role-claim', mask);
     }
 
@@ -4831,7 +4875,7 @@ export function decideDay(
       // the night, or the Jester's, which makes hanging you a mistake. Once:
       // see `wornAFaceAlready`, and the spew it was producing without it.
       if (!wornAFaceAlready && rng() < stance.fakeClaim * 0.7) {
-        const mask = pickMask(agenda, stance, rng, burnedFaces(info));
+        const mask = pickMask(agenda, stance, rng, burnedFaces(info), ownTwins);
         if (mask) publish(self.slot, 'role-claim', mask);
       }
     }
@@ -4909,8 +4953,29 @@ export function decideDay(
     decision.voteSlot = pickVote(self, brain, info, teammates, familyKnownEvil, rng);
   }
 
-  /* -------- Jailor picks tonight's prisoner. -------- */
-  if (role === 'jailor') {
+  /* -------- Every keeper picks tonight's prisoner. -------- */
+  /**
+   * The Ravisseur and the Interrogateur pick here too, and always did not.
+   *
+   * They used to take their captive with a night order, so this whole block —
+   * which is where a keeper decides who is worth a night in a room alone — was
+   * the Jailor's alone, and the families' keepers walked into the dark with
+   * no plan at all. The choosing is the role; the two that could not do it
+   * here were not playing a different version of it, they were not playing it.
+   */
+  if (KEEPER_ROLES.has(role)) {
+    /**
+     * Who is worth a night in the room, which is not the same list for everyone.
+     *
+     * The Jailor may take anybody. A family's keeper has no reason to take one
+     * of its own: the cell blocks the captive and shelters it, so locking up a
+     * brother costs the family that brother's night and buys nothing, and on
+     * the evening the knife is out it takes the target off the board as well.
+     * The Jailor's version of this rule is that it cannot jail itself, which
+     * `jailTarget` enforces for all three.
+     */
+    const cellPool = info.aliveSlots.filter((slot) => slot !== self.slot && !teammates.has(slot));
+
     /**
      * Last night's answer, which only this morning can give.
      *
@@ -4938,7 +5003,7 @@ export function decideDay(
      */
     const sure = surestSuspect(self, info, 0.7, teammates);
     const pressure = parityPressure(info);
-    if (sure && others.includes(sure.slot)) {
+    if (sure && cellPool.includes(sure.slot)) {
       decision.jailSlot = sure.slot;
     } else if (pressure >= 0.35 || info.day >= 4) {
       /**
@@ -4960,13 +5025,13 @@ export function decideDay(
        * because 1.0 was "the room's leading suspect" and the room's leading
        * suspect is the seat that does not need a Jailor.
        */
-      const suspects = others
+      const suspects = cellPool
         .map((slot) => ({ slot, score: suspicion(slot, self, info, rng) }))
         .sort((a, b) => b.score - a.score);
       const top = suspects[0];
       if (top && top.score >= 0.8) decision.jailSlot = top.slot;
     } else {
-      const quiet = others.filter(
+      const quiet = cellPool.filter(
         (slot) =>
           !info.claims.some((claim) => claim.claimerSlot === slot) &&
           Math.abs(trustOf(slot, info)) < 1.0 &&
@@ -4998,8 +5063,8 @@ export function decideDay(
      * somebody goes in. The leading suspect is the fallback, because the
      * branches that failed to choose were both reaching for one.
      */
-    if (decision.jailSlot === null && others.length > 0) {
-      const ranked = others
+    if (decision.jailSlot === null && cellPool.length > 0) {
+      const ranked = cellPool
         .map((slot) => ({ slot, score: suspicion(slot, self, info, rng) }))
         .sort((left, right) => right.score - left.score);
       decision.jailSlot = ranked[0]?.slot ?? null;
@@ -6449,6 +6514,24 @@ function familySpent(state: MafiaState, playerId: string, family: string): Set<n
 
     const target = state.players[order.targetId];
     if (target) spent.add(target.slot);
+  }
+
+  /**
+   * And the seat its own keeper is holding, which is a daylight decision now.
+   *
+   * The cellar used to be a night order like any other, so the loop above found
+   * it among `nightActions` and the knife stepped around it. Picking the
+   * captive in the afternoon took it off that list, and the family went back to
+   * doing the one thing this function exists to prevent: sending the knife to a
+   * house its own Ravisseur had already taken out of the night, where the
+   * shelter stops it and the family spends an evening killing nobody.
+   */
+  for (const [keeperId, captiveId] of Object.entries(state.captives ?? {})) {
+    if (keeperId === playerId) continue;
+    const keeper = state.players[keeperId];
+    if (!keeper?.alive || !keeper.role || familyOf(keeper.role) !== family) continue;
+    const captive = state.players[captiveId];
+    if (captive) spent.add(captive.slot);
   }
 
   return spent;

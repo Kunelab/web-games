@@ -343,7 +343,7 @@ export function stanceOf(agenda: Agenda, desperation: number, traits: StanceTrai
  * refutes the badge inside the same will, which is how a Mafioso hanged herself
  * on day four of a real game. A Crier is a voice in the square at night, so the
  * room either heard one or it did not, and every person present already knows
- * the answer without spending a minute on it. See `TOO_CHECKABLE` in the role
+ * the answer without spending a minute on it. See `LOW_PRIORITY_MASKS` in the role
  * table, which is where that rule now lives, and `masks.test.ts`, which holds
  * these lists to it.
  *
@@ -369,7 +369,17 @@ export function pickMask(
   stance: Stance,
   roll: () => number,
   /** Faces already taken or already in the ground; claiming these is suicide. */
-  burned: ReadonlySet<RoleId> = new Set()
+  burned: ReadonlySet<RoleId> = new Set(),
+  /**
+   * The town badge that does what this seat's own power does, if there is one.
+   *
+   * Supplied by the caller because this function is deliberately told nothing
+   * about who is asking. See `twinMasks`: a Consort's night *is* an Escort's
+   * night, so wearing the twin means the liar has no second story to keep
+   * straight and the record has nothing to catch it on. It is the best face
+   * available whenever it is free, which is why it is tried before the lists.
+   */
+  twins: readonly RoleId[] = []
 ): RoleId | null {
   const free = (list: RoleId[]) => list.filter((role) => !burned.has(role));
   const pick = (list: RoleId[]) => {
@@ -401,6 +411,20 @@ export function pickMask(
   if (stance.jesterGambit > 0 && roll() < stance.jesterGambit * 0.35) {
     return burned.has('jester') ? pick(MASKS.quiet) : 'jester';
   }
+
+  /**
+   * The twin, before either list, because it is strictly the better lie.
+   *
+   * Both lists below are fixed and know nothing about the seat holding them, so
+   * a Consort was as likely to claim Lookout as Escort even though one of those
+   * requires inventing a fortnight of sightings and the other is a word-perfect
+   * description of what it actually did every night. Gated on the same appetite
+   * as the ordinary faces, so a seat that was not going to claim anything still
+   * does not.
+   */
+  const twin = twins.find((role) => !burned.has(role));
+  if (twin && roll() < stance.fakeClaim) return twin;
+
   if (roll() < stance.fakeClaim * 0.45) return pick(MASKS.scary);
   if (roll() < stance.fakeClaim) return pick(MASKS.quiet);
   return null;

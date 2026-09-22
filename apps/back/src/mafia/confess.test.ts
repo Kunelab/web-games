@@ -157,13 +157,7 @@ describe('a badge owned in the past tense', () => {
  * her a part she could not play.
  */
 describe('a mask a liar can keep up', () => {
-  it('refuses the badges that only ever work on a corpse', () => {
-    for (const morgue of ['coroner', 'janitor', 'incense-master'] as RoleId[]) {
-      assert.equal(wearableMask(morgue), false, `${morgue} cannot explain a visit to the living`);
-    }
-  });
-
-  it('still offers the ordinary town badges worth lying about', () => {
+  it('offers the ordinary town badges worth lying about', () => {
     for (const face of ['doctor', 'sheriff', 'lookout', 'detective', 'bus-driver'] as RoleId[]) {
       assert.equal(wearableMask(face), true, `${face} is a face a liar can hold`);
     }
@@ -173,6 +167,25 @@ describe('a mask a liar can keep up', () => {
   it('never offers a face from a camp the town is hunting', () => {
     for (const evil of ['mafioso', 'godfather', 'cultist', 'serial-killer'] as RoleId[]) {
       assert.equal(wearableMask(evil), false);
+    }
+    // The morgue badges are town-side or family-side, and the family ones are
+    // refused here for the same reason every other family badge is.
+    for (const evil of ['janitor', 'incense-master'] as RoleId[]) {
+      assert.equal(wearableMask(evil), false);
+    }
+  });
+
+  /**
+   * The Coroner is allowed, and it was not always. Banning it fixed the visible
+   * symptom — a liar wearing it published an ordinary evening of house calls on
+   * living people and hanged for it — by removing the badge rather than the
+   * mistake. `fakeIntel` now writes a Coroner's notebook as autopsies of bodies
+   * that were already in the ground, which is the claim that badge can actually
+   * make, so it goes back in the pool and simply ranks last.
+   */
+  it('still allows the cheaply checkable badges, at the bottom of the pile', () => {
+    for (const cheap of ['coroner', 'crier', 'mayor', 'marshall'] as RoleId[]) {
+      assert.equal(wearableMask(cheap), true, `${cheap} is a poor lie, not an impossible one`);
     }
   });
 });

@@ -756,8 +756,29 @@ export interface MafiaState {
    * meant guessing from a chat log.
    */
   nightLog?: NightOutcome[];
-  /** Who the jailor locked up for tonight (chosen during the day). */
-  jailedId: string | null;
+  /**
+   * Who the jailor locked up for tonight (chosen during the day).
+   *
+   * Kept for tables persisted before the cell became a shared mechanic. New
+   * play writes `captives` and reads it through `captiveOf`; `restoreMafiaTable`
+   * folds an old field into the map so a game in progress survives the change.
+   */
+  jailedId?: string | null;
+  /**
+   * Every cell in the game tonight: the keeper's id, and who is in it.
+   *
+   * One mechanic, three keepers. The Jailor is the town's, the Ravisseur is the
+   * Mafia's and the Interrogateur is the Triad's, and they play identically:
+   * each picks a seat in daylight, spends the night alone with it in a room the
+   * square cannot see, and decides at dusk whether to let it out. They used to
+   * be two different mechanics that happened to rhyme — the Jailor picked in
+   * the day and talked, the other two picked at night and could not — which
+   * left the families' keeper unable to do the one thing the role is named for.
+   *
+   * Keyed by the keeper so two cells can be open at once without either knowing
+   * about the other. See `cellChannel`, which is what keeps them anonymous.
+   */
+  captives: Record<string, string>;
   /**
    * The hands that pulled the rope on a Jester, waiting for the night.
    *
@@ -873,7 +894,7 @@ export function createMafiaGame(input: CreateMafiaInput): MafiaState {
     trial: null,
     trialsToday: 0,
     nightActions: {},
-    jailedId: null,
+    captives: {},
     chat: createChat(MAFIA_RETENTION),
     presence: createPresence(),
     trialLog: [],
@@ -959,8 +980,61 @@ export function pointsFor(state: MafiaState, playerId: string): number {
 }
 
 /** The jail channel is per night, so yesterday's interrogation stays sealed. */
-export function jailChannel(day: number): string {
-  return `jail:${day}`;
+export function jailChannel(day: number, keeperId: string): string {
+  return `jail:${day}:${cellTag(keeperId)}`;
+}
+
+/**
+ * The three badges that hold somebody overnight, and play identically.
+ *
+ * The Jailor is the town's, the Ravisseur is the Mafia's and the
+ * Interrogateur is the Triad's. Same night, same room, same choice at dusk;
+ * only the side they are on differs, and the number of times they may pull
+ * the lever.
+ */
+export const KEEPER_ROLES: ReadonlySet<RoleId> = new Set<RoleId>(['jailor', 'kidnapper', 'interrogator']);
+
+export function isKeeper(player: MafiaPlayer): boolean {
+  return player.role !== null && KEEPER_ROLES.has(player.role);
+}
+
+/**
+ * A suffix that names a cell without naming its keeper.
+ *
+ * The channel id reaches the captive's screen, so anything legible in it is
+ * something the captive is told. `jail:5` and `cellar:5` would announce which
+ * faction is holding you the moment you woke up in one, which is the whole of
+ * the Ravisseur's cover gone — the point of the role is that it can pose as the
+ * Jailor, and a prisoner who can read "cellar" off its own tab has already
+ * checked. So every cell wears the same shape and an opaque tag.
+ *
+ * Not a secret, just uninformative: access is decided server-side by `canRead`,
+ * so guessing a tag buys nothing. It only has to carry no meaning.
+ */
+function cellTag(keeperId: string): string {
+  let hash = 0;
+  for (let index = 0; index < keeperId.length; index++) {
+    hash = (hash * 31 + keeperId.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36).padStart(6, '0').slice(-6);
+}
+
+/** Who this keeper is holding tonight, if anybody. */
+export function captiveOf(state: MafiaState, keeperId: string): string | null {
+  return state.captives?.[keeperId] ?? null;
+}
+
+/** Whose cell this seat is sitting in tonight, if any. */
+export function keeperHolding(state: MafiaState, captiveId: string): string | null {
+  for (const [keeperId, heldId] of Object.entries(state.captives ?? {})) {
+    if (heldId === captiveId) return keeperId;
+  }
+  return null;
+}
+
+/** Everybody spending tonight in somebody's cell. */
+export function captiveIds(state: MafiaState): string[] {
+  return Object.values(state.captives ?? {});
 }
 
 /** The whisper channel between two players, whoever sends first. */
@@ -1013,7 +1087,17 @@ export function chatRules(): ChannelRules<MafiaState> {
       }
       if (channel === 'mason') return isMason(member);
       if (channel.startsWith('jail:')) {
-        return member.role === 'jailor' || (channel === jailChannel(state.day) && state.jailedId === memberId);
+        /**
+         * Your own cell, from whichever end of it you are on.
+         *
+         * A keeper reads the room it is holding; a captive reads the one it is
+         * in, and neither can see anybody else's. This used to answer `true` for
+         * any seat whose role was Jailor, on any cell, on any night, which was
+         * harmless while there was one cell a night and is not now.
+         */
+        if (isKeeper(member)) return channel === jailChannel(state.day, memberId);
+        const keeperId = keeperHolding(state, memberId);
+        return keeperId !== null && channel === jailChannel(state.day, keeperId);
       }
       // Your own results, and nobody else's.
       if (channel.startsWith('self:')) return channel === `self:${memberId}`;
@@ -1045,7 +1129,7 @@ export function chatRules(): ChannelRules<MafiaState> {
         return state.phase === 'night' && playerFamily(member) === channel;
       }
       if (channel === 'mason') return state.phase === 'night' && isMason(member);
-      if (channel === jailChannel(state.day)) {
+      if (channel.startsWith('jail:')) {
         if (state.phase !== 'night') return false;
         /**
          * A gag does not stop at the cell door.
@@ -1060,8 +1144,11 @@ export function chatRules(): ChannelRules<MafiaState> {
          *
          * The jailor's own gag is its own business: it is the one asking.
          */
-        if (state.jailedId === memberId) return member.silencedDay !== state.day;
-        return member.role === 'jailor' && state.jailedId !== null;
+        const keeperId = keeperHolding(state, memberId);
+        if (keeperId !== null) {
+          return channel === jailChannel(state.day, keeperId) && member.silencedDay !== state.day;
+        }
+        return isKeeper(member) && captiveOf(state, memberId) !== null && channel === jailChannel(state.day, memberId);
       }
       // Whispers: daylight only, between two living players, and a gagged
       // mouth whispers no better than it talks.

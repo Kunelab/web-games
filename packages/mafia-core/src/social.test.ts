@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { advanceDesperation, agendaOf, CALM, MASKS, pickMask, stanceOf, type Pressure } from './social.js';
-import { TOO_CHECKABLE, wearableMask } from './roles.js';
+import { LOW_PRIORITY_MASKS, maskRank, twinMasks, wearableMask } from './roles.js';
 
 const CALM_TABLE: Pressure = {
   day: 2,
@@ -181,11 +181,11 @@ describe('the social model', () => {
  * one by argument is the product.
  */
 describe('a mask nobody can check on the spot', () => {
-  it('keeps the self-checking badges out of the faces meant to be boring', () => {
+  it('keeps the cheaply checkable badges out of the faces meant to be boring', () => {
     for (const face of [...MASKS.quiet, ...MASKS.scary]) {
       assert.ok(
-        !TOO_CHECKABLE.includes(face),
-        `${face} checks itself, so it is no disguise`
+        !LOW_PRIORITY_MASKS.includes(face),
+        `${face} is checked for free, so it is a poor disguise`
       );
     }
   });
@@ -196,8 +196,42 @@ describe('a mask nobody can check on the spot', () => {
     for (const face of MASKS.quiet) {
       assert.ok(wearableMask(face), `${face} should be wearable`);
     }
-    for (const morgue of TOO_CHECKABLE) {
-      assert.equal(wearableMask(morgue), false, `${morgue} is not wearable`);
+  });
+
+  /**
+   * Ranked rather than banned. A seat with nothing better left should still say
+   * something, and any of the four is the right lie on some afternoon; they
+   * just come last when a real badge is free.
+   */
+  it('ranks the checkable four below every real badge', () => {
+    for (const cheap of LOW_PRIORITY_MASKS) {
+      assert.equal(maskRank(cheap), 0, `${cheap} is a last resort`);
+      assert.ok(maskRank('doctor') > maskRank(cheap));
+      assert.ok(maskRank('citizen') > maskRank(cheap), 'even the Citizen beats one of these');
     }
+    assert.ok(maskRank('doctor') > maskRank('citizen'), 'and a powered badge beats a bare one');
+  });
+
+  /**
+   * The natural cover: the town badge that does what this seat already does.
+   * Derived from the night action, so it stays right as roles are added.
+   */
+  it('pairs each liar with the town badge that shares its night', () => {
+    assert.deepEqual(twinMasks('consort'), ['escort'], 'a Consort holds people at home, and so does an Escort');
+    assert.deepEqual(twinMasks('liaison'), ['escort'], 'and the Triad has the same twin');
+    assert.deepEqual(twinMasks('consigliere'), ['investigator']);
+    assert.deepEqual(twinMasks('witch-doctor'), ['doctor']);
+    assert.deepEqual(twinMasks('mafioso'), ['vigilante'], 'the only town badge that kills');
+    assert.deepEqual(twinMasks('framer'), [], 'nobody in the town frames anybody');
+
+    /**
+     * The pairing that fell out of the engine rather than being written here:
+     * the day the Ravisseur and the Interrogateur were rebuilt as the families’
+     * Jailor, they started sharing its night action, and the cover appeared on
+     * its own. It is the best mask in the game for those two, because every
+     * true thing they do is a true thing a Jailor does.
+     */
+    assert.deepEqual(twinMasks('kidnapper'), ['jailor']);
+    assert.deepEqual(twinMasks('interrogator'), ['jailor']);
   });
 });

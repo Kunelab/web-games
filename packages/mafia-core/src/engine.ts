@@ -58,6 +58,9 @@ import {
   chatRules,
   isMason,
   jailChannel,
+  isKeeper,
+  captiveOf,
+  keeperHolding,
   nextBotName,
   nextFreeSlot,
   playerBySlot,
@@ -968,7 +971,22 @@ export function callCourt(
   return { ok: true };
 }
 
-/** The jailor picks his prisoner in daylight; the cell locks at dusk. */
+/**
+ * A keeper picks its prisoner in daylight; the cell locks at dusk.
+ *
+ * All three of them, not only the Jailor. The Ravisseur and the Interrogateur
+ * used to take their captive with a *night* action, which is why neither could
+ * ever talk to it: by the time the abduction resolved the night was being
+ * resolved with it, and there was no evening left to spend in the room. Picking
+ * in daylight is what makes the cell a place rather than an effect, and it is
+ * the whole of the difference between the Mafia's keeper and a roleblock.
+ *
+ * Two keepers may name the same seat, and neither is told. Refusing the second
+ * pick would answer a question the families are not entitled to ask — "has the
+ * Jailor already taken this one?" — for the price of one tap, so the clash is
+ * left to the night, where `resolveNight` settles it without telling anybody
+ * more than that their own cell turned out to be empty.
+ */
 export function jailTarget(
   state: MafiaState,
   playerId: string,
@@ -976,18 +994,19 @@ export function jailTarget(
 ): ActionOutcome {
   if (mafiaPaused(state)) return PAUSED_REFUSAL;
   const player = state.players[playerId];
-  if (!player?.alive || player.role !== "jailor")
+  if (!player?.alive || !isKeeper(player))
     return { ok: false, error: NO.impossible() };
   if (state.phase !== "day") return { ok: false, error: NO.dayOnly() };
 
+  state.captives ??= {};
   if (targetSlot === null) {
-    state.jailedId = null;
+    delete state.captives[playerId];
     return { ok: true };
   }
   const target = playerBySlot(state, targetSlot);
   if (!target?.alive || target.playerId === playerId)
     return { ok: false, error: NO.badTarget() };
-  state.jailedId = target.playerId;
+  state.captives[playerId] = target.playerId;
   return { ok: true };
 }
 
@@ -1172,7 +1191,8 @@ export function legalNightAction(
 ): LegalAction | null {
   const player = state.players[playerId];
   if (!player?.alive || state.phase !== "night" || !player.role) return null;
-  if (state.jailedId === playerId) return null;
+  // A seat in somebody else's cell has no night of its own to spend.
+  if (keeperHolding(state, playerId) !== null) return null;
 
   const def = roleDef(player.role);
   if (!def.nightAction) return null;
@@ -1199,8 +1219,9 @@ export function legalNightAction(
     case "vest":
       return { type: def.nightAction, targets: [], charges: player.charges };
     case "jail-execute": {
-      if (!state.jailedId) return null;
-      const jailed = state.players[state.jailedId];
+      const heldId = captiveOf(state, playerId);
+      if (!heldId) return null;
+      const jailed = state.players[heldId];
       return jailed?.alive
         ? {
             type: "jail-execute",
@@ -1228,26 +1249,6 @@ export function legalNightAction(
       return {
         type: def.nightAction,
         targets: slots(outsiders),
-        charges: uses,
-      };
-    case "kidnap":
-      /**
-       * Take him, and optionally do not give him back.
-       *
-       * The abduction is the action and it never runs out; the execution is the
-       * extra, and it is asked for by naming the captive a second time. That is
-       * how a single picker expresses two decisions without a second control:
-       * tap a house to take it, tap it again to end it. `needsSecondTarget` is
-       * deliberately still false, so the order is complete without the second
-       * tap and the engine never waits for one.
-       *
-       * The list is empty once the charges are gone, which is what stops a
-       * spent cellar from advertising a lever that does nothing.
-       */
-      return {
-        type: "kidnap",
-        targets: slots(outsiders),
-        secondTargets: player.charges > 0 ? slots(outsiders) : [],
         charges: uses,
       };
     case "frame":
@@ -1472,6 +1473,27 @@ export function restoreMafiaTable(state: MafiaState, now: number): void {
    * defaults merge at one of two call sites is how the next field gets missed.
    */
   state.config = { ...DEFAULT_CONFIG, ...state.config };
+
+  /**
+   * The one cell becomes the map of cells, for a table caught mid-game.
+   *
+   * A snapshot written before the Ravisseur and the Interrogateur became
+   * keepers carries `jailedId` and no `captives`, and every read in this build
+   * goes through the map — so without this the Jailor's prisoner would walk out
+   * of the restart free, and worse, the cell channel it was talking in would
+   * close under it. Folded back onto whichever living seat actually holds the
+   * keys, and the old field is cleared so the two can never disagree.
+   */
+  state.captives ??= {};
+  if (state.jailedId) {
+    const keeper = Object.values(state.players).find(
+      (player) => player.alive && player.role === "jailor",
+    );
+    if (keeper && state.players[state.jailedId]?.alive) {
+      state.captives[keeper.playerId] = state.jailedId;
+    }
+    state.jailedId = null;
+  }
 
   const presence = tablePresence(state);
   const running = state.phaseEndsAt !== null || presence.parkedMs !== null;
@@ -1919,20 +1941,35 @@ function beginNight(state: MafiaState, now: number): void {
       notify(player, NOTE.resting());
   }
 
-  const jailed = state.jailedId ? state.players[state.jailedId] : null;
-  const jailor = Object.values(state.players).find(
-    (player) => player.role === "jailor" && player.alive,
-  );
-  if (jailed?.alive && jailor?.alive) {
-    notify(jailed, NOTE.jailedNight());
+  /**
+   * Every cell locks at dusk, and each one opens its own room.
+   *
+   * All three keepers, on identical terms. The captive is told it has been
+   * taken, in words that do not say by whom — see `NOTE.jailedNight`, which is
+   * now the only thing any prisoner hears — and the room is opened with the
+   * same system line. A seat that could read "cellar" off its own screen would
+   * know within a second that the Mafia had it, which is the Ravisseur's whole
+   * cover gone before it has said a word.
+   *
+   * A pick whose keeper died in the afternoon, or whose captive did, simply
+   * never opens: the entry is dropped rather than carried into a night where
+   * one end of it is a corpse.
+   */
+  state.captives ??= {};
+  for (const [keeperId, captiveId] of Object.entries(state.captives)) {
+    const keeper = state.players[keeperId];
+    const captive = state.players[captiveId];
+    if (!keeper?.alive || !captive?.alive) {
+      delete state.captives[keeperId];
+      continue;
+    }
+    notify(captive, NOTE.jailedNight());
     systemPost(
       state.chat,
-      jailChannel(state.day),
-      M.jailLocked(jailed.name),
+      jailChannel(state.day, keeperId),
+      M.jailLocked(captive.name),
       now,
     );
-  } else {
-    state.jailedId = null;
   }
 }
 
@@ -2356,15 +2393,18 @@ function kill(
     role: victim.role!,
   });
 
-  // A dead jailor frees his prisoner; a dead prisoner empties the cell.
-  const jailor = Object.values(state.players).find(
-    (player) => player.role === "jailor",
-  );
-  if (
-    victim.playerId === state.jailedId ||
-    victim.playerId === jailor?.playerId
-  ) {
-    state.jailedId = null;
+  /**
+   * A dead keeper frees its prisoner; a dead prisoner empties the cell.
+   *
+   * All of them, rather than the Jailor's: this used to look up the one seat
+   * whose role was 'jailor' and clear the one cell, so a Ravisseur hanged in
+   * the afternoon still had somebody locked in a cellar that night.
+   */
+  state.captives ??= {};
+  for (const [keeperId, captiveId] of Object.entries(state.captives)) {
+    if (keeperId === victim.playerId || captiveId === victim.playerId) {
+      delete state.captives[keeperId];
+    }
   }
 }
 
@@ -2432,7 +2472,6 @@ const INVESTIGATIVE: NightActionType[] = [
 
 function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   const acts = state.nightActions;
-  const jailedId = state.jailedId;
   const announcements: Announcement[] = [];
 
   const actionOf = (player: MafiaPlayer): NightAction | undefined =>
@@ -2452,24 +2491,75 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
    * — while `why.silent` votes people for having nothing to say. The jailor can corroborate this one, which makes it
    * the only one of the four with a witness.
    */
-  if (jailedId) {
-    blocked.add(jailedId);
-    const prisoner = state.players[jailedId];
-    if (prisoner) {
-      disturbed(prisoner, state.day, "jail");
-      // And the jailor remembers its own night. See the `jailed` intel kind.
-      const keeper = players.find(
-        (player) => player.alive && player.role === "jailor",
-      );
-      if (keeper && keeper.playerId !== prisoner.playerId) {
-        keeper.intel.push({
-          night: state.day,
-          kind: "jailed",
-          targetSlot: prisoner.slot,
-          value: acts[prisoner.playerId] ? "tried" : "quiet",
-        });
-      }
+  /**
+   * A cell shelters as well as holds, which is what a night indoors is.
+   *
+   * Declared beside `blocked` now rather than down among the abductions,
+   * because all three cells fill it and the first of them resolves here.
+   */
+  const sheltered = new Set<string>();
+
+  /**
+   * Tonight's cells, one captive each, with the clashes settled quietly.
+   *
+   * Two keepers may have named the same seat in daylight and neither was told,
+   * because refusing the second pick would have answered a question the
+   * families are not entitled to ask. So it is settled here, by seat order,
+   * which is arbitrary but identical on every screen and in every replay. The
+   * keeper that loses is told its cell was empty and learns nothing else: not
+   * that somebody else has the seat, and certainly not who.
+   *
+   * And a keeper that is itself sitting in somebody else's cell holds nobody.
+   * It is not at home to receive anybody, which is the same rule the rest of
+   * this function applies to every other power.
+   */
+  const cells = new Map<string, string>();
+  const takenBy = new Map<string, string>();
+  const keepers = players
+    .filter((player) => player.alive && isKeeper(player))
+    .sort((left, right) => left.slot - right.slot);
+  for (const keeper of keepers) {
+    const captive = living(captiveOf(state, keeper.playerId));
+    if (!captive || captive.playerId === keeper.playerId) continue;
+    if (takenBy.has(captive.playerId)) {
+      notify(keeper, NOTE.cellEmpty());
+      continue;
     }
+    cells.set(keeper.playerId, captive.playerId);
+    takenBy.set(captive.playerId, keeper.playerId);
+  }
+  for (const [keeperId] of [...cells]) {
+    if (takenBy.has(keeperId)) {
+      const held = cells.get(keeperId);
+      cells.delete(keeperId);
+      if (held) takenBy.delete(held);
+      const keeper = state.players[keeperId];
+      if (keeper) notify(keeper, NOTE.cellEmpty());
+    }
+  }
+
+  /**
+   * A cell takes the night like a roleblock, and is remembered as its own thing.
+   *
+   * It was remembered as nothing at all: `blocked` swallowed the prisoner and no `disturbed` was filed, so a Sheriff
+   * who spent the night in jail woke with no result, no explanation for it, and nothing to say when the square asked
+   * — while `why.silent` votes people for having nothing to say. The keeper can corroborate this one, which makes it
+   * the only one of the four with a witness.
+   */
+  for (const [keeperId, captiveId] of cells) {
+    blocked.add(captiveId);
+    sheltered.add(captiveId);
+    const prisoner = state.players[captiveId];
+    const keeper = state.players[keeperId];
+    if (!prisoner || !keeper) continue;
+    disturbed(prisoner, state.day, "jail");
+    // And the keeper remembers its own night. See the `jailed` intel kind.
+    keeper.intel.push({
+      night: state.day,
+      kind: "jailed",
+      targetSlot: prisoner.slot,
+      value: acts[prisoner.playerId] ? "tried" : "quiet",
+    });
   }
 
   // Yesterday's borrowed faces wash off before tonight's are painted on.
@@ -2567,47 +2657,6 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       targetSlot: first.slot,
       value: `${first.slot},${second.slot}`,
       slots: [first.slot, second.slot],
-    });
-  }
-
-  // Kidnappings: gone for the night — unreachable, harmless, furious.
-  const sheltered = new Set<string>();
-  /**
-   * Captives their keeper has decided not to release. See `optionalCharges`.
-   *
-   * Collected here and fired later, beside the Jailor's lever, because an
-   * execution is an attack and attacks are all resolved together: pushing one
-   * from this loop would put it in front of the alert, the vest and the bus,
-   * and the cellar is not supposed to outrank those — only protection from the
-   * outside, which the shelter check below handles.
-   */
-  const cellarKills = new Map<string, string>();
-  for (const player of players) {
-    if (!player.alive || blocked.has(player.playerId)) continue;
-    const action = actionOf(player);
-    if (action?.type !== "kidnap") continue;
-    const target = living(action.targetId);
-    if (!target) continue;
-    visit(player.playerId, target.playerId);
-    blocked.add(target.playerId);
-    sheltered.add(target.playerId);
-    if (action.secondTargetId === target.playerId) {
-      // Asked for the lever. Whether there is one left is a separate question,
-      // and a keeper who is out gets told so rather than left guessing.
-      if (player.charges > 0) cellarKills.set(player.playerId, target.playerId);
-      else notify(player, NOTE.cellarDry(target.name));
-    }
-    notify(target, NOTE.kidnapped());
-    // And the kidnapper is told it worked, which it never was: the whole of the
-    // feedback was an `intel` row, and no screen in the game renders those. You
-    // pressed the button and observed nothing, which is exactly how it was
-    // reported — "the kidnapper does not seem to work".
-    notify(player, NOTE.kidnapDone(target.name));
-    player.intel.push({
-      night: state.day,
-      kind: "blocked",
-      targetSlot: target.slot,
-      value: "kidnapped",
     });
   }
 
@@ -3094,51 +3143,39 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     }
   }
 
-  // The jailor's execution: inside the cell, no protection reaches it.
-  const jailor = players.find((p) => p.alive && p.role === "jailor");
-  const jailed = living(jailedId);
-  // A jailor who has been kidnapped or roleblocked pulls no lever: every other
-  // kill in this file checks `blocked` and this one did not, so the single most
-  // valuable use of a kidnap — the man with the keys — did nothing at all.
-  if (
-    jailor &&
-    jailed &&
-    !blocked.has(jailor.playerId) &&
-    actionOf(jailor)?.type === "jail-execute" &&
-    jailor.charges > 0
-  ) {
-    jailor.charges -= 1;
-    attacks.push({
-      attackerId: jailor.playerId,
-      targetId: jailed.playerId,
-      power: 3,
-      source: "jailor",
-    });
-  }
-
   /**
-   * The family's cellar, on the same terms as the town's cell.
+   * The lever, from whichever cell it is pulled in.
    *
-   * Power three and no protection reaches it, because the captive is not at
-   * home to be healed or guarded — he is in somebody's basement, which is the
-   * same fact the shelter is already made of. Three a game, so it is a
-   * resource the family spends rather than a second knife it swings nightly.
+   * Power three and nothing from outside reaches it, because the captive is not
+   * at home to be healed, guarded or vested: it is in a room somebody else
+   * controls, which is the same fact the shelter is already made of. One rule
+   * for all three keepers, because they are one mechanic — the town's Jailor
+   * differs only in having three of these to spend where the families' keepers
+   * have one.
    *
-   * The keeper is never in `cellarKills` if it was blocked: the abduction loop
-   * that filled this map skipped blocked seats, so an Escort on the Kidnapper
-   * empties the cellar the same way it empties everything else.
+   * A keeper that was roleblocked or taken itself pulls nothing. Every other
+   * kill in this file checks `blocked` and the Jailor's did not, so the single
+   * most valuable thing a rival keeper could do — take the seat holding the
+   * keys — did nothing at all.
    */
-  for (const [keeperId, captiveId] of cellarKills) {
+  for (const [keeperId, captiveId] of cells) {
     const keeper = state.players[keeperId];
     const captive = living(captiveId);
-    if (!keeper?.alive || keeper.charges <= 0 || !captive) continue;
+    if (!keeper?.alive || !captive || blocked.has(keeper.playerId)) continue;
+    if (actionOf(keeper)?.type !== "jail-execute") continue;
+    if (keeper.charges <= 0) {
+      // Asked for the lever with nothing left on it, and told so rather than
+      // left to wonder whether the order went through.
+      notify(keeper, NOTE.cellarDry(captive.name));
+      continue;
+    }
     keeper.charges -= 1;
     notify(keeper, NOTE.cellarKill(captive.name));
     attacks.push({
       attackerId: keeper.playerId,
       targetId: captive.playerId,
       power: 3,
-      source: "kidnapper",
+      source: keeper.role === "jailor" ? "jailor" : "kidnapper",
     });
   }
 
@@ -3247,7 +3284,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
      * could watch being broken.
      */
     const away = (seat: MafiaPlayer): boolean =>
-      seat.playerId === jailedId || sheltered.has(seat.playerId);
+      sheltered.has(seat.playerId);
     if (away(player) || away(target)) continue;
     const struck =
       action.type === "recruit" &&
@@ -3305,12 +3342,6 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     const fromKeeper = fromJailor || attack.source === "kidnapper";
     const isPoison = attack.source === "poison";
 
-    // The cell protects its prisoner from the outside world, never from its keeper.
-    if (target.playerId === jailedId && !fromKeeper && !isPoison) {
-      if (attacker) notify(attacker, NOTE.targetMissing());
-      note("jailed");
-      continue;
-    }
     /**
      * A kidnapped player is somewhere nobody knows — except the man holding
      * them in his own cell.
@@ -3983,7 +4014,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     }
   }
 
-  state.jailedId = null;
+  state.captives = {};
   state.nightActions = {};
   return announcements;
 }

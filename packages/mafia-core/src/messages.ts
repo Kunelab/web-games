@@ -189,6 +189,8 @@ export const NOTE = {
   cellarSpent: (): Msg => msg('mafia.note.cellarSpent'),
   cellarKill: (name: string): Msg => msg('mafia.note.cellarKill', { name }),
   cellarDry: (name: string): Msg => msg('mafia.note.cellarDry', { name }),
+  /** A cell that opened on nobody: the pick was taken, and by whom is not said. */
+  cellEmpty: (): Msg => msg('mafia.note.cellEmpty'),
   /** A power that is not spent, only resting: the Cult's night off, the Mass Murderer's. */
   resting: (): Msg => msg('mafia.note.resting'),
   auditDone: (name: string): Msg => msg('mafia.note.auditDone', { name }),

@@ -15,7 +15,8 @@ export const notesFr: Catalogue = {
   'mafia.note.lodgeHeld': '{name} est venu prêcher à votre porte. La loge ne se convertit pas.',
   'mafia.note.roleDealt': 'Vous êtes {role}. {description}',
   'mafia.note.obsession': 'Votre obsession : faire pendre {name} (maison {slot}).',
-  'mafia.note.jailedNight': 'On vous a traîné en cellule pour la nuit. Le Geôlier vous écoute.',
+  /* Ne dit surtout pas de quelle cellule il s'agit : voir la note cote anglais. */
+  'mafia.note.jailedNight': 'On vous a traîné en cellule pour la nuit. Celui qui tient les clés vous écoute.',
   'mafia.note.jesterWon': 'Ils vous ont pendu. Vous avez gagné.',
   'mafia.note.execWon': 'Votre obsession se balance. Vous avez gagné.',
   'mafia.note.griefMad':
@@ -77,6 +78,7 @@ export const notesFr: Catalogue = {
   'mafia.note.cellarSpent': 'Vous pouvez encore enlever quelqu’un cette nuit, mais vous n’avez plus de quoi l’achever.',
   'mafia.note.cellarKill': 'Vous n’avez pas relâché {name}.',
   'mafia.note.cellarDry': 'Vous n’avez plus d’exécution ; {name} ressortira à l’aube.',
+  'mafia.note.cellEmpty': 'Votre cellule est restée vide cette nuit : celui que vous attendiez n’est jamais arrivé.',
   'mafia.note.resting': 'La nuit dernière vous a vidé. Vous ne sortez pas cette nuit.',
   'mafia.note.survived': 'On vous a attaqué cette nuit, mais vous avez tenu bon.',
   'mafia.note.guarded': 'Quelqu’un est mort pour vous cette nuit.',

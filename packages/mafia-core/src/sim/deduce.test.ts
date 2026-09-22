@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { RoleId } from '../roles.js';
-import { deductions, deductionWeight, type Deduction } from './deduce.js';
+import { deductions, deductionWeight, privateFindings, type Deduction } from './deduce.js';
 import type { Claim, PublicInfo } from './policies.js';
 
 /**
@@ -434,5 +434,81 @@ describe('more badges than the deal has room for', () => {
     });
 
     assert.deepEqual(kinds(deductions(1, info)), []);
+  });
+});
+
+/**
+ * The one fact every seat holds that the board does not: its own badge.
+ *
+ * Every count above this reads the public record, which is right for anything a
+ * bot says out loud. But it left the most useful fact at the table unused: a
+ * real Sheriff listening to somebody else claim Sheriff had to work out from
+ * public evidence something it already knew for certain, and usually could not.
+ *
+ * `privateFindings` runs the same pass twice, once over the board as it stands
+ * and once over a board where this seat has claimed its own badge, and returns
+ * the difference. That difference is by construction true, not derivable from
+ * anything anybody has said, and exactly what this seat knows and nobody else
+ * does.
+ */
+describe('counting yourself in', () => {
+  /** One Jailor slot, one Doctor slot, and three seats that could be anything. */
+  const roster = ['jailor', 'doctor', 'town-core', 'mafioso', 'citizen'] as const;
+
+  it('catches the seat wearing the badge you are actually holding', () => {
+    const claim = said({
+      claimerSlot: 2,
+      targetSlot: 2,
+      kind: 'role-claim',
+      claimedRole: 'jailor',
+      day: 3
+    });
+    const table = board({ claims: [claim], roleSlots: roster });
+
+    // Publicly there is a Jailor slot and exactly one claimant, so it fits.
+    assert.deepEqual(kinds(deductions(2, table)), [], 'the room has nothing on them');
+
+    // Seat 1 is the Jailor. There is one slot, and it is spoken for.
+    const known = privateFindings({ slot: 1, role: 'jailor' }, table);
+    assert.equal(known.length, 1, 'exactly one seat is caught by it');
+    assert.equal(known[0].slot, 2);
+    assert.ok(
+      known[0].found.some((entry) => entry.kind === 'no-room-for-all' || entry.kind === 'no-slot-left'),
+      `expected a counting finding, got ${JSON.stringify(known[0].found)}`
+    );
+  });
+
+  it('says nothing about a badge that is not yours', () => {
+    const claim = said({
+      claimerSlot: 2,
+      targetSlot: 2,
+      kind: 'role-claim',
+      claimedRole: 'jailor',
+      day: 3
+    });
+    const table = board({ claims: [claim], roleSlots: roster });
+    assert.deepEqual(
+      privateFindings({ slot: 1, role: 'doctor' }, table),
+      [],
+      'a Doctor knows nothing about whether that Jailor is real'
+    );
+  });
+
+  /**
+   * And once the badge has been claimed out loud there is no private knowledge
+   * left to spend: both runs are the same run, and the ordinary public count is
+   * already doing the work.
+   */
+  it('stops being private the moment you have said it', () => {
+    const table = board({
+      claims: [
+        said({ claimerSlot: 1, targetSlot: 1, kind: 'role-claim', claimedRole: 'jailor', day: 2 }),
+        said({ claimerSlot: 2, targetSlot: 2, kind: 'role-claim', claimedRole: 'jailor', day: 3 })
+      ],
+      roleSlots: roster
+    });
+    assert.deepEqual(privateFindings({ slot: 1, role: 'jailor' }, table), []);
+    // The public count has it instead, which is the point.
+    assert.ok(kinds(deductions(2, table)).includes('no-room-for-all'));
   });
 });

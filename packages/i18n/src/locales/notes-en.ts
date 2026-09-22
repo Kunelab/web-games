@@ -19,7 +19,15 @@ export const notesEn: Catalogue = {
   'mafia.note.lodgeHeld': '{name} came to preach at your door. The lodge does not convert.',
   'mafia.note.roleDealt': 'You are the {role}. {description}',
   'mafia.note.obsession': 'Your obsession: get {name} (house {slot}) hanged.',
-  'mafia.note.jailedNight': 'You have been dragged to a cell for the night. The Jailor is listening.',
+  /*
+    Deliberately does not say whose cell it is.
+
+    Three badges hold somebody overnight and they play identically, so the one
+    thing the captive must not be handed for free is which of them has it. This
+    line used to name the Jailor, which told a seat in the Ravisseur's cellar
+    that it was safe and told it instantly, with no lie needed from anybody.
+  */
+  'mafia.note.jailedNight': 'You have been dragged to a cell for the night. Whoever holds the keys is listening.',
   'mafia.note.jesterWon': 'They hanged you. You win.',
   'mafia.note.execWon': 'Your obsession is swinging. You win.',
   'mafia.note.griefMad': 'Your obsession died without a rope. Grief drives you mad: you are the Jester now.',
@@ -78,6 +86,7 @@ export const notesEn: Catalogue = {
   'mafia.note.cellarSpent': 'You can still take somebody tonight, but you have nothing left to end them with.',
   'mafia.note.cellarKill': 'You did not let {name} out.',
   'mafia.note.cellarDry': 'You have no executions left; {name} walks out at dawn.',
+  'mafia.note.cellEmpty': 'Your cell stood empty tonight: whoever you sent for never arrived.',
   'mafia.note.resting': 'Last night took everything you had. You are staying in tonight.',
   'mafia.note.survived': 'You were attacked tonight, and you held.',
   'mafia.note.guarded': 'Somebody died for you tonight.',

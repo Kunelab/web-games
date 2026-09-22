@@ -25,7 +25,9 @@ export {
   rolesOfFaction,
   rosterFor,
   wearableMask,
-  TOO_CHECKABLE,
+  twinMasks,
+  maskRank,
+  LOW_PRIORITY_MASKS,
   type Faction,
   type FamilyId,
   type NightActionType,
@@ -42,6 +44,10 @@ export {
   isMafia,
   isMason,
   jailChannel,
+  isKeeper,
+  captiveOf,
+  keeperHolding,
+  KEEPER_ROLES,
   playerBySlot,
   playerFamily,
   pmChannel,
@@ -215,7 +221,7 @@ export {
   type SteadyVote,
   type VoteRecord
 } from './sim/policies.js';
-export { deductions, deductionWeight, strongest, CORPSE_ONLY, type Deduction } from './sim/deduce.js';
+export { deductions, deductionWeight, strongest, privateFindings, CORPSE_ONLY, type Deduction } from './sim/deduce.js';
 export { possibleRoles } from './sim/slots.js';
 export { visitOdds, type VisitOdds, type VisitReason } from './sim/visits.js';
 export { rank, caseFor, defenceFor, type Suspect, type Reason, type ReasonCode } from './sim/ranking.js';

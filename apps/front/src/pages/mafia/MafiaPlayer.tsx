@@ -69,6 +69,16 @@ import './mafia.css';
  * the creator plays like everybody else, there is no separate console.
  */
 
+/**
+ * The three badges that hold somebody overnight, as the screen sees them.
+ *
+ * Mirrors `KEEPER_ROLES` in the engine. Written as ids rather than imported as
+ * the set because this file speaks in `me.role.id`, and the two are checked
+ * against each other by the engine's own tests: a keeper the screen does not
+ * know about is a keeper with no way to pick anybody.
+ */
+const KEEPER_IDS = new Set<string>(['jailor', 'kidnapper', 'interrogator']);
+
 /** Not every night power names a person; these are aimed at your own house. */
 function selfOnly(me: MafiaViewMe): boolean {
   return !!me.action && me.action.targets.length === 0;
@@ -589,7 +599,7 @@ export default function MafiaPlayer() {
       };
     }
 
-    if (inDiscussion && jailMode && me.role?.id === 'jailor') {
+    if (inDiscussion && jailMode && KEEPER_IDS.has(me.role?.id ?? '')) {
       if (player.slot === me.slot) return null;
       const chosen = me.jailTargetSlot === player.slot;
       return {
@@ -1604,7 +1614,16 @@ export default function MafiaPlayer() {
                   deciding *because of it* who to lock up is the jailor playing
                   well, and the screen was the only thing forbidding it.
                 */}
-                {view.phase === 'day' && me.alive && me.role?.id === 'jailor' && (
+                {/*
+                  Every keeper, not only the Jailor.
+
+                  The Ravisseur and the Interrogateur pick a captive in
+                  daylight on exactly the same terms now, and this button is
+                  how anybody does it. While it said 'jailor' a human
+                  Ravisseur had no way to use its own role at all: no button
+                  by day, and by night a cell it had never filled.
+                */}
+                {view.phase === 'day' && me.alive && KEEPER_IDS.has(me.role?.id ?? '') && (
                   <Button variant="ghost" onClick={() => setJailMode((mode) => !mode)}>
                     {jailMode
                       ? tk('mafia.ui.backToAccusations')

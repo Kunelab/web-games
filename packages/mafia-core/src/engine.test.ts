@@ -2186,7 +2186,7 @@ describe("mafia engine", () => {
 
     assert.equal(jailTarget(state, jailor.playerId, prisoner.slot).ok, true);
     advanceMafia(state, 0, lcg(1)); // night: the cell locks
-    const channel = jailChannel(state.day);
+    const channel = jailChannel(state.day, jailor.playerId);
     assert.equal(sayInChat(state, jailor.playerId, channel, "qui es-tu ?", 10).ok, true);
     assert.equal(sayInChat(state, prisoner.playerId, channel, "garde du corps", 20).ok, true);
 
@@ -3073,6 +3073,152 @@ describe("the sash and the bar", () => {
  * knock happened. It is the only counter the town has to conversion: without it
  * the cult grows and nothing on the board shrinks it except the rope.
  */
+/**
+ * One cell, three keepers, and the captive cannot tell which it is in.
+ *
+ * The Ravisseur and the Interrogateur were written as a night order that
+ * blocked and sheltered a seat, which is a roleblock with extra steps: they
+ * picked in the dark, so there was no evening left to spend with the captive,
+ * and neither had ever exchanged a word with anybody it took. The Jailor,
+ * doing the same job for the town, picked in daylight and talked all night.
+ *
+ * They are one mechanic now. Each keeper picks a captive in the afternoon,
+ * spends the night alone with it in a room the square cannot see, and decides
+ * at dusk whether to let it out. The town's keeper has three executions to
+ * spend where the families' have one, and that is the whole of the difference.
+ */
+describe("the cellar is a cell", () => {
+  /**
+   * Each keeper needs a knife-holder beside it. A family dealt nothing that can
+   * carry the knife promotes whoever it has, so a lone Ravisseur is a Mafioso by
+   * the time the night opens and the test would be about the wrong role.
+   */
+  for (const [keeper, carrier] of [
+    ["kidnapper", "mafioso"],
+    ["interrogator", "enforcer"],
+  ] as [RoleId, RoleId][]) {
+    it(`lets the ${keeper} pick in daylight and talk all night`, () => {
+      const state = table([keeper, carrier, "doctor", "sheriff", "escort"]);
+      const boss = bySlot(state, 1);
+      const captive = bySlot(state, 3);
+
+      assert.equal(
+        jailTarget(state, boss.playerId, captive.slot).ok,
+        true,
+        "the captive is chosen in daylight, like the Jailor's",
+      );
+      advanceMafia(state, 0, lcg(1));
+      assert.equal(state.phase, "night");
+
+      const cell = jailChannel(state.day, boss.playerId);
+      assert.equal(
+        sayInChat(state, boss.playerId, cell, "qui es-tu ?", 10).ok,
+        true,
+        "the keeper has a room to ask in",
+      );
+      assert.equal(
+        sayInChat(state, captive.playerId, cell, "docteur", 20).ok,
+        true,
+        "and the captive can answer",
+      );
+
+      // And neither can see the other's face, exactly as in the town's cell.
+      const asked = state.chat.messages.find(
+        (message) =>
+          message.channel === cell && message.authorId === boss.playerId,
+      )!;
+      assert.equal(
+        chatLineFor(state, captive.playerId, asked).authorName,
+        ANONYMOUS,
+        "a captive must not be handed the name of whoever took it",
+      );
+    });
+  }
+
+  it("takes the captive out of the night and shelters it there", () => {
+    const state = table([
+      "kidnapper",
+      "mafioso",
+      "doctor",
+      "sheriff",
+      "escort",
+    ]);
+    const boss = bySlot(state, 1);
+    const doctor = bySlot(state, 3);
+
+    assert.equal(jailTarget(state, boss.playerId, doctor.slot).ok, true);
+    advanceMafia(state, 0, lcg(1));
+    // A captive has no night of its own to spend.
+    assert.equal(
+      legalNightAction(state, doctor.playerId),
+      null,
+      "the cell takes the night like a roleblock",
+    );
+    advanceMafia(state, 1, lcg(1));
+    assert.equal(doctor.alive, true, "and it shelters what it holds");
+  });
+
+  /**
+   * The lever, which is the half the families did not have and the town did.
+   * One charge rather than the Jailor's three: see `optionalCharges`.
+   */
+  it("gives the family's keeper exactly one execution", () => {
+    assert.equal(roleDef("kidnapper").charges, 1);
+    assert.equal(roleDef("interrogator").charges, 1);
+    assert.equal(roleDef("jailor").charges, 3, "the town's keeper has three");
+
+    const state = table([
+      "kidnapper",
+      "mafioso",
+      "doctor",
+      "sheriff",
+      "escort",
+    ]);
+    const boss = bySlot(state, 1);
+    const doctor = bySlot(state, 3);
+
+    assert.equal(jailTarget(state, boss.playerId, doctor.slot).ok, true);
+    advanceMafia(state, 0, lcg(1));
+    assert.equal(
+      setNightAction(state, boss.playerId, doctor.slot).ok,
+      true,
+      "the lever is aimed at the captive, as the Jailor's is",
+    );
+    advanceMafia(state, 1, lcg(1));
+
+    assert.equal(doctor.alive, false, "the captive did not come out");
+    assert.equal(boss.charges, 0, "and it cost the one charge");
+  });
+
+  /**
+   * Two keepers, one name, and neither is told in daylight: refusing the second
+   * pick would answer a question the families are not entitled to ask.
+   */
+  it("settles two keepers wanting the same seat without telling either", () => {
+    const state = table([
+      "jailor",
+      "kidnapper",
+      "doctor",
+      "mafioso",
+      "escort",
+    ]);
+    const jailor = bySlot(state, 1);
+    const boss = bySlot(state, 2);
+    const doctor = bySlot(state, 3);
+
+    assert.equal(jailTarget(state, jailor.playerId, doctor.slot).ok, true);
+    assert.equal(
+      jailTarget(state, boss.playerId, doctor.slot).ok,
+      true,
+      "the second pick is accepted, not refused",
+    );
+    advanceMafia(state, 0, lcg(1));
+    advanceMafia(state, 1, lcg(1));
+
+    assert.equal(doctor.alive, true, "one cell held them, and only one");
+  });
+});
+
 describe("the lodge and the cult", () => {
   it("kills a cultist the mason leader knocks on", () => {
     const state = table(
@@ -3234,8 +3380,17 @@ describe("a family's night, spent as one", () => {
     return state;
   }
 
+  /**
+   * The cellar is a daylight decision now, so the knife has to read the day.
+   *
+   * The Ravisseur used to take its captive with a night order, which put the
+   * house on the same list every other support power writes to and the knife
+   * stepped around it for free. Picking in the afternoon took it off that list
+   * and the family went straight back to stabbing its own cellar, where the
+   * shelter stops the blade and the evening is spent killing nobody.
+   */
   it("keeps the knife out of its own cellar", () => {
-    const state = night([
+    const state = table([
       "kidnapper",
       "mafioso",
       "citizen",
@@ -3243,7 +3398,12 @@ describe("a family's night, spent as one", () => {
       "sheriff",
       "escort",
     ]);
-    setNightAction(state, bySlot(state, 1).playerId, 3);
+    // The captive is chosen in daylight, like the Jailor's.
+    assert.equal(
+      jailTarget(state, bySlot(state, 1).playerId, 3).ok,
+      true,
+    );
+    advanceMafia(state, 0, lcg(1));
 
     const left = unclashedTargets(
       state,
@@ -3252,29 +3412,6 @@ describe("a family's night, spent as one", () => {
       [3, 4, 5],
     );
     assert.ok(!left.includes(3), "the knife looks elsewhere");
-  });
-
-  it("and the cellar out of the way of its own knife", () => {
-    const state = night([
-      "kidnapper",
-      "mafioso",
-      "citizen",
-      "doctor",
-      "sheriff",
-      "escort",
-    ]);
-    setNightAction(state, bySlot(state, 2).playerId, 3);
-
-    // Symmetric: whichever of the two is asked second is the one that moves.
-    assert.equal(familyKnife(state, "mafia"), 3);
-    assert.ok(
-      !unclashedTargets(
-        state,
-        bySlot(state, 1).playerId,
-        "kidnap",
-        [3, 4, 5],
-      ).includes(3),
-    );
   });
 
   it("does not gag a man it is about to kill", () => {
