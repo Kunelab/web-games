@@ -295,6 +295,14 @@ export interface SessionView {
   code: string;
   phase: SessionPhase;
   /**
+   * What the host called this room, or '' when they called it nothing.
+   *
+   * Public by construction: it is the line the board already shows to strangers,
+   * so there is nothing here a joined player could not have read before joining.
+   * Its neighbour in the config, the password, is never projected anywhere.
+   */
+  name: string;
+  /**
    * True when the game generates its own rounds and has no fixed length.
    *
    * The screens need it because `total` is meaningless here: the order grows by
@@ -333,6 +341,16 @@ export interface SessionView {
   round: RoundView | null;
   reveal: RevealView | null;
   isHost: boolean;
+  /**
+   * The word at the door, for the one screen entitled to read it back.
+   *
+   * Present only when `isHost`, and absent entirely when the room has no door.
+   * The host screen is a television showing a join code to the room it belongs
+   * to, and a password that cannot be shown there is a password the host has to
+   * remember across a refresh — which is how a room ends up locked against its
+   * own players. Everybody else's view never carries it.
+   */
+  password?: string;
   /** Present only when `isHost`. */
   hostRound?: HostRoundView | null;
   /**
@@ -407,6 +425,35 @@ export const sessionConfigSchema = z.object({
    * default flipped is not a feature anybody asked for.
    */
   public: z.boolean().default(false),
+
+  /**
+   * What this room is called, when its host bothered to name it.
+   *
+   * Empty means unnamed, and unnamed is still the common case: a room whose code
+   * is read aloud across a kitchen table needs no name at all. It earns one the
+   * moment the room is on the board, where "Blind test infini" repeated eleven
+   * times is a list nobody can choose from — so this is what the card shows when
+   * it is set, and the playlist's own name when it is not.
+   */
+  name: z.string().trim().max(40).default(''),
+
+  /**
+   * A word at the door. Empty means there is no door.
+   *
+   * The companion of `public`, and the reason that switch is now safe to use for
+   * more than a room of friends: listing a game is how people find it, and a
+   * password is how the ones you meant get in and nobody else does. A private
+   * room may carry one too — a code circulated in a group chat is a code that
+   * has left the room.
+   *
+   * Compared in the clear, and deliberately. This is not an account: it protects
+   * an evening that lasts two hours, it is typed once on a phone and read off a
+   * television, and the host wants to be able to see what they set. Hashing it
+   * would buy nothing against anyone who can already read the server's memory,
+   * and cost the one thing the feature is for. It is never projected into any
+   * view — see `toSessionView`.
+   */
+  password: z.string().trim().max(40).default(''),
 
   /**
    * There is a television, and it is the only screen showing the media.

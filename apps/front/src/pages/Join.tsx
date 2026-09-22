@@ -177,6 +177,10 @@ function LobbyRow({ card }: { card: LobbyCard }) {
         <strong>{line(card.title, t)}</strong>
         <span className="join-card-meta">
           {entry.name}
+          {/* Said on the card rather than discovered at the door: a room that
+              asks for a word is still worth walking up to, and a refusal you did
+              not expect reads as the room being broken. */}
+          {card.locked && ` · 🔒 ${t(msg('join.locked'))}`}
           {card.quick
             ? ` · ${t(msg('join.quickMatch'))}`
             : card.host

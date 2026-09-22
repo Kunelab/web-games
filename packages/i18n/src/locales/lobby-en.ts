@@ -127,6 +127,18 @@ export const lobbyEn: Catalogue = {
   'join.quickMatch': 'quick match',
   'join.hostedBy': 'at {host}’s',
   'join.enter': 'Join',
+  'join.locked': 'password',
+
+  /* ------------------------------- a room’s door ---------------------------- */
+  'room.name': 'Room name',
+  'room.name.hint':
+    'What the list of open rooms will show. Left empty, it shows “{fallback}”, like every other one.',
+  'room.password': 'Password',
+  'room.password.hint':
+    'Empty, and the room asks for nothing. It is only ever asked of new arrivals: a phone that reloads or loses signal keeps its seat without retyping it.',
+  'room.asked': 'Room password',
+  'room.asked.hint': 'This room asks for one. Ask whoever opened it.',
+  'room.wrong': 'Wrong password.',
 
   /* ------------------------------ the quick lobby --------------------------- */
   'quick.title': 'Quick match — {game}',
@@ -170,6 +182,7 @@ export const lobbyEn: Catalogue = {
   /* -------------------------- the dials a room may turn --------------------- */
   'lobby.opt.playlist': 'Quiz',
   'lobby.opt.playlist.hint': 'From the quizzes published by the house.',
+  'lobby.choice.playlist.infinite': 'Endless blind test',
   'lobby.opt.length': 'Length',
   'lobby.choice.length.court': 'Short — 8 rounds',
   'lobby.choice.length.normal': 'Normal — 15 rounds',

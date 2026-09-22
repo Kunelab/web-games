@@ -176,6 +176,15 @@ export default function MafiaPlayer() {
   const [name, setName] = useState(() => localStorage.getItem(mafiaKeys.name(code)) ?? storedNickname());
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  /**
+   * The word at the door, and whether this table has one.
+   *
+   * Raised by the server's refusal rather than asked up front: most tables have
+   * no door, and a password box on every join screen is a question almost nobody
+   * has an answer to. See `MafiaJoinAck.needsPassword`.
+   */
+  const [password, setPassword] = useState('');
+  const [locked, setLocked] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [jailMode, setJailMode] = useState(false);
   /**
@@ -341,9 +350,12 @@ export default function MafiaPlayer() {
     if (!socket || !name.trim()) return;
     setJoining(true);
     setJoinError(null);
-    socket.emit('mafia:join', { code, name: name.trim(), locale }, (ack) => {
+    socket.emit('mafia:join', { code, name: name.trim(), locale, password }, (ack) => {
       setJoining(false);
       if (!ack.ok || !ack.view) {
+        // The table says it has a door here and nowhere earlier, which is what
+        // makes the field appear. It stays up once raised.
+        if (ack.needsPassword) setLocked(true);
         setJoinError(ack.error ? t(ack.error) : tk('mafia.ui.joinFailed'));
         return;
       }
@@ -769,9 +781,32 @@ export default function MafiaPlayer() {
         <form onSubmit={join} className="mz-join-form">
           <Field label={tk('mafia.ui.yourName')}>
             {({ id }) => (
-              <Input id={id} value={name} onChange={(event) => setName(event.target.value)} maxLength={20} autoFocus />
+              <Input
+                id={id}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                maxLength={20}
+                // Once the table has asked for a word, that is the box the
+                // thumb wants: the name is already filled from last time.
+                autoFocus={!locked}
+              />
             )}
           </Field>
+          {locked && (
+            <Field label={tk('room.asked')} hint={tk('room.asked.hint')}>
+              {({ id, describedBy }) => (
+                <Input
+                  id={id}
+                  aria-describedby={describedBy}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  maxLength={40}
+                  autoComplete="off"
+                  autoFocus
+                />
+              )}
+            </Field>
+          )}
           <Button type="submit" disabled={joining || !name.trim()}>
             {joining ? tk('mafia.ui.connecting') : tk('mafia.ui.takeSeat')}
           </Button>

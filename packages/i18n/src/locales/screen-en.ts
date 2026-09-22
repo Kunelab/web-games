@@ -53,6 +53,7 @@ export const screenEn: Catalogue = {
   'mafia.refuse.hostOnly': 'That is the host’s to do',
   'mafia.refuse.startFailed': 'Could not start the game',
   'mafia.refuse.joinFailed': 'Could not join',
+  'mafia.refuse.badPassword': 'Wrong password',
   'presence.kick.tooSoon': 'Too soon: give them time to come back.',
   'presence.kick.targetPresent': 'That player is here.',
   'presence.kick.alreadyOpen': 'A vote is already open.',

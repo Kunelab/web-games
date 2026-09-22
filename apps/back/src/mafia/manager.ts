@@ -3,6 +3,7 @@ import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { generateJoinCode } from 'game-core';
 import {
   addMafiaBot,
+  DEFAULT_CONFIG,
   advanceMafia,
   callCourt,
   castBallot,
@@ -779,6 +780,10 @@ export class MafiaManager {
       }
       try {
         const state = JSON.parse(row.state) as MafiaState;
+        // A table saved by a build that had fewer settings comes back missing
+        // them, and a missing setting read as a string is a crash somewhere far
+        // from here. Defaults fill the gaps, exactly as they do at creation.
+        state.config = { ...DEFAULT_CONFIG, ...state.config };
         // Clears the absences nothing can measure any more and hands a phase that
         // was mid-flight — including one a pause had parked — a fresh clock.
         restoreMafiaTable(state, Date.now());

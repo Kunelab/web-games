@@ -2,6 +2,8 @@ import { DIFFICULTY_PRESETS, type GameConfig } from 'coronaz-core';
 import { defaultSessionConfig, type SessionConfig } from 'game-core';
 import type { MafiaConfig } from 'mafia-core';
 
+import { env } from '../env.js';
+
 /**
  * Turning what a room voted for into what an engine understands.
  *
@@ -47,6 +49,55 @@ export function quizConfig(settings: Record<string, string>): SessionConfig {
     }
   };
 }
+
+/**
+ * What the endless blind test plays when a hostless room asks for it.
+ *
+ * A fixed set rather than a fourth thing to vote on. The three dials are the
+ * whole promise of a quick match — what, how hard, how long — and "which eleven
+ * of thirty genres" is not a dial, it is the setup screen this mode exists
+ * instead of. So the list is the crowd-pleasing middle of the catalogue: things
+ * a room of five strangers has a fair chance of naming, across enough decades
+ * that nobody's twenties are the whole evening.
+ *
+ * The difficulty window is left wide open for the same reason the host's screen
+ * defaults to it: the draw picks a level per round inside the window, so a wide
+ * one is a varied evening rather than an unfair one.
+ */
+export function quickBlindtestSettings(): {
+  genreIds: string[];
+  difficultyMin: number;
+  difficultyMax: number;
+  region: string;
+} {
+  return {
+    genreIds: ['pop', 'rock', 'chanson-fr', 'variete-80', 'rap-fr', 'films-musique'],
+    difficultyMin: 0,
+    difficultyMax: 100,
+    region: env.YOUTUBE_REGION
+  };
+}
+
+/**
+ * How much of a quick blind test comes from the shared catalogue.
+ *
+ * Turned well up, where the host's screen splits it down the middle. A room that
+ * assembled itself out of strangers has nobody who decided to spend a search per
+ * round, and the catalogue half is both free and already vetted by whichever room
+ * played it first. The evening is the same evening; it just costs nothing.
+ */
+export const QUICK_REPLAY_SHARE = 0.85;
+
+/**
+ * What "long" means for a blind test a room voted for.
+ *
+ * A published quiz set to "long" plays all of it, and all of it is a number
+ * somebody wrote down. A generated one has no such number, and the honest
+ * translation — endless — is the one thing a hostless room cannot have, because
+ * ending an endless session is the host's button and there is no host. So long
+ * is a long evening rather than a permanent one.
+ */
+export const QUICK_LONG_ROUNDS = 30;
 
 const CZ_SCENARIOS = new Set(['escape', 'purge', 'survival']);
 const CZ_BIOMES = new Set(['random', 'modern', 'cyber']);

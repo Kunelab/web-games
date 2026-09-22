@@ -51,6 +51,7 @@ export const screenFr: Catalogue = {
   'mafia.refuse.hostOnly': 'Action réservée à l’hôte',
   'mafia.refuse.startFailed': 'Impossible de lancer la partie',
   'mafia.refuse.joinFailed': 'Impossible de rejoindre',
+  'mafia.refuse.badPassword': 'Mot de passe incorrect',
   'presence.kick.tooSoon': 'Trop tôt : laissez-lui le temps de revenir.',
   'presence.kick.targetPresent': 'Ce joueur est là.',
   'presence.kick.alreadyOpen': 'Un vote est déjà en cours.',

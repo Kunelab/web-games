@@ -17,7 +17,15 @@ export const joinPayloadSchema = z.object({
    * Returned by a previous join. Lets a player who reloaded or lost signal
    * reclaim their identity and score instead of appearing as a new player.
    */
-  playerToken: z.string().max(80).optional()
+  playerToken: z.string().max(80).optional(),
+  /**
+   * The word at the door, for a room that has one.
+   *
+   * Only ever asked of a phone taking a *new* seat: a `playerToken` that names a
+   * player already in the room has been through the door once, and asking again
+   * would mean every reload and every dropped connection needed it retyped.
+   */
+  password: z.string().max(40).optional()
 });
 
 export type JoinPayload = z.infer<typeof joinPayloadSchema>;
@@ -62,6 +70,15 @@ export const hostActionSchema = z.object({
 export interface JoinAck {
   ok: boolean;
   error?: string;
+  /**
+   * The refusal was the door, not the code: ask for a password and try again.
+   *
+   * A flag rather than a sentence the phone has to match against, because the
+   * join screen reacts to it — it grows a field — and a screen that decided what
+   * to render by comparing error strings would break the first time one of them
+   * was reworded.
+   */
+  needsPassword?: boolean;
   /** Store and resend on reconnect. */
   playerToken?: string;
   playerId?: string;

@@ -112,7 +112,9 @@ export const NO = {
   needPlayers: (count: number): Msg => msg('mafia.refuse.needPlayers', { count }),
   hostOnly: (): Msg => msg('mafia.refuse.hostOnly'),
   startFailed: (): Msg => msg('mafia.refuse.startFailed'),
-  joinFailed: (): Msg => msg('mafia.refuse.joinFailed')
+  joinFailed: (): Msg => msg('mafia.refuse.joinFailed'),
+  /** The table has a door and this phone did not have the word. */
+  badPassword: (): Msg => msg('mafia.refuse.badPassword')
 };
 
 /**

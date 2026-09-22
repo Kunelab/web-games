@@ -1,8 +1,13 @@
+import { defaultSessionConfig, type SessionConfig } from 'game-core';
+import { msg } from 'i18n';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import { api, ApiError, type BlindtestCatalog, type BlindtestGenre } from '../api/client';
-import { Button, Loading } from '../ui';
+import { useT } from '../i18n/locale-context';
+import { Button, Field, Input, Loading, Select, Switch } from '../ui';
+import { PublicSwitch } from '../ui/PublicSwitch';
+import { RoomDoor } from '../ui/RoomDoor';
 import './blindtest.css';
 
 /**
@@ -81,6 +86,25 @@ function DifficultySlider({
 
 export default function BlindtestSetup() {
   const navigate = useNavigate();
+  const t = useT();
+
+  /**
+   * The room this blind test is played in, with every dial a playlist gets.
+   *
+   * It used to have none of them. A generated session is a session — it opens a
+   * lobby, phones join it by code, it scores and it ends in a ceremony — but the
+   * only way to start one skipped the screen where a host says whether there is a
+   * television, whether the room races on a buzzer, and whether anybody who is
+   * not in the room may find it at all. So this mode quietly could not be public,
+   * could not be named and could not be played with a buzzer, for no reason other
+   * than that its launch screen was written separately from the other one.
+   *
+   * The two order settings stay out: the draw already paces difficulty across the
+   * evening and there is no playlist to shuffle or to sort by date. The server
+   * forces both off regardless — see `POST /blindtest/sessions`.
+   */
+  const [config, setConfig] = useState<SessionConfig>(defaultSessionConfig);
+  const patch = useCallback((next: Partial<SessionConfig>) => setConfig((current) => ({ ...current, ...next })), []);
 
   const [catalog, setCatalog] = useState<BlindtestCatalog | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -291,7 +315,8 @@ export default function BlindtestSetup() {
         region,
         maxRounds,
         // The server takes a share, the slider speaks percent.
-        replayShare: replayPercent / 100
+        replayShare: replayPercent / 100,
+        config
       });
       /**
        * The host token proves ownership over the socket, and the host screen
@@ -487,6 +512,108 @@ export default function BlindtestSetup() {
               coûte une recherche. Jamais deux fois le même morceau dans une partie, quel que soit le réglage.
             </p>
           </div>
+        </div>
+      </section>
+
+      {/*
+        The room, asked here rather than nowhere.
+
+        Everything below this heading is the same set of questions the launch
+        screen asks of a playlist, and they are the same questions because this is
+        the same object: a session with a code, a lobby and a ceremony. The only
+        thing generated about it is where the rounds come from.
+      */}
+      <section className="bt-controls">
+        <h2>Le salon</h2>
+
+        <div className="bt-room">
+          <PublicSwitch what="ce blind test" value={config.public} onChange={(checked) => patch({ public: checked })} />
+          <RoomDoor
+            name={config.name}
+            password={config.password}
+            fallback="Blind test infini"
+            onName={(next) => patch({ name: next })}
+            onPassword={(next) => patch({ password: next })}
+          />
+        </div>
+
+        <div className="bt-room">
+          <Field
+            label={t(msg('launch.stage'))}
+            hint={t(msg(config.tv ? 'launch.stage.tv.hint' : 'launch.stage.everyone.hint'))}
+          >
+            {({ id, describedBy }) => (
+              <Select
+                id={id}
+                aria-describedby={describedBy}
+                value={config.tv ? 'tv' : 'everyone'}
+                options={[
+                  { value: 'everyone', label: t(msg('launch.stage.everyone')) },
+                  { value: 'tv', label: t(msg('launch.stage.tv')) }
+                ]}
+                onValueChange={(next) => patch({ tv: next === 'tv' })}
+              />
+            )}
+          </Field>
+
+          <Switch
+            label={t(msg('launch.autoAdvance'))}
+            hint={t(msg('launch.autoAdvance.hint'))}
+            checked={config.autoAdvance}
+            onCheckedChange={(checked) => patch({ autoAdvance: checked })}
+          />
+          <Switch
+            label={t(msg('launch.buzzer'))}
+            hint={t(msg('launch.buzzer.hint'))}
+            checked={config.buzzer}
+            onCheckedChange={(checked) => patch({ buzzer: checked })}
+          />
+          {config.buzzer && (
+            <Field label={t(msg('launch.buzzerWindow'))} hint={t(msg('launch.buzzerWindow.hint'))}>
+              {({ id, describedBy }) => (
+                <Input
+                  id={id}
+                  aria-describedby={describedBy}
+                  type="number"
+                  min={3}
+                  max={30}
+                  value={Math.round(config.buzzerWindowMs / 1000)}
+                  onChange={(event) =>
+                    patch({ buzzerWindowMs: Math.min(30, Math.max(3, Number(event.target.value))) * 1000 })
+                  }
+                />
+              )}
+            </Field>
+          )}
+          <Switch
+            label={t(msg('launch.combo'))}
+            hint={t(msg('launch.combo.hint'))}
+            checked={config.scoring.combo.enabled}
+            onCheckedChange={(checked) =>
+              patch({ scoring: { ...config.scoring, combo: { ...config.scoring.combo, enabled: checked } } })
+            }
+          />
+          <Switch
+            label={t(msg('launch.comeback'))}
+            hint={t(msg('launch.comeback.hint'))}
+            checked={config.scoring.comeback.enabled}
+            onCheckedChange={(checked) =>
+              patch({ scoring: { ...config.scoring, comeback: { ...config.scoring.comeback, enabled: checked } } })
+            }
+          />
+          <Field label={t(msg('launch.attempts'))} hint={t(msg('launch.attempts.hint'))}>
+            {({ id, describedBy }) => (
+              <Input
+                id={id}
+                aria-describedby={describedBy}
+                type="number"
+                min={1}
+                max={10}
+                value={config.attemptsPerField}
+                onChange={(event) => patch({ attemptsPerField: Math.max(1, Number(event.target.value)) })}
+              />
+            )}
+          </Field>
         </div>
       </section>
 

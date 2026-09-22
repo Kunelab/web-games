@@ -57,6 +57,7 @@ import {
 import type { KickRefusal } from 'presence-core';
 
 import { accountOf, sessionUserOf } from './account.js';
+import { mayEnter } from './door.js';
 import {
   answerPayloadSchema,
   buzzPayloadSchema,
@@ -465,6 +466,20 @@ export function registerRealtime(
 
       if (state.phase === 'finished') {
         respond({ ok: false, error: 'Cette partie est terminée' });
+        return;
+      }
+
+      /**
+       * The door, before the seat.
+       *
+       * Asked of new arrivals only: a token that already names a player here has
+       * been through it once. See `mayEnter`.
+       */
+      const returning =
+        parsed.data.playerToken !== undefined &&
+        Object.values(state.players).some((seated) => seated.token === parsed.data.playerToken);
+      if (!mayEnter(state.config.password, parsed.data.password, returning).ok) {
+        respond({ ok: false, needsPassword: true, error: 'Mot de passe incorrect' });
         return;
       }
 
@@ -1063,6 +1078,15 @@ export function registerRealtime(
         return;
       }
 
+      // The door, before the seat. New arrivals only; see `mayEnter`.
+      const czReturning =
+        parsed.data.playerToken !== undefined &&
+        Object.values(state.heroes).some((hero) => hero.token === parsed.data.playerToken);
+      if (!mayEnter(state.config.password, parsed.data.password, czReturning).ok) {
+        respond({ ok: false, needsPassword: true, error: 'Mot de passe incorrect' });
+        return;
+      }
+
       void (async () => {
         try {
           // A logged-in browser plays under its account: perks read from it and
@@ -1353,6 +1377,15 @@ export function registerRealtime(
       const state = mafia.get(parsed.data.code.trim().toUpperCase());
       if (!state) {
         respond({ ok: false, error: NO.noTable() });
+        return;
+      }
+
+      // The door, before the seat. New arrivals only; see `mayEnter`.
+      const mafiaReturning =
+        parsed.data.playerToken !== undefined &&
+        Object.values(state.players).some((seated) => seated.token === parsed.data.playerToken);
+      if (!mayEnter(state.config.password, parsed.data.password, mafiaReturning).ok) {
+        respond({ ok: false, needsPassword: true, error: NO.badPassword() });
         return;
       }
 

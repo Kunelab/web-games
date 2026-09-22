@@ -25,6 +25,21 @@ import type { LobbyGame, QuickOptionSpec } from './state.js';
  */
 export const QUICK_PLAYLIST_KEY = 'playlist';
 
+/**
+ * The playlist choice that is not a playlist.
+ *
+ * A quick room voting for this plays the endless blind test instead: rounds
+ * found as the evening runs rather than a quiz somebody published. It replaces
+ * the whole choice rather than sitting beside it — there is no playlist behind
+ * it and none is looked up — which is why it is one sentinel value in the same
+ * option and not a fourth dial nobody asked for.
+ *
+ * Named here rather than spelled out at both ends, and deliberately not a number:
+ * every other value in this option is a playlist id, and a sentinel that could be
+ * mistaken for one is a bug waiting for the day somebody publishes enough quizzes.
+ */
+export const QUICK_INFINITE_VALUE = 'infini';
+
 const QUIZ_SPECS: QuickOptionSpec[] = [
   {
     key: QUICK_PLAYLIST_KEY,

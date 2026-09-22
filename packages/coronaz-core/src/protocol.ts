@@ -562,12 +562,16 @@ export const czKickSchema = z.discriminatedUnion('type', [
 export const czJoinSchema = z.object({
   code: z.string().min(4).max(8),
   name: z.string().trim().min(1).max(24),
-  playerToken: z.string().max(64).optional()
+  playerToken: z.string().max(64).optional(),
+  /** The word at the door, for a raid that has one. Asked of new seats only. */
+  password: z.string().max(40).optional()
 });
 
 export interface CzJoinAck {
   ok: boolean;
   error?: string;
+  /** The refusal was the door: ask for a password and try again. See `JoinAck`. */
+  needsPassword?: boolean;
   playerToken?: string;
   playerId?: string;
   view?: CzView;

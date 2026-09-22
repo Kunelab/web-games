@@ -9,6 +9,7 @@ import { useAsync } from '../../hooks/useAsync';
 import { mafiaKeys } from '../../tools/mafiaKeys';
 import { Autocomplete, Button, Field, Input, Select } from '../../ui';
 import { PublicSwitch } from '../../ui/PublicSwitch';
+import { RoomDoor } from '../../ui/RoomDoor';
 import { ShareLink } from '../../ui/ShareLink';
 import { useT } from '../../i18n/locale-context';
 import './mafia.css';
@@ -86,6 +87,8 @@ export default function MafiaSetup() {
   const [draftSlots, setDraftSlots] = useState<string[]>([]);
   const [draftName, setDraftName] = useState('');
   const [isPublic, setIsPublic] = useState(false);
+  const [roomName, setRoomName] = useState('');
+  const [roomPassword, setRoomPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ code: string; hostToken: string } | null>(null);
@@ -113,7 +116,9 @@ export default function MafiaSetup() {
         nightMs: Number(nightMs),
         revealOnDeath: revealOnDeath as 'role' | 'faction' | 'none',
         setup: choice,
-        public: isPublic
+        public: isPublic,
+        name: roomName,
+        password: roomPassword
       });
       sessionStorage.setItem(mafiaKeys.host(session.code), session.hostToken);
       setCreated(session);
@@ -378,6 +383,13 @@ export default function MafiaSetup() {
 
           <section className="mz-setup-form">
             <PublicSwitch what={tk('mafia.setup.thisTable')} value={isPublic} onChange={setIsPublic} />
+            <RoomDoor
+              name={roomName}
+              password={roomPassword}
+              fallback={choiceLabel}
+              onName={setRoomName}
+              onPassword={setRoomPassword}
+            />
             <p className="mz-hint">
               {tk('mafia.setup.chosen')} <strong>{choiceLabel}</strong>
             </p>
@@ -390,6 +402,14 @@ export default function MafiaSetup() {
       ) : (
         <section className="mz-created">
           <p>{tk('mafia.setup.created', { code: created.code })}</p>
+          {/* The second half of the same sentence as the code: one gets you to
+              the door, the other opens it. The host chose it; nothing is hidden
+              from them by hiding it here. */}
+          {roomPassword && (
+            <p className="mz-hint">
+              {tk('room.password')} : <strong>{roomPassword}</strong>
+            </p>
+          )}
           <div className="mz-qr">
             <QRCode value={joinUrl} size={140} />
           </div>

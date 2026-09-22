@@ -23,6 +23,7 @@ import { buzzerOrigin } from '../../tools/api-url';
 import { Badge, Button, Field, Input } from '../../ui';
 import { ShareLink } from '../../ui/ShareLink';
 import { PublicSwitch } from '../../ui/PublicSwitch';
+import { RoomDoor } from '../../ui/RoomDoor';
 import { useT } from '../../i18n/locale-context';
 import './coronaz.css';
 import '../playlists.css';
@@ -138,6 +139,13 @@ export default function CoronaZSetup() {
           <div className="stack-5">
             <div className="editor-section">
               <p className="join-code">{started.code}</p>
+              {/* Beside the code, because it is the second half of the same
+                  sentence: one gets you to the door, the other opens it. */}
+              {config.password && (
+                <p className="field-hint">
+                  {t(msg('room.password'))} : <strong>{config.password}</strong>
+                </p>
+              )}
               <ShareLink url={joinUrl} title="CoronaZ" />
             </div>
 
@@ -230,6 +238,13 @@ export default function CoronaZSetup() {
               what={t(msg('cz.setup.thisRaid'))}
               value={config.public}
               onChange={(checked) => set('public', checked)}
+            />
+            <RoomDoor
+              name={config.name}
+              password={config.password}
+              fallback={t(msg(`coronaz.scenario.${config.scenario}.name`))}
+              onName={(next) => set('name', next)}
+              onPassword={(next) => set('password', next)}
             />
           </div>
 

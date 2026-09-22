@@ -99,6 +99,55 @@ describe('the roll', () => {
     });
     assert.equal(lobby.rolled.playlist, '');
   });
+
+  /**
+   * The point of `noRoll`: a choice that costs something is chosen, never drawn.
+   *
+   * `lastChoice` takes the final entry every time, which is exactly the one that
+   * opts out here — so a roll that ignored the flag would land on it in every
+   * single room, which is the loudest possible version of the bug.
+   */
+  it('never lands the die on a choice that opted out of it', () => {
+    const lobby = createQuickLobby({
+      code: 'ABCDE',
+      game: 'quiz',
+      specs: [
+        {
+          key: 'playlist',
+          label: 'Quiz',
+          choices: [{ value: 'cheap', label: 'A' }, { value: 'expensive', label: 'B', noRoll: true }],
+          roll: true,
+          fallback: 'cheap'
+        }
+      ],
+      minPlayers: 1,
+      maxPlayers: 4,
+      randomInt: lastChoice,
+      now: 0
+    });
+    assert.equal(lobby.rolled.playlist, 'cheap');
+  });
+
+  it('still falls back rather than throwing when every choice opted out', () => {
+    const lobby = createQuickLobby({
+      code: 'ABCDE',
+      game: 'quiz',
+      specs: [
+        {
+          key: 'playlist',
+          label: 'Quiz',
+          choices: [{ value: 'expensive', label: 'B', noRoll: true }],
+          roll: true,
+          fallback: 'nothing'
+        }
+      ],
+      minPlayers: 1,
+      maxPlayers: 4,
+      randomInt: lastChoice,
+      now: 0
+    });
+    assert.equal(lobby.rolled.playlist, 'nothing');
+  });
 });
 
 describe('tallying the settings', () => {

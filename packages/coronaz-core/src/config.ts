@@ -140,7 +140,23 @@ export const gameConfigSchema = z.object({
    * default changed under it would be a bad surprise. Public is a deliberate
    * invitation, and the only thing it changes is who can find the code.
    */
-  public: z.boolean().default(false)
+  public: z.boolean().default(false),
+
+  /**
+   * What this raid is called on the board. Empty means the scenario names it.
+   *
+   * The board's own line for a raid is its scenario, which three open raids will
+   * all share; a name is how the one you were told about becomes findable.
+   */
+  name: z.string().trim().max(40).default(''),
+
+  /**
+   * A word at the door. Empty means there is no door.
+   *
+   * Cleartext, compared on the way in, projected into no view. The reasoning is
+   * the same for all three games and is written out once, on `SessionConfig`.
+   */
+  password: z.string().trim().max(40).default('')
 });
 
 export type GameConfig = z.infer<typeof gameConfigSchema>;

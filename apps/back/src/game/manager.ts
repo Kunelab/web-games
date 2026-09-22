@@ -124,6 +124,19 @@ export class GameManager {
         const state = JSON.parse(row.state) as SessionState;
 
         /**
+         * The config is re-parsed rather than trusted as it was written.
+         *
+         * A snapshot is JSON from whichever build wrote it, and a build that adds
+         * a setting restores rows that have never heard of it. Reading one back
+         * as `undefined` is how a new field becomes a crash in a route that has
+         * nothing to do with it — the board asking whether a room has a password,
+         * for instance. Running it through the schema fills every gap with the
+         * same default a fresh session would have got.
+         */
+        const revived = sessionConfigSchema.safeParse(state.config);
+        if (revived.success) state.config = revived.data;
+
+        /**
          * Every socket in the world is gone, so no seat is connected.
          *
          * The flags were persisted as they stood when the process died, which

@@ -35,6 +35,17 @@ export interface QuickOptionChoice {
   value: string;
   label: string;
   text?: string;
+  /**
+   * Offered, but never drawn by the die.
+   *
+   * The roll is what makes a quick match a surprise, and it is free: every value
+   * it can land on is a row that already exists. One choice is not — the endless
+   * blind test invents its rounds as it plays them, and each one costs a search
+   * against somebody's quota. A room that votes for that has decided to spend it;
+   * a room that got it because a die came up four has not. So it is a thing the
+   * table can choose and never a thing that happens to it.
+   */
+  noRoll?: boolean;
 }
 
 /**
@@ -156,11 +167,13 @@ export function createQuickLobby(options: CreateQuickLobbyOptions): QuickLobby {
   const rolled: Record<string, string> = {};
 
   for (const spec of options.specs) {
-    if (spec.choices.length === 0) {
+    // The die only ever lands on a choice that consented to it; see `noRoll`.
+    const rollable = spec.choices.filter((choice) => !choice.noRoll);
+    if (rollable.length === 0) {
       rolled[spec.key] = spec.fallback;
       continue;
     }
-    const drawn = spec.roll ? spec.choices[options.randomInt(spec.choices.length)] : undefined;
+    const drawn = spec.roll ? rollable[options.randomInt(rollable.length)] : undefined;
     rolled[spec.key] = drawn?.value ?? spec.fallback;
   }
 

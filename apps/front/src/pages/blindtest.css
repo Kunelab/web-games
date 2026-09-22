@@ -198,6 +198,19 @@
   margin-bottom: 0.4rem;
 }
 
+/*
+  The room's own settings, which come from the shared primitives.
+
+  Deliberately not `.bt-control`: that class forces every `label` inside it to
+  `display: block`, which is right for this screen's own hand-built fields and
+  wrong for a Switch, whose label sits beside the toggle rather than above it.
+*/
+.bt-room {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
 .bt-control-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));

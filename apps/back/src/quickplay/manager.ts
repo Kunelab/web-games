@@ -3,6 +3,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { generateJoinCode } from 'game-core';
 import { msg, type Msg } from 'i18n';
 import {
+  QUICK_INFINITE_VALUE,
   QUICK_PLAYLIST_KEY,
   armQuickCountdown,
   cancelQuickCountdown,
@@ -28,9 +29,19 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import type { GameManager } from '../game/manager.js';
 import type { MafiaManager } from '../mafia/manager.js';
+import { catalogAvailable, warmPool } from '../services/blindtest-catalog.js';
+import { drawRounds, emptyHistory } from '../services/blindtest-draw.js';
 import { playlistService } from '../services/playlist-service.js';
 import type { CzManager } from '../zombie/manager.js';
-import { coronazConfig, mafiaConfig, quizConfig, quizRounds } from './settings.js';
+import {
+  coronazConfig,
+  mafiaConfig,
+  QUICK_LONG_ROUNDS,
+  QUICK_REPLAY_SHARE,
+  quickBlindtestSettings,
+  quizConfig,
+  quizRounds
+} from './settings.js';
 
 /**
  * Matchmaking, and the room that comes with it.
@@ -173,7 +184,10 @@ export class QuickplayManager {
         players: Object.keys(lobby.members).length,
         maxPlayers: lobby.maxPlayers,
         createdAt: lobby.createdAt,
-        quick: true
+        quick: true,
+        // A quick room has no host to set one, and no door for one to guard: it
+        // exists to be walked into by whoever arrives.
+        locked: false
       });
     }
 
@@ -197,7 +211,10 @@ export class QuickplayManager {
     switch (lobby.game) {
       case 'quiz': {
         const playlist = chosen(QUICK_PLAYLIST_KEY);
-        return playlist?.text ?? msg('lobby.card.quizSurprise');
+        // The author's own name where there is one, and the choice's own key
+        // otherwise — which is what names the blind test, whose rounds nobody
+        // has written yet.
+        return playlist?.text ?? msg(playlist?.label ?? 'lobby.card.quizSurprise');
       }
       case 'coronaz':
         return msg(chosen('scenario')?.label ?? 'lobby.card.raid');
@@ -298,6 +315,30 @@ export class QuickplayManager {
     const lobby = this.lobbies.get(code);
     if (!lobby) return;
     if (!setQuickVote(lobby, memberId, this.specs(code), key, value, Date.now())) return;
+
+    /**
+     * A vote for the blind test starts the searching it will need.
+     *
+     * Building a genre's pool is several searches and a model pass over what
+     * survives, which is tens of seconds — and the launch cannot begin until one
+     * round exists. Doing it when the room decides rather than when it starts
+     * spends that wait against the part of the evening where nobody is waiting:
+     * people are still arriving and arguing about the length. By the time the
+     * countdown fires the catalogue is usually already in memory.
+     *
+     * Charged on the vote itself rather than on the tally, because the vote is
+     * where somebody has said out loud that they want it. Pools are cached and
+     * `warmPool` is a no-op against a warm one, so a room of five all voting for
+     * it costs exactly what one of them does.
+     */
+    if (key === QUICK_PLAYLIST_KEY && value === QUICK_INFINITE_VALUE && catalogAvailable()) {
+      for (const genreId of quickBlindtestSettings().genreIds) {
+        warmPool(genreId, (error: unknown) =>
+          this.log.warn({ err: error, genreId }, 'could not warm a quick blind test pool')
+        );
+      }
+    }
+
     this.changed(lobby);
   }
 
@@ -381,6 +422,33 @@ export class QuickplayManager {
         label: 'lobby.card.quizSurprise',
         text: playlist.name ?? `Quiz ${playlist.id}`
       }));
+
+      /**
+       * And the one choice that is not a quiz at all.
+       *
+       * Only where the machinery behind it exists: a deployment with no YouTube
+       * key cannot build a catalogue, so offering it would be offering a launch
+       * that fails. `noRoll` keeps it off the die — see `QuickOptionChoice`.
+       *
+       * Appended last, and it matters: it is the only entry here that spends
+       * anything, so it reads as the deliberate choice it is rather than as one
+       * more row in a list of quizzes.
+       */
+      if (catalogAvailable()) {
+        spec.choices.push({
+          value: QUICK_INFINITE_VALUE,
+          label: 'lobby.choice.playlist.infinite',
+          noRoll: true
+        });
+      }
+
+      /**
+       * What a tied or empty vote lands on: still the first published quiz.
+       *
+       * The blind test is appended, so it only becomes the fallback in a house
+       * that has published nothing at all — where the alternative is not a
+       * cheaper game, it is a launch that fails for want of any rounds.
+       */
       spec.fallback = spec.choices[0]?.value ?? '';
     }
 
@@ -552,6 +620,10 @@ export class QuickplayManager {
   private async createGame(lobby: QuickLobby, settings: Record<string, string>): Promise<string> {
     switch (lobby.game) {
       case 'quiz': {
+        if (settings[QUICK_PLAYLIST_KEY] === QUICK_INFINITE_VALUE) {
+          return this.createInfiniteQuiz(settings);
+        }
+
         const playlistId = Number(settings[QUICK_PLAYLIST_KEY]);
         if (!Number.isInteger(playlistId) || playlistId <= 0) {
           throw new Error('no public playlist to draw from');
@@ -599,6 +671,65 @@ export class QuickplayManager {
         return state.code;
       }
     }
+  }
+
+  /**
+   * The endless blind test, started by a room rather than by a host.
+   *
+   * The same session the setup screen builds — rounds found as it plays, nothing
+   * written to anybody's library — with the two things a hostless room cannot
+   * supply filled in here: nobody picked the genres, and nobody is paying
+   * attention to the quota. So the genres are a fixed crowd-pleasing set rather
+   * than a fourth thing for five strangers to fail to agree on, and the replay
+   * share is turned well up, which spends the shared catalogue other rooms have
+   * already vetted instead of a search per round. A host who wants either of
+   * those dials has the screen that has all of them.
+   *
+   * One round is drawn before the room is sent anywhere. The lobby is waiting on
+   * this, so it has to be the cheap case — which it is, because `vote` warmed the
+   * pools the moment the room's vote landed here.
+   */
+  private async createInfiniteQuiz(settings: Record<string, string>): Promise<string> {
+    const draw = quickBlindtestSettings();
+    // The draw writes what it used into the history, and the session carries it
+    // on: without that, round two is free to play round one again.
+    const history = emptyHistory();
+    const items = await drawRounds(draw, history, 1);
+    if (items.length === 0) {
+      throw new Error('the blind test catalogue had nothing playable');
+    }
+
+    const rounds = quizRounds(settings.length);
+    const state = await this.deps.games.create({
+      // No playlist: these rounds exist nowhere but inside this session.
+      playlistId: null,
+      playlistName: 'Blind test infini',
+      hostUserId: null,
+      items,
+      config: { ...quizConfig(settings), shuffle: false, chronological: false },
+      infinite: {
+        genreIds: draw.genreIds,
+        difficultyMin: draw.difficultyMin,
+        difficultyMax: draw.difficultyMax,
+        region: draw.region,
+        playedTracks: [...history.playedTracks],
+        recentArtists: history.recentArtists,
+        /**
+         * Long, and never endless.
+         *
+         * `quizRounds` says zero for "the whole playlist", which for a session
+         * that writes its own would be the endless mode this game is named
+         * after — and endless is the one length a hostless room must not have.
+         * Stopping an endless session is the host's button, and this session has
+         * no host: nobody could end it, the room would sit on the board for the
+         * rest of the night, and it would be drawing songs the whole time.
+         */
+        maxRounds: rounds === 0 ? QUICK_LONG_ROUNDS : rounds,
+        replayShare: QUICK_REPLAY_SHARE
+      }
+    });
+
+    return state.code;
   }
 
   /** How many of the room have actually taken a seat in the game it started. */

@@ -61,13 +61,16 @@ export function createLobbyService(managers: {
           rows.push({ hostId: state.hostUserId, card: {
             game: 'quiz',
             code: state.code,
-            title: state.playlistName,
+            // The host's own name for the room when they gave it one, and what is
+            // being played when they did not. See `SessionConfig.name`.
+            title: state.config.name || state.playlistName,
             detail: msg('lobby.card.rounds', { count: state.order.length }),
             host: null,
             players: Object.keys(state.players).length,
             maxPlayers: null,
             createdAt: state.lastActivityAt,
-            quick: false
+            quick: false,
+            locked: state.config.password.length > 0
           } });
         }
       }
@@ -79,13 +82,14 @@ export function createLobbyService(managers: {
           rows.push({ hostId: state.hostUserId, card: {
             game: 'coronaz',
             code: state.code,
-            title: msg(`coronaz.scenario.${state.config.scenario}.name`),
+            title: state.config.name || msg(`coronaz.scenario.${state.config.scenario}.name`),
             detail: msg(state.config.mode === 'gm' ? 'lobby.card.hordeGm' : 'lobby.card.hordeAi'),
             host: null,
             players: Object.keys(state.heroes).length,
             maxPlayers: 5,
             createdAt: state.lastActivityAt,
-            quick: false
+            quick: false,
+            locked: state.config.password.length > 0
           } });
         }
       }
@@ -97,13 +101,14 @@ export function createLobbyService(managers: {
           rows.push({ hostId: state.hostUserId, card: {
             game: 'mafia',
             code: state.code,
-            title: msg(MAFIA_SETUP_KEYS[state.config.setup.mode] ?? 'lobby.card.table'),
+            title: state.config.name || msg(MAFIA_SETUP_KEYS[state.config.setup.mode] ?? 'lobby.card.table'),
             detail: msg('lobby.card.dayLength', { minutes: Math.round(state.config.dayMs / 60_000) }),
             host: null,
             players: Object.keys(state.players).length,
             maxPlayers: state.config.maxPlayers,
             createdAt: state.lastActivityAt,
-            quick: false
+            quick: false,
+            locked: state.config.password.length > 0
           } });
         }
       }

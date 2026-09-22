@@ -11,6 +11,7 @@ import { useT } from '../i18n/locale-context';
 import { joinUrl } from '../tools/api-url';
 import { Badge, Button, Field, Input, Loading, Select, Switch } from '../ui';
 import { PublicSwitch } from '../ui/PublicSwitch';
+import { RoomDoor } from '../ui/RoomDoor';
 import { ShareLink } from '../ui/ShareLink';
 import './playlists.css';
 
@@ -86,6 +87,14 @@ export default function Launch() {
             {!config.oral && (
               <div className="editor-section">
                 <p className="join-code">{started.code}</p>
+                {/* Beside the code, because it is the second half of the same
+                    sentence: the code gets you to the door and this opens it.
+                    The host chose it, so there is nothing to hide from them. */}
+                {config.password && (
+                  <p className="field-hint">
+                    {t(msg('room.password'))} : <strong>{config.password}</strong>
+                  </p>
+                )}
                 {/* The QR beside this covers the room; this covers the group chat,
                     which is where at least half of an evening's players are. */}
                 <ShareLink url={url} title={playlist.data.name ?? undefined} />
@@ -162,6 +171,14 @@ export default function Launch() {
             what={t(msg('launch.thisGame'))}
             value={config.public}
             onChange={(checked) => setConfig({ ...config, public: checked })}
+          />
+
+          <RoomDoor
+            name={config.name}
+            password={config.password}
+            fallback={playlist.data.name ?? t(msg('launch.backPlaylist'))}
+            onName={(next) => setConfig({ ...config, name: next })}
+            onPassword={(next) => setConfig({ ...config, password: next })}
           />
 
           {/*

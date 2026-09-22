@@ -1675,6 +1675,7 @@ export function toSessionView(
   return {
     code: state.code,
     phase: state.phase,
+    name: state.config.name,
     // Only when true, so every other game keeps the view it always had.
     ...(state.infinite ? { infinite: true } : {}),
     oral: state.config.oral,
@@ -1684,6 +1685,8 @@ export function toSessionView(
     round: toRoundView(state, playerId, context),
     reveal: toRevealView(state),
     isHost,
+    // Read back by the host screen and by nobody else; see `SessionView.password`.
+    password: isHost && state.config.password ? state.config.password : undefined,
     hostRound: isHost ? toHostRoundView(state, currentTitle) : null,
     /**
      * The stage goes to every phone unless a television has claimed it.

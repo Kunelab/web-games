@@ -900,12 +900,7 @@
   color: var(--accent);
 }
 
-/* Career titles: cheap glory, worn wherever the name appears. */
-.chip-title {
-  margin-left: 0.5em;
-  font-size: 0.85em;
-  color: var(--accent);
-}
+/* Career titles: cheap glory, worn on the podium. */
 .podium-title {
   font-size: var(--text-xs);
   color: var(--accent);

@@ -14,6 +14,8 @@ export const mafiaJoinSchema = z.object({
   code: z.string().min(1).max(16),
   name: z.string().min(1).max(20),
   playerToken: z.string().max(64).optional(),
+  /** The word at the door, for a table that has one. Asked of new seats only. */
+  password: z.string().max(40).optional(),
   /** The browser's language, so a solo player gets bots that speak to them. */
   locale: z.enum(['en', 'fr']).optional()
 });
@@ -82,7 +84,11 @@ export const mafiaConfigSchema = z.object({
   locale: z.enum(['en', 'fr']).optional(),
   setup: mafiaSetupSchema.optional(),
   /** Lists the table on the public board; see MafiaConfig.public. */
-  public: z.boolean().optional()
+  public: z.boolean().optional(),
+  /** What the table is called on the board; see MafiaConfig.name. */
+  name: z.string().trim().max(40).optional(),
+  /** The word at the door; see MafiaConfig.password. */
+  password: z.string().trim().max(40).optional()
 });
 
 type Ack<T> = (response: T) => void;
@@ -95,6 +101,8 @@ export type MafiaAckResult = { ok: true } | { ok: false; error: Msg };
 export interface MafiaJoinAck {
   ok: boolean;
   error?: Msg;
+  /** The refusal was the door: ask for a password and try again. See `JoinAck`. */
+  needsPassword?: boolean;
   playerId?: string;
   playerToken?: string;
   view?: MafiaView;

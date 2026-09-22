@@ -345,6 +345,11 @@ export class CzManager {
       }
       try {
         const state = JSON.parse(row.state) as CzState;
+        // A raid saved by a build with fewer settings comes back missing them,
+        // and a missing setting read as a string is a crash somewhere far from
+        // here. The schema fills every gap with a fresh raid's default.
+        const revived = gameConfigSchema.safeParse(state.config);
+        if (revived.success) state.config = revived.data;
         /**
          * A raid saved by an older build carries the old board — one square room
          * per cell, two door bits — and no amount of care would let the current

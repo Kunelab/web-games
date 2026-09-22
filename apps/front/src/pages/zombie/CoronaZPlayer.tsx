@@ -74,11 +74,22 @@ export default function CoronaZPlayer() {
   /** The Kune login this raid pays into, when the browser is logged in. */
   const [account, setAccount] = useState<string | null>(null);
   const [kickError, setKickError] = useState<string | null>(null);
+  /**
+   * The word at the door, and whether this raid has one.
+   *
+   * Raised by the server's refusal rather than asked up front: most raids have
+   * no door, and a password box on every join screen is a question almost
+   * nobody has an answer to. See `CzJoinAck.needsPassword`.
+   */
+  const [password, setPassword] = useState('');
+  const [locked, setLocked] = useState(false);
 
   const tokenKey = `kune.cz.player.${code}`;
 
   const join = useCallback(
-    async (playerName: string) => {
+    // The password is an argument rather than a read of state, so the silent
+    // rejoins stay honest about their dependencies: they never carry one.
+    async (playerName: string, word = '') => {
       if (!socket) return;
       setBusy(true);
       setJoinError(null);
@@ -95,7 +106,8 @@ export default function CoronaZPlayer() {
         const ack = (await socket.timeout(5000).emitWithAck('cz:join', {
           code,
           name: actualName,
-          playerToken: localStorage.getItem(tokenKey) ?? undefined
+          playerToken: localStorage.getItem(tokenKey) ?? undefined,
+          password: word
         })) as CzJoinAck;
 
         if (ack.ok) {
@@ -109,7 +121,10 @@ export default function CoronaZPlayer() {
           setAccount(ack.account ?? null);
           setJoined(true);
         } else {
-          setJoinError(ack.error ?? t(msg('cz.play.joinFailed')));
+          // The raid says it has a door here and nowhere earlier, which is what
+          // makes the field appear. It stays up once raised.
+          if (ack.needsPassword) setLocked(true);
+          setJoinError(ack.needsPassword ? t(msg('room.wrong')) : (ack.error ?? t(msg('cz.play.joinFailed'))));
         }
       } catch {
         setJoinError(t(msg('cz.play.serverQuiet')));
@@ -232,7 +247,7 @@ export default function CoronaZPlayer() {
           className="join-form"
           onSubmit={(event) => {
             event.preventDefault();
-            void join(name);
+            void join(name, password);
           }}
         >
           <h1 className="join-title">CoronaZ · {code}</h1>
@@ -242,8 +257,19 @@ export default function CoronaZPlayer() {
             placeholder={t(msg('cz.play.yourName'))}
             maxLength={NICKNAME_MAX}
             aria-label={t(msg('cz.play.yourName'))}
-            autoFocus
+            autoFocus={!locked}
           />
+          {locked && (
+            <Input
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder={t(msg('room.asked'))}
+              maxLength={40}
+              aria-label={t(msg('room.asked'))}
+              autoComplete="off"
+              autoFocus
+            />
+          )}
           {joinError && <p className="play-error">{joinError}</p>}
           <Button type="submit" variant="primary" size="lg" block busy={busy} disabled={!name.trim()}>
             {t(msg('cz.play.join'))}

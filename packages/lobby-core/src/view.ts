@@ -153,4 +153,14 @@ export interface LobbyCard {
   createdAt: number;
   /** True for a quick-match room: no host, and the table votes the start. */
   quick: boolean;
+  /**
+   * True when a password is asked at the door.
+   *
+   * Listed and locked is a deliberate pair rather than a contradiction: the board
+   * is how the people you invited find the room, and the password is what stops
+   * everyone else who reads the same board from walking in. Saying so on the card
+   * is the difference between a room somebody joins and a room somebody bounces
+   * off without knowing why.
+   */
+  locked: boolean;
 }

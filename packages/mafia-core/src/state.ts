@@ -209,6 +209,23 @@ export interface MafiaConfig {
    * send rather than something that happens to you.
    */
   public: boolean;
+
+  /**
+   * What this table is called on the board. Empty means the role list names it.
+   *
+   * Worth having precisely because the board's own line for a Mafia table is the
+   * setup — "Rôles équilibrés" for every one of them — which tells a stranger
+   * what they will play and nothing at all about which room they are choosing.
+   */
+  name: string;
+
+  /**
+   * A word at the door. Empty means there is no door.
+   *
+   * Cleartext, compared on the way in, projected into no view. The reasoning is
+   * the same for all three games and is written out once, on `SessionConfig`.
+   */
+  password: string;
 }
 
 export type MafiaSetupChoice =
@@ -248,7 +265,9 @@ export const DEFAULT_CONFIG: MafiaConfig = {
   revealOnDeath: 'role',
   locale: 'en',
   setup: { mode: 'auto' },
-  public: false
+  public: false,
+  name: '',
+  password: ''
 };
 
 /**

@@ -32,7 +32,7 @@ export {
 
 export { BOT_NAMES, pickBotName, tooAlike } from './bots.js';
 
-export { QUICK_PLAYLIST_KEY, quickSize, quickSpecs } from './options.js';
+export { QUICK_INFINITE_VALUE, QUICK_PLAYLIST_KEY, quickSize, quickSpecs } from './options.js';
 
 export {
   CURRENCIES,

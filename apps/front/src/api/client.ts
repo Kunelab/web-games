@@ -467,6 +467,10 @@ export const api = {
       { mode: 'auto' } | { mode: 'chaos' } | { mode: 'preset'; presetId: string } | { mode: 'custom'; slots: string[] };
     /** Lists the table on the public board. Private by default. */
     public?: boolean;
+    /** What the board calls this table; empty means the role list names it. */
+    name?: string;
+    /** The word at the door; empty means there is no door. */
+    password?: string;
   }) => request<{ code: string; hostToken: string }>('/mafia/sessions', { method: 'POST', body: { config } }),
   mafiaSetups: () => request<{ id: string; name: string; description: string; slots: string[] }[]>('/mafia/setups'),
   mafiaTemplates: () => request<{ name: string; slots: string[] }[]>('/mafia/templates'),

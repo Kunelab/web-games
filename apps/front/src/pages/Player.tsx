@@ -45,11 +45,22 @@ export default function Player() {
   const [joined, setJoined] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * The word at the door, and whether this room has one.
+   *
+   * The flag is raised by the server's refusal rather than asked for up front:
+   * the overwhelming majority of rooms have no door, and a password box on every
+   * join screen is a question almost nobody has an answer to. See `JoinAck`.
+   */
+  const [password, setPassword] = useState('');
+  const [locked, setLocked] = useState(false);
 
   const tokenKey = `kune.player.${code}`;
 
   const join = useCallback(
-    async (playerName: string) => {
+    // The password is an argument rather than a read of state so that the silent
+    // rejoins below stay honest about their dependencies: they never carry one.
+    async (playerName: string, word = '') => {
       if (!socket) return;
       setBusy(true);
       setJoinError(null);
@@ -64,7 +75,8 @@ export default function Player() {
         const ack = (await socket.timeout(5000).emitWithAck('session:join', {
           code,
           playerName: actualName,
-          playerToken: localStorage.getItem(tokenKey) ?? undefined
+          playerToken: localStorage.getItem(tokenKey) ?? undefined,
+          password: word
         })) as JoinAck;
 
         if (ack.ok) {
@@ -78,7 +90,11 @@ export default function Player() {
           noteSeat('quiz', code, actualName);
           setJoined(true);
         } else {
-          setJoinError(ack.error ?? t(msg('play.joinFailed')));
+          // A room with a door says so here and nowhere earlier, so this is what
+          // makes the field appear. It stays up once raised: a wrong word is
+          // still a room that wants one.
+          if (ack.needsPassword) setLocked(true);
+          setJoinError(ack.needsPassword ? t(msg('room.wrong')) : (ack.error ?? t(msg('play.joinFailed'))));
         }
       } catch {
         setJoinError(t(msg('play.serverQuiet')));
@@ -160,7 +176,7 @@ export default function Player() {
           className="join-form"
           onSubmit={(event) => {
             event.preventDefault();
-            void join(name);
+            void join(name, password);
           }}
         >
           <h1 className="join-title">{t(msg('play.game', { code }))}</h1>
@@ -170,8 +186,21 @@ export default function Player() {
             placeholder={t(msg('play.yourNickname'))}
             maxLength={NICKNAME_MAX}
             aria-label={t(msg('play.yourNickname'))}
-            autoFocus
+            // The nickname is already filled from the last game; once the room
+            // has asked for a word, that is the box the thumb wants.
+            autoFocus={!locked}
           />
+          {locked && (
+            <Input
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder={t(msg('room.asked'))}
+              maxLength={40}
+              aria-label={t(msg('room.asked'))}
+              autoComplete="off"
+              autoFocus
+            />
+          )}
           {joinError && <p className="play-error">{joinError}</p>}
           <Button type="submit" variant="primary" size="lg" block busy={busy} disabled={!name.trim()}>
             {t(msg('play.join'))}
@@ -207,6 +236,10 @@ export default function Player() {
       {session.phase === 'lobby' && (
         <div className="jeu-center" style={{ flex: 1 }}>
           <div className="stack-4" style={{ textAlign: 'center' }}>
+            {/* Which room this is, when whoever opened it said. On a phone that
+                followed a link from a group chat, the name is the only thing on
+                this screen that says you are in the right one. */}
+            {session.name && <p className="play-label">{session.name}</p>}
             <p className="play-note">{t(msg('play.waitingForStart'))}</p>
             <p className="play-label">{t(msg('play.playerCount', { count: session.players.length }))}</p>
             <ul className="player-chips">

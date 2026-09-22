@@ -122,6 +122,18 @@ export const lobbyFr: Catalogue = {
   'join.quickMatch': 'partie rapide',
   'join.hostedBy': 'chez {host}',
   'join.enter': 'Rejoindre',
+  'join.locked': 'mot de passe',
+
+  /* --------------------------- la porte d’un salon -------------------------- */
+  'room.name': 'Nom du salon',
+  'room.name.hint':
+    'Ce que la liste des salons ouverts affichera. Vide, elle affichera « {fallback} », comme tous les autres.',
+  'room.password': 'Mot de passe',
+  'room.password.hint':
+    'Vide, le salon n’en demande aucun. Il n’est demandé qu’aux nouveaux arrivants : un téléphone qui recharge ou qui perd le réseau garde sa place sans le retaper.',
+  'room.asked': 'Mot de passe du salon',
+  'room.asked.hint': 'Ce salon en demande un. Demandez-le à la personne qui l’a ouvert.',
+  'room.wrong': 'Mot de passe incorrect.',
 
   /* ------------------------------ la partie rapide -------------------------- */
   'quick.title': 'Partie rapide — {game}',
@@ -166,6 +178,7 @@ export const lobbyFr: Catalogue = {
   /* ----------------------- les réglages que le salon vote ------------------- */
   'lobby.opt.playlist': 'Quiz',
   'lobby.opt.playlist.hint': 'Parmi les quiz publiés par la maison.',
+  'lobby.choice.playlist.infinite': 'Blind test infini',
   'lobby.opt.length': 'Longueur',
   'lobby.choice.length.court': 'Court — 8 manches',
   'lobby.choice.length.normal': 'Normal — 15 manches',

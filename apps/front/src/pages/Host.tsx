@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { api } from '../api/client';
-import { badgeMeta } from '../app/badges';
 import { fieldText } from '../forms/fieldText';
 import { isAdmin, useAuth } from '../hooks/useAuth';
 import { useFullscreen } from '../hooks/useFullscreen';
@@ -336,8 +335,19 @@ export default function Host() {
       {session.phase === 'lobby' && !session.oral && (
         <div className="host-lobby">
           <div className="stack-4" style={{ alignItems: 'center' }}>
+            {/* The room's own name, when it has one: this screen faces a room
+                that may have several going at once, and "Blind test infini" on
+                four televisions is four screens nobody can tell apart. */}
+            {session.name && <p className="play-label">{session.name}</p>}
             <p className="play-label">{t(msg('host.joinWithCode'))}</p>
             <p className="host-bigcode">{code}</p>
+            {/* The second half of the same sentence as the code. Only this screen
+                is ever sent it — see `SessionView.password`. */}
+            {session.password && (
+              <p className="play-note">
+                {t(msg('room.password'))} : <strong>{session.password}</strong>
+              </p>
+            )}
             <p className="play-note">{url}</p>
           </div>
 
@@ -347,24 +357,6 @@ export default function Host() {
               {session.players.map((player) => (
                 <li key={player.id} className={player.connected ? '' : 'away'}>
                   {player.name}
-                  {/*
-                    The title earned across past evenings: the cheap glory that
-                    makes a returning nickname feel like a returning player.
-
-                    With its medal, and never the bare word. "Vainqueur" on its
-                    own beside a name, on a screen that says "waiting to start",
-                    reads as this lobby having a winner already. The emoji and
-                    the hover both say what it actually is, which is something
-                    that nickname did on another evening.
-                  */}
-                  {player.title && (
-                    <span
-                      className="chip-title"
-                      title={`${t(msg(badgeMeta(player.title).titleKey))} · ${t(msg(badgeMeta(player.title).hintKey))}`}
-                    >
-                      {badgeMeta(player.title).emoji} {t(msg(badgeMeta(player.title).titleKey))}
-                    </span>
-                  )}
                   {/* Kicking exists for the misclick and the stray phone, so it lives
                       here in the lobby, not on the score strip mid-game. */}
                   <button
