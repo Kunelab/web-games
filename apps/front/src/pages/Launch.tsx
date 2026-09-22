@@ -13,23 +13,52 @@ import { Badge, Button, Field, Input, Loading, Select, Switch } from '../ui';
 import { PublicSwitch } from '../ui/PublicSwitch';
 import { RoomDoor } from '../ui/RoomDoor';
 import { ShareLink } from '../ui/ShareLink';
+import { BlindtestSource, type BlindtestDraw } from './BlindtestSource';
 import './playlists.css';
 
+/** What this room will be played on. */
+export type LaunchSource = 'playlist' | 'blindtest';
+
 /**
- * The step between a playlist and a game: options, then the code.
+ * The step between deciding what to play and a room with a code in it.
  *
  * A named route rather than a hidden screen, so the host can leave, come back, or
  * send the link to the television without losing the game.
+ *
+ * **Two sources, one room.** What a quiz is played on is either a playlist
+ * somebody wrote or the generated blind test, and that used to be the difference
+ * between two entirely separate screens — this one, which asked every question
+ * about the room, and a second one which asked none of them. So a generated blind
+ * test could not be listed on the public board, could not be named, could not be
+ * given a password and could not be raced on a buzzer, for no reason other than
+ * where its launch button happened to live. The source is a panel on this screen
+ * now, and everything below it is the same for both.
  */
-export default function Launch() {
+export default function Launch({ source = 'playlist' }: { source?: LaunchSource }) {
   const { id } = useParams<{ id: string }>();
   const playlistId = Number(id);
   const navigate = useNavigate();
   const t = useT();
 
-  const playlist = useAsync(() => api.getPlaylist(playlistId), [playlistId]);
+  const isBlindtest = source === 'blindtest';
+
+  // Never asked for on the generated side: there is no playlist to fetch, and
+  // `useAsync` is given something that resolves rather than a conditional hook.
+  const playlist = useAsync(
+    () => (isBlindtest ? Promise.resolve(null) : api.getPlaylist(playlistId)),
+    [playlistId, isBlindtest]
+  );
 
   const [config, setConfig] = useState<SessionConfig>(defaultSessionConfig);
+  /**
+   * The genres and the window, or null while they could not start a game.
+   *
+   * Owned here rather than inside the panel because it is what the start button
+   * sends, and the start button belongs to the room. `useState`'s setter is
+   * stable, so handing it straight down is also what keeps the panel's reporting
+   * effect from looping.
+   */
+  const [draw, setDraw] = useState<BlindtestDraw | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [started, setStarted] = useState<{
@@ -42,7 +71,10 @@ export default function Launch() {
     setStarting(true);
     setError(null);
     try {
-      const session = await api.startSession(playlistId, config);
+      const session = isBlindtest
+        ? draw && { ...(await api.blindtestCreate({ ...draw, config })), skipped: [] }
+        : await api.startSession(playlistId, config);
+      if (!session) return;
       // The host token proves ownership over the socket, and it must survive a
       // refresh of the host screen, so it goes in sessionStorage keyed by code.
       sessionStorage.setItem(`kune.host.${session.code}`, session.hostToken);
@@ -55,7 +87,7 @@ export default function Launch() {
   }
 
   if (playlist.loading) return <Loading />;
-  if (!playlist.data) {
+  if (!isBlindtest && !playlist.data) {
     return (
       <>
         <Link to="/playlists" className="backlink">
@@ -66,7 +98,11 @@ export default function Launch() {
     );
   }
 
-  const ready = playlist.data.items.length - playlist.data.notReadyCount;
+  /** What this room is playing, in the reader's words. Also the unnamed room's name. */
+  const subject = isBlindtest
+    ? t(msg('launch.blindtest'))
+    : (playlist.data?.name ?? t(msg('launch.backPlaylist')));
+  const ready = playlist.data ? playlist.data.items.length - playlist.data.notReadyCount : 0;
 
   if (started) {
     const url = joinUrl(started.code);
@@ -97,7 +133,7 @@ export default function Launch() {
                 )}
                 {/* The QR beside this covers the room; this covers the group chat,
                     which is where at least half of an evening's players are. */}
-                <ShareLink url={url} title={playlist.data.name ?? undefined} />
+                <ShareLink url={url} title={subject} />
               </div>
             )}
 
@@ -147,21 +183,36 @@ export default function Launch() {
 
   return (
     <>
-      <Link to={`/playlists/${playlistId}`} className="backlink">
-        ← {playlist.data.name ?? t(msg('launch.backPlaylist'))}
+      <Link to={isBlindtest ? '/quiz/creer' : `/playlists/${playlistId}`} className="backlink">
+        ← {isBlindtest ? t(msg('quiz.create.title')) : subject}
       </Link>
 
       <div className="page-head">
         <div>
-          <h1 className="page-title">
-            {t(msg('launch.of', { name: playlist.data.name ?? t(msg('launch.backPlaylist')) }))}
-          </h1>
+          <h1 className="page-title">{t(msg('launch.of', { name: subject }))}</h1>
           <p className="page-sub">
-            {t(msg('launch.playable', { count: ready }))}
-            {playlist.data.notReadyCount > 0 && t(msg('launch.skippedMeta', { count: playlist.data.notReadyCount }))}
+            {isBlindtest ? (
+              t(msg('launch.blindtest.lede'))
+            ) : (
+              <>
+                {t(msg('launch.playable', { count: ready }))}
+                {(playlist.data?.notReadyCount ?? 0) > 0 &&
+                  t(msg('launch.skippedMeta', { count: playlist.data?.notReadyCount ?? 0 }))}
+              </>
+            )}
           </p>
         </div>
       </div>
+
+      {/* What is being played, above how the room is set up: the panel decides
+          whether there is anything to play at all, and the start button below
+          stays dead until it says there is. */}
+      {isBlindtest && (
+        <div className="editor-section">
+          <h2 className="editor-section-title">{t(msg('launch.blindtest.source'))}</h2>
+          <BlindtestSource onChange={setDraw} />
+        </div>
+      )}
 
       <div className="launch-layout">
         <div className="editor-section">
@@ -176,7 +227,7 @@ export default function Launch() {
           <RoomDoor
             name={config.name}
             password={config.password}
-            fallback={playlist.data.name ?? t(msg('launch.backPlaylist'))}
+            fallback={subject}
             onName={(next) => setConfig({ ...config, name: next })}
             onPassword={(next) => setConfig({ ...config, password: next })}
           />
@@ -215,17 +266,27 @@ export default function Launch() {
             )}
           </Field>
 
-          <Switch
-            label={t(msg('launch.shuffle'))}
-            checked={config.shuffle}
-            onCheckedChange={(checked) => setConfig({ ...config, shuffle: checked, chronological: false })}
-          />
-          <Switch
-            label={t(msg('launch.chronological'))}
-            hint={t(msg('launch.chronological.hint'))}
-            checked={config.chronological}
-            onCheckedChange={(checked) => setConfig({ ...config, chronological: checked, shuffle: false })}
-          />
+          {/* Both questions are about an order that already exists, and a
+              generated blind test has none: its rounds are drawn one ahead of
+              the room, already paced by difficulty, and there is no date to sort
+              by. The server forces the pair off for it regardless — see
+              `POST /blindtest/sessions` — so asking would be asking twice and
+              answering neither time. */}
+          {!isBlindtest && (
+            <>
+              <Switch
+                label={t(msg('launch.shuffle'))}
+                checked={config.shuffle}
+                onCheckedChange={(checked) => setConfig({ ...config, shuffle: checked, chronological: false })}
+              />
+              <Switch
+                label={t(msg('launch.chronological'))}
+                hint={t(msg('launch.chronological.hint'))}
+                checked={config.chronological}
+                onCheckedChange={(checked) => setConfig({ ...config, chronological: checked, shuffle: false })}
+              />
+            </>
+          )}
           <Switch
             label={t(msg('launch.autoAdvance'))}
             hint={t(msg('launch.autoAdvance.hint'))}
@@ -328,7 +389,15 @@ export default function Launch() {
 
           {error && <p className="field-error">{error}</p>}
 
-          <Button variant="primary" size="lg" busy={starting} disabled={ready === 0} onClick={() => void start()}>
+          {/* Dead until there is something to play: an empty playlist on one
+              side, and on the other a set of genres the catalogue cannot fill. */}
+          <Button
+            variant="primary"
+            size="lg"
+            busy={starting}
+            disabled={isBlindtest ? draw === null : ready === 0}
+            onClick={() => void start()}
+          >
             {t(msg('launch.create'))}
           </Button>
         </div>

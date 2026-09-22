@@ -30,7 +30,6 @@ const MafiaTv = lazy(() => import('../pages/mafia/MafiaTv'));
 const QuizMenu = lazy(() => import('../pages/menu/QuizMenu'));
 const QuizGuide = lazy(() => import('../pages/menu/QuizGuide'));
 const QuizCreate = lazy(() => import('../pages/menu/QuizCreate'));
-const BlindtestSetup = lazy(() => import('../pages/BlindtestSetup'));
 const CzMenu = lazy(() => import('../pages/menu/CzMenu'));
 const CzGuide = lazy(() => import('../pages/menu/CzGuide'));
 const MafiaMenu = lazy(() => import('../pages/menu/MafiaMenu'));
@@ -158,11 +157,16 @@ const router = createBrowserRouter([
        */
       { path: '/quiz', element: <QuizMenu /> },
       { path: '/quiz/regles', element: <QuizGuide /> },
+      /**
+       * The same launch screen, opened on the generated blind test rather than
+       * on a playlist. It is a room like any other from here on: a code, a
+       * lobby, the public board if it was asked for, and a ceremony.
+       */
       {
         path: '/quiz/infini',
         element: (
           <RequireAuth>
-            <BlindtestSetup />
+            <Launch source="blindtest" />
           </RequireAuth>
         )
       },

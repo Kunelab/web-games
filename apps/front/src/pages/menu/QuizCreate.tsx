@@ -42,6 +42,26 @@ export default function QuizCreate() {
         </div>
       </header>
 
+      {/*
+        The one thing on this page that is not somebody's playlist.
+
+        It belongs here rather than behind its own door in the menu, because the
+        question this page asks is "what are we playing tonight", and a generated
+        blind test is one of the answers to it. Keeping it elsewhere meant a host
+        who wanted one left the room-opening flow entirely and arrived at a screen
+        that could not make the room public, name it or lock it — everything past
+        this tile is the same launch screen a playlist gets.
+      */}
+      <section className="guide-section">
+        <h2>{t(msg('quiz.create.generated'))}</h2>
+        <div className="menu-grid">
+          <Link to="/quiz/infini" className="menu-tile">
+            <strong>♾️ {t(msg('launch.blindtest'))}</strong>
+            <span className="menu-tile-hint">{t(msg('quiz.create.generatedHint'))}</span>
+          </Link>
+        </div>
+      </section>
+
       <Shelf
         title={t(msg('quiz.create.mine'))}
         empty={t(msg('quiz.create.mineEmpty'))}

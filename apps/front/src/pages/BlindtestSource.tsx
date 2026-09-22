@@ -1,24 +1,26 @@
-import { defaultSessionConfig, type SessionConfig } from 'game-core';
-import { msg } from 'i18n';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
 
 import { api, ApiError, type BlindtestCatalog, type BlindtestGenre } from '../api/client';
-import { useT } from '../i18n/locale-context';
-import { Button, Field, Input, Loading, Select, Switch } from '../ui';
-import { PublicSwitch } from '../ui/PublicSwitch';
-import { RoomDoor } from '../ui/RoomDoor';
+import { Loading } from '../ui';
 import './blindtest.css';
 
 /**
- * The room for the generated blind test.
+ * Where a generated blind test's rounds come from, as a panel rather than a page.
  *
- * Everything on this screen exists to answer one question before a room full of
- * people is committed to anything: *is there enough here to play?* Genres and a
- * difficulty window are abstract, and a set of filters that yields eleven clips
- * looks exactly like a set that yields four hundred until the game starts and
- * runs out. So the count is live, it is the loudest thing on the page, and the
- * start button refuses when it is zero.
+ * This is one of the two things a quiz room can be opened *on*: a playlist
+ * somebody wrote, or this — a set of genres and a difficulty window that the
+ * server turns into rounds while the evening runs. It lives inside the launch
+ * screen beside the room's own settings, because "what are we playing" and "how
+ * is the room set up" are two halves of one decision and used to be two screens
+ * that could not reach each other.
+ *
+ * Everything here exists to answer one question before a room full of people is
+ * committed to anything: *is there enough here to play?* Genres and a difficulty
+ * window are abstract, and a set of filters that yields eleven clips looks
+ * exactly like a set that yields four hundred until the game starts and runs out.
+ * So the count is live, it is the loudest thing on the panel, and the panel
+ * reports `null` upwards while it is zero — which is what disables the start
+ * button it does not own.
  *
  * The labels are the server's own French strings rather than translation keys.
  * The catalogue is data — a genre is a row with a name, like a playlist — and
@@ -37,6 +39,18 @@ const POOL_POLL_MS = 4000;
 
 /** null for a genre whose pool has not arrived yet. */
 type Availability = Record<string, number | null>;
+
+/** Everything `POST /blindtest/sessions` needs that is not the room's own config. */
+export interface BlindtestDraw {
+  genreIds: string[];
+  difficultyMin: number;
+  difficultyMax: number;
+  region: string;
+  /** Null for genuinely endless: the host ends it from the game screen. */
+  maxRounds: number | null;
+  /** 0 searches for every round, 1 replays only the shared catalogue. */
+  replayShare: number;
+}
 
 function DifficultySlider({
   min,
@@ -84,28 +98,19 @@ function DifficultySlider({
   );
 }
 
-export default function BlindtestSetup() {
-  const navigate = useNavigate();
-  const t = useT();
-
+export function BlindtestSource({
   /**
-   * The room this blind test is played in, with every dial a playlist gets.
+   * The draw as it stands, or null while it could not start a game.
    *
-   * It used to have none of them. A generated session is a session — it opens a
-   * lobby, phones join it by code, it scores and it ends in a ceremony — but the
-   * only way to start one skipped the screen where a host says whether there is a
-   * television, whether the room races on a buzzer, and whether anybody who is
-   * not in the room may find it at all. So this mode quietly could not be public,
-   * could not be named and could not be played with a buzzer, for no reason other
-   * than that its launch screen was written separately from the other one.
-   *
-   * The two order settings stay out: the draw already paces difficulty across the
-   * evening and there is no playlist to shuffle or to sort by date. The server
-   * forces both off regardless — see `POST /blindtest/sessions`.
+   * Null covers three different nothings — no genre ticked, the count not back
+   * yet, and a count of zero — deliberately, because the screen above needs the
+   * same answer for all three and the reasons are narrated here rather than
+   * there. It must be a stable function: it is called from an effect.
    */
-  const [config, setConfig] = useState<SessionConfig>(defaultSessionConfig);
-  const patch = useCallback((next: Partial<SessionConfig>) => setConfig((current) => ({ ...current, ...next })), []);
-
+  onChange
+}: {
+  onChange: (draw: BlindtestDraw | null) => void;
+}) {
   const [catalog, setCatalog] = useState<BlindtestCatalog | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -142,8 +147,6 @@ export default function BlindtestSetup() {
   const [poll, setPoll] = useState(0);
   /** Tagged like the result, so a stale failure ages out instead of being cleared. */
   const [countError, setCountError] = useState<{ key: string; message: string } | null>(null);
-  const [starting, setStarting] = useState(false);
-  const [startError, setStartError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -248,27 +251,30 @@ export default function BlindtestSetup() {
   const failure = countError?.key === settingsKey ? countError.message : null;
 
   /**
-   * Which genres are still being built, by name.
+   * And the draw goes up, or the word that there is not one yet.
    *
-   * "3 genre(s) en cours de chargement…" is a number, and a number does not say
-   * whether the wait is nearly over or has not started. Building one pool is
-   * several searches, every playlist behind it and a model pass over what
-   * survives, so it is the slowest thing on this screen by a wide margin and the
-   * only one worth narrating. Naming them turns a spinner into progress: the
-   * list shortens, and the host can see which choice is the expensive one.
-   *
-   * Capped at three names so a host who ticked everything gets a sentence rather
-   * than a paragraph; the count carries the rest.
+   * Reported from an effect rather than from every handler because it depends on
+   * the count, which arrives on its own schedule: a host who ticks a genre and
+   * waits has changed nothing, and the button above still has to come alive when
+   * the number lands.
    */
-  const loading = (catalog?.genres ?? [])
-    .filter((genre) => selected.has(genre.id) && available[genre.id] === null)
-    .map((genre) => genre.label);
-  const loadingLabel =
-    loading.length === 0
-      ? ''
-      : loading.length <= 3
-        ? loading.join(', ')
-        : `${loading.slice(0, 3).join(', ')} +${loading.length - 3}`;
+  const startable = catalog?.available === true && total !== null && total > 0;
+  useEffect(() => {
+    if (!startable) {
+      onChange(null);
+      return;
+    }
+    const draw = JSON.parse(settingsKey) as { genres: string[]; min: number; max: number; region: string };
+    onChange({
+      genreIds: draw.genres,
+      difficultyMin: draw.min,
+      difficultyMax: draw.max,
+      region: draw.region,
+      maxRounds,
+      // The server takes a share, the slider speaks percent.
+      replayShare: replayPercent / 100
+    });
+  }, [startable, settingsKey, maxRounds, replayPercent, onChange]);
 
   const toggle = useCallback((id: string) => {
     setSelected((current) => {
@@ -304,59 +310,47 @@ export default function BlindtestSetup() {
     });
   }, [catalog]);
 
-  async function start() {
-    setStarting(true);
-    setStartError(null);
-    try {
-      const created = await api.blindtestCreate({
-        genreIds: [...selected],
-        difficultyMin: Math.min(difficulty.min, difficulty.max),
-        difficultyMax: Math.max(difficulty.min, difficulty.max),
-        region,
-        maxRounds,
-        // The server takes a share, the slider speaks percent.
-        replayShare: replayPercent / 100,
-        config
-      });
-      /**
-       * The host token proves ownership over the socket, and the host screen
-       * reads it from `sessionStorage` keyed by the join code — not from router
-       * state, which does not survive the refresh a television inevitably gets.
-       * Same handshake every other way of starting a game uses; see Launch.tsx.
-       */
-      sessionStorage.setItem(`kune.host.${created.code}`, created.hostToken);
-      void navigate(`/partie/${created.code}`);
-    } catch (error) {
-      setStartError(
-        error instanceof ApiError ? error.message : "La partie n'a pas pu démarrer. Réessayez dans un instant."
-      );
-      setStarting(false);
-    }
-  }
+  /**
+   * Which genres are still being built, by name.
+   *
+   * "3 genre(s) en cours de chargement…" is a number, and a number does not say
+   * whether the wait is nearly over or has not started. Building one pool is
+   * several searches, every playlist behind it and a model pass over what
+   * survives, so it is the slowest thing on this screen by a wide margin and the
+   * only one worth narrating. Naming them turns a spinner into progress: the
+   * list shortens, and the host can see which choice is the expensive one.
+   *
+   * Capped at three names so a host who ticked everything gets a sentence rather
+   * than a paragraph; the count carries the rest.
+   */
+  const loading = (catalog?.genres ?? [])
+    .filter((genre) => selected.has(genre.id) && available[genre.id] === null)
+    .map((genre) => genre.label);
+  const loadingLabel =
+    loading.length === 0
+      ? ''
+      : loading.length <= 3
+        ? loading.join(', ')
+        : `${loading.slice(0, 3).join(', ')} +${loading.length - 3}`;
 
   if (loadError) return <p className="bt-error">{loadError}</p>;
   if (!catalog) return <Loading />;
 
   if (!catalog.available) {
     return (
-      <div className="bt-setup">
-        <h1>Blind test infini</h1>
-        <p className="bt-error">
-          Ce serveur n&apos;a pas de clé YouTube configurée, donc il ne peut pas constituer de catalogue. Renseignez
-          <code> GOOGLE_API_KEY</code> puis redémarrez.
-        </p>
-      </div>
+      <p className="bt-error">
+        Ce serveur n&apos;a pas de clé YouTube configurée, donc il ne peut pas constituer de catalogue. Renseignez
+        <code> GOOGLE_API_KEY</code> puis redémarrez.
+      </p>
     );
   }
 
   const everySelected = selected.size === catalog.genres.length;
-  const canStart = selected.size > 0 && total !== null && total > 0 && !starting;
 
   return (
     <div className="bt-setup">
       <header className="bt-head">
         <div>
-          <h1>Blind test infini</h1>
           <p className="bt-lede">
             Les extraits sont trouvés au fur et à mesure : pendant qu&apos;un titre passe, le suivant se prépare. Rien
             n&apos;est enregistré dans votre bibliothèque.
@@ -371,9 +365,7 @@ export default function BlindtestSetup() {
             <>
               <strong>{total}</strong>
               <span className="bt-count-hint">
-                {pending > 0
-                  ? `extraits · préparation de ${loadingLabel}…`
-                  : `extraits jouables en ${region}`}
+                {pending > 0 ? `extraits · préparation de ${loadingLabel}…` : `extraits jouables en ${region}`}
               </span>
             </>
           )}
@@ -515,121 +507,12 @@ export default function BlindtestSetup() {
         </div>
       </section>
 
-      {/*
-        The room, asked here rather than nowhere.
-
-        Everything below this heading is the same set of questions the launch
-        screen asks of a playlist, and they are the same questions because this is
-        the same object: a session with a code, a lobby and a ceremony. The only
-        thing generated about it is where the rounds come from.
-      */}
-      <section className="bt-controls">
-        <h2>Le salon</h2>
-
-        <div className="bt-room">
-          <PublicSwitch what="ce blind test" value={config.public} onChange={(checked) => patch({ public: checked })} />
-          <RoomDoor
-            name={config.name}
-            password={config.password}
-            fallback="Blind test infini"
-            onName={(next) => patch({ name: next })}
-            onPassword={(next) => patch({ password: next })}
-          />
-        </div>
-
-        <div className="bt-room">
-          <Field
-            label={t(msg('launch.stage'))}
-            hint={t(msg(config.tv ? 'launch.stage.tv.hint' : 'launch.stage.everyone.hint'))}
-          >
-            {({ id, describedBy }) => (
-              <Select
-                id={id}
-                aria-describedby={describedBy}
-                value={config.tv ? 'tv' : 'everyone'}
-                options={[
-                  { value: 'everyone', label: t(msg('launch.stage.everyone')) },
-                  { value: 'tv', label: t(msg('launch.stage.tv')) }
-                ]}
-                onValueChange={(next) => patch({ tv: next === 'tv' })}
-              />
-            )}
-          </Field>
-
-          <Switch
-            label={t(msg('launch.autoAdvance'))}
-            hint={t(msg('launch.autoAdvance.hint'))}
-            checked={config.autoAdvance}
-            onCheckedChange={(checked) => patch({ autoAdvance: checked })}
-          />
-          <Switch
-            label={t(msg('launch.buzzer'))}
-            hint={t(msg('launch.buzzer.hint'))}
-            checked={config.buzzer}
-            onCheckedChange={(checked) => patch({ buzzer: checked })}
-          />
-          {config.buzzer && (
-            <Field label={t(msg('launch.buzzerWindow'))} hint={t(msg('launch.buzzerWindow.hint'))}>
-              {({ id, describedBy }) => (
-                <Input
-                  id={id}
-                  aria-describedby={describedBy}
-                  type="number"
-                  min={3}
-                  max={30}
-                  value={Math.round(config.buzzerWindowMs / 1000)}
-                  onChange={(event) =>
-                    patch({ buzzerWindowMs: Math.min(30, Math.max(3, Number(event.target.value))) * 1000 })
-                  }
-                />
-              )}
-            </Field>
-          )}
-          <Switch
-            label={t(msg('launch.combo'))}
-            hint={t(msg('launch.combo.hint'))}
-            checked={config.scoring.combo.enabled}
-            onCheckedChange={(checked) =>
-              patch({ scoring: { ...config.scoring, combo: { ...config.scoring.combo, enabled: checked } } })
-            }
-          />
-          <Switch
-            label={t(msg('launch.comeback'))}
-            hint={t(msg('launch.comeback.hint'))}
-            checked={config.scoring.comeback.enabled}
-            onCheckedChange={(checked) =>
-              patch({ scoring: { ...config.scoring, comeback: { ...config.scoring.comeback, enabled: checked } } })
-            }
-          />
-          <Field label={t(msg('launch.attempts'))} hint={t(msg('launch.attempts.hint'))}>
-            {({ id, describedBy }) => (
-              <Input
-                id={id}
-                aria-describedby={describedBy}
-                type="number"
-                min={1}
-                max={10}
-                value={config.attemptsPerField}
-                onChange={(event) => patch({ attemptsPerField: Math.max(1, Number(event.target.value)) })}
-              />
-            )}
-          </Field>
-        </div>
-      </section>
-
       {total === 0 && pending === 0 && selected.size > 0 && (
         <p className="bt-error">
           Aucun extrait jouable avec ces réglages. Élargissez la difficulté, ajoutez des genres, ou vérifiez le pays.
         </p>
       )}
       {failure && <p className="bt-error">{failure}</p>}
-      {startError && <p className="bt-error">{startError}</p>}
-
-      <div className="page-actions">
-        <Button variant="primary" size="lg" disabled={!canStart} onClick={() => void start()}>
-          {starting ? 'Préparation…' : 'Lancer'}
-        </Button>
-      </div>
     </div>
   );
 }
