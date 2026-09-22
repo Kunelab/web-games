@@ -556,6 +556,27 @@ export default function MafiaPlayer() {
       const mine = selfOnly(me);
       const reachable = mine ? player.slot === me.slot : me.action.targets.includes(player.slot);
       if (!reachable) return null;
+
+      /**
+       * A vest you do not have is not a button.
+       *
+       * `legalNightAction` hands back the alert and the vest whatever is left in
+       * the hand, and the night pass then checks `charges > 0` before it arms
+       * anything. Between those two the screen offered a live control that did
+       * nothing at all: a Survivor out of vests pressed it, watched the row fill
+       * in, and went to bed believing it was wearing one. The label is the whole
+       * fix — the charge count was on the role card the whole time, behind an
+       * icon nobody opens while the clock is running.
+       */
+      if (mine && me.action.charges === 0) {
+        return {
+          label: tk(`mafia.ui.spent.${me.action.type}`),
+          chosen: false,
+          waiting: true,
+          run: () => undefined
+        };
+      }
+
       const chosen = me.actionTargetSlot === player.slot;
       // Pointing the match at your own house is a different sentence from
       // pointing it at somebody else's.
@@ -1290,6 +1311,19 @@ export default function MafiaPlayer() {
                 const action = rowAction(player);
                 const isMe = player.slot === me.slot;
                 const onTrial = player.onTrial;
+                /**
+                 * Whether your own house is armed tonight, as a fact on the row.
+                 *
+                 * The vest and the alert are the only two powers aimed at
+                 * nobody, and they were the only two whose state the board never
+                 * said out loud: the sole feedback was the button flipping to
+                 * "Cancel", which reads as an offer rather than as a condition,
+                 * and a player who had toggled twice had no way to tell which
+                 * way it had landed. Reported now in both directions, because
+                 * "off" is the half you cannot see and the half that kills you.
+                 */
+                const selfPower = isNight && !!me.action && selfOnly(me) && (me.action.charges ?? 0) > 0;
+                const armed = isMe && selfPower && me.actionTargetSlot === me.slot;
                 const canWhisper =
                   view.phase === 'day' && me.alive && player.alive && !isMe && whisperTo !== player.slot;
 
@@ -1300,7 +1334,8 @@ export default function MafiaPlayer() {
                       'mz-seat',
                       !player.alive && 'mz-seat--dead',
                       isMe && 'mz-seat--me',
-                      onTrial && 'mz-seat--trial'
+                      onTrial && 'mz-seat--trial',
+                      armed && 'mz-seat--armed'
                     )}
                   >
                     <span className="mz-seat-no">{player.slot}</span>
@@ -1360,6 +1395,31 @@ export default function MafiaPlayer() {
                           )}
                       </span>
                       <span className="mz-seat-sub">
+                        {/*
+                          Armed or not, spelled out, on the one row you are
+                          already looking at. `aria-live` because this is the
+                          answer to a button you just pressed, and a player on a
+                          screen reader was getting no answer at all.
+
+                          The count is what will be left *after* tonight: the
+                          engine spends the charge when the night resolves, so
+                          `charges` still reads five while you are standing there
+                          wearing the first vest, and printing it raw would
+                          promise one more than you have.
+                        */}
+                        {isMe && selfPower && me.action && (
+                          <span
+                            className={cx('mz-armed', armed && 'mz-armed--on')}
+                            aria-live="polite"
+                            key={armed ? 'on' : 'off'}
+                          >
+                            {armed
+                              ? tk(`mafia.ui.armed.${me.action.type}`, {
+                                  count: Math.max(0, (me.charges ?? 1) - 1)
+                                })
+                              : tk(`mafia.ui.unarmed.${me.action.type}`)}
+                          </span>
+                        )}
                         {/*
                           The role, in its camp's colour — for a body, or for
                           everybody once the game is over. The masks coming off is

@@ -1,4 +1,4 @@
-import { ROLES, roleDef, type RoleId } from '../roles.js';
+import { CORPSE_ONLY, ROLES, roleDef, type RoleId } from '../roles.js';
 import { possibleRoles, roomForAll } from './slots.js';
 import type { Claim, PublicInfo } from './policies.js';
 
@@ -314,7 +314,15 @@ const VISITS_THE_DEAD: readonly RoleId[] = ['amnesiac', 'coroner', 'janitor', 'i
  * the morgue, so for them a night out among the living is not a slip of
  * phrasing, it is two claims that cannot both be true.
  */
-const CORPSE_ONLY: readonly RoleId[] = ['coroner', 'janitor', 'incense-master'];
+/**
+ * Re-exported from the role table, where the liar reads it too.
+ *
+ * A bot wearing one of these as a mask goes on filing its real movements, and
+ * those name the living, so the mask and the night log refute each other in the
+ * same will. The mask pickers therefore refuse to hand one out, and both ends
+ * read one list rather than keeping copies that drift apart.
+ */
+export { CORPSE_ONLY };
 
 /**
  * Could anybody at all have called on a corpse that night?

@@ -123,6 +123,21 @@ export const screenEn: Catalogue = {
   'mafia.ui.lobby.addBots': '+ 1 bot',
   'mafia.ui.lobby.start': 'Start the game',
   'mafia.ui.charges': '{count} left',
+  /*
+    The two powers aimed at your own house, reported in both directions.
+
+    "Off" needs a sentence as much as "on" does: the only sign the vest was on
+    used to be the button offering to cancel, and a player who had tapped twice
+    could not tell which way it had landed. The count is what is left after
+    tonight, because the charge is spent when the night resolves and the raw
+    number promises one more than you have.
+  */
+  'mafia.ui.armed.vest': '🦺 Vest on tonight · {count} left after this one',
+  'mafia.ui.armed.alert': '🎯 On alert tonight · {count} left after this one',
+  'mafia.ui.unarmed.vest': '🦺 No vest tonight · you are unprotected',
+  'mafia.ui.unarmed.alert': '🎯 Not on alert · your door stays open',
+  'mafia.ui.spent.vest': 'No vests left',
+  'mafia.ui.spent.alert': 'No alerts left',
   'mafia.ui.dead': 'Dead',
   'mafia.ui.survived': 'survived',
   'mafia.ui.withYou': 'With you: {mates}',

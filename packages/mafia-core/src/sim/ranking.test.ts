@@ -308,7 +308,7 @@ describe('a name written down by the dead', () => {
 /**
  * What mercy costs, which used to be a flat rate.
  *
- * Voting innocent on somebody the graveyard later names as a killer was 2.5
+ * Voting innocent on somebody the graveyard later names as a killer was a flat 2.5
  * whenever it happened. On the second afternoon, with nothing on the board, it
  * is what an honest player does; on the sixth, with three seats naming them and
  * a watcher putting them on a doorstep, nobody does it by accident.
@@ -330,13 +330,25 @@ describe('the price of voting innocent on a killer', () => {
     assert.ok(early > -1.2, `an honest early mercy should be cheap, got ${early}`);
   });
 
+  /**
+   * The full rate is `MERCY`, and `MERCY` came down from 2.5 to 1.5.
+   *
+   * At 2.5 this one term was most of what the meter said about anybody: the
+   * heaviest credit on the other side of the same trial tops out near a point,
+   * so one merciful ballot outweighed two correct ones and the meter became a
+   * record of the single afternoon a seat voted innocent. It is still the
+   * heavier act, which is the relationship this asserts; it just no longer
+   * drowns out everything else the seat did.
+   */
   it('charges the full price late, with the room pointing', () => {
     const late = trial(5, [
       said({ claimerSlot: 2, targetSlot: 5, kind: 'accuse', day: 4 }),
       said({ claimerSlot: 3, targetSlot: 5, kind: 'accuse', day: 5 }),
       said({ claimerSlot: 4, targetSlot: 5, kind: 'sighting', day: 5 })
     ]);
-    assert.ok(trustOf(1, late) <= -2.4, `a late mercy against a real case is the old flat rate`);
+    assert.ok(trustOf(1, late) <= -1.4, `a late mercy against a real case is the full rate`);
+    // And the guilty ballot on the same trial is still the lighter of the two.
+    assert.ok(Math.abs(trustOf(2, late)) < Math.abs(trustOf(1, late)));
   });
 
   /** And the clock alone is not the whole story: a thin case late still costs less. */

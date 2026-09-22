@@ -896,8 +896,23 @@ export function couldStillAct(action: NightActionType, info: PublicInfo): boolea
   return possible.some((role) => !buried.has(role));
 }
 
-/** What standing up for a killer costs when the room could not possibly miss it. */
-const MERCY = 2.5;
+/**
+ * What standing up for a killer costs when the room could not possibly miss it.
+ *
+ * Lowered from 2.5, because at 2.5 it was most of what the trust meter was
+ * saying about anybody. The heaviest credit available on the other side of the
+ * same trial is `0.2 + 0.9 * divided`, which tops out near a point, so one
+ * merciful ballot outweighed two correct ones and then some. The meter stopped
+ * being a read on how a seat plays and became a record of the one afternoon it
+ * voted innocent, which is also the afternoon an honest player is most likely
+ * to have voted innocent for honest reasons.
+ *
+ * It stays the heavier act, and deliberately: standing up for a killer should
+ * cost more than joining a rope earns. It just no longer drowns out everything
+ * else the seat has done. The shape around it is unchanged — the bill still
+ * scales with what the room was holding and how late it was, via `mercyCost`.
+ */
+const MERCY = 1.5;
 
 /**
  * How damning one innocent vote was, 0 (forgivable) to 1 (the full price).
@@ -928,8 +943,15 @@ function mercyCost(trial: TrialRecord, info: PublicInfo): number {
       )
       .map((claim) => claim.claimerSlot)
   );
+  // And not a doorstep the accused had already put itself on. See `ownsUpTo`:
+  // a sighting that agrees with the account it names is not part of the case
+  // against them, so voting innocent on it costs nothing.
   const watched = info.claims.some(
-    (claim) => claim.kind === 'sighting' && claim.targetSlot === trial.accusedSlot && claim.day <= trial.day
+    (claim) =>
+      claim.kind === 'sighting' &&
+      claim.targetSlot === trial.accusedSlot &&
+      claim.day <= trial.day &&
+      ownsUpTo(trial.accusedSlot, claim, info) === null
   );
   const held = Math.min(1, (named.size + (watched ? 1 : 0)) / 3);
   const late = Math.min(1, Math.max(0, trial.day - 2) / 3);
@@ -1353,8 +1375,20 @@ function grounded(claim: Claim, info: PublicInfo): boolean {
   const proven = info.provenRoles.get(claim.targetSlot);
   if (proven && isEvilRole(proven)) return true;
   if (deductions(claim.targetSlot, info).length > 0) return true;
+  /**
+   * A doorstep only grounds an accusation while it is telling the room
+   * something. See `ownsUpTo`: where the sighting agrees with the account the
+   * accused had already given, it is corroboration, and treating it as ground
+   * was what let a whole chorus keep full weight against a Doctor whose round
+   * the dead Lookout had just confirmed. Ungrounded, that chorus is worth a
+   * third, which is the difference between a wagon and a hanging.
+   */
   return info.claims.some(
-    (other) => other.kind === 'sighting' && other.targetSlot === claim.targetSlot && other.day <= claim.day
+    (other) =>
+      other.kind === 'sighting' &&
+      other.targetSlot === claim.targetSlot &&
+      other.day <= claim.day &&
+      ownsUpTo(claim.targetSlot, other, info) === null
   );
 }
 
@@ -1458,6 +1492,72 @@ export function contradicted(slot: number, info: PublicInfo): boolean {
       claim.claimerSlot !== slot &&
       claimerWeight(claim.claimerSlot, info) >= CREDIBLE
   );
+}
+
+/**
+ * The other half of `contradicted`, which was missing, and it hanged a Doctor.
+ *
+ * A sighting was worth the same half point whatever the seat it names had said
+ * about that night: `contradicted` caught the seat whose story the doorstep
+ * refutes, and nothing at all looked at the seat whose story the doorstep
+ * *confirms*. Those are opposite facts and the board priced them identically.
+ *
+ * What that costs, from a real game. The town's Doctor had published his round
+ * two days running, Ishtar on night one and the Bodyguard on night four. The
+ * Lookout then died and his will put exactly those two houses on exactly those
+ * two nights, naming the Doctor at both. That is an instrument agreeing with a
+ * story it never heard, which is the strongest thing a townsperson can produce
+ * and the hardest for a liar to arrange. Eight seats read it, each added a half
+ * point to the man it exonerated, and every one of them gave the same reason as
+ * it voted: "Bugs Bunny saw them visiting a house on night 1." The Bodyguard he
+ * had saved voted with them.
+ *
+ * Two tiers, because the two cases are not worth the same.
+ *
+ * `matches` is a seat whose standing account for that night agrees with the
+ * doorstep, however late it said so. It is worth nothing in either direction:
+ * the sighting stops being evidence, because a confirmed visit is not a crime
+ * and half the town is out at night, but a story told after the report is out
+ * could have been cut to fit it and buys nothing.
+ *
+ * `volunteered` is a seat that said where it was *before* the report landed. It
+ * cannot be cut to fit, so it earns back exactly what the sighting would have
+ * cost. Deliberately no more than that: this is corroboration of an alibi, not
+ * a badge, and a seat should not be able to farm trust by narrating its nights.
+ *
+ * The doorstep has to match when the sighting names one. A Lookout who saw this
+ * seat at the dead man's door is not corroborating an account that puts it
+ * somewhere else, and that mismatch is `contradicted`'s business rather than
+ * this function's.
+ */
+export function ownsUpTo(slot: number, sighting: Claim, info: PublicInfo): 'volunteered' | 'matches' | null {
+  const night = sighting.night ?? Math.max(1, sighting.day - 1);
+  const accounts = info.claims.filter(
+    (claim) =>
+      claim.kind === 'account' &&
+      claim.claimerSlot === slot &&
+      (claim.night ?? Math.max(1, claim.day - 1)) === night
+  );
+
+  // The newest account wins outright, for the reason `contradicted` gives.
+  const standing = accounts[accounts.length - 1];
+  if (!standing || standing.account !== 'visited') return null;
+  if (sighting.at !== undefined && standing.targetSlot !== sighting.at) return null;
+
+  /**
+   * Said first, rather than merely said early and then revised.
+   *
+   * Asking whether *any* account for this night predates the report would pay
+   * out for the one move this tier exists to refuse: a seat that answered "I
+   * was home", heard the doorstep, and came back with a visit. That seat has an
+   * earlier account and a matching standing one, and it has told two stories.
+   * So the account that predates the report has to be the same account the seat
+   * is standing on now, which also keeps the credit for the honest seat that
+   * simply repeats itself under pressure.
+   */
+  return accounts.some((claim) => claim.day < sighting.day && claim.targetSlot === standing.targetSlot)
+    ? 'volunteered'
+    : 'matches';
 }
 
 /**
@@ -2559,8 +2659,16 @@ export function suspicionParts(
      * Being out at night is not a crime — half the town is out at night. Left
      * linear on purpose: two people putting the same house on two different
      * doorsteps are two observations, not one opinion said twice.
+     *
+     * And it is not evidence at all against a seat that already said it was
+     * there. See `ownsUpTo`: a doorstep that agrees with the account it names
+     * is corroboration, and it used to be charged as proof of guilt.
      */
-    if (claim.kind === 'sighting') score += 0.5 * weight;
+    if (claim.kind === 'sighting') {
+      const owned = ownsUpTo(targetSlot, claim, info);
+      if (owned === null) score += 0.5 * weight;
+      else if (owned === 'volunteered') score -= 0.5 * weight;
+    }
   }
 
   /** Everything below that a juror could point to itself, kept apart. */
@@ -4644,11 +4752,43 @@ export function decideDay(
     }
 
     /**
+     * A seat only gets to be one thing, and it says so once.
+     *
+     * Neither of the two mask sites below asked whether this seat had already
+     * claimed a role, and both of them run on every decision. `burnedFaces`
+     * burns a living seat's own claim, so the second roll could not repeat the
+     * face — it just reached for the next one down the list. The result was a
+     * cornered killer introducing itself as the Jester, then the Citizen, then
+     * the Escort, then the Lookout, one per decision, each contradicting the
+     * last in front of a room that was reading all of them.
+     *
+     * That is also the whole of why the Jester claim looked so common: it is
+     * first in `pickMask`'s order, so it was the opening line of every spew.
+     * Held to one face per seat, it goes back to being what it is meant to be,
+     * a single desperate sentence from somebody with the rope in sight.
+     */
+    const wornAFaceAlready = info.claims.some(
+      (claim) => claim.kind === 'role-claim' && claim.claimerSlot === self.slot
+    );
+
+    /**
      * And the mirror of it: a cornered villain claiming to *be* the Jester,
      * because hanging a jester hands him the game and the whole room knows it.
      * The best sentence available to a mafioso with three votes on his head.
+     *
+     * "With three votes on his head" is now load-bearing rather than flavour.
+     * The gate used to be `jesterGambit > 0`, which is true of every family
+     * member past the desperation mark whether or not anybody had so much as
+     * looked at them, so the best sentence in the game was being spent on
+     * afternoons where nothing was happening. It costs a seat its whole claim
+     * for the rest of the game, so it should be paid when the rope is actually
+     * close: somebody has named them, or the wagon is on them.
      */
-    if (agenda !== 'jester' && agenda !== 'town' && stance.jesterGambit > 0) {
+    const underFire =
+      votesAgainst(self.slot, info) > 0 ||
+      info.claims.some((claim) => claim.kind === 'accuse' && claim.targetSlot === self.slot);
+
+    if (agenda !== 'jester' && agenda !== 'town' && !wornAFaceAlready && underFire && stance.jesterGambit > 0) {
       const mask = pickMask(agenda, stance, rng, burnedFaces(info));
       if (mask) publish(self.slot, 'role-claim', mask);
     }
@@ -4688,8 +4828,9 @@ export function decideDay(
       }
       // With the rope close, wear a face. Which face is `pickMask`'s business —
       // a boring one to get through the day, a frightening one to get through
-      // the night, or the Jester's, which makes hanging you a mistake.
-      if (rng() < stance.fakeClaim * 0.7) {
+      // the night, or the Jester's, which makes hanging you a mistake. Once:
+      // see `wornAFaceAlready`, and the spew it was producing without it.
+      if (!wornAFaceAlready && rng() < stance.fakeClaim * 0.7) {
         const mask = pickMask(agenda, stance, rng, burnedFaces(info));
         if (mask) publish(self.slot, 'role-claim', mask);
       }
@@ -4832,7 +4973,36 @@ export function decideDay(
           !self.intel.some((entry) => entry.targetSlot === slot && entry.kind === 'sheriff' && entry.value === 'clear')
       );
       const pick = quiet[Math.floor(rng() * quiet.length)];
-      if (pick !== undefined && rng() < 0.8) decision.jailSlot = pick;
+      if (pick !== undefined) decision.jailSlot = pick;
+    }
+
+    /**
+     * An empty cell, which was most of them.
+     *
+     * All three branches above could decide on nobody, and between them they
+     * did it most nights: the interview branch rolled a one-in-five to skip for
+     * no reason at all, and could also come up empty when every seat had spoken
+     * at least once; the pointed branch demanded a suspicion of 0.8 and simply
+     * went home when the room's best suspect did not reach it. Measured on a
+     * real table: a Jailor alive for four days locked the door exactly once.
+     *
+     * There is nothing to save it for. Jailing costs the Jailor nothing, spends
+     * no charge and has no cooldown — the charges are executions, which are a
+     * separate decision taken at dusk — and a night in the cell is strictly
+     * good for the town whoever is in it: a killer is roleblocked, a victim is
+     * sheltered from everything aimed at them, and either way the Jailor gets a
+     * private conversation it can hold the rest of the game against. An empty
+     * cell throws all three away to no purpose.
+     *
+     * So the preferences above still decide *who*; this only decides that
+     * somebody goes in. The leading suspect is the fallback, because the
+     * branches that failed to choose were both reaching for one.
+     */
+    if (decision.jailSlot === null && others.length > 0) {
+      const ranked = others
+        .map((slot) => ({ slot, score: suspicion(slot, self, info, rng) }))
+        .sort((left, right) => right.score - left.score);
+      decision.jailSlot = ranked[0]?.slot ?? null;
     }
 
     /**

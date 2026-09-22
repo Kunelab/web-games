@@ -797,8 +797,8 @@ export const ROLES: Record<RoleId, RoleDef> = {
     faction: 'neutral',
     nightAction: 'vest',
     selfTarget: true,
-    charges: 4,
-    description: 'Gagne s’il voit la fin, peu importe qui l’emporte. Quatre gilets pare-balles.',
+    charges: 5,
+    description: 'Gagne s’il voit la fin, peu importe qui l’emporte. Cinq gilets pare-balles.',
     investigated: L.quiet
   }),
   amnesiac: def({
@@ -1043,6 +1043,48 @@ export function familyOf(role: RoleId): FamilyId | null {
 
 export function isSoloKiller(role: RoleId): boolean {
   return !!ROLES[role].soloKiller;
+}
+
+/**
+ * The three badges whose whole night happens on a slab.
+ *
+ * The Coroner performs the autopsy, the Janitor and the Incense Master clean
+ * the body. For all three, "I went to a house whose owner was dead" is not a
+ * slip, it is the power working, and a night out among the living is two claims
+ * that cannot both be true.
+ *
+ * Lives here, in the role table, rather than beside either of the two things
+ * that read it. The deduction layer uses it to *catch* a seat wearing one of
+ * these over an ordinary itinerary, and the mask pickers use it to refuse to
+ * hand that costume out in the first place. Those have to be the same list or
+ * the bots go on walking into a trap the same codebase sets for them, which is
+ * exactly what happened while there were two copies.
+ */
+export const CORPSE_ONLY: readonly RoleId[] = ['coroner', 'janitor', 'incense-master'];
+
+/**
+ * Badges a liar cannot hold up, whatever the room already believes.
+ *
+ * `CORPSE_ONLY` refutes itself against the seat's own movements. The Crier
+ * fails a cheaper test than that: his power is a voice in the square at night
+ * and the square either heard one or it did not, so "I am the Crier" is checked
+ * by every person present remembering the last three nights. Worse, it is
+ * checked *for free* and by everybody at once, which is the one property a
+ * bluff must not have — the point of a mask is to cost the room a day.
+ *
+ * Note this is about *claiming* the badge falsely. All of these are perfectly
+ * good roles to be dealt, and a real one says so and is believed.
+ */
+export const TOO_CHECKABLE: readonly RoleId[] = [...CORPSE_ONLY, 'crier'];
+
+/**
+ * Whether a role is a face a liar could keep up all game.
+ *
+ * Town, because a mask is only worth wearing if it buys the room's benefit of
+ * the doubt, and not one of the badges the square can check on the spot.
+ */
+export function wearableMask(role: RoleId): boolean {
+  return ROLES[role].faction === 'town' && !TOO_CHECKABLE.includes(role);
 }
 
 /** Neutral roles that block nobody's victory: they win alongside, never against. */

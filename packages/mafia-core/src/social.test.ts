@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { advanceDesperation, agendaOf, CALM, MASKS, pickMask, stanceOf, type Pressure } from './social.js';
+import { TOO_CHECKABLE, wearableMask } from './roles.js';
 
 const CALM_TABLE: Pressure = {
   day: 2,
@@ -161,5 +162,42 @@ describe('the social model', () => {
   it('stays bare-faced when the dice say so', () => {
     const stance = stanceOf('town', 0, traits);
     assert.equal(pickMask('town', stance, never), null);
+  });
+});
+
+/**
+ * A boring face only works while nobody bothers to check it.
+ *
+ * `MASKS.quiet` used to carry the Crier and the Coroner, and both of them check
+ * themselves for free. A Coroner works on corpses, so the liar's own published
+ * nights — real nights, living houses — refute the badge inside the same will;
+ * that is how a Mafioso hanged herself on day four of a real game, with the
+ * room reading her itinerary back to her. A Crier is a voice in the square
+ * after dark, so every person present already knows whether there was one.
+ *
+ * Held here rather than trusted to the comment above the lists, because the
+ * lists are edited far more often than the rule is remembered. The Jester's
+ * `bait` is deliberately exempt: he wants to be called a liar, and being called
+ * one by argument is the product.
+ */
+describe('a mask nobody can check on the spot', () => {
+  it('keeps the self-checking badges out of the faces meant to be boring', () => {
+    for (const face of [...MASKS.quiet, ...MASKS.scary]) {
+      assert.ok(
+        !TOO_CHECKABLE.includes(face),
+        `${face} checks itself, so it is no disguise`
+      );
+    }
+  });
+
+  it('and the rule agrees with the one the liar reads', () => {
+    // Every quiet face is one `wearableMask` would also hand out. The scary
+    // list is exempt from the town half: "I am the Survivor" is a fine lie.
+    for (const face of MASKS.quiet) {
+      assert.ok(wearableMask(face), `${face} should be wearable`);
+    }
+    for (const morgue of TOO_CHECKABLE) {
+      assert.equal(wearableMask(morgue), false, `${morgue} is not wearable`);
+    }
   });
 });

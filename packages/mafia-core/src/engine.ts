@@ -2162,7 +2162,7 @@ const TOWN_POWER: ReadonlySet<RoleId> = new Set(slotPool('town-power'));
 /**
  * Whether this seat can be taken by the cult at all.
  *
- * Four refusals, and each one is a different promise the game makes.
+ * Five refusals, and each one is a different promise the game makes.
  *
  *  - Not town: the cult recruits from the town and nowhere else, which
  *    `legalNightAction` already enforces on the button. Repeated here because
@@ -2175,6 +2175,8 @@ const TOWN_POWER: ReadonlySet<RoleId> = new Set(slotPool('town-power'));
  *    are the badges a town builds a game around, and a cult that can simply take
  *    one has ended the game on a coin flip rather than won it. (The Mason Leader
  *    never reaches here — knocking on his door is its own, worse, outcome.)
+ *  - A Mason: the lodge is the one room in the game that is certain of its own
+ *    faces, and a convert keeps his seat in it. See below.
  *  - Night immunity: a seat that cannot be killed in the dark cannot be carried
  *    off in it either. One rule about what the night can do to a house, not two.
  *
@@ -2193,6 +2195,25 @@ function convertible(player: MafiaPlayer): boolean {
     def.faction === "town" &&
     !keepsItsRole(player) &&
     !TOWN_POWER.has(player.role) &&
+    /**
+     * And nobody who is already in a room that knows its own faces.
+     *
+     * The Mason Leader was covered, because he is Town Power and because
+     * knocking on his door is fatal anyway. The brothers were not, and they are
+     * the half that makes the lodge worth anything: the whole promise of that
+     * room is that everybody in it is town, confirmed, and can speak freely
+     * there. A converted brother keeps his seat in it — `isLodgeMate` reads the
+     * role, and 'mason' is still what he is wearing — so the cult would be
+     * sitting inside the one channel in the game that exists to be certain,
+     * reading the lodge's plans and its roster of confirmed townspeople.
+     *
+     * That is not a cult winning a night, it is a cult being handed the answer
+     * key, and it takes the lodge's promise away from the town retroactively:
+     * every seat the lodge had vouched for becomes a maybe. So the brothers
+     * refuse at the door like the Jailor and the Mayor do, and the cult pays
+     * the night to find out, learning only that this house is not for turning.
+     */
+    !isMason(player) &&
     !def.nightImmune
   );
 }

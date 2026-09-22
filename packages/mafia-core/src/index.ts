@@ -24,6 +24,8 @@ export {
   roleDef,
   rolesOfFaction,
   rosterFor,
+  wearableMask,
+  TOO_CHECKABLE,
   type Faction,
   type FamilyId,
   type NightActionType,
@@ -168,6 +170,7 @@ export {
   cellProves,
   type DayDecision,
   contradicted,
+  ownsUpTo,
   buddyRead,
   type BuddyRead,
   TEMPERAMENT_MIN,
@@ -212,7 +215,7 @@ export {
   type SteadyVote,
   type VoteRecord
 } from './sim/policies.js';
-export { deductions, deductionWeight, strongest, type Deduction } from './sim/deduce.js';
+export { deductions, deductionWeight, strongest, CORPSE_ONLY, type Deduction } from './sim/deduce.js';
 export { possibleRoles } from './sim/slots.js';
 export { visitOdds, type VisitOdds, type VisitReason } from './sim/visits.js';
 export { rank, caseFor, defenceFor, type Suspect, type Reason, type ReasonCode } from './sim/ranking.js';

@@ -315,6 +315,10 @@ export const atelierFr: Catalogue = {
   "launch.openScreen": "Ouvrir l’écran de jeu",
   "launch.solo": "Jouer en solo sur cet appareil",
   "launch.options": "Options de la partie",
+  "launch.blindtest": "Blind test infini",
+  "launch.blindtest.lede":
+    "Les manches sont trouvées au fur et à mesure. Le salon, lui, est un salon comme les autres.",
+  "launch.blindtest.source": "Ce qui sera joué",
   "launch.shuffle": "Ordre aléatoire",
   "launch.chronological": "Ordre chronologique",
   "launch.chronological.hint": "Selon la date de chaque média.",

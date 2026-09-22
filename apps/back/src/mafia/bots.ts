@@ -2,8 +2,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   claimerWeight,
   contradicted,
+  ownsUpTo,
   deductions,
   strongest,
+  wearableMask,
   caseFor,
   defenceFor,
   type Deduction,
@@ -7411,8 +7413,27 @@ export class MafiaBotDriver {
 
     if (accusers[0]?.human) return borrowed(accusers[0].slot);
 
-    // 4. Somebody else's doorstep report.
-    const seen = board.claims.find((claim) => claim.kind === 'sighting' && claim.targetSlot === targetSlot);
+    /**
+     * 4. Somebody else's doorstep report, and only while it is news.
+     *
+     * A sighting the accused has already owned up to is not a reason to hang
+     * them, and saying it out loud is worse than merely thinking it: eight
+     * seats in one afternoon gave "Bugs Bunny saw them visiting a house on
+     * night 1" as their whole case against a Doctor whose published round said
+     * he had been at that house, on that night, for two days. The room read a
+     * confirmation aloud as an accusation, and the man it confirmed hanged.
+     *
+     * `ownsUpTo` is the same test the score now applies, asked here so the
+     * sentence and the vote cannot disagree: if the doorstep agrees with the
+     * account, this rung is skipped and the reason falls through to whatever
+     * the seat actually holds against them.
+     */
+    const seen = board.claims.find(
+      (claim) =>
+        claim.kind === 'sighting' &&
+        claim.targetSlot === targetSlot &&
+        ownsUpTo(targetSlot, claim, board) === null
+    );
     if (seen) {
       return vary('mafia.bot.why.seen', 3, botId + ':w:' + targetSlot, {
         who: nameOf(seen.claimerSlot),
@@ -7902,7 +7923,56 @@ export class MafiaBotDriver {
           ) ||
             [...board.deadRoles.values()].includes(told.role));
         const doubted = suspicion(held.slot, self, board, () => 0.5) + cellProves(mine.brain, held.slot);
-        const trusted = told !== null && !contested && doubted < 0.6 && ROLES[told.role].faction === 'town';
+
+        /**
+         * Standing the record handed this seat, not standing it asked for.
+         *
+         * The gate above this one was written as four refusals — a role was
+         * named, nobody else claims it, nobody is shouting about them, and the
+         * role is a town one — and every single one of them is satisfied by a
+         * stranger who has just said a word. That is the whole failure: on the
+         * third night of a real game a Jailor asked "what are you", heard "I am
+         * Bus Driver" two seconds later, and answered with his own name and
+         * badge. The seat he handed them to was the Witch. His trust meter read
+         * exactly zero for that seat at the moment he spoke, because on night
+         * three no trial had resolved yet and the meter reads nothing else.
+         *
+         * An absence of evidence passed a test that should need evidence. So
+         * the claim now has to be backed by something the prisoner could not
+         * simply say: either a voting record that has earned it, on the same
+         * meter and at the same bar the rest of the policy treats as real trust,
+         * or a role the graveyard and the dawn reports have already settled on
+         * them. Both are things the table produced, and neither can be produced
+         * in the cell on demand.
+         *
+         * This deliberately makes the reveal a mid-game move rather than an
+         * opening one, which is what it always should have been: before the
+         * first trial resolves there is nothing at this table that can vouch
+         * for anybody, so there is nothing for a Jailor to read and no safe
+         * moment to spend his name. What it keeps is the case it exists for, a
+         * Doctor that has stood up in the square and been right about somebody,
+         * walking out of the cell finally knowing who to defend.
+         */
+        const proven = board.provenRoles.get(held.slot) ?? null;
+        const earned = trustOf(held.slot, board) >= 1 || (proven !== null && ROLES[proven].faction === 'town');
+
+        /**
+         * And nothing the deduction pass can already see through.
+         *
+         * `deductions` is the same reader that catches a badge the deal cannot
+         * contain, a visit to a house whose owner was alive, or two seats in
+         * one cell. The cell never asked it anything, so a prisoner could hand
+         * the Jailor a story the rest of the board had already refuted.
+         */
+        const seenThrough = deductions(held.slot, board).length > 0;
+
+        const trusted =
+          told !== null &&
+          !contested &&
+          earned &&
+          !seenThrough &&
+          doubted < 0.6 &&
+          ROLES[told.role].faction === 'town';
         if (trusted) {
           (mine.namedSelfTo ??= []).push(held.playerId);
           return t(
@@ -8505,9 +8575,30 @@ export class MafiaBotDriver {
      * empty. A night is covered when a *rendered* line covers it.
      */
     const reported = new Set(written.filter((row) => row.entry.kind !== 'went').map((row) => row.entry.night));
-    const nights = written
-      .filter((row) => row.entry.kind !== 'went' || !reported.has(row.entry.night))
-      .map((row) => row.line);
+    const kept = written.filter((row) => row.entry.kind !== 'went' || !reported.has(row.entry.night));
+    const nights = kept.map((row) => row.line);
+
+    /**
+     * Which nights the record has now answered for, so the plan can stop.
+     *
+     * The intent lines below exist for one night only — the one currently being
+     * spent, which the seat will not survive to write up if it dies in it. They
+     * were rendered for *every* night the seat had ever left the house, and
+     * nothing ever took one back down once the morning turned it into a real
+     * record. So every night ended up in the will twice, in two different
+     * voices, and the second half read as a separate itinerary:
+     *
+     *   Night 2: I was at Mikasa.          <- the record
+     *   ...
+     *   Tonight I am going to Mikasa.      <- the plan, eight days stale
+     *
+     * A real Doctor's will came out of a game with eight nights written twice
+     * over, nine lines of record followed by nine lines of plan, and the second
+     * block still saying "tonight" about night two. It reads as a bot that
+     * cannot remember what it has already said, and it spends the will's budget
+     * twice over on the same nights, pushing the notes off the bottom.
+     */
+    const recorded = new Set(kept.map((row) => row.entry.night));
 
     /**
      * Where this seat is about to go, written down before it goes.
@@ -8557,9 +8648,11 @@ export class MafiaBotDriver {
       ? []
       : homebound
         ? [...mind.stayedIn]
+            .filter((night) => !recorded.has(night))
             .sort((left, right) => left - right)
             .map((night) => t(vary(`mafia.bot.dump.${powerKey}`, 3, botId + ':home:' + night, { night })))
         : [...mind.went]
+            .filter((trip) => !recorded.has(trip.night))
             .sort((left, right) => left.night - right.night)
             .map((trip) =>
               t(
@@ -9372,7 +9465,7 @@ export class MafiaBotDriver {
       (role): role is RoleId =>
         role in ROLES &&
         role !== self.role &&
-        ROLES[role as RoleId].faction === 'town' &&
+        wearableMask(role as RoleId) &&
         !spoken.has(role as RoleId) &&
         !buried.has(role as RoleId) &&
         !worn.has(role as RoleId)

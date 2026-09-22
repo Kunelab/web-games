@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 
 import { selfClaim } from './asks.js';
 import { confesses } from './bots.js';
+import { wearableMask, type RoleId } from 'mafia-core';
 
 /**
  * The sentences a table says about itself, and the two ways of reading them
@@ -142,5 +143,36 @@ describe('a badge owned in the past tense', () => {
   /** A badge the brain decided to claim is a bluff, not a slip. */
   it('still allows the claim the brain chose', () => {
     assert.equal(confesses('I was the vigilante, and you know it', 'I am the vigilante'), false);
+  });
+});
+
+/**
+ * The face a liar is allowed to put on, and the one that gives it away.
+ *
+ * A Mafioso claimed the Coroner on day three of a real game and then published
+ * the nights it had actually had — "Night 1: I was at Ghostface", and two more
+ * like it, every one of them a living seat. A Coroner works on corpses, so the
+ * will refuted its own badge, the room said so out loud, and she hanged that
+ * afternoon. The deduction layer was doing its job; the mask picker had handed
+ * her a part she could not play.
+ */
+describe('a mask a liar can keep up', () => {
+  it('refuses the badges that only ever work on a corpse', () => {
+    for (const morgue of ['coroner', 'janitor', 'incense-master'] as RoleId[]) {
+      assert.equal(wearableMask(morgue), false, `${morgue} cannot explain a visit to the living`);
+    }
+  });
+
+  it('still offers the ordinary town badges worth lying about', () => {
+    for (const face of ['doctor', 'sheriff', 'lookout', 'detective', 'bus-driver'] as RoleId[]) {
+      assert.equal(wearableMask(face), true, `${face} is a face a liar can hold`);
+    }
+  });
+
+  /** A mask is only worth wearing if it buys the room's benefit of the doubt. */
+  it('never offers a face from a camp the town is hunting', () => {
+    for (const evil of ['mafioso', 'godfather', 'cultist', 'serial-killer'] as RoleId[]) {
+      assert.equal(wearableMask(evil), false);
+    }
   });
 });

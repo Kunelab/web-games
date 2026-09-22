@@ -121,6 +121,17 @@ export const screenFr: Catalogue = {
   'mafia.ui.lobby.addBots': '+ 1 bot',
   'mafia.ui.lobby.start': 'Lancer la partie',
   'mafia.ui.charges': '{count} restant(s)',
+  /*
+    Les deux pouvoirs tournes vers sa propre maison, annonces dans les deux sens.
+    Le compte est ce qu'il restera apres cette nuit : la charge n'est depensee
+    qu'a la resolution, donc le nombre brut en promet un de trop.
+  */
+  'mafia.ui.armed.vest': '🦺 Gilet enfilé cette nuit · {count} après celui-ci',
+  'mafia.ui.armed.alert': '🎯 En alerte cette nuit · {count} après celle-ci',
+  'mafia.ui.unarmed.vest': '🦺 Pas de gilet cette nuit · vous êtes à découvert',
+  'mafia.ui.unarmed.alert': '🎯 Pas d’alerte · votre porte reste ouverte',
+  'mafia.ui.spent.vest': 'Plus aucun gilet',
+  'mafia.ui.spent.alert': 'Plus aucune alerte',
   'mafia.ui.dead': 'Mort',
   'mafia.ui.survived': 'a survécu',
   'mafia.ui.withYou': 'Avec vous : {mates}',

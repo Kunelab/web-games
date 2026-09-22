@@ -18,6 +18,7 @@ import {
   DEFAULT_PROFILE,
   claimerWeight,
   contradicted,
+  ownsUpTo,
   copiesOf,
   decideBallot,
   decideDay,
@@ -179,6 +180,138 @@ describe("the claims board", () => {
       contradicted(3, board),
       false,
       "the honest answer carries no trap",
+    );
+  });
+
+  /**
+   * The other half of that catch, which nothing was asking for.
+   *
+   * `contradicted` answers "did the doorstep refute the story". Nothing
+   * answered "did the doorstep confirm it", so a sighting was worth the same
+   * half point whichever way it pointed. A real table paid for it: the town's
+   * Doctor had published his round two nights running, a dead Lookout's will
+   * then named him at exactly those houses on exactly those nights, and eight
+   * seats hanged him citing that will. The Bodyguard he had saved voted with
+   * them.
+   */
+  it("a doorstep that agrees with the account is corroboration, not evidence", () => {
+    const state = table(["citizen", "lookout", "doctor", "mafioso"]);
+    const board = (claims: Claim[]): PublicInfo =>
+      toPublicInfo(state, claims, []);
+
+    const wentToOne = claim({
+      claimerSlot: 3,
+      targetSlot: 1,
+      kind: "account",
+      account: "visited",
+      night: 1,
+      day: 2,
+    });
+    const sawHimAtOne = claim({
+      claimerSlot: 2,
+      targetSlot: 3,
+      kind: "sighting",
+      at: 1,
+      night: 1,
+      day: 3,
+    });
+
+    assert.equal(
+      ownsUpTo(3, sawHimAtOne, board([wentToOne, sawHimAtOne])),
+      "volunteered",
+      "he named that house a day before the watcher did",
+    );
+
+    assert.equal(
+      ownsUpTo(
+        3,
+        sawHimAtOne,
+        board([
+          claim({ ...wentToOne, targetSlot: 4 }),
+          sawHimAtOne,
+        ]),
+      ),
+      null,
+      "a doorstep he did not claim confirms nothing",
+    );
+
+    assert.equal(
+      ownsUpTo(3, sawHimAtOne, board([sawHimAtOne])),
+      null,
+      "a seat that never accounted for the night owns up to nothing",
+    );
+
+    /**
+     * Said only once the report was on the board. The sighting stops counting
+     * against him, because a confirmed visit is not a crime, but a story that
+     * could have been cut to fit the evidence earns nothing back.
+     */
+    assert.equal(
+      ownsUpTo(
+        3,
+        sawHimAtOne,
+        board([sawHimAtOne, claim({ ...wentToOne, day: 4 })]),
+      ),
+      "matches",
+      "agreeing after the fact is worth neutrality, not credit",
+    );
+
+    /**
+     * And the seat that said "home", heard the doorstep and came back with a
+     * visit is the one move this tier exists to refuse. It has an earlier
+     * account and a matching standing one, and it has told two stories.
+     */
+    assert.equal(
+      ownsUpTo(
+        3,
+        sawHimAtOne,
+        board([
+          claim({
+            claimerSlot: 3,
+            targetSlot: 3,
+            kind: "account",
+            account: "home",
+            night: 1,
+            day: 2,
+          }),
+          sawHimAtOne,
+          claim({ ...wentToOne, day: 4 }),
+        ]),
+      ),
+      "matches",
+      "revising the story after the report is not volunteering it",
+    );
+  });
+
+  it("and the score stops charging him for a doorstep he named himself", () => {
+    const state = table(["citizen", "lookout", "doctor", "mafioso"]);
+    const judge = playerBySlot(state, 1)!;
+    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
+
+    const sawHimAtOne = claim({
+      claimerSlot: 2,
+      targetSlot: 3,
+      kind: "sighting",
+      at: 1,
+      night: 1,
+      day: 3,
+    });
+    const wentToOne = claim({
+      claimerSlot: 3,
+      targetSlot: 1,
+      kind: "account",
+      account: "visited",
+      night: 1,
+      day: 2,
+    });
+
+    const evidence = (claims: Claim[]): number =>
+      suspicionParts(3, judge, toPublicInfo(state, claims, []), () => 0)
+        .evidence;
+
+    assert.ok(
+      evidence([sawHimAtOne, wentToOne]) < evidence([sawHimAtOne]),
+      "the same doorstep weighs less once the seat has owned up to it",
     );
   });
 

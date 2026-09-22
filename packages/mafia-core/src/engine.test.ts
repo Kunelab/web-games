@@ -36,7 +36,7 @@ import {
 } from "./state.js";
 import { toMafiaView } from "./view.js";
 import { familyKnife, unclashedTargets } from "./sim/policies.js";
-import { duelBeats } from "./roles.js";
+import { duelBeats, roleDef } from "./roles.js";
 import { simulateGame } from "./sim/simulate.js";
 
 /**
@@ -82,12 +82,16 @@ function table(roles: RoleId[], day = 2): MafiaState {
     else addMafiaBot(state, `tok${id}`, id, () => 0);
     const player = state.players[id];
     player.role = role;
-    player.charges =
-      role === "vigilante" || role === "veteran" || role === "jailor"
-        ? 3
-        : role === "survivor"
-          ? 4
-          : 0;
+    /**
+     * Off the role table rather than out of a list kept here.
+     *
+     * This used to spell out "vigilante, veteran and jailor get three, a
+     * survivor gets four, everybody else nothing", which is the real table
+     * copied by hand — so the day the Survivor's vests changed, every test in
+     * this file went on playing the old game and none of them said so. The
+     * deal does exactly this (`assignRoles`), so the fixture should too.
+     */
+    player.charges = roleDef(role).charges ?? 0;
   });
   state.phase = "day";
   state.stage = "discussion";
@@ -1411,6 +1415,48 @@ describe("mafia engine", () => {
     );
     assert.equal(bySlot(state, 3).alive, false, "so did the lookout");
     assert.equal(veteran.alive, true);
+  });
+
+  /**
+   * How many nights the two self-powers actually last.
+   *
+   * Plain numbers a table plans around: three porches for the Veteran, five
+   * vests for the Survivor. Nothing else in this suite reads them, the fixture
+   * above used to carry its own hand-copied version of them, and they are
+   * exactly the sort of value that drifts without anything failing. So the
+   * table is asserted, and then spent down through real nights to check the
+   * engine stops where the table says it does rather than one either side.
+   */
+  it("a veteran has three alerts and a survivor five vests, and neither gets one more", () => {
+    assert.equal(roleDef("veteran").charges, 3, "three porches");
+    assert.equal(roleDef("survivor").charges, 5, "five vests");
+
+    for (const [role, expected] of [
+      ["veteran", 3],
+      ["survivor", 5],
+    ] as const) {
+      const state = table([role, "citizen", "doctor", "sheriff", "mafioso"]);
+      const seat = bySlot(state, 1);
+      assert.equal(seat.charges, expected, `${role} is dealt its full hand`);
+
+      let spent = 0;
+      let clock = 0;
+      for (let step = 0; step < 40 && state.phase !== "ended"; step++) {
+        clock += 100_000;
+        if (state.phase !== "night") {
+          advanceMafia(state, clock, lcg(3));
+          continue;
+        }
+        // Arming is the same gesture for both: your own house.
+        setNightAction(state, seat.playerId, seat.slot);
+        const before = seat.charges;
+        advanceMafia(state, clock, lcg(3));
+        if (seat.charges < before) spent += 1;
+      }
+
+      assert.equal(spent, expected, `${role} spends exactly ${expected}`);
+      assert.equal(seat.charges, 0, `${role} runs dry rather than negative`);
+    }
   });
 
   /**
@@ -3074,6 +3120,45 @@ describe("the lodge and the cult", () => {
     );
     assert.equal(master.alive, true, "the lodge does not convert");
     assert.equal(master.role, "mason-leader");
+  });
+
+  /**
+   * And the brothers are not a back door into the room the Leader guards.
+   *
+   * The Leader was covered twice over — Town Power, and his door kills — while
+   * a plain Mason was an ordinary townsperson to convert. That is the lodge's
+   * whole promise undone from the inside: `isLodgeMate` reads the role, and a
+   * convert is still wearing 'mason', so the cult would have kept its seat in
+   * the one channel in this game whose members are certain of each other, with
+   * the lodge's plans and its roster of confirmed town in front of it.
+   *
+   * Refused rather than fatal. Only the Leader's door kills; a brother's simply
+   * does not open, and the cult pays the night to learn that much.
+   */
+  it("will not let the cult take a mason either", () => {
+    const state = table(
+      ["mason-leader", "mason", "cultist", "citizen", "godfather"],
+      3,
+    );
+    const brother = bySlot(state, 2);
+    const preacher = bySlot(state, 3);
+
+    advanceMafia(state, 1_000, lcg(1));
+    assert.equal(state.phase, "night");
+    assert.equal(
+      setNightAction(state, preacher.playerId, brother.slot).ok,
+      true,
+      "the knock is allowed; it is the door that refuses",
+    );
+    advanceMafia(state, 2_000, lcg(1));
+
+    assert.equal(brother.role, "mason", "the brother is still a brother");
+    assert.equal(brother.alive, true);
+    assert.equal(
+      preacher.alive,
+      true,
+      "only the Leader's door kills; this one just does not open",
+    );
   });
 
   /**

@@ -335,9 +335,24 @@ export function stanceOf(agenda: Agenda, desperation: number, traits: StanceTrai
  * scrutiny to buy nighttime safety.
  * `BAIT` is the Jester's inverted list: big, unique, checkable claims that a
  * town will call a lie — which is exactly the reaction he is paying for.
+ *
+ * `QUIET` used to carry the Crier and the Coroner, and both of them broke the
+ * one rule that list exists to keep. The point of a boring face is that nobody
+ * bothers to check it; those two check themselves. A Coroner works on corpses,
+ * so the liar's own published itinerary — real nights, real living houses —
+ * refutes the badge inside the same will, which is how a Mafioso hanged herself
+ * on day four of a real game. A Crier is a voice in the square at night, so the
+ * room either heard one or it did not, and every person present already knows
+ * the answer without spending a minute on it. See `TOO_CHECKABLE` in the role
+ * table, which is where that rule now lives, and `masks.test.ts`, which holds
+ * these lists to it.
+ *
+ * Note the Jester still *wants* a checkable claim: that is what `BAIT` is for,
+ * and it is checkable in the useful direction, big and loud and disprovable by
+ * argument rather than by the room simply remembering last night.
  */
 export const MASKS: { quiet: RoleId[]; scary: RoleId[]; bait: RoleId[] } = {
-  quiet: ['citizen', 'escort', 'lookout', 'crier', 'coroner'],
+  quiet: ['citizen', 'escort', 'lookout', 'doctor'],
   scary: ['veteran', 'survivor', 'jailor', 'bodyguard'],
   bait: ['veteran', 'jailor', 'mayor', 'sheriff']
 };
@@ -367,8 +382,23 @@ export function pickMask(
     return roll() < stance.jesterGambit ? pick(MASKS.bait) : null;
   }
 
-  if (stance.jesterGambit > 0 && roll() < stance.jesterGambit) {
-    // "Hang me and you lose." The best sentence in a cornered villain's mouth.
+  /**
+   * "Hang me and you lose." The best sentence in a cornered villain's mouth,
+   * and for a while the only one it ever used.
+   *
+   * At the full `jesterGambit` this fired on most rolls a desperate family
+   * member made — 0.8 at the top of the meter — and it is the first branch
+   * here, so it pre-empted both of the faces below it. Every cornered killer at
+   * the table reached for the same sentence, which stops being the best
+   * sentence in the game the second time a room hears it in one evening: a
+   * town that has been told "I am the Jester" twice simply hangs both.
+   *
+   * A third of the meter keeps it as the move it is supposed to be, the one a
+   * seat pulls when it has nothing else, while leaving the ordinary faces their
+   * turn. The caller now also asks whether anybody is actually coming for this
+   * seat, and only lets it claim once per game.
+   */
+  if (stance.jesterGambit > 0 && roll() < stance.jesterGambit * 0.35) {
     return burned.has('jester') ? pick(MASKS.quiet) : 'jester';
   }
   if (roll() < stance.fakeClaim * 0.45) return pick(MASKS.scary);

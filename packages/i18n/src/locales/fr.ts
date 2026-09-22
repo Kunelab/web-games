@@ -100,8 +100,11 @@ export const fr: Catalogue = {
   'mafia.source.vigilante': 'le Justicier',
   'mafia.source.serialKiller': 'le Tueur en série',
   'mafia.source.massMurderer': 'le Tueur de masse',
-  'mafia.source.jailor': 'le Geôlier',
-  'mafia.source.kidnapper': 'une cave dont personne n’est ressorti',
+  /* Meme texte que la cellule : voir la note cote anglais. La cave du Ravisseur
+     et la cellule du Geolier sont le meme acte, et le carre ne doit pas pouvoir
+     les distinguer d un coup d oeil au rapport du matin. */
+  'mafia.source.jailor': 'celui qui tenait les clés',
+  'mafia.source.kidnapper': 'celui qui tenait les clés',
   'mafia.source.veteran': 'le Vétéran',
   'mafia.source.lodge': 'la loge',
   'mafia.source.mafia': 'la Mafia',

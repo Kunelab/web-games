@@ -131,7 +131,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.executioner.desc':
     'Obsessed with one mark: get them hanged by day and you win. If they die at night, grief turns you into the Jester.',
   'mafia.role.survivor.name': 'Survivor',
-  'mafia.role.survivor.desc': 'Wins if they see the end, whoever takes it. Four bulletproof vests.',
+  'mafia.role.survivor.desc': 'Wins if they see the end, whoever takes it. Five bulletproof vests.',
   'mafia.role.amnesiac.name': 'Amnesiac',
   'mafia.role.amnesiac.desc':
     'No longer remembers who they are. One night, at the graveyard, it will come back to them.',

@@ -105,8 +105,20 @@ export const en: Catalogue = {
   'mafia.source.vigilante': 'the Vigilante',
   'mafia.source.serialKiller': 'the Serial Killer',
   'mafia.source.massMurderer': 'the Mass Murderer',
-  'mafia.source.jailor': 'the Jailor',
-  'mafia.source.kidnapper': 'a cellar nobody came out of',
+  /*
+    The cell and the cellar read the same, so the square cannot tell them apart.
+
+    They are the same act: a captive taken out of the night, executed where no
+    heal, guard or vest can reach, by whoever was holding the keys. The report
+    used to name the Jailor outright and give the Kidnapper its own line about a
+    cellar, which handed the town a free answer twice over — a body labelled
+    "the Jailor" confirmed a living Jailor, and one labelled "a cellar"
+    confirmed a Kidnapper, on a night when neither had said a word. The whole
+    point of the mafia's keeper is that it is the family's Jailor; it should be
+    able to hide behind one. Same key for both, deliberately.
+  */
+  'mafia.source.jailor': 'whoever was holding the keys',
+  'mafia.source.kidnapper': 'whoever was holding the keys',
   'mafia.source.veteran': 'the Veteran',
   'mafia.source.lodge': 'the lodge',
   'mafia.source.mafia': 'the Mafia',

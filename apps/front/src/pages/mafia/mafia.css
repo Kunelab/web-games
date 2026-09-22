@@ -1226,6 +1226,55 @@
   opacity: 0.55;
 }
 
+/*
+ * Your own house, armed, readable without looking anywhere else.
+ *
+ * The vest and the alert are the only powers in the game aimed at nobody, and
+ * they were the only two whose state the board never stated: the whole of the
+ * feedback was the row button flipping to "Cancel", which reads as an offer
+ * rather than as a condition. Two taps and you no longer knew whether you were
+ * wearing it.
+ *
+ * So the row itself changes colour, in the green this sheet already uses for
+ * being protected, and the line under your name says which way it landed. The
+ * flash plays on *both* transitions rather than only on arming, because "I just
+ * took it off" is the half that gets people killed and the half that had no
+ * feedback at all. React remounts the line on each toggle via its key, which is
+ * what restarts the animation.
+ */
+.mz-seat--armed {
+  background: color-mix(in srgb, var(--safe) 18%, var(--panel-hi));
+  border-color: var(--safe);
+}
+
+.mz-armed {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+  animation: mz-armed-flip 420ms ease-out;
+}
+
+.mz-armed--on {
+  color: var(--safe);
+}
+
+@keyframes mz-armed-flip {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mz-armed {
+    animation: none;
+  }
+}
+
 .mz-seat-no {
   flex: none;
   width: 1.5rem;

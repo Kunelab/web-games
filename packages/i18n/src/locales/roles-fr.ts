@@ -127,7 +127,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.executioner.desc':
     'Obsédé par une cible : faites-la pendre de jour et vous gagnez. Si elle meurt la nuit, le deuil vous rend Bouffon.',
   'mafia.role.survivor.name': 'Survivant',
-  'mafia.role.survivor.desc': 'Gagne s’il voit la fin, peu importe qui l’emporte. Quatre gilets pare-balles.',
+  'mafia.role.survivor.desc': 'Gagne s’il voit la fin, peu importe qui l’emporte. Cinq gilets pare-balles.',
   'mafia.role.amnesiac.name': 'Amnésique',
   'mafia.role.amnesiac.desc': 'Ne se souvient plus qui il est. Une nuit, au cimetière, ça lui reviendra.',
   'mafia.role.scumbag.name': 'Crapule',

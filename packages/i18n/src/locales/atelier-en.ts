@@ -330,6 +330,10 @@ export const atelierEn: Catalogue = {
   "launch.openScreen": "Open the game screen",
   "launch.solo": "Play solo on this device",
   "launch.options": "Game options",
+  "launch.blindtest": "Endless blind test",
+  "launch.blindtest.lede":
+    "The rounds are found as the evening runs. The room itself is a room like any other.",
+  "launch.blindtest.source": "What will be played",
   "launch.shuffle": "Random order",
   "launch.chronological": "Chronological order",
   "launch.chronological.hint": "By each media’s date.",

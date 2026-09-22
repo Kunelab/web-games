@@ -97,6 +97,29 @@ function winLine(view: MafiaView): string | null {
   return role ? (WIN_LINE[role] ?? null) : null;
 }
 
+/**
+ * How to talk to your own side, which nothing was telling anybody.
+ *
+ * Every order in `stanceLine` is written for the square — accuse without proof,
+ * needle, dodge the question, lie about your night — and the model was handed
+ * the same sheet when it opened its mouth in the family room, the lodge or the
+ * cult's channel. So it played the square in there: brothers interrogating each
+ * other, a Mafioso accusing the Godfather at two in the morning in the one room
+ * where everybody already knows everybody's role. It reads as bots failing to
+ * understand the game, because it is.
+ *
+ * The private room is the one place in this game with no audience and nothing
+ * to gain by posturing. It is for planning, and the people in it are the only
+ * people who are certainly not against you. Said once, next to the ally list,
+ * because that is the line that establishes who "your people" are.
+ *
+ * Deliberately short. It rides on every briefing that has an ally list at all,
+ * and the prompt budget is measured.
+ */
+const ALLY_TONE =
+  'In your own private channel these are your people: be warm and straightforward with them, ' +
+  'plan the night together, and never accuse, needle or interrogate an ally in there. Save all of that for the square.';
+
 export function stanceLine(mind: BotMind, view: MafiaView): string {
   const s = mind.stance;
   const orders: string[] = [];
@@ -564,6 +587,7 @@ export function brief(
     );
   if (me.teammates && me.teammates.length > 0) {
     lines.push(`With you: ${me.teammates.map((mate) => `${mate.slot} ${mate.name}`).join(', ')}.`);
+    lines.push(ALLY_TONE);
   }
 
   /**
@@ -1056,6 +1080,7 @@ export function dossier(
     lines.push(
       `Your allies: ${me.teammates.map((mate) => `${mate.slot}. ${mate.name} (${say(locale)(mate.roleName)})`).join(', ')}.`
     );
+    lines.push(ALLY_TONE);
   }
   if (me.obsessionSlot !== null) lines.push(`Your obsession: get house ${me.obsessionSlot} hanged.`);
   lines.push(
