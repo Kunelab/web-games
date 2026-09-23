@@ -15,10 +15,10 @@ modele.
 ComfyUI dans `D:\ComfyUI`, Radeon RX 6800 (gfx1030) sous ROCm, Windows. Deux scripts de
 lancement, parce que les images et l'audio ne veulent pas les memes drapeaux :
 
-| Script | Usage | Drapeaux |
-| --- | --- | --- |
-| `run_comfy_rocm.bat` | images | `--lowvram --fp8_e4m3fn-unet --use-pytorch-cross-attention` |
-| `run_comfy_audio.bat` | audio | `--disable-async-offload --disable-dynamic-vram --cpu-vae --fp16-unet --fp32-text-enc` |
+| Script                | Usage  | Drapeaux                                                                               |
+| --------------------- | ------ | -------------------------------------------------------------------------------------- |
+| `run_comfy_rocm.bat`  | images | `--lowvram --fp8_e4m3fn-unet --use-pytorch-cross-attention`                            |
+| `run_comfy_audio.bat` | audio  | `--disable-async-offload --disable-dynamic-vram --cpu-vae --fp16-unet --fp32-text-enc` |
 
 Pour l'audio, `--fp16-unet` et `--cpu-vae` ne sont pas des options de confort : en fp32 la
 pile de convolutions du vocodeur passe par un solveur MIOpen sans espace de travail et rend
@@ -60,11 +60,11 @@ Communs aux deux : UNET `krea2_turbo_fp8_scaled.safetensors` en `fp8_e4m3fn`, en
 `qwen_image_vae.safetensors`, `EmptySD3LatentImage` 512x512, `ModelSamplingAuraFlow` shift
 1.15, KSampler `euler` / `simple`, cfg 1, denoise 1.
 
-| | Montage A, portraits | Montage B, creatures et pieces Mafia |
-| --- | --- | --- |
-| Pas | 4 | 8 |
-| Accelerateur | LoRA `krea2_turbo_4step_rank_64_lora_comfyui` a 0.75 | noeud `Krea2T-Enhancer-Advanced`, strength 1.5, text_scale 1.75 |
-| Duree mesuree | environ 98 s par image | environ 200 s par image |
+|               | Montage A, portraits                                 | Montage B, creatures et pieces Mafia                            |
+| ------------- | ---------------------------------------------------- | --------------------------------------------------------------- |
+| Pas           | 4                                                    | 8                                                               |
+| Accelerateur  | LoRA `krea2_turbo_4step_rank_64_lora_comfyui` a 0.75 | noeud `Krea2T-Enhancer-Advanced`, strength 1.5, text_scale 1.75 |
+| Duree mesuree | environ 98 s par image                               | environ 200 s par image                                         |
 
 krea2 est lie en dur a un Qwen3-VL **4B** : un 8B est refuse au chargement. 512x512 est la
 plus petite taille sur laquelle le modele et l'adaptateur ont ete entraines, en dessous les
@@ -603,11 +603,11 @@ Stable Audio 3 est le seul a rendre du son correct en quelques minutes.
 `t5gemma_b_b_ul2.safetensors` en type `stable_audio`, `EmptyLatentAudio`, `KSampler`,
 `VAEDecodeAudio`, `SaveAudio` en FLAC.
 
-| Checkpoint | Taille | Echantillonnage |
-| --- | --- | --- |
-| `stable_audio_3_small_music` | 2 Go | 8 pas, `lcm` / `simple`, cfg 1 |
-| `stable_audio_3_small_sfx` | 2 Go | 8 pas, `lcm` / `simple`, cfg 1 |
-| `stable_audio_3_medium` | 8,6 Go | 8 pas, `lcm` / `simple`, cfg 1 |
+| Checkpoint                   | Taille | Echantillonnage                               |
+| ---------------------------- | ------ | --------------------------------------------- |
+| `stable_audio_3_small_music` | 2 Go   | 8 pas, `lcm` / `simple`, cfg 1                |
+| `stable_audio_3_small_sfx`   | 2 Go   | 8 pas, `lcm` / `simple`, cfg 1                |
+| `stable_audio_3_medium`      | 8,6 Go | 8 pas, `lcm` / `simple`, cfg 1                |
 | `stable_audio_3_medium_base` | 8,6 Go | 50 pas, `dpmpp_3m_sde` / `exponential`, cfg 5 |
 
 Les trois premiers sont des distillations LCM : cfg 1 obligatoire, donc prompt negatif inerte
@@ -725,20 +725,20 @@ Meme graphe, prompts courts et sans remorque. C'est la version qui a donne le do
 du comparatif, jugee correcte mais perfectible, et c'est ce qui a motive la reecriture
 ci-dessus.
 
-| Nom | Prompt v1 |
-| --- | --- |
+| Nom               | Prompt v1                                                                                                                                                                          |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `coronaz-tension` | Dark ambient horror score, a low sustained drone, sparse detuned piano notes far apart, distant industrial clangs, no drums, slow and unsettling, sixty beats per minute, D minor. |
-| `mafia-day` | Smoky noir jazz, brushed drums, a walking upright bass, muted trumpet, relaxed lounge, ninety five beats per minute, F major. |
-| `ui-tap` | A single short dry click, like a fingertip tapping a wooden table, close microphone, no reverb. |
-| `ui-confirm` | A single short bright two-note chime rising in pitch, clean and dry, no reverb. |
-| `ui-deny` | A single short low muted buzz, an error tone, dry and flat, no reverb. |
-| `pickup` | A single short bright metallic ping as a small object is picked up, dry, no music. |
-| `hit-flesh` | A single dull heavy wet thud, a blunt impact on flesh, close microphone, no reverb. |
-| `gunshot` | A single dry pistol gunshot with a short sharp crack and brief tail, close microphone, no reverb. |
-| `zombie-groan` | A single low guttural groan with wet rasping breath, a rotting creature close to the microphone, no music. |
-| `door-creak` | A single slow creak of an old wooden door opening, dry, close microphone, no reverb. |
-| `night-bell` | A single distant church bell toll, one strike with a long natural decay, night air, no music. |
-| `stinger-death` | A short dramatic orchestral stinger: low strings and a struck piano chord, sudden and final. |
+| `mafia-day`       | Smoky noir jazz, brushed drums, a walking upright bass, muted trumpet, relaxed lounge, ninety five beats per minute, F major.                                                      |
+| `ui-tap`          | A single short dry click, like a fingertip tapping a wooden table, close microphone, no reverb.                                                                                    |
+| `ui-confirm`      | A single short bright two-note chime rising in pitch, clean and dry, no reverb.                                                                                                    |
+| `ui-deny`         | A single short low muted buzz, an error tone, dry and flat, no reverb.                                                                                                             |
+| `pickup`          | A single short bright metallic ping as a small object is picked up, dry, no music.                                                                                                 |
+| `hit-flesh`       | A single dull heavy wet thud, a blunt impact on flesh, close microphone, no reverb.                                                                                                |
+| `gunshot`         | A single dry pistol gunshot with a short sharp crack and brief tail, close microphone, no reverb.                                                                                  |
+| `zombie-groan`    | A single low guttural groan with wet rasping breath, a rotting creature close to the microphone, no music.                                                                         |
+| `door-creak`      | A single slow creak of an old wooden door opening, dry, close microphone, no reverb.                                                                                               |
+| `night-bell`      | A single distant church bell toll, one strike with a long natural decay, night air, no music.                                                                                      |
+| `stinger-death`   | A short dramatic orchestral stinger: low strings and a struck piano chord, sudden and final.                                                                                       |
 
 ---
 
@@ -748,13 +748,13 @@ Les scripts de soumission parlent a l'API HTTP de ComfyUI (`POST /prompt` avec u
 format API). Ils sont volontairement betes : une liste de sujets, une fonction qui fabrique
 le graphe, une boucle de `fetch`.
 
-| Script | Ce qu'il envoie |
-| --- | --- |
-| `portraits.mjs` | les 30 portraits, montage A |
-| `bestiary.mjs` | les 18 creatures, montage B |
-| `submit4.mjs` | les familles de `prompts4.mjs`, dont les pieces Mafia |
-| `sa3v2.mjs music\|sfx small\|medium` | l'audio, prompts au format Stability |
-| `sa3base.mjs music\|sfx` | l'audio sur le modele non distille |
+| Script                               | Ce qu'il envoie                                       |
+| ------------------------------------ | ----------------------------------------------------- |
+| `portraits.mjs`                      | les 30 portraits, montage A                           |
+| `bestiary.mjs`                       | les 18 creatures, montage B                           |
+| `submit4.mjs`                        | les familles de `prompts4.mjs`, dont les pieces Mafia |
+| `sa3v2.mjs music\|sfx small\|medium` | l'audio, prompts au format Stability                  |
+| `sa3base.mjs music\|sfx`             | l'audio sur le modele non distille                    |
 
 Pour ne regenerer qu'un asset, garder son seed et son sujet tels qu'ils sont ecrits ici et ne
 changer que ce qui doit changer. Changer le seed change la personne ou la creature, pas

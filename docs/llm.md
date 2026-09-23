@@ -1,6 +1,6 @@
 # Brains for the bots
 
-The Mafia bots always play. What this file is about is *how well they talk* while
+The Mafia bots always play. What this file is about is _how well they talk_ while
 they do it, and how to give a deployment a language model without giving it a
 graphics card.
 
@@ -12,13 +12,13 @@ graphics card.
 MAFIA_BOT_PROVIDER=openai,ollama
 ```
 
-| Rung            | What it is                                                          | Needs                            |
-| --------------- | ------------------------------------------------------------------- | -------------------------------- |
-| `api1`…`api24`  | Endpoints speaking `/chat/completions` — OpenRouter, Groq, Cerebras, a vLLM you host | `MAFIA_API_*_KEY` + `_MODEL`    |
-| `api*`          | Every configured endpoint, in slot order                             | at least one of the above        |
-| `anthropic`     | The Claude API                                                       | `ANTHROPIC_API_KEY`              |
-| `ollama`        | A local daemon at `OLLAMA_URL`                                       | a running Ollama                 |
-| `scripted`      | Call nothing                                                         | —                                |
+| Rung           | What it is                                                                           | Needs                        |
+| -------------- | ------------------------------------------------------------------------------------ | ---------------------------- |
+| `api1`…`api24` | Endpoints speaking `/chat/completions` — OpenRouter, Groq, Cerebras, a vLLM you host | `MAFIA_API_*_KEY` + `_MODEL` |
+| `api*`         | Every configured endpoint, in slot order                                             | at least one of the above    |
+| `anthropic`    | The Claude API                                                                       | `ANTHROPIC_API_KEY`          |
+| `ollama`       | A local daemon at `OLLAMA_URL`                                                       | a running Ollama             |
+| `scripted`     | Call nothing                                                                         | —                            |
 
 `openai` is the old name for `api1` and still works. Any slot inherits slot 1's
 URL and key, so several free models on one provider cost one line each:
@@ -47,13 +47,13 @@ endpoint and costs a request from a daily quota to discover.
 
 Measured, one call each:
 
-| Endpoint                   | Accepts                        | Warm call |
-| -------------------------- | ------------------------------ | --------- |
-| Groq `openai/gpt-oss-120b` | `reasoning_effort: "low"`      | 465 ms    |
-| Groq `openai/gpt-oss-20b`  | `reasoning_effort: "low"`      | 181 ms    |
-| Groq `qwen/qwen3.6-27b`    | `reasoning_effort: "none"`     | 392 ms    |
-| Groq `groq/compound-mini`  | neither key — send nothing     | 992 ms    |
-| OpenRouter `minimax-m3`    | `reasoning: {enabled: false}`  | 1112 ms   |
+| Endpoint                   | Accepts                       | Warm call |
+| -------------------------- | ----------------------------- | --------- |
+| Groq `openai/gpt-oss-120b` | `reasoning_effort: "low"`     | 465 ms    |
+| Groq `openai/gpt-oss-20b`  | `reasoning_effort: "low"`     | 181 ms    |
+| Groq `qwen/qwen3.6-27b`    | `reasoning_effort: "none"`    | 392 ms    |
+| Groq `groq/compound-mini`  | neither key — send nothing    | 992 ms    |
+| OpenRouter `minimax-m3`    | `reasoning: {enabled: false}` | 1112 ms   |
 
 There is no safe default in that table. Asking bare is not one either — Groq's
 `gpt-oss-20b` and `qwen3.6-27b` both answered `json_validate_failed` with no
@@ -77,7 +77,7 @@ chain moves down.
 player — the same brain the headless bench runs, which claims, accuses, lies,
 answers questions, writes a will and votes with its family. A table with no model
 anywhere near it is still a table with people arguing at it. The difference a
-model makes is *how* they argue, not whether.
+model makes is _how_ they argue, not whether.
 
 Telling which one you got, from the outside, is deliberately hard. From the
 inside it is one log line: the driver says `mafia bots: this brain is answering`
@@ -113,16 +113,16 @@ Not by running out at midnight. By answering **429 right now**, because the free
 pool is shared and somebody else is in it. Measured against OpenRouter's free
 models from the deployment box, one call each:
 
-| Model                                    | Result             |
-| ---------------------------------------- | ------------------ |
-| `minimax/minimax-m3:free`                | 1.6 s, valid       |
-| `nvidia/nemotron-3-super-120b-a12b:free` | 1.4 s, valid       |
-| `cohere/north-mini-code:free`            | 1.4 s, valid       |
-| `dots-studio/dots-3-note-preview:free`   | 1.7 s, valid       |
-| `google/gemma-4-31b-it:free`             | 429                |
-| `z-ai/glm-5.2:free`                      | 429                |
-| `poolside/laguna-xs-2.1:free`            | 429                |
-| `liquid/lfm-2.5-2.6b:free`               | 400, reasoning is mandatory |
+| Model                                    | Result                                              |
+| ---------------------------------------- | --------------------------------------------------- |
+| `minimax/minimax-m3:free`                | 1.6 s, valid                                        |
+| `nvidia/nemotron-3-super-120b-a12b:free` | 1.4 s, valid                                        |
+| `cohere/north-mini-code:free`            | 1.4 s, valid                                        |
+| `dots-studio/dots-3-note-preview:free`   | 1.7 s, valid                                        |
+| `google/gemma-4-31b-it:free`             | 429                                                 |
+| `z-ai/glm-5.2:free`                      | 429                                                 |
+| `poolside/laguna-xs-2.1:free`            | 429                                                 |
+| `liquid/lfm-2.5-2.6b:free`               | 400, reasoning is mandatory                         |
 | `nvidia/nemotron-3.5-lightning:free`     | burns the whole token budget thinking, returns `""` |
 
 That last row is the trap. A reasoning model given a 300-token budget spends all
@@ -137,7 +137,7 @@ Groq returns `x-ratelimit-limit-requests: 1000` and `x-ratelimit-limit-tokens:
 never purchased credits is capped at about 50 requests a day; $10 of credit
 raises that to ~1000, and the credit is not spent on `:free` models — it only
 unlocks the higher cap. 50/day is roughly two day-phases of a 24-seat table, so
-OpenRouter belongs *below* Groq in the chain, not above it.
+OpenRouter belongs _below_ Groq in the chain, not above it.
 
 **Catalogues move.** `llama-3.3-70b-versatile` was this file's Groq
 recommendation and is no longer served; the default is `openai/gpt-oss-120b`
@@ -151,17 +151,17 @@ now. Check `GET /models` before assuming a model id still resolves.
 Measured on the mini PC this was written for — Ryzen 7 5700U, 8 cores / 16
 threads, integrated graphics, no CUDA, 12 threads given to the container:
 
-| Model                        | Reads      | Writes    | One decision |
-| ---------------------------- | ---------- | --------- | ------------ |
-| `qwen3.5:4b`                 | 60 tok/s   | 10 tok/s  | **~12 s**    |
-| `qwen2.5:3b-instruct-q4_K_M` | 84 tok/s   | 18 tok/s  | **~11 s**    |
-| `qwen3:1.7b`                 | 166 tok/s  | 29 tok/s  | **~4.5 s**   |
+| Model                        | Reads     | Writes   | One decision |
+| ---------------------------- | --------- | -------- | ------------ |
+| `qwen3.5:4b`                 | 60 tok/s  | 10 tok/s | **~12 s**    |
+| `qwen2.5:3b-instruct-q4_K_M` | 84 tok/s  | 18 tok/s | **~11 s**    |
+| `qwen3:1.7b`                 | 166 tok/s | 29 tok/s | **~4.5 s**   |
 
 (One decision = a 340-token briefing in, a 60-to-130-token answer out, weights
 already resident. A real live briefing runs 400–700 tokens, so add a second or
 three.)
 
-Prompt evaluation dominates, which is why the live briefing is a *conclusion*
+Prompt evaluation dominates, which is why the live briefing is a _conclusion_
 rather than a transcript (see `bot-brief.ts`): the cheapest way to make a
 CPU-only model fast is to give it less to read.
 
@@ -173,7 +173,7 @@ working, not the design failing.
 
 Quality, on the same measurements: with the JSON schema attached, both models
 return a valid decision — the right house, the right claim from the enum. The
-4B writes a better *sentence*; the 1.7B writes an adequate one three times as
+4B writes a better _sentence_; the 1.7B writes an adequate one three times as
 often. The 3B is the worst of both here — as slow as the 4B and considerably
 less careful — so it is in the table for completeness rather than as an option.
 
@@ -198,33 +198,33 @@ absent.
 
 ## Tuning knobs
 
-| Variable                | Default                    | What it does                                        |
-| ----------------------- | -------------------------- | --------------------------------------------------- |
-| `MAFIA_BOT_MODEL`       | `qwen3.5:4b`               | Preferred local tag. A *preference*: the driver probes `/api/tags` and takes the best small chat model actually installed if this one is not there. |
-| `MAFIA_BOT_TEMPO`       | `live`                     | `deliberate` gives every bot several think-then-act rounds per phase with the whole board in front of it. A laboratory, not a playable table. |
-| `MAFIA_BOT_COOLDOWN_MS` | `60000`                    | How long a rung sits out after refusing. Matched to free-tier 429s, which are per-minute contention rather than a daily wall. |
-| `MAFIA_BOT_TURN_MS`     | `25000`                    | How long one turn may spend walking the chain. Refusals are cheap (a 429 lands in ~200ms, so four dead APIs cost under two seconds); it is the local model at the bottom that is slow. Past this the played brain takes the turn. |
-| `OLLAMA_CPUS`           | `8`                        | Threads the container may use. The website needs some. |
-| `OLLAMA_KEEP_ALIVE`     | `30m`                      | How long weights stay resident.                     |
-| `OLLAMA_NUM_PARALLEL`   | `2`                        | Concurrent requests. The driver caps its own in-flight count too. |
+| Variable                | Default      | What it does                                                                                                                                                                                                                      |
+| ----------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MAFIA_BOT_MODEL`       | `qwen3.5:4b` | Preferred local tag. A _preference_: the driver probes `/api/tags` and takes the best small chat model actually installed if this one is not there.                                                                               |
+| `MAFIA_BOT_TEMPO`       | `live`       | `deliberate` gives every bot several think-then-act rounds per phase with the whole board in front of it. A laboratory, not a playable table.                                                                                     |
+| `MAFIA_BOT_COOLDOWN_MS` | `60000`      | How long a rung sits out after refusing. Matched to free-tier 429s, which are per-minute contention rather than a daily wall.                                                                                                     |
+| `MAFIA_BOT_TURN_MS`     | `25000`      | How long one turn may spend walking the chain. Refusals are cheap (a 429 lands in ~200ms, so four dead APIs cost under two seconds); it is the local model at the bottom that is slow. Past this the played brain takes the turn. |
+| `OLLAMA_CPUS`           | `8`          | Threads the container may use. The website needs some.                                                                                                                                                                            |
+| `OLLAMA_KEEP_ALIVE`     | `30m`        | How long weights stay resident.                                                                                                                                                                                                   |
+| `OLLAMA_NUM_PARALLEL`   | `2`          | Concurrent requests. The driver caps its own in-flight count too.                                                                                                                                                                 |
 
 ## What each model is actually asked
 
 Three different jobs, three different prompts, three different costs.
 
-| | job | prompt | when |
-| --- | --- | --- | --- |
-| **brain** | decide the turn | none — deterministic policy | always, first |
-| **parser** | read the humans | none — regular expressions | on every line a person types |
-| **mouth** | write one line | ~380 tok | when a rung is up |
-| **ear** | read the humans, properly | ~550 tok | a few seconds behind the last line typed |
+|            | job                       | prompt                      | when                                     |
+| ---------- | ------------------------- | --------------------------- | ---------------------------------------- |
+| **brain**  | decide the turn           | none — deterministic policy | always, first                            |
+| **parser** | read the humans           | none — regular expressions  | on every line a person types             |
+| **mouth**  | write one line            | ~380 tok                    | when a rung is up                        |
+| **ear**    | read the humans, properly | ~550 tok                    | a few seconds behind the last line typed |
 
 The **brain** is `packages/mafia-core/src/sim/policies.ts` and calls nothing. It
 reads the claims ledger, the intel and the vote history directly, so it cannot
 hallucinate and cannot contradict itself, and eight hundred games of it run in
 two seconds — which is how the game gets balanced at all.
 
-The **mouth** is handed an *intention* — accuse house 11, because they swore
+The **mouth** is handed an _intention_ — accuse house 11, because they swore
 they never left and house 3 puts them on a doorstep — and asked for one
 sentence. It never sees the board, never picks a target, never gets an opinion.
 If it declines or rambles, the phrasebook line the brain already wrote is used
@@ -233,7 +233,7 @@ system can only ever affect wording.
 
 The **ear** is the one job that genuinely needs a model: turning free-form human
 sentences into structured claims. One call per table per phase — a nine-day game
-costs about twenty. It only ever *adds* claims, and its output is enum-typed and
+costs about twenty. It only ever _adds_ claims, and its output is enum-typed and
 validated against the living roster, which bounds the blast radius of the one
 place that deliberately reads untrusted player text.
 
@@ -265,12 +265,12 @@ and the seat it named answers in 1.6 s, with no model anywhere in the loop.**
 The two readers cannot double-file: `BotMinds.record` keys a claim by claimer,
 target, kind, day and room, so whichever arrives first wins and the other is
 swallowed. What the ear adds is everything a pattern cannot see. What the parser
-adds is that the table answers *now*, and that it still answers at all when the
+adds is that the table answers _now_, and that it still answers at all when the
 whole chain is benched.
 
 `MAFIA_BOT_MIND=model` restores the original arrangement, where the model decides
 the whole turn from a full briefing (~1700 tok). Kept for comparison, and because
-letting a model *plan* is worth revisiting once there is a way to tell a good
+letting a model _plan_ is worth revisiting once there is a way to tell a good
 plan from a confidently invented one.
 
 ## Where each errand starts on the chain
@@ -327,13 +327,13 @@ and a 429 benches that rung for a minute for every seat still waiting.
 
 **The pick is by measured behaviour, not by position.** A run of endpoints in
 the chain is a pool. Everything within 250 ms (or 1.6×) of the fastest is a
-candidate, an endpoint nobody has tried yet is *always* a candidate, and among
+candidate, an endpoint nobody has tried yet is _always_ a candidate, and among
 the candidates the least busy wins with ties broken at random. So the quick ones
 carry most of the work, none of them carries all of it, an endpoint that starts
 answering slowly loses share before it ever has to refuse, and nothing is left
 unmeasured. When more questions arrive than there are idle endpoints, every
 endpoint that is up takes one, including the slow ones: ranking decides who is
-asked *first*, never who is asked at all.
+asked _first_, never who is asked at all.
 
 **The local model is one of the instances.** Put `ollama` in the pool and it
 competes on measured speed like the rest. It needs no special case to stay out
@@ -349,24 +349,24 @@ usable answer wins. Measured against a provider that stalls on a third of its
 calls: worst case **3018 ms → 676 ms**, with the extra request spent only on the
 tail, which is exactly where the spare capacity is.
 
-| Variable               | Default | What it does |
-| ---------------------- | ------- | ------------ |
-| `MAFIA_API_PARALLEL`   | `1`     | Calls in flight per endpoint. Raise it only for an endpoint that is actually yours. |
+| Variable               | Default | What it does                                                                                                               |
+| ---------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `MAFIA_API_PARALLEL`   | `1`     | Calls in flight per endpoint. Raise it only for an endpoint that is actually yours.                                        |
 | `MAFIA_LOCAL_PARALLEL` | `1`     | The same for Ollama. One GPU serialises the work whatever is asked of it, so queueing more converts answers into timeouts. |
-| `MAFIA_HEDGE_MS`       | `1200`  | How long to wait before asking a second endpoint the same question. `0` turns it off. |
+| `MAFIA_HEDGE_MS`       | `1200`  | How long to wait before asking a second endpoint the same question. `0` turns it off.                                      |
 
 ## What the prompt is actually made of
 
 Measured, on a real mid-game board:
 
-| Scenario | Prompt | Of which transcript |
-| --- | --- | --- |
-| all bots, quiet day | 305 tok | 188 |
-| all bots, busy day | 353 tok | 236 |
-| 2 people at the table | 612 tok | 495 |
-| 5 people, 24 seats | 803 tok | 683 |
-| 24 seats all typing the longest line the chat allows | 759 tok | 639 |
-| one turn through the mouth | 593 tok | fixed rulebook |
+| Scenario                                             | Prompt  | Of which transcript |
+| ---------------------------------------------------- | ------- | ------------------- |
+| all bots, quiet day                                  | 305 tok | 188                 |
+| all bots, busy day                                   | 353 tok | 236                 |
+| 2 people at the table                                | 612 tok | 495                 |
+| 5 people, 24 seats                                   | 803 tok | 683                 |
+| 24 seats all typing the longest line the chat allows | 759 tok | 639                 |
+| one turn through the mouth                           | 593 tok | fixed rulebook      |
 
 **The transcript is the prompt.** Everything else — the roster, the roles dealt,
 the heatmap, the stance, the task — is a hundred tokens together and already
@@ -378,8 +378,8 @@ there are three:
   stops the model looking for meaning in "last night" on its own.
 - **Bound it in characters, not lines.** The window was a line count and a line
   is whatever somebody typed into it. The chat allows 400 characters, so
-  twenty-six lines could be 2,886 tokens of someone else's typing on *every
-  seat's turn* — three and a half times the ordinary briefing, out of the same
+  twenty-six lines could be 2,886 tokens of someone else's typing on _every
+  seat's turn_ — three and a half times the ordinary briefing, out of the same
   tokens-per-minute the whole table shares. Bounded at 2,200 characters, newest
   first, the same afternoon costs 759. The last row of that table is the guard.
 - **Spend the room on people.** The window already scales with human presence
@@ -398,7 +398,7 @@ with nobody watching the total.
 
 Not "write a message". It is handed a briefing — the roles dealt, who is hot,
 what was said, what it knows privately — and asked for a small JSON object: a
-line, a target, a verdict, and the *claim* its line makes. The claim is the point:
+line, a target, a verdict, and the _claim_ its line makes. The claim is the point:
 prose is flavour, and the claim is what the table remembers and can catch it out
 on three days later. The engine validates everything before it happens, so a
 model that hallucinates a house number or bluffs a role this table does not

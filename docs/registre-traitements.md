@@ -28,39 +28,39 @@ l'article 37 n'est remplie (pas d'organisme public, pas de suivi à grande
 
 ### 1. Comptes utilisateurs
 
-| | |
-|---|---|
-| **Finalité** | Permettre de se connecter, de retrouver sa bibliothèque, et de réinitialiser un mot de passe oublié |
-| **Base légale** | Exécution du contrat, art. 6.1.b |
-| **Personnes** | Toute personne qui crée un compte sur games.kunelab.duckdns.org |
-| **Données** | Pseudo, adresse email, empreinte argon2id du mot de passe, rôle, date de création, date de dernière connexion |
-| **Où** | Table `Users`, SQLite, volume Docker `web-games-data` |
-| **Conservation** | Jusqu'à suppression du compte, sur demande à l'adresse de contact |
-| **Destinataires** | Personne |
-| **Transferts hors UE** | Aucun |
+|                        |                                                                                                               |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Finalité**           | Permettre de se connecter, de retrouver sa bibliothèque, et de réinitialiser un mot de passe oublié           |
+| **Base légale**        | Exécution du contrat, art. 6.1.b                                                                              |
+| **Personnes**          | Toute personne qui crée un compte sur games.kunelab.duckdns.org                                               |
+| **Données**            | Pseudo, adresse email, empreinte argon2id du mot de passe, rôle, date de création, date de dernière connexion |
+| **Où**                 | Table `Users`, SQLite, volume Docker `web-games-data`                                                         |
+| **Conservation**       | Jusqu'à suppression du compte, sur demande à l'adresse de contact                                             |
+| **Destinataires**      | Personne                                                                                                      |
+| **Transferts hors UE** | Aucun                                                                                                         |
 
 Le mot de passe n'est jamais conservé en clair et ne peut pas être retrouvé :
 argon2id, 19 Mio, `apps/back/src/services/user-service.ts`.
 
 ### 2. Contenus créés
 
-| | |
-|---|---|
-| **Finalité** | Stocker les questions, médias et playlists à partir desquels les parties se jouent |
-| **Base légale** | Exécution du contrat, art. 6.1.b |
-| **Données** | Contenus saisis par l'utilisateur, rattachés à son identifiant |
-| **Où** | Tables `Media`, `Playlists`, `PlaylistItems`, plus les tables héritées `Videos` et `Images` |
-| **Conservation** | Jusqu'à suppression du compte |
-| **Destinataires** | Les autres utilisateurs, pour les playlists marquées publiques uniquement |
+|                   |                                                                                             |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| **Finalité**      | Stocker les questions, médias et playlists à partir desquels les parties se jouent          |
+| **Base légale**   | Exécution du contrat, art. 6.1.b                                                            |
+| **Données**       | Contenus saisis par l'utilisateur, rattachés à son identifiant                              |
+| **Où**            | Tables `Media`, `Playlists`, `PlaylistItems`, plus les tables héritées `Videos` et `Images` |
+| **Conservation**  | Jusqu'à suppression du compte                                                               |
+| **Destinataires** | Les autres utilisateurs, pour les playlists marquées publiques uniquement                   |
 
 ### 3. Parties terminées et classements
 
-| | |
-|---|---|
-| **Finalité** | Historique des parties, classements, badges |
-| **Base légale** | Exécution du contrat, art. 6.1.b |
-| **Données** | Pseudos de joueurs, scores, statistiques par partie, date |
-| **Où** | Tables `GameResults`, `QuizCareers`, `CzCareers`, `MafiaCareers` |
+|                  |                                                                             |
+| ---------------- | --------------------------------------------------------------------------- |
+| **Finalité**     | Historique des parties, classements, badges                                 |
+| **Base légale**  | Exécution du contrat, art. 6.1.b                                            |
+| **Données**      | Pseudos de joueurs, scores, statistiques par partie, date                   |
+| **Où**           | Tables `GameResults`, `QuizCareers`, `CzCareers`, `MafiaCareers`            |
 | **Conservation** | Sans limite : une partie terminée est aussi l'historique des autres joueurs |
 
 Un pseudo de joueur est ce qui est tapé à l'écran d'accueil et n'est rattaché à
@@ -70,12 +70,12 @@ mais la colonne `host_user_id` passe à `NULL` (voir `eraseUser` dans
 
 ### 4. Enregistrements de parties
 
-| | |
-|---|---|
-| **Finalité** | Pouvoir expliquer après coup une partie qui s'est mal passée |
-| **Base légale** | Intérêt légitime à corriger le logiciel, art. 6.1.f |
-| **Données** | Déroulé complet d'une partie, messages de chat compris |
-| **Où** | Fichiers `.jsonl` dans `/data/traces` |
+|                  |                                                                       |
+| ---------------- | --------------------------------------------------------------------- |
+| **Finalité**     | Pouvoir expliquer après coup une partie qui s'est mal passée          |
+| **Base légale**  | Intérêt légitime à corriger le logiciel, art. 6.1.f                   |
+| **Données**      | Déroulé complet d'une partie, messages de chat compris                |
+| **Où**           | Fichiers `.jsonl` dans `/data/traces`                                 |
 | **Conservation** | Les 10 plus récents par jeu, rotation automatique (`GAME_TRACE_KEEP`) |
 
 **Balance des intérêts.** L'intérêt est réel : sans enregistrement, un bug de
@@ -86,46 +86,46 @@ extérieur au volume, et par le fait que les chaînes sont tronquées sauf en mo
 
 ### 5. Rapports de bug
 
-| | |
-|---|---|
-| **Finalité** | Recevoir et traiter les signalements de problèmes |
-| **Base légale** | Intérêt légitime à corriger le logiciel, art. 6.1.f |
-| **Données** | Message libre, page d'origine, user-agent, code de partie, pseudo si connecté |
-| **Où** | Table `BugReports` |
-| **Conservation** | Jusqu'au traitement du bug, puis suppression (`DELETE /api/bugs/:id`) |
+|                  |                                                                               |
+| ---------------- | ----------------------------------------------------------------------------- |
+| **Finalité**     | Recevoir et traiter les signalements de problèmes                             |
+| **Base légale**  | Intérêt légitime à corriger le logiciel, art. 6.1.f                           |
+| **Données**      | Message libre, page d'origine, user-agent, code de partie, pseudo si connecté |
+| **Où**           | Table `BugReports`                                                            |
+| **Conservation** | Jusqu'au traitement du bug, puis suppression (`DELETE /api/bugs/:id`)         |
 
 ### 6. Sessions de connexion
 
-| | |
-|---|---|
-| **Finalité** | Garder l'utilisateur connecté d'une page à l'autre |
-| **Base légale** | Exécution du contrat, art. 6.1.b |
-| **Données** | Identifiant de session, identifiant et rôle de l'utilisateur |
-| **Où** | Table `Sessions`, cookie `kune.sid` |
-| **Conservation** | 7 jours, balayage horaire des expirées |
+|                  |                                                              |
+| ---------------- | ------------------------------------------------------------ |
+| **Finalité**     | Garder l'utilisateur connecté d'une page à l'autre           |
+| **Base légale**  | Exécution du contrat, art. 6.1.b                             |
+| **Données**      | Identifiant de session, identifiant et rôle de l'utilisateur |
+| **Où**           | Table `Sessions`, cookie `kune.sid`                          |
+| **Conservation** | 7 jours, balayage horaire des expirées                       |
 
 Cookie strictement nécessaire : exempté de consentement, donc pas de bandeau.
 
 ### 7. Réinitialisation de mot de passe
 
-| | |
-|---|---|
-| **Finalité** | Permettre de reprendre la main sur un compte |
-| **Base légale** | Exécution du contrat, art. 6.1.b |
-| **Données** | Empreinte SHA-256 du jeton, identifiant utilisateur, date d'expiration |
-| **Où** | Table `PasswordResets` |
-| **Conservation** | 1 heure, usage unique, purge à chaque émission |
+|                  |                                                                        |
+| ---------------- | ---------------------------------------------------------------------- |
+| **Finalité**     | Permettre de reprendre la main sur un compte                           |
+| **Base légale**  | Exécution du contrat, art. 6.1.b                                       |
+| **Données**      | Empreinte SHA-256 du jeton, identifiant utilisateur, date d'expiration |
+| **Où**           | Table `PasswordResets`                                                 |
+| **Conservation** | 1 heure, usage unique, purge à chaque émission                         |
 
 Le jeton en clair n'est jamais stocké.
 
 ### 8. Journaux serveur
 
-| | |
-|---|---|
-| **Finalité** | Sécurité, détection d'abus, diagnostic de panne |
-| **Base légale** | Intérêt légitime, art. 6.1.f |
-| **Données** | Adresses IP, requêtes, horodatages |
-| **Où** | Journaux Apache et journaux applicatifs sur la machine |
+|                  |                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------- |
+| **Finalité**     | Sécurité, détection d'abus, diagnostic de panne                                       |
+| **Base légale**  | Intérêt légitime, art. 6.1.f                                                          |
+| **Données**      | Adresses IP, requêtes, horodatages                                                    |
+| **Où**           | Journaux Apache et journaux applicatifs sur la machine                                |
 | **Conservation** | À fixer explicitement. La CNIL recommande 6 mois au plus pour des journaux de ce type |
 
 > **À faire.** La rotation des journaux Apache n'a pas été vérifiée lors de la
@@ -134,11 +134,11 @@ Le jeton en clair n'est jamais stocké.
 
 ## Sous-traitants et destinataires
 
-| Qui | Quoi | Où | Base du transfert |
-|---|---|---|---|
-| Google (YouTube) | Adresse IP du visiteur, identifiant de l'extrait lu | États-Unis | Clauses contractuelles types, DPF. Lecteur chargé depuis `youtube-nocookie.com` : pas de cookie publicitaire |
-| Groq, Anthropic | Messages de chat et pseudos d'une table Mafia comportant des bots | États-Unis | Clauses contractuelles types. **Évitable** : `MAFIA_BOT_PROVIDER=ollama` fait tourner le modèle localement et rien ne sort |
-| Wikimedia | Rien du visiteur | — | Les images sont récupérées par le serveur et relayées ; Wikimedia voit l'adresse du serveur, jamais celle du visiteur |
+| Qui              | Quoi                                                              | Où         | Base du transfert                                                                                                          |
+| ---------------- | ----------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Google (YouTube) | Adresse IP du visiteur, identifiant de l'extrait lu               | États-Unis | Clauses contractuelles types, DPF. Lecteur chargé depuis `youtube-nocookie.com` : pas de cookie publicitaire               |
+| Groq, Anthropic  | Messages de chat et pseudos d'une table Mafia comportant des bots | États-Unis | Clauses contractuelles types. **Évitable** : `MAFIA_BOT_PROVIDER=ollama` fait tourner le modèle localement et rien ne sort |
+| Wikimedia        | Rien du visiteur                                                  | —          | Les images sont récupérées par le serveur et relayées ; Wikimedia voit l'adresse du serveur, jamais celle du visiteur      |
 
 Aucun autre destinataire. Aucune mesure d'audience, aucune régie publicitaire,
 aucune revente, aucun partage à des fins marketing.
@@ -150,7 +150,7 @@ aucune revente, aucun partage à des fins marketing.
 - Limitation de débit sur la connexion (10/min/IP), l'inscription (5/h), le
   changement de mot de passe (5/15min), la demande de réinitialisation (5/h) et
   les rapports de bug (3/15min)
-- Étranglement par compte en plus de celui par IP, vérifié *avant* le hachage,
+- Étranglement par compte en plus de celui par IP, vérifié _avant_ le hachage,
   pour qu'une tentative bloquée ne coûte rien au serveur
 - Régénération de l'identifiant de session à la connexion (anti-fixation)
 - Cookie `httpOnly`, `sameSite=lax`, `secure` dès que le site est en HTTPS
@@ -164,12 +164,12 @@ aucune revente, aucun partage à des fins marketing.
 
 Exercés par simple email à kunelabcontact@duck.com, traités sous un mois.
 
-| Droit | Comment il est honoré aujourd'hui |
-|---|---|
-| Accès, portabilité | Export manuel depuis la base, à la demande |
-| Rectification | Modifiable en ligne, ou à la demande |
-| Effacement | `pnpm --filter back admin delete <login>`, voir `eraseUser` |
-| Limitation, opposition | Traité à la demande |
+| Droit                  | Comment il est honoré aujourd'hui                           |
+| ---------------------- | ----------------------------------------------------------- |
+| Accès, portabilité     | Export manuel depuis la base, à la demande                  |
+| Rectification          | Modifiable en ligne, ou à la demande                        |
+| Effacement             | `pnpm --filter back admin delete <login>`, voir `eraseUser` |
+| Limitation, opposition | Traité à la demande                                         |
 
 > **À faire, sans urgence.** Il n'existe pas de bouton de suppression de compte
 > en libre-service, ni d'export automatique. Le RGPD ne l'exige pas tant que les

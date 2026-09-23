@@ -13,7 +13,7 @@
 > : manager + timers, bots LLM, persistance `MafiaSessions`, portefeuille
 > `MafiaCareers`), front (`apps/front/src/pages/mafia` : setup, siège joueur,
 > carte iso SVG 24 parcelles sans skins, `components/chat/ChatPanel` réutilisable).
-> Bots : `MAFIA_BOT_PROVIDER` est une *chaîne* de cerveaux essayés dans
+> Bots : `MAFIA_BOT_PROVIDER` est une _chaîne_ de cerveaux essayés dans
 > l'ordre, par exemple `openai,ollama` — une API gratuite tant qu'elle
 > répond, la machine locale sinon, et le cerveau du simulateur quand aucun
 > des deux ne répond. Chaque barreau tombe au suivant sur une erreur ou un
@@ -27,21 +27,21 @@
 > - `ollama` : `OLLAMA_URL`, qui n'a pas besoin d'être local — un tunnel
 >   `ssh -N -L 11434:127.0.0.1:11434 debian` suffit à faire tourner le modèle
 >   sur l'autre machine. Le tag configuré (`MAFIA_BOT_MODEL`) est une
->   *préférence* : le pilote demande à Ollama ce qui est réellement installé et
+>   _préférence_ : le pilote demande à Ollama ce qui est réellement installé et
 >   prend le meilleur petit modèle de conversation présent (Qwen d'abord).
 > - `scripted` : n'appelle rien.
 >
 > Le LLM choisit une direction, le moteur déterministe valide et exécute —
 > même philosophie que le design deity-game.
 > Simulation headless : `pnpm --filter back mafia:sim`.
-> **v3 (voir en bas)** : l'interface du siège est une *liste de joueurs* avec
+> **v3 (voir en bas)** : l'interface du siège est une _liste de joueurs_ avec
 > l'action sur la ligne de sa cible, la ville n'est plus que du décor, la télé
 > (`/mafia/tv/:code`) est une option avec mode sans spoiler, `revealOnDeath`
 > règle ce qu'un cadavre livre, et quatre correctifs de règles.
 > Boutique, skins, sons/musique : à venir (voir ci-dessous).
 
-Jeu de déduction sociale inspiré de l'arcade SC2 *Mafia* (et de ce que *Town of
-Salem* était avant les achats intégrés). Entièrement gratuit : on gagne des
+Jeu de déduction sociale inspiré de l'arcade SC2 _Mafia_ (et de ce que _Town of
+Salem_ était avant les achats intégrés). Entièrement gratuit : on gagne des
 points en jouant, les points débloquent des titres, des skins de maison et des
 skins de personnage. Rien d'autre. Aucun élément payant, aucun élément qui
 affecte le gameplay.
@@ -52,12 +52,12 @@ Le décor change d'une partie à l'autre (Gotham un soir, hameau Dofus le
 lendemain), donc le nom ne doit pas désigner une ville : il doit désigner le
 **rituel** (accuser, voter, exiler). Candidats vérifiés (2026-08) :
 
-| Candidat | Statut | Note |
-| --- | --- | --- |
+| Candidat     | Statut                                         | Note                                                                                                         |
+| ------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | **Ostrakon** | quasi libre (un jeu de plateau obscur de 2004) | le tesson de poterie avec lequel Athènes votait l'exil — littéralement le verbe du jeu ; unique, SEO parfait |
-| **Ousted** | libre | compris instantanément en anglais, punchy |
-| Hearsay | pris (Jackbox *Hear Say*, Party Pack 11) | — |
-| Effigy | pris (FPS Steam 2023) | — |
+| **Ousted**   | libre                                          | compris instantanément en anglais, punchy                                                                    |
+| Hearsay      | pris (Jackbox _Hear Say_, Party Pack 11)       | —                                                                                                            |
+| Effigy       | pris (FPS Steam 2023)                          | —                                                                                                            |
 
 Non tranché. « Ostrakon » est le plus brandable, « Ousted » le plus accessible.
 
@@ -110,7 +110,7 @@ Serveur autoritaire, **projection de vue par joueur** (même principe que
 
 ## Chat : paquet générique réutilisable
 
-Le chat *est* le gameplay d'un jeu de Mafia ; il doit pourtant être générique
+Le chat _est_ le gameplay d'un jeu de Mafia ; il doit pourtant être générique
 pour servir aussi CoronaZ et les jeux suivants.
 
 - `packages/chat-core` — logique pure, agnostique du transport (branchable sur
@@ -178,7 +178,7 @@ lune), Farmer (à définir). À ne faire qu'après la v1 complète.
    fuiter (paris révélés en fin de partie seulement).
 3. **Tombes persistantes** — un mort laisse une pierre tombale sur sa parcelle
    avec épitaphe personnalisée (et skins de tombes en boutique). La ville
-   devient cimetière au fil de la partie : la tension se *voit*.
+   devient cimetière au fil de la partie : la tension se _voit_.
 4. **Théâtre du procès** — l'accusé est amené sur la place, projecteur,
    30 s de défense, la foule vote pouce levé/baissé avec animations. Le
    moment social clé mérite une mise en scène.
@@ -193,14 +193,14 @@ iso ; 5 est du contenu de boutique gratuit.
 **Direction** : jour = pastoral Ghibli (bois, cordes légères, guitare) ;
 nuit = Elfman/Burton (boîte à musique, pizzicato, nappes graves, chœurs
 lointains). Variantes par carte (Gotham = cuivres noir/jazz sombre ; village
-Dofus = folk celtique léger). Pouvoirs = signatures courtes par *catégorie*
+Dofus = folk celtique léger). Pouvoirs = signatures courtes par _catégorie_
 (investigation, protection, attaque, tromperie) — jamais par rôle précis dans
 un contexte audible d'autrui (cf. anti-fuite).
 
 **Éviter la boucle pénible** :
 
 - boucles longues (2–3 min minimum), **sans hook mélodique** dans le lit
-  ambiant — la mélodie est réservée aux *stingers* (aube, crépuscule, mort,
+  ambiant — la mélodie est réservée aux _stingers_ (aube, crépuscule, mort,
   verdict), qui masquent d'ailleurs les points de bouclage ;
 - **couches verticales** : 3–4 stems (nappe, rythme, texture, tension) montés/
   descendus selon la phase et la tension (procès = +tension) plutôt qu'une
@@ -233,7 +233,7 @@ un contexte audible d'autrui (cf. anti-fuite).
 
 ## v3 : l'interface est une liste, la télé est une option
 
-### Le siège : la liste des joueurs *est* le jeu
+### Le siège : la liste des joueurs _est_ le jeu
 
 Toute action de ce jeu vise une personne, donc chaque action vit sur la ligne de
 cette personne : « Accuser » à côté d'un nom le jour, « Soigner » à côté du même
@@ -255,7 +255,7 @@ de focusable et est `aria-hidden` — ce qui règle au passage l'accessibilité
 clavier, puisque tout est devenu de vrais `<button>` dans une vraie liste. Elle
 porte ce qui se lit à travers une pièce : qui est debout, qui est en terre,
 jour ou nuit, et si le gibet est occupé. Les pouvoirs auto-ciblés (Vétéran,
-Survivant) tombent naturellement sur *votre* ligne au lieu d'un bouton niché
+Survivant) tombent naturellement sur _votre_ ligne au lieu d'un bouton niché
 dans un paragraphe d'aide.
 
 Les thèmes sont un bloc de tokens `--town-*` et rien d'autre (`[data-town-theme]`),
@@ -265,7 +265,7 @@ glisseront derrière les mêmes noms de classe sans toucher aux composants.
 ### La télé est une option, pas la prémisse
 
 La plupart des parties se jouent **à distance** — téléphones et PC dans des
-maisons différentes — donc `/mafia/tv/:code` est un *ajout* pour le cas « on est
+maisons différentes — donc `/mafia/tv/:code` est un _ajout_ pour le cas « on est
 tous dans la même pièce ». Elle ne joue pas, ne prend pas de siège, et se
 réclame avec le seul code de la table : la projection qu'elle reçoit est celle de
 la console hôte, strictement publique (pas de `me`, aucun rôle de vivant, le chat
@@ -292,9 +292,9 @@ mécaniques et pas de la présentation :
   le réglage — c'est ce que le pouvoir achète ;
 - un **visage emprunté** (Imposteur, Actrice, Diva) n'arrive jamais sur la
   table d'autopsie : la révélation lit toujours le vrai `role`, parce que
-  `disguiseRole` existe pour tromper les *enquêteurs* et rien d'autre ;
+  `disguiseRole` existe pour tromper les _enquêteurs_ et rien d'autre ;
 - un rôle **réellement changé** — contrôlé, converti, remémoré, initié, ou un
-  Bourreau veuf devenu fou — révèle ce qu'il est *devenu*, ce qui est tout
+  Bourreau veuf devenu fou — révèle ce qu'il est _devenu_, ce qui est tout
   l'intérêt de ces pouvoirs.
 
 La fin de partie lève tous les réglages : c'est le moment où les masques tombent.
@@ -302,23 +302,23 @@ La fin de partie lève tous les réglages : c'est le moment où les masques tomb
 ### Quatre correctifs de règles
 
 1. **Le Vétéran et le Tueur de masse ne touchaient jamais un enquêteur.** Les
-   visites des rôles d'enquête étaient enregistrées *après* la riposte du perron
-   et *après* le massacre de la maison. La nuit se déroule maintenant en deux
-   temps explicites — tout le monde déclare son déplacement, *puis* les ripostes
+   visites des rôles d'enquête étaient enregistrées _après_ la riposte du perron
+   et _après_ le massacre de la maison. La nuit se déroule maintenant en deux
+   temps explicites — tout le monde déclare son déplacement, _puis_ les ripostes
    se résolvent — et le carnage du Tueur de masse est étendu dans sa propre passe
    au lieu d'en ligne, où il ne voyait que les trajets des joueurs déjà parcourus
    par la boucle (l'ordre des sièges décidait donc qui mourait). Trois tests
    tiennent l'invariant.
 2. **Le Juge se déduisait de l'arithmétique du verdict.** Le décompte est
-   *pondéré* et la liste des noms est un *effectif* : les publier tous les deux
+   _pondéré_ et la liste des noms est un _effectif_ : les publier tous les deux
    donnait la différence, et dans un tribunal le seul poids caché du plateau est
    son maillet triple. Le tribunal d'exception vote donc à bulletin secret ; un
    procès ordinaire publie les deux sans risque, le Maire révélé étant le seul
    poids supérieur à un et son écharpe étant déjà publique.
 3. **Une journée chargée effaçait toute la mémoire de la partie.** `chat-core`
-   gardait 500 messages *au total*, tous canaux confondus, et `castVote`
-   annonçait *chaque* vote y compris chaque changement d'avis. La rétention est
-   maintenant par canal, et *dans* un canal les annonces du jeu sont comptées
+   gardait 500 messages _au total_, tous canaux confondus, et `castVote`
+   annonçait _chaque_ vote y compris chaque changement d'avis. La rétention est
+   maintenant par canal, et _dans_ un canal les annonces du jeu sont comptées
    séparément du bavardage : la place garde ses 250 dernières paroles **et** ses
    250 dernières annonces, et aucun cri ne peut chasser un rapport de l'aube. Les
    accusations ne s'annoncent plus du tout — le décompte vit sur la liste des
@@ -364,7 +364,7 @@ joueur dit à voix haute et que la table ne pouvait pas calculer :
   puisque la liste des rôles est affichée ;
 - « passer coûte moins cher que se tromper » : une journée jetée coûte une
   tête, une pendaison ratée en coûte deux ;
-- « ils ne sont pas un seul camp » : la parité est la victoire d'une *famille*,
+- « ils ne sont pas un seul camp » : la parité est la victoire d'une _famille_,
   pas d'un tueur solo. Attention, corrigé par le banc : séparer par faction sans
   compter les couteaux par nuit a rendu la ville insouciante face aux tueurs
   solos, +5 points de victoires solo en une passe. Le coût d'une journée perdue
@@ -386,27 +386,27 @@ si le cimetière lui-même ne rentre plus dans la liste (conversion, promotion,
 amnésique).
 
 **Le classement (`ranking.ts`, `visits.ts`, `tempo.ts`)**. Chaque règle est un
-rapport de vraisemblance *mesuré* au banc (`sim --calibrate`), jamais discuté :
-le log du rapport *est* le poids. Deux ajouts, deux abandons documentés.
+rapport de vraisemblance _mesuré_ au banc (`sim --calibrate`), jamais discuté :
+le log du rapport _est_ le poids. Deux ajouts, deux abandons documentés.
 
-| Règle | Sur les tueurs | Sur les autres | Poids |
-| --- | --- | --- | --- |
-| `led-town-wagon` (a lancé la meute sur un innocent) | 6,1 % | 4,1 % | +0,383 |
-| `led-killer-wagon` (l'a lancée sur un tueur) | 5,4 % | 8,5 % | -0,450 |
-| `accuser-silenced` (son accusateur meurt la nuit même) | 1,5 % | 1,0 % | +0,385 |
-| `hammered-town` (a donné la voix qui ouvre le procès) | 2,8 % | 3,0 % | abandonnée |
-| `never-first` (n'ouvre jamais une meute) | 5,6 % | 7,5 % | abandonnée |
+| Règle                                                  | Sur les tueurs | Sur les autres | Poids      |
+| ------------------------------------------------------ | -------------- | -------------- | ---------- |
+| `led-town-wagon` (a lancé la meute sur un innocent)    | 6,1 %          | 4,1 %          | +0,383     |
+| `led-killer-wagon` (l'a lancée sur un tueur)           | 5,4 %          | 8,5 %          | -0,450     |
+| `accuser-silenced` (son accusateur meurt la nuit même) | 1,5 %          | 1,0 %          | +0,385     |
+| `hammered-town` (a donné la voix qui ouvre le procès)  | 2,8 %          | 3,0 %          | abandonnée |
+| `never-first` (n'ouvre jamais une meute)               | 5,6 %          | 7,5 %          | abandonnée |
 
 `hammered-town` ne mesure rien : quand une meute atteint la barre, l'après-midi
 est déjà décidé et le dernier votant ne porte l'intention de personne.
 `never-first` mesure quelque chose de réel et de mauvais : nos tueurs jouent une
-politique plus agressive que nos villageois, donc la règle détecte *quel bot
-tourne*, ce qui flatte le banc et ne dit rien d'une personne.
+politique plus agressive que nos villageois, donc la règle détecte _quel bot
+tourne_, ce qui flatte le banc et ne dit rien d'une personne.
 
 `tempo.ts` lit enfin l'ordre des votes, que `state.voteLog` enregistrait depuis
 toujours sans lecteur : qui a ouvert la meute, qui l'a rejointe, qui en est
 descendu au bord de la corde. Détail amusant : `lateSwitch` est un trait de
-personnalité que les bots *jouent* et que rien ne pouvait détecter.
+personnalité que les bots _jouent_ et que rien ne pouvait détecter.
 `saved-at-the-edge` est détecté et volontairement non tarifé, parce qu'un bot
 tueur ne monte jamais sur la meute de son frère et que le banc ne mesurerait
 donc que des villageois qui changent d'avis.
@@ -424,20 +424,20 @@ renvoyée, ni laquelle des deux la table a réellement dite.
 et ne garde que les dernières (dix par défaut). Mafia et CoronaZ écrivent tous
 les deux ; Mafia écrit beaucoup plus, parce qu'il y a beaucoup plus à expliquer.
 
-| Événement | Ce qu'il dit |
-| --------- | ------------ |
-| `deal` | la distribution complète, écrite au début et pas à la fin : une partie qui plante est justement celle qu'on veut relire |
-| `phase` | chaque battement d'horloge, avec les vivants et le temps restant |
-| `chat` | chaque ligne dite, par qui, dans quel salon |
-| `parse` | ce que le lecteur déterministe a compris d'une ligne humaine, **y compris quand il n'a rien compris** |
-| `ear` | la transcription envoyée au modèle et les revendications qu'il en a tirées, côte à côte |
-| `room-parse`, `room-ear` | les mêmes deux lectures pour un salon privé |
-| `draft` | le brouillon de la politique : vote, cible, revendication, phrase de secours, et pourquoi la bouche a été appelée ou non |
-| `llm` | un appel : barreau, modèle, durée, prompt, réponse, ou le statut du refus |
-| `chain` | un barreau mis au banc, ou une marche qui a manqué de temps |
-| `unsaid` | une phrase décidée et jamais dite, avec la raison (budget de parole, doublon, salon inexistant) |
-| `vote`, `ballot`, `night-action`, `day-action`, `will` | chaque coup, humain comme bot, par la même porte |
-| `death`, `close` | le cimetière et l'issue |
+| Événement                                              | Ce qu'il dit                                                                                                             |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `deal`                                                 | la distribution complète, écrite au début et pas à la fin : une partie qui plante est justement celle qu'on veut relire  |
+| `phase`                                                | chaque battement d'horloge, avec les vivants et le temps restant                                                         |
+| `chat`                                                 | chaque ligne dite, par qui, dans quel salon                                                                              |
+| `parse`                                                | ce que le lecteur déterministe a compris d'une ligne humaine, **y compris quand il n'a rien compris**                    |
+| `ear`                                                  | la transcription envoyée au modèle et les revendications qu'il en a tirées, côte à côte                                  |
+| `room-parse`, `room-ear`                               | les mêmes deux lectures pour un salon privé                                                                              |
+| `draft`                                                | le brouillon de la politique : vote, cible, revendication, phrase de secours, et pourquoi la bouche a été appelée ou non |
+| `llm`                                                  | un appel : barreau, modèle, durée, prompt, réponse, ou le statut du refus                                                |
+| `chain`                                                | un barreau mis au banc, ou une marche qui a manqué de temps                                                              |
+| `unsaid`                                               | une phrase décidée et jamais dite, avec la raison (budget de parole, doublon, salon inexistant)                          |
+| `vote`, `ballot`, `night-action`, `day-action`, `will` | chaque coup, humain comme bot, par la même porte                                                                         |
+| `death`, `close`                                       | le cimetière et l'issue                                                                                                  |
 
 ```
 pnpm --filter back trace                 # les dernières parties
@@ -495,7 +495,7 @@ lui faut une détonation par calibre ; Mafia veut l'inverse, une poignée de
 moments qui arrivent une fois et qui comptent (l'aube, la nuit, l'ouverture du
 procès, la corde, un corps, la fin).
 
-La difficulté n'est pas le son, c'est le *quand* : chaque événement est une
+La difficulté n'est pas le son, c'est le _quand_ : chaque événement est une
 transition observée par plusieurs écrans à la fois. Chaque signal est donc
 accroché à une valeur qui ne bouge qu'une fois, le premier état vu ne déclenche
 rien (ouvrir une table à minuit ne doit pas annoncer la nuit), et deux signaux

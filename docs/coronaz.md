@@ -482,15 +482,15 @@ Les objectifs étaient trois (boss, victimes, fournitures) et tous obligatoires 
 Évasion ils verrouillent la sortie. Quatre s'ajoutent, et elles sont **facultatives**
 par nature.
 
-| Sorte      | Ce qu'elle demande             | Verrouille la sortie |
-| ---------- | ------------------------------ | -------------------- |
-| `boss`     | abattre un boss                | oui                  |
-| `kills`    | un quota de victimes           | oui (ou prime)       |
-| `searches` | un quota de fournitures        | oui                  |
-| `explore`  | voir 45 % des salles           | non                  |
-| `treasure` | trouver une pièce épique       | non                  |
-| `intact`   | sortir sans perdre personne    | non                  |
-| `speed`    | sortir avant un tour donné     | non                  |
+| Sorte      | Ce qu'elle demande          | Verrouille la sortie |
+| ---------- | --------------------------- | -------------------- |
+| `boss`     | abattre un boss             | oui                  |
+| `kills`    | un quota de victimes        | oui (ou prime)       |
+| `searches` | un quota de fournitures     | oui                  |
+| `explore`  | voir 45 % des salles        | non                  |
+| `treasure` | trouver une pièce épique    | non                  |
+| `intact`   | sortir sans perdre personne | non                  |
+| `speed`    | sortir avant un tour donné  | non                  |
 
 Une prime **ne bloque rien et paie le double** (6 points contre 3) : personne n'était
 obligé de la prendre. C'est ce qui la rend jouable comme une prime et non comme une
@@ -515,13 +515,13 @@ joueurs et non par l'hôte :
 - **Les mutations de la horde.** Cinq cases à cocher dans le salon d'attente, chacune
   renforce les zombies et **multiplie le score de tout le monde**.
 
-| Mutation      | Effet sur la horde        | Récompense |
-| ------------- | ------------------------- | ---------- |
-| Peau épaisse  | +10 PV                    | +15 %      |
-| Griffes       | +10 dégâts                | +20 %      |
-| Vive          | +1 PA                     | +30 %      |
-| Féconde       | renforts ×1,5             | +25 %      |
-| Titans        | +40 PV aux boss           | +15 %      |
+| Mutation     | Effet sur la horde | Récompense |
+| ------------ | ------------------ | ---------- |
+| Peau épaisse | +10 PV             | +15 %      |
+| Griffes      | +10 dégâts         | +20 %      |
+| Vive         | +1 PA              | +30 %      |
+| Féconde      | renforts ×1,5      | +25 %      |
+| Titans       | +40 PV aux boss    | +15 %      |
 
 Le multiplicateur s'affiche dans le salon d'attente avant qu'on coche quoi que ce
 soit, et sur l'écran de fin à côté des scores : la table sait ce qu'elle achète.
@@ -566,14 +566,14 @@ traînard. C'est le sujet de la proposition « dégâts et armure ».
 expose deux dials neufs, `--luck lucky|unlucky` et `--noperks`, parce que les deux
 questions posées à cette passe ne se lisent pas dans une moyenne.
 
-| Préréglage         | v4     | v5     | Cible    |
-| ------------------ | ------ | ------ | -------- |
-| facile             | 99,5 % | 100 %  | ≥ 99 %   |
-| normal             | 96,8 % | 95,8 % | 94-95 %  |
-| difficile          | 72,3 % | 74,2 % | ~70 %    |
-| cauchemar          | ~30 %  | 44,2 % | ~41 %    |
-| apocalypse         | -      | 16,7 % | ~20 %    |
-| contre MJ agressif | 35 %   | 39,2 % | 40-50 %  |
+| Préréglage         | v4     | v5     | Cible   |
+| ------------------ | ------ | ------ | ------- |
+| facile             | 99,5 % | 100 %  | ≥ 99 %  |
+| normal             | 96,8 % | 95,8 % | 94-95 % |
+| difficile          | 72,3 % | 74,2 % | ~70 %   |
+| cauchemar          | ~30 %  | 44,2 % | ~41 %   |
+| apocalypse         | -      | 16,7 % | ~20 %   |
+| contre MJ agressif | 35 %   | 39,2 % | 40-50 % |
 
 La courbe est revenue à sa place sans qu'on y touche : le 100 % de précision et le
 butin sur cadavre rendent surtout service **là où l'équipe était marginale**, donc
@@ -641,10 +641,10 @@ chez eux n'était cassé.
 Une réduction plate sur **chaque coup**, avec un minimum de 1 qui passe toujours :
 l'armure rend une arme mauvaise, jamais inutile.
 
-| | Traînard | Coureur | Horreur | Mutant | Masse | Brute | Colosse | Abomination |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| PV | 9 | 11 | 19 | 29 | 42 | 68 | 98 | 148 |
-| Armure | 0 | 0 | 0 | 1 | 2 | 3 | 4 | 6 |
+|        | Traînard | Coureur | Horreur | Mutant | Masse | Brute | Colosse | Abomination |
+| ------ | -------- | ------- | ------- | ------ | ----- | ----- | ------- | ----------- |
+| PV     | 9        | 11      | 19      | 29     | 42    | 68    | 98      | 148         |
+| Armure | 0        | 0       | 0       | 1      | 2     | 3     | 4       | 6           |
 
 C'est le stat qui redonne son métier à une arme lourde. Contre un colosse, il faut
 10 attaques à la batte, 5 à la pioche (qui perce), 3 à la tronçonneuse et 2 au
@@ -653,7 +653,7 @@ un seul. Les armes de foule répondent à la foule, les armes lourdes à l'armur
 une main gauche et une main droite ont enfin une question à trancher.
 
 **Perforante** (pioche, tronçonneuse, Desert Eagle, sniper) ignore la moitié de
-l'armure. Ce n'est pas un bonus par-dessus le budget, c'est *dedans* : c'est
+l'armure. Ce n'est pas un bonus par-dessus le budget, c'est _dedans_ : c'est
 l'essentiel de ce qu'un gros calibre est censé être.
 
 Côté héros, le gilet n'est plus un booléen. Il l'était : un gilet rare et un gilet
@@ -718,12 +718,12 @@ boulevard étaient donc le même sol gris avec les mêmes poubelles dessus, et l
 n'avait rien pour comprendre où il se trouvait. Il y a maintenant neuf extérieurs,
 dont trois neufs et décisifs :
 
-| Programme  | Sol      | Ce que c'est                               |
-| ---------- | -------- | ------------------------------------------ |
-| `street`   | bitume   | la chaussée, deux cases de large           |
-| `sidewalk` | dallage  | le trottoir, une case, réverbères et bancs |
-| `square`   | pavés    | la place : fontaine, kiosque, bancs        |
-| `park`     | herbe    | arbres et haies                            |
+| Programme  | Sol     | Ce que c'est                               |
+| ---------- | ------- | ------------------------------------------ |
+| `street`   | bitume  | la chaussée, deux cases de large           |
+| `sidewalk` | dallage | le trottoir, une case, réverbères et bancs |
+| `square`   | pavés   | la place : fontaine, kiosque, bancs        |
+| `park`     | herbe   | arbres et haies                            |
 
 Un trottoir n'est pas une chaussée et une place n'est pas un parking : c'est la
 première chose que l'oeil lit, avant même la forme des bâtiments.
@@ -769,7 +769,7 @@ paie le mieux, donc la silhouette et la raison d'aller vers elle sont la même c
 Neuf salles neuves les remplissent : accueil, chambres, bloc opératoire, pharmacie,
 morgue, cellule, salle des scellés, armurerie. Elles n'étaient meublées par rien du
 tout au départ (un hôpital sortait en boîtes vides) ; elles le sont maintenant depuis
-le catalogue existant, parce qu'une chambre d'hôpital *est* un lit et un chariot.
+le catalogue existant, parce qu'une chambre d'hôpital _est_ un lit et un chariot.
 
 ### `ville` : une avenue, ses trottoirs, une place
 
@@ -828,12 +828,12 @@ ton de la soirée.
 sol et quelques éclats, peints sur le sol et non en contour (un contour voudrait dire
 « sélectionnée », ce que la carte utilise déjà). Le téléphone affiche en plus le nom
 de la salle où l'on se tient et « bon butin » ou « rien à fouiller ici ». Un joueur
-doit pouvoir *vouloir* une pièce sans avoir lu de tableau. Mesuré : 3,8 salles
+doit pouvoir _vouloir_ une pièce sans avoir lu de tableau. Mesuré : 3,8 salles
 brillantes par carte, soit 2,5 % des salles.
 
 Un piège trouvé en chemin : une salle plus grande que le plafond devient plusieurs
 salles, et chacune héritait du programme. Pour une chambre d'hôpital c'est juste (une
-grande chambre *est* plusieurs chambres) ; pour une armurerie c'était un doublon de
+grande chambre _est_ plusieurs chambres) ; pour une armurerie c'était un doublon de
 jackpot avec un air sérieux, mesuré à 2,1 armureries par ville pour un seul
 commissariat. Les six programmes qui portent le butin restent singuliers et le
 débordement devient la salle ordinaire d'à côté, ce qui est aussi à quoi ressemble un
@@ -848,12 +848,12 @@ passer » : un mur bloque les deux, une porte laisse les deux. Conséquence, le 
 devenait aveugle dès qu'on rentrait quelque part. Un `window` sépare enfin les deux
 réponses.
 
-| Cloison  | Passer | Voir et tirer |
-| -------- | ------ | ------------- |
-| `wall`   | non    | non           |
-| `door`   | oui    | oui           |
-| `arch`   | oui    | oui           |
-| `window` | **non**| **oui**       |
+| Cloison  | Passer  | Voir et tirer |
+| -------- | ------- | ------------- |
+| `wall`   | non     | non           |
+| `door`   | oui     | oui           |
+| `arch`   | oui     | oui           |
+| `window` | **non** | **oui**       |
 
 Un survivant peut donc surveiller la rue depuis le magasin, tirer à couvert, et se
 faire tirer dessus à travers la vitre. Une salle peut être dangereuse sans être
@@ -893,19 +893,19 @@ ou trois.
 Il en manque donc la plupart, à chaque partie, et c'est le but plutôt qu'une limite :
 en 22 × 22 on ne peut pas tout faire tenir de toute façon. Un raid où la pharmacie
 n'est nulle part est un raid qui parle d'autre chose, et une table qui sait qu'une
-caserne *pourrait* être là a une raison de regarder.
+caserne _pourrait_ être là a une raison de regarder.
 
 Chaque repère porte une salle que la table de butin paie, donc tirer dans la réserve
 déplace le bon butin et pas seulement la toiture. Mesuré sur 60 villes :
 
-| Salle-repère        | Présente sur |
-| ------------------- | ------------ |
-| pharmacie           | 73 %         |
-| morgue              | 58 %         |
-| laboratoire         | 30 %         |
-| salle des scellés   | 27 %         |
-| armurerie           | 25 %         |
-| bloc opératoire     | 15 %         |
+| Salle-repère      | Présente sur |
+| ----------------- | ------------ |
+| pharmacie         | 73 %         |
+| morgue            | 58 %         |
+| laboratoire       | 30 %         |
+| salle des scellés | 27 %         |
+| armurerie         | 25 %         |
+| bloc opératoire   | 15 %         |
 
 2,3 sortes de salles-repères par ville sur six possibles.
 
@@ -943,18 +943,18 @@ Quatre causes, et aucune n'était l'équilibrage :
 2. **Fouiller n'avait pas de limite.** Rien dans le moteur ne marquait une salle comme
    fouillée : le meilleur jeu dans une pharmacie était donc de **ne pas bouger** et de
    fouiller encore, borné seulement par les PA, le sac, et une fatigue comptée par
-   *héros* et non par salle. Rester immobile est la chose la moins intéressante que ce
+   _héros_ et non par salle. Rester immobile est la chose la moins intéressante que ce
    jeu puisse demander, et ça annulait discrètement le travail de la v7 : on n'avait
    jamais besoin de traverser la rue jusqu'à l'armurerie, seulement d'y arriver une
    fois et d'y camper.
 3. **La progression était finie avant la troisième soirée.** Les rations valaient le
-   *score* du raid, soit 150 à 220, contre un roster affiché de 150 à 400. Une soirée
+   _score_ du raid, soit 150 à 220, contre un roster affiché de 150 à 400. Une soirée
    achetait donc un personnage, n'importe lequel, et tout le roster déblocable partait
    en dix ou douze soirées. Pire : l'écran de fin ne le disait nulle part. Les rations
    étaient créditées et jamais montrées, donc le plus fort levier de rétention du
    genre était calculé, écrit en base, et caché jusqu'au prochain salon d'attente.
 4. **Le tour six se jouait exactement comme le tour cinq.** La courbe d'escalade
-   rendait un raid plus *dur* avec le temps et jamais *différent*.
+   rendait un raid plus _dur_ avec le temps et jamais _différent_.
 
 ### Le butin s'épuise : `finds`
 
@@ -966,7 +966,7 @@ survivant, jusqu'à cinq survivants, tous debout sur le même trottoir au tour u
 **Ce n'est pas un cadran de rareté**, et c'est mesuré : un plateau tient 200 à 290
 trouvailles quand cinq bots `looter` — les cerveaux les plus gloutons du banc — en
 ouvrent quatorze sur un raid entier. Un ordre de grandeur de marge, donc la courbe de
-butin de la v6 n'est pas touchée. La contrainte est *locale*, et c'est là que
+butin de la v6 n'est pas touchée. La contrainte est _locale_, et c'est là que
 l'immobilité était le problème.
 
 Le téléphone affiche le reste (« 3 à fouiller », « salle vidée ») et grise le bouton,
@@ -988,13 +988,13 @@ La règle de la réécriture est la partie importante : **le budget de puissance
 pas.** Un dé devient un verbe de valeur comparable. C'est ce qui garde cinq versions
 d'équilibrage valides, et le banc est ce qui le vérifie.
 
-| Personnage | Avant | Après |
-| ---------- | ----- | ----- |
-| Charles | +1 dé à distance | **Embuscade** : un PA gardé devient un tir pendant la phase ennemie |
-| Johanna | +1 dé en mêlée | **Exécution** : vider une salle en mêlée rend le PA |
-| Chuck | première fouille du tour gratuite | **Trieur** : jamais de camelote, et une trouvaille de plus par salle |
-| Yuri | première blessure du tour -10 | **Bouclier humain** : encaisse un coup destiné à un allié |
-| Nadia | premier déplacement gratuit | **Course** : deux salles pour un PA, mais on arrive en faisant du bruit |
+| Personnage | Avant                             | Après                                                                   |
+| ---------- | --------------------------------- | ----------------------------------------------------------------------- |
+| Charles    | +1 dé à distance                  | **Embuscade** : un PA gardé devient un tir pendant la phase ennemie     |
+| Johanna    | +1 dé en mêlée                    | **Exécution** : vider une salle en mêlée rend le PA                     |
+| Chuck      | première fouille du tour gratuite | **Trieur** : jamais de camelote, et une trouvaille de plus par salle    |
+| Yuri       | première blessure du tour -10     | **Bouclier humain** : encaisse un coup destiné à un allié               |
+| Nadia      | premier déplacement gratuit       | **Course** : deux salles pour un PA, mais on arrive en faisant du bruit |
 
 `mule` et `brawler` sont laissées telles quelles : barricade et empoignade devraient
 muter le plateau en cours de raid, et le plateau porte une garantie de connexité que
@@ -1019,7 +1019,7 @@ invisibles à la lecture :
   puissance passée en contrebande sous une refonte.
 - **Le bouclier de Yuri coûtait huit points de victoire** contre un MJ agressif, dans
   sa première version qui interceptait tout ce qu'il pouvait survivre. Concentrer les
-  dégâts d'une phase sur un survivant est *strictement pire* que de les étaler : un
+  dégâts d'une phase sur un survivant est _strictement pire_ que de les étaler : un
   héros mort ne contribue plus, un héros blessé si. Borné à une fois par phase, -10 sur
   le coup encaissé, et jamais sur un coup qui le tuerait — exactement les chiffres de
   l'ancienne aptitude.
@@ -1027,7 +1027,7 @@ invisibles à la lecture :
   condition transforme une équipe de trois en une équipe de deux qui encaisse tout. Il
   n'épargne donc le porteur que si quelqu'un de plus valide est là pour prendre le coup.
 - **Supprimer le doublon a vidé une catégorie.** `sang-froid` était la seule option de
-  survie de la réserve *globale*, et la copie qui reste (`vigor`) est réservée aux
+  survie de la réserve _globale_, et la copie qui reste (`vigor`) est réservée aux
   signatures — donc la réserve globale s'est retrouvée sans rien de défensif. Le banc
   l'a trouvé là où ça se voit toujours : -14 points sur une table forcée à mal ouvrir.
   D'où `endurci`, qui n'est pas un second « +10 PV max » : l'armure et les PV répondent
@@ -1041,10 +1041,10 @@ famille — un identifiant d'objet codé en dur là où le rôle existait :
   `gear?.flashlight`. Un biome qui n'appelle pas sa lampe « flashlight » affichait
   « fouille gratuite » et se faisait facturer par le serveur.
 - **La portée de la lampe légendaire n'a jamais rien fait.** `lineOfSight` n'est pas
-  bornée le long d'une ligne ouverte, donc *toutes* les salles voisines de *toutes* les
+  bornée le long d'une ligne ouverte, donc _toutes_ les salles voisines de _toutes_ les
   salles sont déjà visibles par tout le monde : mesuré, la branche « éclaire les salles
   voisines » révélait quelque chose de neuf dans **0 salle sur 185**. Ce que le noir
-  cache, c'est ce qui est *après le coin*, donc la portée se compte maintenant en pas
+  cache, c'est ce qui est _après le coin_, donc la portée se compte maintenant en pas
   (`withinSteps`) et plus en rayons.
 
 ### La météo du quartier
@@ -1070,11 +1070,12 @@ double pour la nuée.
 ### L'économie des rations, refaite
 
 Les rations sont leur propre monnaie, décrochée du score : `8 + tours + 12 si victoire
-+ victimes/4 + fouilles/3`. Un raid gagné paie environ 45, un perdu environ 25 —
-perdre paie encore, à 60 %, parce qu'une monnaie qu'on ne gagne qu'en gagnant punit
-exactement les soirées qui allaient déjà mal. Le personnage le moins cher est donc
-trois ou quatre soirées, le plus cher neuf ou dix, et le roster complet une saison au
-lieu d'une quinzaine.
+
+- victimes/4 + fouilles/3`. Un raid gagné paie environ 45, un perdu environ 25 —
+  perdre paie encore, à 60 %, parce qu'une monnaie qu'on ne gagne qu'en gagnant punit
+  exactement les soirées qui allaient déjà mal. Le personnage le moins cher est donc
+  trois ou quatre soirées, le plus cher neuf ou dix, et le roster complet une saison au
+  lieu d'une quinzaine.
 
 Et **l'écran de fin le dit** : rations gagnées, trophées tombés ce soir, atouts
 allumés, personnages désormais à portée, et les trois trophées les plus proches avec
@@ -1112,7 +1113,7 @@ derrière le sac — une confirmation n'est pas un permis de mettre une action
 irréversible sous le pouce qui est déjà en mouvement.
 
 **Le maître du jeu**, jamais testé, et trois choses cassées, toutes une question de
-*quantité* : au tour huit la horde fait trente créatures et le chrono quarante-cinq
+_quantité_ : au tour huit la horde fait trente créatures et le chrono quarante-cinq
 secondes.
 
 1. **Rien ne disait qui avait déjà bougé.** Les PA n'étaient visibles que sur la
@@ -1139,7 +1140,7 @@ seulement pendant la phase ennemie, quand le dock est vide de toute façon.
 `traqueur` (« les coureurs coûtent 1 »), `general` (« Ruée coûte 3 ») et `ossature`
 (« les évolutions coûtent 3 de moins ») étaient des lignes de prix, pas des identités :
 choisir entre elles changeait l'arithmétique et pas la façon de jouer la horde. Chacune
-plie maintenant une *règle* — les créatures du traqueur gagnent 1 PA là où on a tiré, le
+plie maintenant une _règle_ — les créatures du traqueur gagnent 1 PA là où on a tiré, le
 premier renfort du général agit immédiatement, et le colosse d'os peut faire surface
 dans **n'importe quelle salle inexplorée**, ce qui est la seule chose du jeu qui laisse
 la horde tendre une embuscade et qui rétrécit exactement au rythme où la table éclaire
@@ -1166,17 +1167,17 @@ passer.
 
 400 parties par case, trois héros experts, mindset `balanced`, évasion.
 
-| Case | v8 | v9 | Cible |
-| ---- | -- | -- | ----- |
-| facile | 98,0 % | 98,8 % | ≥ 99 % |
-| normal | 90,0 % | 92,0 % | 94-95 % |
-| difficile | 55,3 % | 54,8 % | ~70 % |
-| cauchemar | 26,3 % | 25,8 % | ~41 % |
-| apocalypse | 8,7 % | 10,0 % | ~20 % |
-| normal, sans atout | 85,0 % | 87,3 % | — |
-| contre MJ agressif | 31,0 % | 26,0 % | 40-50 % |
-| contre MJ expert | 31,3 % | 31,5 % | 40-50 % |
-| **normal, malchance forcée** | **63,7 %** | **48,3 %** | — |
+| Case                         | v8         | v9         | Cible   |
+| ---------------------------- | ---------- | ---------- | ------- |
+| facile                       | 98,0 %     | 98,8 %     | ≥ 99 %  |
+| normal                       | 90,0 %     | 92,0 %     | 94-95 % |
+| difficile                    | 55,3 %     | 54,8 %     | ~70 %   |
+| cauchemar                    | 26,3 %     | 25,8 %     | ~41 %   |
+| apocalypse                   | 8,7 %      | 10,0 %     | ~20 %   |
+| normal, sans atout           | 85,0 %     | 87,3 %     | —       |
+| contre MJ agressif           | 31,0 %     | 26,0 %     | 40-50 % |
+| contre MJ expert             | 31,3 %     | 31,5 %     | 40-50 % |
+| **normal, malchance forcée** | **63,7 %** | **48,3 %** | —       |
 
 Deux choses à dire honnêtement.
 
@@ -1190,7 +1191,7 @@ sous les yeux plutôt qu'au passage.
 Ensuite, **la vraie régression de cette passe est la case de malchance forcée** :
 -15 points. `--luck unlucky` épingle les six premiers tirages au palier 1, donc c'est un
 pire cas synthétique et pas une cible — mais la v5 avait identifié l'asymétrie de la
-chance comme *le* problème et la v6 l'avait réduite avec le plancher de pitié et la
+chance comme _le_ problème et la v6 l'avait réduite avec le plancher de pitié et la
 caisse offerte. Cette passe en a repris une partie. Trois causes identifiées, deux
 corrigées (le trou de survie dans la réserve globale, comblé par `endurci` ; la borne du
 bouclier de Yuri) ; il reste une douzaine de points inexpliqués.
