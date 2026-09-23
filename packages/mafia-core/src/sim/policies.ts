@@ -1,6 +1,7 @@
 import type { DeathSource } from '../messages.js';
 import type { NightActionType, RoleId } from '../roles.js';
 import {
+  CORPSE_ONLY,
   duelBeats,
   ENDGAME_SEATS,
   familyOf,
@@ -1452,7 +1453,7 @@ const CREDIBLE = 0.6;
  * citing any of those is making an argument. A seat citing none of them is
  * having a feeling out loud.
  */
-function grounded(claim: Claim, info: PublicInfo): boolean {
+export function grounded(claim: Claim, info: PublicInfo): boolean {
   // `worked` as well as `from`: any path that marks a claim as a night's work
   // counts, even one that has not been taught to name the instrument yet.
   if (claim.from !== undefined || claim.worked === true) return true;
@@ -1507,6 +1508,30 @@ function grounded(claim: Claim, info: PublicInfo): boolean {
  */
 function grounding(claim: Claim, info: PublicInfo): number {
   if (grounded(claim, info)) return 1;
+  const age = Math.max(0, info.day - claim.day);
+  return 0.2 * Math.max(0, 1 - age / 2);
+}
+
+/**
+ * What a clearing is worth, which used to be everything whatever stood behind it.
+ *
+ * An accusation with nothing checkable under it is a fifth of a voice and fades
+ * in two days (see `grounding`). A clearing with nothing under it was a whole
+ * voice, forever, so "he is fine, trust me" outweighed evidence that an
+ * accusation of the same shape could never have built. That asymmetry is an
+ * exploit with two users: a family vouching for a brother on a thin case, and a
+ * person doing the same at a live table. The bench found the first one when
+ * families began to vouch for brothers whenever it could help: the town's win
+ * rate fell by eight points on that one change.
+ *
+ * So a clearing stands on the same kinds of ground an accusation does: a night's
+ * work (a clean check, a save, a watch), or a seat the record already proves
+ * town. Anything else is an opinion, priced as one.
+ */
+function clearGrounding(claim: Claim, info: PublicInfo): number {
+  if (claim.from !== undefined || claim.worked === true) return 1;
+  const proven = info.provenRoles.get(claim.targetSlot);
+  if (proven && roleDef(proven).faction === 'town') return 1;
   const age = Math.max(0, info.day - claim.day);
   return 0.2 * Math.max(0, 1 - age / 2);
 }
@@ -1583,12 +1608,36 @@ export function contradicted(slot: number, info: PublicInfo): boolean {
    */
   const accounts = info.claims.filter((claim) => claim.kind === 'account' && claim.claimerSlot === slot);
   const standing = accounts[accounts.length - 1];
-  if (!standing || standing.account !== 'home') return false;
+  if (!standing) return false;
+  if (standing.account === 'home') {
+    return info.claims.some(
+      (claim) =>
+        claim.kind === 'sighting' &&
+        claim.targetSlot === slot &&
+        claim.claimerSlot !== slot &&
+        claimerWeight(claim.claimerSlot, info) >= CREDIBLE
+    );
+  }
+
+  /**
+   * "I went to 4's", and a witness put them on 7's doorstep that same night.
+   *
+   * The same lie with a house in it instead of a porch, and it was invisible:
+   * only "home" could be contradicted, so the safest answer for a liar caught
+   * outside was to name any house but the one it was seen at. A person at the
+   * table catches this in a sentence. Only when the sighting names its doorstep
+   * and is about the night the account describes; a doorstep that matches is
+   * `ownsUpTo`'s business and clears rather than convicts.
+   */
+  const night = standing.night ?? Math.max(1, standing.day - 1);
   return info.claims.some(
     (claim) =>
       claim.kind === 'sighting' &&
       claim.targetSlot === slot &&
       claim.claimerSlot !== slot &&
+      claim.at !== undefined &&
+      claim.at !== standing.targetSlot &&
+      (claim.night ?? Math.max(1, claim.day - 1)) === night &&
       claimerWeight(claim.claimerSlot, info) >= CREDIBLE
   );
 }
@@ -1684,9 +1733,14 @@ export function possibilitySet(self: MafiaPlayer, info: PublicInfo): Set<number>
       continue;
     }
     // Public clears from credible voices.
+    // Weighed by what stands behind each one, or a family can vouch a brother off the final list. See `clearGrounding`.
     const clearScore = info.claims
       .filter((claim) => claim.kind === 'clear' && claim.targetSlot === slot)
-      .reduce((sum, claim) => sum + claimerWeight(claim.claimerSlot, info), 0);
+      .reduce(
+        (sum, claim) =>
+          sum + claimerWeight(claim.claimerSlot, info) * clearGrounding(claim, info),
+        0
+      );
     if (clearScore >= 1.5) {
       remaining.delete(slot);
       continue;
@@ -2621,6 +2675,38 @@ export function allyCredit(
   return 0;
 }
 
+/**
+ * How far this seat follows a call from that one, 0 (not at all) to 1.
+ *
+ * A stranger's call is a hunch and the hearsay rules deal with it. A call from a
+ * seat this one has reason to believe is on its side is different in kind: the
+ * question of whether the caller is an enemy in disguise is already settled,
+ * and what remains is only whether the caller tends to be right. So it is
+ * followed in proportion to its record, on the same saturating scale
+ * `claimerWeight` uses, and not at all by anybody else.
+ *
+ * On its side means what `allyCredit` means (a lodge brother, a family member,
+ * the sash for a town seat) or a role the record has proven town, which is the
+ * same certainty reached by a different route.
+ */
+function leadership(claimer: number, self: MafiaPlayer, info: PublicInfo, allies: ReadonlySet<number>): number {
+  if (claimer === self.slot || !info.aliveSlots.includes(claimer)) return 0;
+  const proven = info.provenRoles.get(claimer);
+  const provenTown = proven !== undefined && roleDef(proven).faction === 'town';
+  if (!provenTown && allyCredit(claimer, self, info, allies) <= 0) return 0;
+  /**
+   * A family follows a person's call, not another copy of its own policy.
+   *
+   * Bot brothers already pull together through the wagon bonus in `pickVote`,
+   * and a family whose every bot treated every other bot's invented accusation
+   * as evidence would turn its lies into each other's proof. A person in the
+   * family is the one voice the bots are there to back.
+   */
+  const family = self.role ? familyOf(self.role) : null;
+  if (family !== null && !provenTown && !info.humanSlots.has(claimer)) return 0;
+  return Math.min(1, 1 + 0.6 * Math.tanh(settledCredit(claimer, info) * 0.7));
+}
+
 export function suspicionParts(
   targetSlot: number,
   self: MafiaPlayer,
@@ -2674,7 +2760,14 @@ export function suspicionParts(
       .map((claim) => {
         const heard = claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1);
         const dodged = kind === 'accuse' && dodgedTheQuestion(claim.claimerSlot, targetSlot, info) ? 0.5 : 1;
-        return heard * dodged * (kind === 'accuse' ? grounding(claim, info) : 1);
+        // A call from somebody this seat follows is not a hunch to this seat. See `leadership`.
+        const ground =
+          kind === 'accuse'
+            ? Math.max(grounding(claim, info), leadership(claim.claimerSlot, self, info, allies))
+            : kind === 'clear'
+              ? Math.max(clearGrounding(claim, info), leadership(claim.claimerSlot, self, info, allies))
+              : 1;
+        return heard * dodged * ground;
       });
 
     const repeated = info.claims
@@ -2838,6 +2931,23 @@ export function suspicionParts(
     if (claim.claimerSlot === self.slot) continue;
     const voice = claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1);
     if (voice >= CREDIBLE) hard += 0.8 * voice;
+  }
+
+  /**
+   * And a call from somebody this seat has reason to follow, from today or yesterday.
+   *
+   * Priced like a night's work read out, because to this seat it is one: a revealed
+   * Mayor, a lodge brother or a proven townsperson saying "7" is a seat on its side
+   * pointing, and "my ally called it" is something a juror can name. Scaled by the
+   * caller's record, so a leader who keeps being wrong is followed less. Its own
+   * contrary knowledge still wins: a clean check of its own is minus four, which
+   * no call outweighs.
+   */
+  for (const claim of info.claims) {
+    if (claim.kind !== 'accuse' || claim.targetSlot !== targetSlot || claim.worked === true) continue;
+    if (claim.claimerSlot === self.slot || claim.day < info.day - 1) continue;
+    const lead = leadership(claim.claimerSlot, self, info, allies);
+    if (lead > 0) hard += 0.8 * claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1) * lead;
   }
 
   const record = settledCredit(targetSlot, info);
@@ -3045,6 +3155,26 @@ export function suspicionParts(
     }
   }
 
+  /**
+   * Somebody wearing this seat's own badge, when the table holds only one.
+   *
+   * The one lie a seat can see through with no help from the record: it is the
+   * Jailor, so the other Jailor is lying. Nothing on the public board says so
+   * until the real holder stands up, and on the stand it cannot, so a killer
+   * claiming a juror's own role walked into a booth where the juror who knew
+   * better voted innocent one time in eight. Priced like this seat's own evil
+   * role result, which is the only other thing it knows this surely.
+   */
+  if (self.role && roleDef(self.role).faction === 'town' && copiesOf(info, self.role) <= 1) {
+    const worn = [...info.claims]
+      .reverse()
+      .find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === targetSlot && claim.claimedRole);
+    if (worn?.claimedRole === self.role) {
+      score += 4;
+      hard += 4;
+    }
+  }
+
   // Own hard evidence outweighs the rumour mill, and is the model of what a
   // juror can point to: it saw it happen.
   for (const entry of self.intel) {
@@ -3164,7 +3294,7 @@ const TIEBREAK_FLOOR = 1.6;
  * score: a square where the strongest case is this weak has not found anything,
  * and a rope thrown at its best guess is a coin flip with a corpse at the end.
  */
-const NO_CASE_CEILING = 0.5;
+export const NO_CASE_CEILING = 0.5;
 
 /**
  * Hearsay, and what it costs to hang somebody on it.
@@ -3205,7 +3335,7 @@ const NO_CASE_CEILING = 0.5;
  * it too: what the floor is worth depends on a chorus never being able to reach
  * it by itself. See the cap there.
  */
-const HEARSAY_FLOOR = 2.2;
+export const HEARSAY_FLOOR = 2.2;
 
 /**
  * The most a room agreeing with itself may ever be worth.
@@ -3659,6 +3789,86 @@ export function worthWhispering(
   return { toSlot, role };
 }
 
+/**
+ * A seat that knows nothing the square does not, for asking what the room sees.
+ *
+ * Several decisions are about how a case *looks* rather than what this seat
+ * knows: whether a brother is already lost, whether the town will hang somebody
+ * tomorrow for free. Read through the seat's own eyes, a family member's view of
+ * its brother carries the ally discount and every private night it has, and it
+ * answers a different question: the room does not know he is family, and hangs
+ * him on what it can see.
+ */
+const ONLOOKER = {
+  playerId: '__onlooker__',
+  slot: -1,
+  role: 'citizen',
+  intel: [],
+  alive: true,
+  isBot: true
+} as unknown as MafiaPlayer;
+
+/** The case against a seat as the square can see it: no private intel, no allies. */
+export function roomsRead(slot: number, info: PublicInfo): SuspicionParts {
+  return suspicionParts(slot, ONLOOKER, info, () => 0);
+}
+
+/**
+ * Where a seat that is not town says it spent last night.
+ *
+ * The truth is only safe when it is harmless. A knife holder's true night is the
+ * house that died, and "I went to Bob's" with Bob on the square is a
+ * confession. A seat wearing a badge also has to answer in that badge's voice: a
+ * claimed Doctor who "stayed home" has refuted its own claim, and a claimed
+ * Veteran who went out has done the same the other way round.
+ *
+ *  - A badge that never leaves home stays home, whatever really happened.
+ *  - A badge whose night is this seat's own night (a Consort wearing Escort, see
+ *    `twinMasks`) tells the truth, unless the truth is the house that died.
+ *  - Any other visiting badge names the house that badge would have visited:
+ *    for a protector, where the public model expects the knife; for everybody
+ *    else, the seat it has been accusing, or failing that its top suspect.
+ *  - No badge: the truth when it is harmless and the seat is in the mood to tell
+ *    it, home otherwise.
+ *
+ * Null means "I stayed home". Never a house that died last night, never a
+ * teammate, never this seat.
+ */
+function coverStory(
+  self: MafiaPlayer,
+  brain: Brain,
+  info: PublicInfo,
+  badge: RoleId | null,
+  honest: boolean,
+  teammates: ReadonlySet<number>
+): number | null {
+  const safe = (slot: number | null): slot is number =>
+    slot !== null && slot !== self.slot && info.aliveSlots.includes(slot) && !info.lastNightDeathSlots.has(slot);
+  const truth = brain.wentTo;
+
+  if (badge === null || badge === self.role) return honest && safe(truth) ? truth : null;
+  // A badge that stays in, or one that only ever calls on the dead, has no living house to name.
+  if (staysHome(badge) || CORPSE_ONLY.includes(badge)) return null;
+  const action = roleDef(badge).nightAction;
+  if (!action) return null;
+  if (self.role !== null && twinMasks(self.role).includes(badge) && safe(truth)) return truth;
+
+  const open = info.aliveSlots.filter((slot) => safe(slot) && !teammates.has(slot));
+  if (open.length === 0) return null;
+  if (action === 'heal' || action === 'guard') {
+    const expected = likelyTargets(info, new Set([self.slot])).find((slot) => open.includes(slot));
+    if (expected !== undefined) return expected;
+  }
+  const accused = [...info.claims]
+    .reverse()
+    .find((claim) => claim.kind === 'accuse' && claim.claimerSlot === self.slot && open.includes(claim.targetSlot));
+  if (accused) return accused.targetSlot;
+  const steady = (): number => 0;
+  return open
+    .map((slot) => ({ slot, score: suspicion(slot, self, info, steady) }))
+    .sort((left, right) => right.score - left.score)[0].slot;
+}
+
 export function decideDay(
   self: MafiaPlayer,
   brain: Brain,
@@ -3846,14 +4056,58 @@ export function decideDay(
    * badges, and a lone Jester or a nervous townsperson wearing a mask has
    * nobody to corroborate with — it would just be a free upgrade on a lie.
    */
-  const framing = familyOf(role) !== null && rng() < 0.5;
+  /**
+   * Decided by the case, not by a coin.
+   *
+   * This was drawn once per call, and a live table calls it on every turn, so the
+   * same seat's accusations flipped between "I checked 7" and "7 just seems off"
+   * inside one afternoon. A frame is worth dressing up when it corroborates a
+   * case already running: the house has votes on it, or a brother has already
+   * named it. That is the family's best afternoon, and it is the same answer
+   * every time the seat looks at the same board.
+   */
+  const framing = familyOf(role) !== null;
+  const corroborates = (targetSlot: number): boolean =>
+    votesAgainst(targetSlot, info) >= 1 ||
+    info.claims.some(
+      (claim) => claim.kind === 'accuse' && claim.targetSlot === targetSlot && teammates.has(claim.claimerSlot)
+    );
+
+  /**
+   * One report per night, like the badge it imitates.
+   *
+   * A Sheriff checks one house a night, so a mask that reads out a check has
+   * spent that night's report, and a second one the same day is the arithmetic
+   * that catches it. Counted over what this seat has already filed today and
+   * what this turn is about to file.
+   */
+  const reportedToday = (): boolean =>
+    info.claims.some((claim) => claim.claimerSlot === self.slot && claim.day === info.day && claim.from !== undefined) ||
+    decision.publishes.some((claim) => claim.from !== undefined);
+
+  const maskOfSelf = (): RoleId | undefined =>
+    info.claims.find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === self.slot && claim.claimedRole)
+      ?.claimedRole;
 
   const dressedUp = (targetSlot: number, kind: ClaimKind): IntelEntry['kind'] | null => {
-    if (kind !== 'accuse' || !framing) return null;
-    const mask = info.claims.find(
-      (claim) => claim.kind === 'role-claim' && claim.claimerSlot === self.slot && claim.claimedRole
-    )?.claimedRole;
+    if (!framing || reportedToday()) return null;
+    const mask = maskOfSelf();
     if (!mask || mask === self.role) return null;
+    /**
+     * A brother's clean check, which is the one clear that carries weight.
+     *
+     * A bare "he is fine" is priced as an opinion (see `clearGrounding`), so a
+     * family seat vouching for a brother without a badge behind it buys almost
+     * nothing and still hangs itself when he flips. A seat wearing a checker's
+     * badge can say it checked him, and that is the only way the family's
+     * defence of its own is made here. See the brother block below.
+     */
+    if (kind === 'clear') {
+      return teammates.has(targetSlot) && (mask === 'sheriff' || mask === 'investigator')
+        ? (INSTRUMENT_OF[mask] ?? null)
+        : null;
+    }
+    if (kind !== 'accuse' || !corroborates(targetSlot)) return null;
     const instrument = INSTRUMENT_OF[mask];
     if (!instrument) return null;
     if (instrument === 'blocked' && !quietNight(Math.max(1, info.day - 1))) return null;
@@ -3895,6 +4149,20 @@ export function decideDay(
         ...extra
       });
     }
+  };
+
+  /**
+   * The ballot this seat would propose, worked out once and on first need.
+   *
+   * The urge below has to agree with it, and it is asked for before the vote
+   * section at the bottom, so it is kept here rather than computed twice.
+   */
+  let proposal: number | null | undefined;
+  const proposedVote = (): number | null => {
+    if (proposal === undefined) {
+      proposal = info.day > 1 ? pickVote(self, brain, info, teammates, familyKnownEvil, rng) : null;
+    }
+    return proposal;
   };
 
   /* -------- Claims: talk to the town (or poison it). -------- */
@@ -4094,6 +4362,43 @@ export function decideDay(
     if (tellable.length > 0 && rng() < 0.08 * (0.5 + brain.personality.deceit)) {
       const pick = tellable[Math.floor(rng() * tellable.length)];
       if (pick) publish(self.slot, 'ailing', undefined, undefined, pick);
+    }
+  }
+
+  /**
+   * Keeping yesterday's promise, which is the whole of what made it worth making.
+   *
+   * A town seat that bought a day with "I will prove it tonight" reads out that
+   * night's work this morning, in the shape its role produces, because that is
+   * what `deductions` will hold it to. A night that was blocked or spent in the
+   * cell has nothing to show, so the seat says what happened instead, which is
+   * the one excuse the room accepts.
+   */
+  const promisedYesterday = info.claims.some(
+    (claim) =>
+      claim.kind === 'promise' && claim.claimerSlot === self.slot && claim.promise === 'night' && claim.day === info.day - 1
+  );
+  if (promisedYesterday && agenda === 'town' && !gagged) {
+    if (!alreadyClaimed(info, self.slot, self.slot, 'role-claim')) publish(self.slot, 'role-claim', role);
+    if (disturbed && !saidBefore(disturbed)) publish(self.slot, 'ailing', undefined, undefined, disturbed);
+    for (const entry of self.intel.filter((found) => found.night === info.day - 1)) {
+      if (entry.kind === 'sheriff') publish(entry.targetSlot, sheriffSuspects(entry.value) ? 'accuse' : 'clear');
+      else if (entry.kind === 'trade') {
+        const verdict = tradeVerdict(entry.value, info.rolesInPlay);
+        publish(entry.targetSlot, verdict === 'damning' ? 'accuse' : verdict === 'clean' ? 'clear' : 'hint');
+      } else if (entry.kind === 'visitors') {
+        const visitors = (entry.slots ?? []).filter((slot) => slot !== self.slot);
+        for (const visitor of visitors) {
+          publish(visitor, 'sighting', undefined, undefined, undefined, { at: entry.targetSlot });
+        }
+        if (visitors.length === 0) publish(entry.targetSlot, 'hint');
+      } else if (entry.kind === 'tracked') {
+        const where = (entry.slots ?? [])[0];
+        if (where === undefined) publish(entry.targetSlot, 'hint');
+        else publish(entry.targetSlot, 'sighting', undefined, undefined, undefined, { at: where });
+      } else if (entry.kind === 'jailed' || entry.kind === 'blocked') {
+        publish(entry.targetSlot, 'hint');
+      }
     }
   }
 
@@ -4398,14 +4703,72 @@ export function decideDay(
         .find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === self.slot && claim.claimedRole)
         ?.claimedRole ?? role;
 
+    /**
+     * Whether a false claim on this seat's badge is worth answering today.
+     *
+     * Standing up to contest a badge tells the whole table what this seat is, and
+     * a fake claim is the cheapest way to make a real holder do exactly that: the
+     * family claims Jailor on day two, the real Jailor stands up by lunchtime, and
+     * the knife knows where to go. It worked nearly every time, which makes it an
+     * exploit rather than a gamble.
+     *
+     * So the contest waits until the lie is doing damage, which is when a person
+     * holding the badge would speak:
+     *
+     *  - the impostor is under the rope and leaning on the claim;
+     *  - the impostor has used the badge on somebody, accusing or clearing;
+     *  - it is an investigative badge that has now stood a full day, and is being
+     *    believed for it (see `badgesOf`).
+     *
+     * And at once when there is nothing left to hide: this seat has already said
+     * what it is, or the rope is on it anyway. Otherwise it keeps its secret one
+     * more day, and a Jailor answers the claim in its cell instead (see the keeper
+     * block below), which costs it nothing.
+     */
+    const worthContesting = (impostorSlot: number, badge: RoleId): boolean => {
+      if (endangered || alreadyClaimed(info, self.slot, self.slot, 'role-claim')) return true;
+      const claimed = info.claims.find(
+        (claim) => claim.kind === 'role-claim' && claim.claimerSlot === impostorSlot && claim.claimedRole === badge
+      );
+      const since = claimed?.day ?? info.day;
+      /**
+       * A face put on under fire is a defence, and a defence is exactly what the
+       * contest exists to break: without this every cornered liar kept its mask
+       * for as long as it did not also use it. Fishing is the other thing, a
+       * badge claimed while nobody was looking at the claimant, and that is the
+       * one worth waiting out.
+       */
+      const underFire =
+        votesAgainst(impostorSlot, info) >= 1 ||
+        info.trialSlot === impostorSlot ||
+        info.claims.some(
+          (claim) => claim.kind === 'accuse' && claim.targetSlot === impostorSlot && claim.day >= info.day - 1
+        );
+      if (underFire) return true;
+      const used = info.claims.some(
+        (claim) =>
+          claim.claimerSlot === impostorSlot &&
+          claim.day >= since &&
+          claim.targetSlot !== impostorSlot &&
+          (claim.kind === 'accuse' || claim.kind === 'clear')
+      );
+      return used || (BADGE_ROLES.has(badge) && since < info.day);
+    };
+
+    /**
+     * Never a teammate. Two brothers who reached for the same face have a
+     * problem, and settling it in front of the room is the one way to make it
+     * worse: the family's two claims then argue with each other in public.
+     */
     const impostor = info.claims.find(
       (claim) =>
         claim.kind === 'role-claim' &&
         claim.claimedRole === face &&
         claim.claimerSlot !== self.slot &&
+        !teammates.has(claim.claimerSlot) &&
         info.aliveSlots.includes(claim.claimerSlot)
     );
-    if (impostor && roleDef(face).unique && rng() < 0.85) {
+    if (impostor && roleDef(face).unique && worthContesting(impostor.claimerSlot, face)) {
       // The badge goes up first if it has not been said yet; either way the
       // seat wearing it now says, out loud, that the other one is not it.
       if (!alreadyClaimed(info, self.slot, self.slot, 'role-claim')) publish(self.slot, 'role-claim', face);
@@ -4504,8 +4867,14 @@ export function decideDay(
       const homebody = badge !== undefined && staysHome(badge);
 
       const honest = rng() < stance.answerHonestly;
-      if (!homebody && honest && brain.wentTo !== null && brain.wentTo !== self.slot) {
-        publish(brain.wentTo, 'account', undefined, 'visited');
+      const story =
+        agenda === 'town'
+          ? !homebody && honest && brain.wentTo !== null && brain.wentTo !== self.slot
+            ? brain.wentTo
+            : null
+          : coverStory(self, brain, info, badge ?? null, honest, teammates);
+      if (story !== null) {
+        publish(story, 'account', undefined, 'visited');
       } else {
         // Home: honestly, or because the badge on the table says so.
         publish(self.slot, 'account', undefined, 'home');
@@ -4563,6 +4932,33 @@ export function decideDay(
         return vouched || trustOf(slot, info) >= 1.2;
       });
       if (worthIt !== undefined && rng() < 0.7) publish(worthIt, 'clear');
+
+      /**
+       * Saying no to an ally, with the reason.
+       *
+       * A call from a seat this one follows moves its vote (see `leadership`),
+       * unless it holds its own proof the other way: a clean check, a save it made
+       * there. Then it does not follow, and it says why, in the square where the
+       * call was made, rather than simply voting elsewhere and leaving the caller
+       * to guess.
+       */
+      const called = info.claims.find(
+        (claim) =>
+          claim.kind === 'accuse' &&
+          claim.day === info.day &&
+          claim.claimerSlot !== self.slot &&
+          info.aliveSlots.includes(claim.targetSlot) &&
+          leadership(claim.claimerSlot, self, info, allies) > 0 &&
+          !alreadyClaimed(info, self.slot, claim.targetSlot, 'clear') &&
+          self.intel.some(
+            (entry) =>
+              entry.targetSlot === claim.targetSlot &&
+              ((entry.kind === 'sheriff' && !sheriffSuspects(entry.value)) ||
+                entry.kind === 'saved' ||
+                (entry.kind === 'role' && entry.value in ROLES && !isEvilRole(entry.value as RoleId)))
+          )
+      );
+      if (called) publish(called.targetSlot, 'clear');
     }
 
     /**
@@ -4603,17 +4999,29 @@ export function decideDay(
       const alreadyUrged = info.claims.some(
         (claim) => claim.kind === 'urge' && claim.claimerSlot === self.slot && claim.day === info.day
       );
+      /**
+       * Said from the same read as the ballot, or the two contradict each other.
+       *
+       * This weighed the best suspect's whole score, chorus included, while the
+       * ballot weighs what a seat can point to and the hearsay floor on top. So a
+       * seat could say "we have to vote" and, the same turn, cast a skip: a table
+       * measured it on one urge in eight. Now "vote" means this seat has a name
+       * of its own to vote for, and "skip" means its own ballot would skip.
+       * Anything between the two is a seat with no strong view, and it says
+       * nothing about the clock.
+       *
+       * It also retires the family's tell. A family seat used to ask for a quiet
+       * day whenever its strongest suspect was a brother, which is to say exactly
+       * when the room had a real case on one, and a watcher could read the skip
+       * as the cover it was. The ballot's own rule does not do that.
+       */
       if (!alreadyUrged && rng() < 0.3 + stance.pushHard * 0.4) {
-        const best = others
-          .map((slot) => ({ slot, score: suspicionParts(slot, self, info, rng, allies).evidence }))
-          .sort((left, right) => right.score - left.score)[0];
-        const coveringOne = best !== undefined && teammates.has(best.slot);
-        const wants: 'vote' | 'skip' =
-          coveringOne || best === undefined || best.score < NO_CASE_CEILING ? 'skip' : 'vote';
+        const wants: 'vote' | 'skip' | null =
+          proposedVote() !== null ? 'vote' : steadyVote(self, info, null, null, allies, rng).skip ? 'skip' : null;
         // Nobody asks for a quiet day at the parity clock: a wasted afternoon
         // loses outright, and a seat asking for one there has told the room
         // something about itself.
-        if (wants === 'vote' || parityPressure(info) < 0.6) {
+        if (wants === 'vote' || (wants === 'skip' && parityPressure(info) < 0.6)) {
           publish(self.slot, 'urge', undefined, undefined, undefined, { urge: wants });
         }
       }
@@ -4664,7 +5072,7 @@ export function decideDay(
           info.aliveSlots.includes(claim.claimerSlot) &&
           !alreadyClaimed(info, self.slot, claim.claimerSlot, 'counter-claim')
       );
-      if (thief && myRole && roleDef(myRole).faction === 'town' && rng() < 0.75) {
+      if (thief && myRole && roleDef(myRole).faction === 'town' && worthContesting(thief.claimerSlot, myRole)) {
         publish(thief.claimerSlot, 'counter-claim', undefined, undefined, undefined, { deniedRole: myRole });
       }
 
@@ -4720,8 +5128,12 @@ export function decideDay(
               claim.targetSlot === slot &&
               claim.deniedRole === role
           );
+        /**
+         * Never a teammate's badge. When one of the claimants is ours, the denial goes to the rival, which is
+         * the family backing its own claim rather than contesting it in front of the room.
+         */
         const weakest = seats
-          .filter((slot) => !saidToday(slot))
+          .filter((slot) => !saidToday(slot) && !teammates.has(slot))
           .sort((left, right) => trustOf(left, info) - trustOf(right, info))[0];
         // Three mouths on one badge is louder than two, and worth interrupting for.
         if (weakest !== undefined && rng() < (seats.length >= 3 ? 0.7 : 0.4)) {
@@ -4746,7 +5158,13 @@ export function decideDay(
       if (underTheRope && !alreadyPromised) {
         const canSettleIt = myRole != null && PROVABLE.has(myRole);
         const honest = canSettleIt && rng() < 0.8;
-        const bluffing = !canSettleIt && rng() < stance.falseAccuse * 0.5;
+        /**
+         * Only a liar bluffs this. A town seat that cannot settle the bet has no
+         * night to read out tomorrow, so the promise it bought today is a broken
+         * promise tomorrow and a rope the day after: a move that looks, from the
+         * table, like a townsperson hanging itself.
+         */
+        const bluffing = !canSettleIt && agenda !== 'town' && rng() < stance.falseAccuse * 0.5;
         if (honest || bluffing) {
           const onTheSpot = myRole === 'mayor' || myRole === 'marshall';
           publish(self.slot, 'promise', undefined, undefined, undefined, { promise: onTheSpot ? 'now' : 'night' });
@@ -4894,8 +5312,10 @@ export function decideDay(
      * every other claim, and never by a seat that has already put a face on.
      */
     if (agenda === 'town' && self.role !== null && !wornAFaceAlready) {
-      const stolen = privateFindings({ slot: self.slot, role: self.role }, info).find((entry) =>
-        info.aliveSlots.includes(entry.slot)
+      // Same test as the impostor above: announcing it outs this seat, so it waits until the lie costs something.
+      const myBadge = self.role;
+      const stolen = privateFindings({ slot: self.slot, role: myBadge }, info).find(
+        (entry) => info.aliveSlots.includes(entry.slot) && worthContesting(entry.slot, myBadge)
       );
       if (stolen) {
         publish(self.slot, 'role-claim', self.role);
@@ -4964,8 +5384,18 @@ export function decideDay(
               votesAgainst(slot, info) + info.claims.filter((c) => c.targetSlot === slot && c.kind === 'accuse').length
           }))
           .sort((a, b) => b.heat - a.heat);
+        /**
+         * Only where suspicion already lives.
+         *
+         * With nobody warm, the old draw fell to `marks[0]`, and a stable sort of
+         * all-zero heat is table order: every invented accusation on a cold board
+         * landed on the first seat at the table, a signature any regular learns in
+         * a few games. It is also the board where an invented accusation stands out
+         * most, which is the rule this block opens with, so on a cold board the
+         * family simply does not invent one.
+         */
         const mark = marks[0];
-        if (mark && (mark.heat > 0 || rng() < 0.25)) publish(mark.slot, 'accuse');
+        if (mark && mark.heat > 0) publish(mark.slot, 'accuse');
       }
       // With the rope close, wear a face. Which face is `pickMask`'s business —
       // a boring one to get through the day, a frightening one to get through
@@ -5028,14 +5458,42 @@ export function decideDay(
     const brotherInDanger = [...teammates].find(
       (slot) => info.aliveSlots.includes(slot) && (votesAgainst(slot, info) >= 2 || info.trialSlot === slot)
     );
+    /**
+     * Decided by how the case looks to the room, not by a coin.
+     *
+     * A clear for a brother is a bet that he walks: if he hangs and flips, the
+     * seat that vouched for him is a proven liar for the rest of the game. So it
+     * is only worth saying where it can change the outcome, which is the band the
+     * ballot already uses for mercy (a thin case and enough of the family in the
+     * room to matter), and only in a form that carries weight: a bare vouch is an
+     * opinion (see `clearGrounding`), so the family defends a brother out loud
+     * only behind a checker's badge that can say it checked him. Otherwise its
+     * mercy goes through the ballot, where nobody reads a name beside it. A
+     * brother the room already has gets no defence; a family past the point of
+     * protecting its own names him first, which is the one thing about his
+     * hanging that buys anything.
+     *
+     * The lodge is different in kind. A Mason knows its brother is town, so a
+     * clear is simply true and costs nothing, and it is always said.
+     */
     if (brotherInDanger !== undefined) {
-      const family = familyOf(role) !== null;
-      const feedHim = family && rng() < stance.sacrificeAlly;
-      if (feedHim) {
-        // Not a word in his defence, and a vote to prove the point.
-        if (rng() < stance.sacrificeAlly * 0.6) publish(brotherInDanger, 'accuse');
-      } else if (rng() < (family ? stance.fakeClaim * 0.6 : 0.55)) {
+      if (familyOf(role) === null) {
         publish(brotherInDanger, 'clear');
+      } else {
+        const room = roomsRead(brotherInDanger, info).evidence;
+        const kin = 1 + [...teammates].filter((slot) => slot !== brotherInDanger && info.aliveSlots.includes(slot)).length;
+        const reach = kin / Math.max(1, info.aliveSlots.length - 1);
+        if (room >= DOOMED_BROTHER) {
+          if (stance.sacrificeAlly > 0) publish(brotherInDanger, 'accuse');
+        } else if (
+          room < SAVABLE_BROTHER &&
+          reach >= FAMILY_SWING &&
+          stance.sacrificeAlly < 0.5 &&
+          // Only a clear that stands: a checker's badge saying it checked him. A bare vouch saves nobody now.
+          dressedUp(brotherInDanger, 'clear') !== null
+        ) {
+          publish(brotherInDanger, 'clear');
+        }
       }
     }
 
@@ -5046,9 +5504,7 @@ export function decideDay(
   }
 
   /* -------- Vote. -------- */
-  if (info.day > 1) {
-    decision.voteSlot = pickVote(self, brain, info, teammates, familyKnownEvil, rng);
-  }
+  if (info.day > 1) decision.voteSlot = proposedVote();
 
   /* -------- Every keeper picks tonight's prisoner. -------- */
   /**
@@ -5100,7 +5556,27 @@ export function decideDay(
      */
     const sure = surestSuspect(self, info, 0.7, teammates);
     const pressure = parityPressure(info);
-    if (sure && cellPool.includes(sure.slot)) {
+    /**
+     * A seat wearing this Jailor's own badge goes in the cell first.
+     *
+     * It is lying, and this seat is the one at the table that knows it for
+     * certain. Answering the claim in the square would tell the family where the
+     * real Jailor sits (see `worthContesting`); answering it in the cell costs
+     * nothing and holds the liar for a night the Jailor can then judge.
+     */
+    const wearingMine =
+      role === 'jailor'
+        ? info.claims.find(
+            (claim) =>
+              claim.kind === 'role-claim' &&
+              claim.claimedRole === 'jailor' &&
+              claim.claimerSlot !== self.slot &&
+              cellPool.includes(claim.claimerSlot)
+          )
+        : undefined;
+    if (wearingMine) {
+      decision.jailSlot = wearingMine.claimerSlot;
+    } else if (sure && cellPool.includes(sure.slot)) {
       decision.jailSlot = sure.slot;
     } else if (pressure >= 0.35 || info.day >= 4) {
       /**
@@ -5491,10 +5967,25 @@ function pickVote(
     const doomed = [...familyKnownEvil].find(
       (slot) => slot !== self.slot && info.aliveSlots.includes(slot) && votesAgainst(slot, info) >= needed - 1
     );
+    /**
+     * Boarded when the room has him, not on a coin.
+     *
+     * The vote at the bar minus one is the vote that opens the trial, so the
+     * question is whether the brother is lost anyway. Read as the room reads him:
+     * a case the whole square can see means the rope comes today or tomorrow, and
+     * the seat that helped is the one that walks away with the credit. A cold
+     * seat reads "lost" sooner, from the savable edge rather than the doomed one.
+     * Never after vouching for him today, since that flip in front of the same
+     * room is the loudest move available.
+     */
     if (doomed !== undefined) {
-      const stance = stanceOf(agendaOf(role), brain.desperation, brain.personality);
       const cold = brain.personality.deceit > 0.55;
-      if (rng() < (cold ? 0.7 : 0.2) + stance.sacrificeAlly * 0.3) return doomed;
+      const room = roomsRead(doomed, info).evidence;
+      const vouched = info.claims.some(
+        (claim) =>
+          claim.kind === 'clear' && claim.claimerSlot === self.slot && claim.targetSlot === doomed && claim.day === info.day
+      );
+      if (!vouched && room >= (cold ? SAVABLE_BROTHER : DOOMED_BROTHER)) return doomed;
     }
   }
 
@@ -6021,6 +6512,74 @@ const SAVABLE_BROTHER = 1.4;
  */
 const FAMILY_SWING = 0.18;
 
+/**
+ * A family's ballot on somebody who is not family.
+ *
+ * It used to be guilty every time, whatever the case, and the ballots are
+ * public: on a trial with nothing in it the town splits and the family does
+ * not, and on a proven one the town spares one seat in ten and the family never
+ * does. Either way a watcher reading the booth can list the family.
+ *
+ * So the family casts the ballot a town juror would, read off the case as the
+ * room sees it (see `coverBallot`), and departs from it only when the rope is
+ * worth being seen for: the accused is a seat the town cannot afford to lose (a
+ * revealed Mayor, a role the record proves town, an investigative badge nobody
+ * contests), or the town is one mistake or none from losing, where every rope
+ * the family helps pull is the game.
+ */
+function familyVerdict(info: PublicInfo, accusedSlot: number, brain: Brain): 'guilty' | 'innocent' | 'abstain' {
+  const proven = info.provenRoles.get(accusedSlot);
+  const precious =
+    info.revealedMayorSlot === accusedSlot ||
+    (proven !== undefined && roleDef(proven).faction === 'town') ||
+    uncontestedBadge(accusedSlot, info) !== null;
+  if (precious || parityPressure(info) >= 0.6) return 'guilty';
+  return coverBallot(roomsRead(accusedSlot, info), defenceStrength(accusedSlot, info), parityPressure(info), brain.personality);
+}
+
+/** Where a temperament coefficient sits in its range, 0..1. They are rolled flat, so this is spread evenly across seats. */
+const quantileOf = (coefficient: number): number =>
+  Math.min(1, Math.max(0, (coefficient - TEMPERAMENT_MIN) / (TEMPERAMENT_MAX - TEMPERAMENT_MIN)));
+
+/**
+ * The ballot a town juror of this temperament casts on this case, with the dice
+ * replaced by the seat itself.
+ *
+ * The town's own booth below is a curve and two draws: reasonable doubt on an
+ * unproven case, then a guilty vote with a probability that climbs with the
+ * case. A seat that must not stand out has to land where the town lands, and a
+ * single "most likely" answer cannot: it never spares a proven case, which the
+ * town does one time in ten, and a watcher reads that as surely as the old
+ * always-guilty. The bench measured both.
+ *
+ * So each seat is its own draw. Where its nerve sits in the range decides
+ * whether the doubt catches it, and where its suspicion sits decides how strong
+ * a case it needs to convict, and both are rolled flat across seats. A given
+ * seat answers the same case the same way every time; a family of four answers
+ * it the way four townsfolk would.
+ */
+function coverBallot(
+  parts: SuspicionParts,
+  defended: number,
+  pressure: number,
+  personality: Personality
+): 'guilty' | 'innocent' | 'abstain' {
+  if (pressure >= 1) return 'guilty';
+  const herd = personality.herd;
+  if (parts.hard < 1) {
+    const thin = Math.max(0, 1 - Math.max(0, parts.evidence) / 3);
+    const doubt = (0.45 - 0.25 * pressure) * (1 - herd * 0.5) * thin;
+    if (quantileOf(personality.temperament.nerve) < doubt) return 'innocent';
+  }
+  if (parts.evidence < 0.3 && pressure < 0.6) return 'innocent';
+  const score = parts.evidence + 0.3 - defended;
+  const bar = 0.7 - 0.45 * pressure - (herd - 0.5) * 0.4;
+  const chance = 1 / (1 + Math.exp(-(score - bar) / 0.35));
+  if (parts.hard < 1 && pressure < 0.6 && Math.abs(chance - 0.5) < 0.12) return 'abstain';
+  // A suspicious temperament convicts on less: the high end of the range is the low end of the bar.
+  return 1 - quantileOf(personality.temperament.suspicion) < chance ? 'guilty' : 'innocent';
+}
+
 export function decideBallot(
   self: MafiaPlayer,
   brain: Brain,
@@ -6085,7 +6644,19 @@ export function decideBallot(
      *    room of fifteen save nobody and mark themselves doing it.
      *  - **Anything else.** Say nothing.
      */
-    const evidence = suspicionParts(accusedSlot, self, info, rng, teammates).evidence;
+    /**
+     * Read the way the room reads him, which is what decides whether he hangs.
+     *
+     * This read the family's own view, which carries the ally discount (minus
+     * five) and so came out deeply negative almost whatever the room held: the
+     * doomed band was nearly unreachable, and a brother the whole square could
+     * see was caught got an abstention or an innocent ballot. On a proven case
+     * that is the loudest ballot in the booth, and the bench measured it: a
+     * non-guilty vote on a trial with public hard evidence was more than twice
+     * as likely from a killer as from anybody else.
+     */
+    const read = roomsRead(accusedSlot, info);
+    const evidence = read.evidence;
 
     /**
      * How much of the electorate the family is, this seat included.
@@ -6097,21 +6668,21 @@ export function decideBallot(
       1 + [...teammates].filter((slot) => slot !== accusedSlot && info.aliveSlots.includes(slot)).length;
     const reach = kin / Math.max(1, info.aliveSlots.length - 1);
 
-    // The room has him. Mercy is not on the table; the only question is whether
-    // to be seen helping.
-    if (evidence >= DOOMED_BROTHER) {
-      return rng() < 0.55 + stance.sacrificeAlly * 0.35 ? 'guilty' : 'abstain';
-    }
+    // The room has him. Mercy buys nothing and marks the seat, so vote with the room.
+    if (evidence >= DOOMED_BROTHER) return 'guilty';
 
     // Thin case, and enough of the room is ours for a ballot to count. Worth
-    // being seen for — unless this seat has already decided he is expendable.
-    if (evidence < SAVABLE_BROTHER && reach >= FAMILY_SWING && rng() > stance.sacrificeAlly * 0.5) {
-      return 'innocent';
-    }
+    // being seen for, unless this seat has already decided he is expendable.
+    if (evidence < SAVABLE_BROTHER && reach >= FAMILY_SWING && stance.sacrificeAlly < 0.5) return 'innocent';
 
-    // Everything else: a quiet no. See above — an abstention lowers the rope
-    // without putting a name beside mercy.
-    return rng() < stance.sacrificeAlly * 0.4 ? 'guilty' : 'abstain';
+    /**
+     * Everything else: the ballot a town juror would cast on the same case.
+     *
+     * An abstention used to be the default here, and it only looks quiet: town
+     * jurors abstain on a narrow band of genuinely balanced, unproven cases, so an
+     * abstention on anything else is a family ballot with a name beside it.
+     */
+    return coverBallot(read, defenceStrength(accusedSlot, info), parityPressure(info), brain.personality);
   }
   if (role === 'executioner' && (self.obsessionSlotHint ?? null) === accusedSlot) return 'guilty';
   /**
@@ -6126,7 +6697,7 @@ export function decideBallot(
    * its own side was trying to hang him. `familyOf` is the question this was
    * always asking; every other seat in the tree already asks it that way.
    */
-  if (familyOf(role) !== null) return 'guilty';
+  if (familyOf(role) !== null) return familyVerdict(info, accusedSlot, brain);
   if (role === 'jester') {
     if (styleOf(self, brain, rng) === 'scum') {
       /**
@@ -6719,10 +7290,34 @@ export function decideNightTarget(
     // The whole hit list, best head first — the clutch slip decides how far
     // down the list tonight's knife actually goes.
     const ranked: number[] = [];
-    const provenSheriff = info.claims.find(
-      (claim) => claim.kind === 'accuse' && teammates.has(claim.targetSlot) && pool.includes(claim.claimerSlot)
-    );
-    if (provenSheriff) ranked.push(provenSheriff.claimerSlot);
+    /**
+     * Whoever has something real on one of us, and only them.
+     *
+     * This took the first seat that had ever accused a brother, hunch or not, and
+     * put it at the top of the list. So the morning read "the victim had named
+     * one of them" was a reliable way to find the family: every body came with a
+     * list of suspects attached, and a hunch nobody had followed turned into the
+     * best-supported accusation on the board the moment its author died for it.
+     *
+     * An accuser is worth a knife when the accusation is dangerous: a night's work
+     * behind it, something the record can check, or a badge nobody is contesting.
+     * A bare hunch the room ignored costs the family nothing alive, and that seat
+     * falls back into the ordinary ranking with everybody else. Nor is it worth
+     * killing for a brother the room already has: tomorrow hangs him either way,
+     * and the corpse would only confirm it.
+     */
+    const dangerous = info.claims
+      .filter(
+        (claim) =>
+          claim.kind === 'accuse' &&
+          teammates.has(claim.targetSlot) &&
+          info.aliveSlots.includes(claim.targetSlot) &&
+          pool.includes(claim.claimerSlot) &&
+          (claim.worked === true || grounded(claim, info) || uncontestedBadge(claim.claimerSlot, info) !== null) &&
+          roomsRead(claim.targetSlot, info).evidence < DOOMED_BROTHER
+      )
+      .sort((left, right) => claimerWeight(right.claimerSlot, info) - claimerWeight(left.claimerSlot, info))[0];
+    if (dangerous) ranked.push(dangerous.claimerSlot);
     if (info.revealedMayorSlot !== null && pool.includes(info.revealedMayorSlot)) ranked.push(info.revealedMayorSlot);
     const powerRoles: RoleId[] = ['jailor', 'sheriff', 'doctor', 'vigilante', 'bodyguard', 'escort', 'marshall'];
     for (const entry of familyIntel) {
@@ -7476,4 +8071,85 @@ declare module '../state.js' {
     /** Sim only: the obsession's seat, precomputed for the brains. */
     obsessionSlotHint?: number | null;
   }
+}
+
+/* ------------------------- a teammate's request -------------------------- */
+
+/**
+ * How likely a seat is to grant a teammate's request for tonight's house.
+ *
+ * The live table's pricing, moved here so the bench can ask the same question
+ * the driver asks. `herd` is the biddable half of a temperament; a request typed
+ * by a person counts twice what another bot's does; `credit` is what that
+ * teammate's private word has been worth so far (see `settleConfidences` in the
+ * live driver), saturating so five good calls are not five times as persuasive.
+ */
+export function heedChance(herd: number, human: boolean, credit: number): number {
+  const base = (0.25 + herd * 0.2) * (human ? 2 : 1);
+  const earned = 0.2 * Math.tanh(credit * 0.6);
+  return Math.max(0.05, Math.min(0.95, base + earned));
+}
+
+/**
+ * Why a teammate's house was turned down. Each is a fact about that house the
+ * refusal can say out loud. See `judgeRequest`.
+ */
+export type RequestRefusal =
+  /** Not a house the knife can reach tonight: the family's own captive, a gagged seat, gone. */
+  | 'pris'
+  /** Our own knife has already come back blunted from that door. */
+  | 'blinde'
+  /** The record says a Veteran lives there. */
+  | 'veteran'
+  /** That seat has been doing the family's work: see `friendlySeats`. */
+  | 'ami'
+  /** Last night's knife went there and the seat is still breathing. */
+  | 'rate'
+  /** The room already has a case on that seat and will hang it tomorrow for nothing. */
+  | 'pendu'
+  /** This teammate's private word has already cost this seat: see `heedChance`. */
+  | 'desavoue';
+
+export interface RequestVerdict {
+  grant: boolean;
+  reason: RequestRefusal | null;
+}
+
+/**
+ * Whether the knife goes where a teammate asked.
+ *
+ * Inside a family the question "is this really an ally" is already answered: the
+ * engine told every member who the others are. What is left is only whether the
+ * house asked for is a worse night than the knife's own pick, and the bench
+ * measured that it usually is not: a teammate's pick hit a town power as often
+ * as the knife holder's own. A refusal therefore needs a reason about that
+ * house, and the reason is what the family room is told.
+ *
+ * Two kinds of reason. Certain waste (a door the knife cannot pass, a Veteran's
+ * porch, a voice that has lied to this seat before) holds however often it is
+ * asked. A judgement (a friend of the family, last night's survivor, a seat the
+ * room is about to hang) gives way when the teammate asks again: they have heard
+ * the reason and still want it, and a family that overrules its own member twice
+ * is the stubborn teammate this exists to avoid.
+ */
+export function judgeRequest(
+  self: MafiaPlayer,
+  brain: Brain,
+  info: PublicInfo,
+  askedSlot: number,
+  targets: readonly number[],
+  teammates: ReadonlySet<number>,
+  options: { repeated?: boolean; credit?: number } = {}
+): RequestVerdict {
+  const refuse = (reason: RequestRefusal): RequestVerdict => ({ grant: false, reason });
+  if (!targets.includes(askedSlot)) return refuse('pris');
+  if (self.bounced?.includes(askedSlot)) return refuse('blinde');
+  if (info.provenRoles.get(askedSlot) === 'veteran') return refuse('veteran');
+  if ((options.credit ?? 0) <= -2) return refuse('desavoue');
+  if (options.repeated) return { grant: true, reason: null };
+
+  if (friendlySeats(self, info, teammates).has(askedSlot)) return refuse('ami');
+  if (brain.lastKillTarget === askedSlot && info.aliveSlots.includes(askedSlot)) return refuse('rate');
+  if (roomsRead(askedSlot, info).evidence >= DOOMED_BROTHER) return refuse('pendu');
+  return { grant: true, reason: null };
 }

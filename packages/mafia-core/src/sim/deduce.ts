@@ -490,18 +490,49 @@ export function deductions(slot: number, info: PublicInfo): Deduction[] {
        * for keeping it. What a table actually judges is whether you did the
        * thing you said you would do, and that is what this asks.
        */
-      const delivered = info.claims.some(
-        (other) =>
-          other.claimerSlot === slot &&
-          other.day > claim.day &&
-          (other.kind === 'accuse' ||
-            other.kind === 'clear' ||
-            other.kind === 'sighting' ||
-            other.kind === 'hint' ||
-            other.kind === 'account' ||
-            other.kind === 'role-claim')
-      );
-      if (info.day > claim.day && !delivered && !info.provenRoles.has(slot)) {
+      /**
+       * Kept by the kind of thing the promised role produces, not by talking.
+       *
+       * "Something on the record" was any accusation or account at all, so a
+       * liar who promised on the stand kept the promise by naming anybody the
+       * next morning, and the bench measured it: not one such promise was ever
+       * judged broken, and it was the largest single credit a defence could buy.
+       *
+       * So the role the seat stands behind decides what counts. A check is a
+       * verdict on somebody, a watch is a doorstep, a cell is a report on its
+       * prisoner, a Crier's proof is naming itself. A seat with no role claimed
+       * has to say what it is as well as what it found. Two cases are left open
+       * rather than broken: a Veteran nobody visited has nothing to show and did
+       * nothing wrong, and a seat that says it was blocked, jailed, controlled or
+       * moved last night has the one excuse the room cannot check.
+       */
+      const later = info.claims.filter((other) => other.claimerSlot === slot && other.day > claim.day);
+      const badge = [...info.claims]
+        .reverse()
+        .find((other) => other.kind === 'role-claim' && other.claimerSlot === slot && other.claimedRole)?.claimedRole;
+      const about = (kinds: readonly string[]): boolean =>
+        later.some((other) => kinds.includes(other.kind) && other.targetSlot !== slot);
+      const excused =
+        badge === 'veteran' ||
+        later.some(
+          (other) =>
+            other.kind === 'ailing' &&
+            (other.ailment === 'blocked' ||
+              other.ailment === 'jailed' ||
+              other.ailment === 'controlled' ||
+              other.ailment === 'bussed')
+        );
+      const delivered =
+        badge === 'crier'
+          ? later.some((other) => other.kind === 'role-claim')
+          : badge === 'sheriff' || badge === 'investigator'
+            ? about(['accuse', 'clear', 'hint'])
+            : badge === 'lookout' || badge === 'detective' || badge === 'spy'
+              ? about(['sighting', 'accuse', 'hint'])
+              : badge === 'jailor'
+                ? about(['hint', 'accuse', 'clear'])
+                : later.some((other) => other.kind === 'role-claim') && about(['accuse', 'clear', 'hint', 'sighting']);
+      if (info.day > claim.day && !delivered && !excused && !info.provenRoles.has(slot)) {
         found.push({ kind: 'broken-promise', night: claim.day });
       }
     }

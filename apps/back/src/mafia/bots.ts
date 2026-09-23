@@ -18,6 +18,8 @@ import {
   decideNightTarget,
   decideSecondTarget,
   executesCaptive,
+  judgeRequest,
+  type RequestRefusal,
   cellProves,
   chatRules,
   jailChannel,
@@ -643,6 +645,20 @@ const SUBSTANTIAL: ReadonlySet<ClaimKind> = new Set<ClaimKind>(['sighting', 'rol
  * else, or to nobody, is not a bluff — it is a sentence the square can check
  * while it is still being said.
  */
+/**
+ * Why a teammate's house was turned down, in the words handed to the mouth.
+ * The phrasebook carries the same reasons in `mafia.bot.family.refuse.<reason>`.
+ */
+const REFUSAL_WHY: Record<RequestRefusal, string> = {
+  pris: 'that house is out of the knife’s reach tonight: one of us is already holding or silencing it',
+  blinde: 'our knife already bounced off that door',
+  veteran: 'the record says a Veteran lives there, and whoever walks in dies',
+  ami: 'that seat has been doing our work for us in the square',
+  rate: 'we went there last night and they survived, so somebody is protecting them',
+  pendu: 'the town is about to hang them anyway, so the knife is worth more elsewhere',
+  desavoue: 'their last tips in here cost us'
+};
+
 const MASK_WEAPON: Partial<Record<RoleId, DeathSource>> = {
   vigilante: 'vigilante',
   veteran: 'veteran',
@@ -5495,15 +5511,34 @@ export class MafiaBotDriver {
        * the dark can be refused outright. The roll is still stable per day and
        * per request, so a granted request does not flicker between turns.
        */
+      /**
+       * And now it is judged on the house, not on a roll.
+       *
+       * A person in the family room is certainly family: the engine said so. So
+       * the only question is whether the house they named is a worse night than
+       * this seat's own pick, and `judgeRequest` answers it with a reason that
+       * can be said back to them. The bench measured the old roll refusing a
+       * third of requests that were, on average, exactly as good as the knife's
+       * own choice. A request repeated after a refusal, with a new line since, is
+       * granted unless the house is certain waste: they heard the reason and
+       * still want it.
+       *
+       * Another bot's request still goes through the temperament roll as well,
+       * or a family of bots locks onto whatever the first of them said.
+       */
+      const verdict =
+        ask === null
+          ? null
+          : judgeRequest(self, mind.brain, board, ask.slot, targets, allies, {
+              repeated: this.askedAgain(state, mind, playerFamily(self), ask.slot),
+              credit: mind.privateTrust.get(ask.fromSlot) ?? 0
+            });
       const heeded =
         ask !== null &&
-        targets.includes(ask.slot) &&
-        willHeed(
-          mind,
-          ask.fromSlot,
-          (hashCode(botId + ':ask:' + state.day + ':' + ask.slot) % 1000) / 1000,
-          ask.human
-        );
+        !!verdict?.grant &&
+        (ask.human ||
+          willHeed(mind, ask.fromSlot, (hashCode(botId + ':ask:' + state.day + ':' + ask.slot) % 1000) / 1000, false));
+      if (ask !== null && verdict !== null && !verdict.grant) this.noteRefusal(state, mind, playerFamily(self), ask.slot);
 
       /**
        * And the other half of a request, which is the houses not to touch.
@@ -5715,7 +5750,7 @@ export class MafiaBotDriver {
         const own = state.nightActions[botId]?.targetId;
         const ownSlot = own ? (state.players[own]?.slot ?? null) : slot;
         const job = holdsKnife ? null : ownSlot;
-        const shop = this.familyLine(state, botId, view, board, aim, ask, heeded, job);
+        const shop = this.familyLine(state, botId, view, board, aim, ask, heeded, job, verdict?.reason ?? null);
         if (!shop) return EMPTY;
         const heard = this.answering(state, botId, channel);
         // Under a possible Spy the mouth is not handed a house number to avoid saying; it is handed nothing at all.
@@ -5729,7 +5764,9 @@ export class MafiaBotDriver {
             act: hushed
               ? `answer your own family privately, but a SPY MAY BE LISTENING to this room: use NO name, NO house number and NO role, whatever you were asked — ${ask ? (heeded ? 'agree to what they asked' : 'turn down what they asked') : 'acknowledge them and say nothing specific'}`
               : ask
-                ? `${heeded ? 'agree to' : 'turn down'} what your own family just asked for, privately: they want ${ask.slot} dead tonight and you want ${aim === null ? 'to hear more first' : String(aim)}`
+                ? heeded
+                  ? `agree to what your own family just asked for, privately: they want ${ask.slot} dead tonight, and that is where the knife goes`
+                  : `turn down what your own family just asked for, privately: they want ${ask.slot} dead tonight and you want ${aim === null ? 'to hear more first' : String(aim)}${verdict?.reason ? `, because ${REFUSAL_WHY[verdict.reason]}` : ''}. Say the reason.`
                 : heard.length > 0
                   ? `answer your own family, privately, about tonight — you want ${aim === null ? 'to hear what they think' : `${aim} dead`}`
                   : `tell your own family, privately, what you want done tonight — say this and only this: "${shop}"`,
@@ -6185,7 +6222,23 @@ export class MafiaBotDriver {
      * a turn it may not get.
      */
     const heatRow = view.players.find((player) => player.slot === me.slot);
-    if ((heatRow?.votesAgainst ?? 0) >= 1 && view.trial === null) {
+    /**
+     * Unless this turn holds something better than "why me".
+     *
+     * The push-back used to replace everything else the seat had to say, so a
+     * Sheriff with one vote on it and a check on the seat the room was voting
+     * sat on the check and asked who put its name up. A badge, a promise, a shot
+     * owned or a night's result read out *is* the answer to the wagon, and it
+     * goes out instead; the push-back is for a seat with nothing to show.
+     */
+    const bestCard = publishes.some(
+      (claim) =>
+        claim.kind === 'role-claim' ||
+        claim.kind === 'promise' ||
+        claim.kind === 'kill-claim' ||
+        (claim.worked === true && (claim.kind === 'accuse' || claim.kind === 'clear' || claim.kind === 'sighting'))
+    );
+    if ((heatRow?.votesAgainst ?? 0) >= 1 && view.trial === null && !bestCard) {
       const wagonLine = this.answerWagon(state, botId, view, board, heatRow?.votesAgainst ?? 1);
       // Whoever put the rope round this seat's neck, in their own words.
       const heard = this.answering(state, botId, 'day');
@@ -8337,7 +8390,9 @@ export class MafiaBotDriver {
     ask: { slot: number; who: string } | null = null,
     heeded = false,
     /** This seat's own errand tonight, when it is not the one holding the knife. */
-    job: number | null = null
+    job: number | null = null,
+    /** Why the request was turned down, when it was. See `judgeRequest`. */
+    refusal: RequestRefusal | null = null
   ): string | null {
     const t = say(spokenLocale(state));
     const me = view.me;
@@ -8409,6 +8464,10 @@ export class MafiaBotDriver {
       const mates = new Set([me.slot, ...(me.teammates ?? []).map((mate) => mate.slot)]);
       if (heeded) {
         return t(msg('mafia.bot.family.agree.' + (1 + (hashCode(botId + ':yes:' + ask.slot) % 6)), { who: ask.who }));
+      }
+      // A refusal with a reason about that house says the reason, not this seat's own preference.
+      if (refusal) {
+        return t(vary(`mafia.bot.family.refuse.${refusal}`, 3, botId + ':fam:' + state.day, { who: ask.who }));
       }
       const why = aim === null ? null : this.whyKill(state, view, board, aim, mates, botId);
       return aim === null
@@ -8489,6 +8548,37 @@ export class MafiaBotDriver {
    * cannot be turned into a request to knife a brother, and neither can a slip
    * of the fingers.
    */
+  /**
+   * A teammate naming the same house again after this seat said no to it.
+   *
+   * Only a new line from a person counts, since this seat's own turns run more
+   * than once a night and must not read their own refusal as an insistence.
+   */
+  private askedAgain(state: MafiaState, mind: BotMind, room: string | null, slot: number): boolean {
+    if (!room) return false;
+    const refused = mind.refusals?.find((entry) => entry.day === state.day && entry.slot === slot);
+    if (!refused) return false;
+    return state.chat.messages.some(
+      (message) =>
+        message.channel === room &&
+        message.id > refused.upTo &&
+        !!message.authorId &&
+        state.players[message.authorId]?.isBot === false
+    );
+  }
+
+  /** Remembers a refusal, and what the family room had said by then. See `askedAgain`. */
+  private noteRefusal(state: MafiaState, mind: BotMind, room: string | null, slot: number): void {
+    if (!room) return;
+    const refusals = (mind.refusals ??= []);
+    if (refusals.some((entry) => entry.day === state.day && entry.slot === slot)) return;
+    const upTo = state.chat.messages.reduce(
+      (last, message) => (message.channel === room ? Math.max(last, message.id) : last),
+      0
+    );
+    refusals.push({ day: state.day, slot, upTo });
+  }
+
   private familyAsk(state: MafiaState, botId: string, view: MafiaView): RoomAsks | null {
     const self = state.players[botId];
     const family = self ? playerFamily(self) : null;
@@ -9958,6 +10048,51 @@ export class MafiaBotDriver {
        * seat covered, or a line nothing can ever contradict. The nights named
        * are real nights, so the arithmetic holds against the dawn reports.
        */
+      /**
+       * The house this seat already named for that night, when it has said one.
+       *
+       * "Where were you?" is answered in the square before the will is written,
+       * and the answer comes from the mask (see `coverStory` in the policy). A
+       * page that picked a different house for the same night would have the
+       * will and the square telling two stories, which is the one mistake a liar
+       * must not make, so the spoken house is the page's house.
+       */
+      const told = [...board.claims]
+        .reverse()
+        .find(
+          (claim) =>
+            claim.kind === 'account' &&
+            claim.account === 'visited' &&
+            claim.claimerSlot === self.slot &&
+            (claim.night ?? Math.max(1, claim.day - 1)) === night &&
+            aliveOn(night, claim.targetSlot)
+        )?.targetSlot;
+      if (told !== undefined && kind !== 'role') {
+        const guilty = accused.includes(told);
+        if (kind === 'sheriff') {
+          const families = (['mafia', 'triad', 'cult'] as const).filter(
+            (family) => !board.rolesInPlay || [...board.rolesInPlay].some((role) => ROLES[role].faction === family)
+          );
+          const named = families[hashCode(botId + ':camp:' + night) % Math.max(1, families.length)];
+          entries.push({ night, kind: 'sheriff', targetSlot: told, value: guilty ? (named ?? 'suspect') : 'clear' });
+        } else if (kind === 'trade') {
+          const pool = board.rolesInPlay;
+          const fitting = [...new Set(Object.values(ROLES).map((role) => role.investigated))].filter(
+            (trade) => tradeSuspects(trade, pool).length > 0 && tradeVerdict(trade, pool) === (guilty ? 'damning' : 'clean')
+          );
+          const smell = fitting[hashCode(botId + ':smell:' + night) % Math.max(1, fitting.length)];
+          if (smell) entries.push({ night, kind: 'trade', targetSlot: told, value: smell });
+        } else if (kind === 'visitors') {
+          const callers = died.includes(told) ? living(accused).filter((slot) => slot !== told).slice(0, 1) : [];
+          entries.push({ night, kind: 'visitors', targetSlot: told, value: 'visitors', slots: callers });
+        } else if (kind === 'tracked') {
+          entries.push({ night, kind: 'tracked', targetSlot: told, value: 'tracked', slots: died });
+        } else {
+          entries.push({ night, kind, targetSlot: told, value: kind });
+        }
+        continue;
+      }
+
       const suspect = living(accused).find((slot) => !entries.some((entry) => entry.targetSlot === slot));
       const innocent = pick(living([...mates, ...strangers]), String(night));
 

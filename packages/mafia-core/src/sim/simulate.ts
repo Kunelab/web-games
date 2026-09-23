@@ -47,6 +47,9 @@ import {
 import { closingAccusations, toPublicInfo } from '../observe.js';
 import { deductions } from './deduce.js';
 import { rank } from './ranking.js';
+import { Probe, type ProbeChoice } from './probe.js';
+import { Scenarios } from './scenarios.js';
+import type { Tally } from './report.js';
 
 /**
  * One full game, synchronously, through the real engine — the same functions
@@ -177,6 +180,28 @@ export interface SimOptions {
    * it is reported as one.
    */
   nightWatch?: (choice: NightChoice) => void;
+  /**
+   * Fill in the second scoreboard: what each role did, the tells, the faults. See `Probe`.
+   *
+   * Measurement only, and it draws no dice, so the games played are the same
+   * with or without it. Returned on `SimResult.report`.
+   */
+  report?: boolean;
+  /**
+   * Let the voting passes speak, not only the dawn pass.
+   *
+   * By default a seat publishes its claims once, at dawn, before any vote has
+   * been cast, and the three voting passes only move ballots. So everything a
+   * seat says *because of* a vote never happens here: defending a seat under a
+   * wagon, covering a brother, a Sheriff confirming the wagon its check agrees
+   * with, a promise from under the rope, a demand for reasons. The live table
+   * says all of those. With this on, what `decideDay` wants to say in a voting
+   * pass goes on the board too, which is closer to a real afternoon and changes
+   * the games played, so compare runs with the same setting.
+   */
+  talk?: boolean;
+  /** Bench-only situations forced into the game, to check how the bots react. See `Scenarios`. */
+  scenarios?: readonly string[];
 }
 
 /** One seat's decision on one night, including the decision not to act. */
@@ -280,6 +305,8 @@ export interface SimResult {
    * counted the bodies without ever counting the shots.
    */
   strikes: Strike[];
+  /** The second scoreboard, when `SimOptions.report` asked for it. See `Probe`. */
+  report?: Tally;
   /**
    * What the table did with the person at it. See `SimOptions.humans`.
    *
@@ -475,7 +502,10 @@ export function simulateGame(options: SimOptions): SimResult {
   const recordVotes = (): void => {
     if (lastRecordedDay === state.day) return;
     lastRecordedDay = state.day;
-    for (const record of closingAccusations(state, state.day)) voteHistory.push(record);
+    const closing = closingAccusations(state, state.day);
+    for (const record of closing) voteHistory.push(record);
+    scenarios?.dayOver(state.day, closing);
+    probe?.dusk(publicInfo());
   };
 
   /**
@@ -504,12 +534,20 @@ export function simulateGame(options: SimOptions): SimResult {
       if (role === 'sheriff' || role === 'investigator') {
         for (const entry of player.intel) {
           if (entry.kind !== 'sheriff') continue;
+          /**
+           * A will's pages are nights the seat worked, and filed as such, the way
+           * the live driver's `dawnWills` files them. Unmarked, a dead Sheriff's
+           * check read as a hunch here and as a check on a real table.
+           */
           stampAndPush({
             day: state.day,
+            night: entry.night,
             claimerSlot: player.slot,
             targetSlot: entry.targetSlot,
             kind: sheriffSuspects(entry.value) ? 'accuse' : 'clear',
-            truthful: false
+            truthful: false,
+            worked: true,
+            from: 'sheriff'
           });
         }
       }
@@ -519,10 +557,13 @@ export function simulateGame(options: SimOptions): SimResult {
           if ((entry.slots ?? []).some((slot) => wasNightDeathAt(slot, entry.night))) {
             stampAndPush({
               day: state.day,
+              night: entry.night,
               claimerSlot: player.slot,
               targetSlot: entry.targetSlot,
               kind: 'accuse',
-              truthful: false
+              truthful: false,
+              worked: true,
+              from: 'tracked'
             });
           }
         }
@@ -533,10 +574,13 @@ export function simulateGame(options: SimOptions): SimResult {
           for (const visitor of entry.slots ?? []) {
             stampAndPush({
               day: state.day,
+              night: entry.night,
               claimerSlot: player.slot,
               targetSlot: visitor,
               kind: 'accuse',
-              truthful: false
+              truthful: false,
+              worked: true,
+              from: 'visitors'
             });
           }
         }
@@ -568,6 +612,9 @@ export function simulateGame(options: SimOptions): SimResult {
    * disagree about what a seat can see.
    */
   const publicInfo = (): PublicInfo => toPublicInfo(state, claims, voteHistory);
+  const forced = options.scenarios ?? [];
+  const probe = options.report || forced.length > 0 ? new Probe(state, publicInfo) : null;
+  probe?.start();
 
   const familyIntelFor = (playerId: string) => {
     const self = state.players[playerId];
@@ -577,6 +624,27 @@ export function simulateGame(options: SimOptions): SimResult {
       .filter((player) => playerFamily(player) === family && player.alive)
       .flatMap((player) => player.intel);
   };
+
+  const scenarios =
+    forced.length > 0 && probe
+      ? new Scenarios(forced, {
+          state,
+          // Their own dice: the game's stream is untouched until an injected move lands.
+          rng: mulberry32(options.seed ^ 0x9e3779b9),
+          tally: probe.tally,
+          board: publicInfo,
+          push: stampAndPush,
+          brainOf: (playerId) => brains.get(playerId),
+          teammatesOf,
+          familyIntelFor,
+          reveal: (playerId) => {
+            const seat = state.players[playerId];
+            if (!seat || seat.revealed) return;
+            revealMayor(state, playerId, now);
+            if (seat.revealed) probe.revealed(seat, state.day);
+          }
+        })
+      : null;
 
   const shuffledAlive = () => {
     const alive = players.filter((player) => player.alive);
@@ -659,6 +727,7 @@ export function simulateGame(options: SimOptions): SimResult {
           if (!player.alive) continue;
           feelPressure(player, brains.get(player.playerId)!, dawn, teammatesOf(player.playerId));
         }
+        scenarios?.dawn(state.day);
 
         /**
          * What the ranking believed this morning, against what was true.
@@ -685,20 +754,29 @@ export function simulateGame(options: SimOptions): SimResult {
           }
         }
         for (const player of shuffledAlive()) {
+          const board = publicInfo();
           const decision = decideDay(
             player,
             brains.get(player.playerId)!,
-            publicInfo(),
+            board,
             teammatesOf(player.playerId),
             knownEvilFor(player.playerId),
             rng
           );
+          probe?.spoke(player, decision, board);
           // Ground truth is stamped at push time, where the full state is
           // known — the brains themselves never see other players' roles.
           for (const claim of decision.publishes) stampAndPush(claim);
-          if (decision.jailSlot !== null) jailTarget(state, player.playerId, decision.jailSlot);
-          if (decision.revealMayor) revealMayor(state, player.playerId, now);
+          if (decision.jailSlot !== null) {
+            jailTarget(state, player.playerId, decision.jailSlot);
+            probe?.jailed(player, decision.jailSlot);
+          }
+          if (decision.revealMayor && !player.revealed) {
+            revealMayor(state, player.playerId, now);
+            if (player.revealed) probe?.revealed(player, state.day);
+          }
         }
+        scenarios?.afterTalk(state.day);
       }
 
       // Voting passes: seats react to the wagons the previous pass built.
@@ -706,18 +784,27 @@ export function simulateGame(options: SimOptions): SimResult {
         for (let pass = 0; pass < 3 && state.stage === 'discussion'; pass++) {
           for (const player of shuffledAlive()) {
             if (state.stage !== 'discussion') break;
+            const board = publicInfo();
             const decision = decideDay(
               player,
               brains.get(player.playerId)!,
-              publicInfo(),
+              board,
               teammatesOf(player.playerId),
               knownEvilFor(player.playerId),
               rng
             );
+            if (options.talk) {
+              probe?.spoke(player, decision, board);
+              for (const claim of decision.publishes) stampAndPush(claim);
+            }
             if (decision.voteSlot !== null) {
               castVote(state, player.playerId, decision.voteSlot, now);
+              probe?.voted(player, decision.voteSlot, board);
             }
-            if (decision.revealMayor) revealMayor(state, player.playerId, now);
+            if (decision.revealMayor && !player.revealed) {
+              revealMayor(state, player.playerId, now);
+              if (player.revealed) probe?.revealed(player, state.day);
+            }
             if (decision.callCourt) callCourt(state, player.playerId, now);
           }
         }
@@ -732,8 +819,10 @@ export function simulateGame(options: SimOptions): SimResult {
     if (state.phase === 'day' && state.stage === 'defense') {
       const accused = state.trial ? state.players[state.trial.accusedId] : null;
       if (options.autopsy && accused?.role) pending = advocate(accused);
+      if (accused) probe?.trialOpened(accused.slot, publicInfo());
       if ((accused?.role === 'mayor' || accused?.role === 'marshall') && !accused.revealed) {
         revealMayor(state, accused.playerId, now);
+        if (accused.revealed) probe?.revealed(accused, state.day);
       }
 
       /**
@@ -754,8 +843,10 @@ export function simulateGame(options: SimOptions): SimResult {
       if (accused?.role) {
         const brain = brains.get(accused.playerId);
         const info = publicInfo();
-        const claimed = roleDef(accused.role).faction === 'town' ? accused.role : bluffFor(accused, info, rng);
-        if (claimed && (brain?.personality.claimRate ?? 0) > 0.25) {
+        const forcedClaim = scenarios?.standClaim(accused, info);
+        const claimed =
+          forcedClaim ?? (roleDef(accused.role).faction === 'town' ? accused.role : bluffFor(accused, info, rng));
+        if (claimed && (forcedClaim !== undefined || (brain?.personality.claimRate ?? 0) > 0.25)) {
           claims.push({
             day: state.day,
             claimerSlot: accused.slot,
@@ -774,17 +865,32 @@ export function simulateGame(options: SimOptions): SimResult {
     if (state.phase === 'day' && state.stage === 'judgement') {
       const info = publicInfo();
       const accusedSlot = info.trialSlot;
+      const trialDay = state.day;
       if (accusedSlot !== null) {
         for (const player of shuffledAlive()) {
           if (player.slot === accusedSlot) continue;
-          castBallot(
-            state,
-            player.playerId,
-            decideBallot(player, brains.get(player.playerId)!, info, accusedSlot, teammatesOf(player.playerId), rng)
+          const verdict = decideBallot(
+            player,
+            brains.get(player.playerId)!,
+            info,
+            accusedSlot,
+            teammatesOf(player.playerId),
+            rng
           );
+          probe?.ballot(player, verdict);
+          scenarios?.ballot(player, verdict);
+          castBallot(state, player.playerId, verdict);
         }
       }
       advance();
+      if (accusedSlot !== null) {
+        const accusedId = playerBySlot(state, accusedSlot)?.playerId;
+        const hanged = state.deaths.some(
+          (death) => death.phase === 'day' && death.source === undefined && death.playerId === accusedId
+        );
+        probe?.trialClosed(trialDay, hanged);
+        scenarios?.trialClosed(hanged);
+      }
       if (pending) {
         const verdict = pending;
         pending = null;
@@ -806,22 +912,29 @@ export function simulateGame(options: SimOptions): SimResult {
       // is the one place its ballots are certainly all in.
       recordVotes();
       const info = publicInfo();
+      const night = state.day;
+      const choices: ProbeChoice[] = [];
       for (const player of shuffledAlive()) {
         const legal = legalNightAction(state, player.playerId);
         if (!legal) continue;
-        const target = decideNightTarget(
+        // The orders already in tonight decide what is left worth aiming at:
+        // the family's own knife and its own cellar must not meet. See
+        // `unclashedTargets`.
+        const aimable = unclashedTargets(state, player.playerId, legal.type, legal.targets);
+        const chosen = decideNightTarget(
           player,
           brains.get(player.playerId)!,
           info,
-          // The orders already in tonight decide what is left worth aiming at:
-          // the family's own knife and its own cellar must not meet. See
-          // `unclashedTargets`.
-          unclashedTargets(state, player.playerId, legal.type, legal.targets),
+          aimable,
           legal.type,
           teammatesOf(player.playerId),
           familyIntelFor(player.playerId),
           rng
         );
+        const target =
+          scenarios && legal.type === 'kill' && playerFamily(player) !== null
+            ? scenarios.knife(player, aimable, chosen, info)
+            : chosen;
         // A two-house power is submitted whole or not at all: the engine refuses a
         // control or a swap that names only one doorstep. The cellar's second
         // slot is optional and is the captive named again; see `executesCaptive`.
@@ -838,6 +951,7 @@ export function simulateGame(options: SimOptions): SimResult {
         if (target !== null && (!needsSecondTarget(legal.type) || second !== null)) {
           setNightAction(state, player.playerId, target, second);
         }
+        if (player.role) choices.push({ slot: player.slot, role: player.role, action: legal.type, targetSlot: target });
         if (options.nightWatch && player.role) {
           const aimedAt = target === null ? null : players.find((seat) => seat.slot === target);
           options.nightWatch({
@@ -855,7 +969,28 @@ export function simulateGame(options: SimOptions): SimResult {
         const brain = brains.get(player.playerId)!;
         brain.wentTo = target !== null && target !== player.slot && legal.targets.length > 0 ? target : null;
       }
+      // What everybody submitted, read before the engine clears it at dawn.
+      const orders = new Map<number, { type: string; target: number | null }>();
+      for (const [actorId, order] of Object.entries(state.nightActions)) {
+        const actor = state.players[actorId];
+        if (!actor) continue;
+        const aimed = order.targetId ? state.players[order.targetId] : null;
+        orders.set(actor.slot, { type: order.type, target: aimed?.slot ?? null });
+      }
       advance();
+      probe?.night(night, choices, orders, state.nightLog ?? [], info);
+      scenarios?.nightOver(
+        night,
+        new Set(
+          (state.nightLog ?? [])
+            .filter(
+              (outcome) =>
+                outcome.outcome === 'killed' &&
+                (outcome.source === 'mafia' || outcome.source === 'triad' || outcome.source === 'cult')
+            )
+            .map((outcome) => outcome.targetSlot)
+        )
+      );
       recordStrikes();
       continue;
     }
@@ -897,7 +1032,9 @@ export function simulateGame(options: SimOptions): SimResult {
     };
   }
 
-  return tally(state, options, claims, voteHistory, strikes);
+  probe?.end(claims);
+  const result = tally(state, options, claims, voteHistory, strikes);
+  return probe ? { ...result, report: probe.tally } : result;
 }
 
 function tally(

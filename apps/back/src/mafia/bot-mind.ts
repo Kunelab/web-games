@@ -5,6 +5,7 @@ import {
   contradicted,
   DEFAULT_PROFILE,
   feelPressure,
+  heedChance,
   closingAccusations,
   isEvilRole,
   isLodgeMate,
@@ -118,6 +119,12 @@ export interface BotMind {
    * to it: a muted person does not say a second thing. See `defenceLine`.
    */
   mutedBluffDay?: number;
+  /**
+   * Houses a teammate asked for and this seat turned down, with the last line of
+   * the family room at that moment. A new line from a person after it, naming
+   * the same house, is the teammate insisting. See `judgeRequest`.
+   */
+  refusals?: { day: number; slot: number; upTo: number }[];
   /**
    * What other seats have told this one in private, waiting on the graveyard.
    *
@@ -668,7 +675,6 @@ export function willHeed(mind: BotMind, fromSlot: number, roll: number, human = 
    *
    * So the half of it is the ally rate and the whole of it is the person's.
    */
-  const base = (0.25 + mind.brain.personality.herd * 0.2) * (human ? 2 : 1);
-  const earned = 0.2 * Math.tanh(credit * 0.6);
-  return roll < Math.max(0.05, Math.min(0.95, base + earned));
+  // The formula lives with the policy, so the bench prices a request exactly as this does.
+  return roll < heedChance(mind.brain.personality.herd, human, credit);
 }

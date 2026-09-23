@@ -3,12 +3,21 @@ import { SETUPS, setupById } from '../setups.js';
 import type { Personality } from './policies.js';
 import { simulateGame, type Calibration, type SimResult, type TrialAutopsy } from './simulate.js';
 import { roleDef, type RoleId } from '../roles.js';
+import { merge, printReport, type Tally } from './report.js';
+import { SCENARIOS } from './scenarios.js';
 
 /**
  * Batch runner for the fast simulation.
  *
  *   pnpm --filter mafia-core sim -- --games 1000 --players 12,16,20,24
  *   pnpm --filter mafia-core sim -- --games 500 --players 15 --profile aggressive --json
+ *   pnpm --filter mafia-core sim -- --games 300 --players 12,16,20 --report --talk
+ *   pnpm --filter mafia-core sim -- --games 300 --players 12,16,20 --talk --scenario famille,peche
+ *
+ * `--report` adds the second scoreboard (what each role did, the tells a player
+ * could read, the faults), `--talk` lets the voting passes speak as a live table
+ * does, and `--scenario` forces situations a person would create. See `Probe`
+ * and `Scenarios`. Compare runs made with the same flags.
  *
  * Pure engine, virtual time: thousands of games a minute. Same seed, same
  * arguments, same numbers.
@@ -67,6 +76,31 @@ const autopsy = autopsying ? (trial: TrialAutopsy) => trials.push(trial) : undef
 const calibrating = process.argv.includes('--calibrate');
 const rows: Calibration[] = [];
 const calibrate = calibrating ? (row: Calibration) => rows.push(row) : undefined;
+
+/**
+ * `--report`: the second scoreboard. What each role did with its power, the
+ * tells a watching player could read off the bots, and the faults a bot should
+ * never commit. See `Probe`. Pooled over every size in the run, and it plays the
+ * same games as a run without it.
+ */
+const reporting = process.argv.includes('--report');
+const report: Tally = {};
+
+/** `--talk`: the voting passes speak too, as on a live table. See `SimOptions.talk`. */
+const talk = process.argv.includes('--talk');
+
+/**
+ * `--scenario famille,peche,...`: situations forced into every game, to see how
+ * the bots react. See `Scenarios`. Implies `--report`, which is where they print.
+ */
+const scenarioArg = arg('scenario', '');
+const scenarios = scenarioArg ? scenarioArg.split(',').map((name) => name.trim()) : [];
+const unknown = scenarios.filter((name) => !(SCENARIOS as readonly string[]).includes(name));
+if (unknown.length > 0) {
+  console.error(`scénario inconnu: ${unknown.join(', ')}. Disponibles: ${SCENARIOS.join(', ')}`);
+  process.exit(1);
+}
+const reportingAny = reporting || scenarios.length > 0;
 
 /** 'auto' (balanced roster), 'chaos', or a preset id from SETUPS. */
 const setupName = arg('setup', 'auto');
@@ -183,6 +217,7 @@ function aggregate(results: SimResult[]): Aggregate {
     kills: new Map()
   };
   for (const result of results) {
+    if (result.report) merge(report, result.report);
     agg[result.winner] += 1;
     agg.jesterWins += result.jesterWin ? 1 : 0;
     agg.jesterGames += result.jesterPresent ? 1 : 0;
@@ -252,6 +287,9 @@ for (const players of playerCounts) {
           humans,
           autopsy,
           calibrate,
+          report: reportingAny,
+          talk,
+          scenarios,
           config: setupConfig
         })
       );
@@ -263,6 +301,9 @@ for (const players of playerCounts) {
           humans,
           autopsy,
           calibrate,
+          report: reportingAny,
+          talk,
+          scenarios,
           config: censusConfig
         })
       );
@@ -280,6 +321,9 @@ for (const players of playerCounts) {
           humans,
           autopsy,
           calibrate,
+          report: reportingAny,
+          talk,
+          scenarios,
           config: censusConfig
         })
       );
@@ -424,7 +468,7 @@ if (autopsying) {
 }
 
 if (asJson) {
-  console.log(JSON.stringify({ profile: profileName, games, tables }, null, 2));
+  console.log(JSON.stringify({ profile: profileName, games, tables, ...(reportingAny ? { report } : {}) }, null, 2));
 } else {
   console.log(
     `profil ${profileName}, setup ${setupName} + census (50/50), ${games} parties par taille, ${Date.now() - startedAt}ms\n`
@@ -451,6 +495,35 @@ if (asJson) {
     ];
     console.log(cells.join(' | '));
   }
+  // Every table of the run pooled, which is the one line to compare between two runs.
+  const all = tables.reduce(
+    (sum, agg) => ({
+      games: sum.games + agg.games,
+      town: sum.town + agg.town,
+      mafia: sum.mafia + agg.mafia,
+      triad: sum.triad + agg.triad,
+      cult: sum.cult + agg.cult,
+      solo: sum.solo + agg.solo,
+      draw: sum.draw + agg.draw,
+      lynches: sum.lynches + agg.lynches,
+      evilLynches: sum.evilLynches + agg.evilLynches
+    }),
+    { games: 0, town: 0, mafia: 0, triad: 0, cult: 0, solo: 0, draw: 0, lynches: 0, evilLynches: 0 }
+  );
+  console.log(
+    [
+      '   tous',
+      'tailles',
+      pct(all.town, all.games).padStart(6),
+      pct(all.mafia, all.games).padStart(6),
+      pct(all.triad, all.games).padStart(6),
+      pct(all.cult, all.games).padStart(6),
+      pct(all.solo, all.games).padStart(6),
+      pct(all.draw, all.games).padStart(6),
+      '     ',
+      `${pct(all.evilLynches, all.lynches)} (${(all.lynches / Math.max(1, all.games)).toFixed(1)}/p)`.padStart(17)
+    ].join(' | ')
+  );
 
   /**
    * Every killer's aim, pooled across the sizes.
@@ -534,3 +607,5 @@ if (asJson) {
     }
   }
 }
+
+if (reportingAny && !asJson) printReport(report);

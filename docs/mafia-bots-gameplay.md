@@ -110,11 +110,11 @@ Nobody says anything of substance and nobody votes. Claims and votes start on da
 
 1. **In danger with a notebook.** A Sheriff or Investigator with two or more votes on it, or on trial, claims its role and publishes every suspicious result it holds.
 2. **A finding that matters now.** If one of its suspects already has a vote on it or is on trial, a Sheriff or Investigator claims its badge and accuses that seat with probability at least 0.75 (more if it is naturally hasty). A finding nobody is looking at is published without the badge, with probability speak chance times 0.7 (times 1.4 if it holds two or more findings), and the badge stays hidden. This was measured: badging speculative findings cost the town 2.8 points of win rate.
-3. **Somebody stole its badge.** If another living seat claims the role this seat is wearing (its real role, or the mask it has already claimed), and that role is unique, then with probability 0.85 it claims the role itself (if it had not) and accuses the impostor. This fires for liars defending a mask as well as for the real holder.
-4. **It can prove the claimant impossible.** A town seat that has not worn a mask checks the role list with its own badge silently added: if that makes another living seat's claim impossible (for example two Jailors, or three claimed investigators for two investigative slots), it claims its role and accuses that seat. No dice roll.
-5. **A thief, denied.** A town seat whose real role somebody else claims denies that claim ("4 cannot be the Doctor") with probability 0.75. This is a denial, not a role claim.
+3. **Somebody stole its badge.** If another living seat (never a teammate) claims the role this seat is wearing (its real role, or the mask it has already claimed), and that role is unique, it claims the role itself (if it had not) and accuses the impostor, but only when contesting is worth what it reveals. It contests at once when it has nothing left to hide (it already claimed, or it has two votes on it or is on trial). Otherwise it waits until the lie is doing damage: the impostor is under fire (a vote, an accusation today or yesterday, or a trial), the impostor has used the badge to accuse or clear somebody, or the badge is investigative and has now stood a full day (from then on it is believed, see section 4). A badge claimed while nobody was looking at the claimant is the fishing move, and a real holder does not rise to it. A real Jailor answers a claim on its own badge by jailing the claimant instead, which reveals nothing. No dice roll.
+4. **It can prove the claimant impossible.** A town seat that has not worn a mask checks the role list with its own badge silently added: if that makes another living seat's claim impossible (for example two Jailors, or three claimed investigators for two investigative slots), it claims its role and accuses that seat, under the same test as rule 3.
+5. **A thief, denied.** A town seat whose real role somebody else claims denies that claim ("4 cannot be the Doctor"), under the same test as rule 3. This is a denial, not a role claim.
 6. **Whispering** (live table only). From day two, a town seat whispers its real role once to a living revealed Mayor or Marshall, with odds 0.35 plus a quarter of how unaggressive it is. An evil seat whispers only the mask it has already claimed in public (odds 0.5), and never invents a new one.
-7. **A promise.** Under the rope (on trial, or two or more votes), a Crier, Mayor, Marshall, Sheriff, Investigator, Lookout, Detective, Veteran or Jailor promises to prove itself (with probability 0.8): the Mayor and Marshall "now", the others "tonight". Other roles bluff the same promise with probability half their false-accusation appetite. A promise that is not followed by any new finding the next day is a broken promise and counts against the seat.
+7. **A promise.** Under the rope (on trial, or two or more votes), a Crier, Mayor, Marshall, Sheriff, Investigator, Lookout, Detective, Veteran or Jailor promises to prove itself (with probability 0.8): the Mayor and Marshall "now", the others "tonight". Non-town seats of other roles bluff the same promise with probability half their false-accusation appetite; a town seat never bluffs one, since it would have nothing to show. The next morning a town seat that promised reads out that night's work in its role's shape (a check, a doorstep, a report on its prisoner), or says it was blocked or jailed if it was. A promise not kept in that shape is a broken promise and counts against the seat (section 8).
 8. **On the stand.** In the benchmark the accused says one thing: a town seat claims its real role, everyone else claims a random town role that nobody living has claimed and that is not in the graveyard, provided its claim rate is above 0.25. On a live table the accused gets three turns: round one the role (or mask), round two an account of a night (a real one for town, an invented one for a liar), round three its will read out verbatim.
 
 A Mayor reveals when cornered (two votes or on trial) and otherwise from day two with chance 0.55 if a wagon it agrees with is at least 40 percent of the way to trial, plus half the town's clock pressure, plus 0.3 if its own accusations have been ignored for two days, plus 0.05 from day five. A Marshall reveals from day four when at least three accusations are on the board, with chance 0.3.
@@ -139,7 +139,14 @@ How the mask is picked, in order:
 
 Before any of that, faces are **burned** and removed from every list: roles not in the role list, roles the graveyard leaves no slot for, roles already in the graveyard, roles a living seat already claims, and masks the graveyard has already torn off a dead seat.
 
-Consistency: a seat wearing a badge that never leaves home (Veteran, Survivor, any role without a night action) always answers "I stayed home" when asked, whatever it really did.
+Consistency: a seat that is not town answers "where were you?" in its mask, never with the truth when the truth is a crime.
+
+- A badge that never leaves home (Veteran, Survivor, any role without a night action), or one that only calls on the dead (Coroner), answers "I stayed home".
+- A twin badge (a Consort wearing Escort) tells its real visit, unless that house died last night.
+- Any other visiting badge names the house that badge would have visited: for a protector, where the public model expects the knife; otherwise the seat it has been accusing, or its top suspect.
+- With no badge, the truth when it is harmless and the seat is in the mood to tell it, home otherwise.
+
+It never names a house that died last night, a teammate or itself. On a live table the will's invented notebook uses the house the seat named for that night, so the square and the will agree.
 
 ### How a bot checks another player's claim against the role list
 
@@ -157,7 +164,7 @@ A badge nobody disputes is worth something before anybody dies, but only from th
 
 ### Counter-claims between bystanders
 
-When a unique role has two or more living claimants and this seat is not one of them, it publicly denies the badge of the claimant the room trusts least, with probability 0.4 (0.7 when three or more claim it), once per contested seat per day, and at most one such denial per decision.
+When a unique role has two or more living claimants and this seat is not one of them, it publicly denies the badge of the claimant the room trusts least, with probability 0.4 (0.7 when three or more claim it), once per contested seat per day, and at most one such denial per decision. It never denies a teammate's badge: when one of the claimants is family, the denial goes to a rival.
 
 ### Worked example
 
@@ -197,7 +204,9 @@ A living stranger who has shown nothing is discounted to 65 percent on days one 
 
 ### What raises suspicion of a seat
 
-- **Contradiction, plus 3 (hard evidence).** The seat's latest answer about a night was "I stayed home" and a credible witness (voice at least 0.6) reports seeing it out. Only a sighting counts, never an accusation. A seat that later admits going out is no longer contradicted.
+- **Contradiction, plus 3 (hard evidence).** The seat's latest answer about a night was "I stayed home" and a credible witness (voice at least 0.6) reports seeing it out; or its latest answer named one house and a credible witness put it on a different doorstep that same night. Only a sighting counts, never an accusation. A seat whose latest account matches the sighting is no longer contradicted.
+- **Wearing this seat's own badge, plus 4 (hard).** A town seat whose role has a single copy at this table knows that any other seat claiming it is lying, and counts that like one of its own night results.
+- **A call from a seat it follows (hard).** An accusation made today or yesterday by a seat this one has reason to believe is on its side is read like a night's work: 0.8 times the caller's voice, scaled by the caller's record of being right. On its side means a lodge brother, a lover, the sash (a revealed Mayor or Marshall, for a town seat), or a role the record proves town. For a family seat it means a family member who is a person; a bot brother's accusation is not followed this way. The seat's own contrary knowledge (a clean check, a save) still outweighs the call, and it says so (section 5).
 - **A proven liar, plus 2.5 (hard).** The seat vouched for someone the graveyard revealed as a killer, or the record proves it evil.
 - **Deductions from the record, up to 3.2 in total (hard).** See section 8.
 - **Other people's checked accusations.** Every credible accusation that came out of a night's work adds 0.8 times the voice to the hard evidence.
@@ -215,7 +224,7 @@ A living stranger who has shown nothing is discounted to 65 percent on days one 
 
 ### What lowers it
 
-- Every credible clearing, at 2.2 times the (decaying) chorus of clears.
+- Every credible clearing, at 2.2 times the (decaying) chorus of clears. A clearing counts in full only with something behind it: a night's work (a clean check, a save, a watch) or a seat the record proves town, or when it comes from a seat this one follows (see above). Otherwise it is an opinion, worth a fifth of a voice the day it is said, a tenth the next, and nothing after, exactly like a bare accusation. The same weighting decides whether public clears are enough to strike a seat off the endgame shortlist (section 9).
 - A sighting the seat had already volunteered before the report came out: minus 0.5 times the witness's voice. A sighting that matches an account given after the report is worth nothing either way.
 - A good trust meter: up to 1.2 of trust removes up to 0.72.
 - An ally: a family member, or a revealed Mayor or Marshall read by a town seat, gets minus 5 and is never a suspect.
@@ -252,7 +261,7 @@ Each time a bot takes a turn during the day it runs the same routine: decide whe
 ### Asking and answering
 
 - **Asking.** From day two, with probability half its seek-information appetite (a town seat: between 27 and 43 percent per turn), it asks a random seat that has neither been asked nor accounted for itself. If everyone has been asked, only a "press" quirk makes it ask a dodger again.
-- **Answering.** A seat asked today answers once. It answers honestly with probability equal to its honesty appetite; honest and it went somewhere and its claimed badge is one that leaves home, it says where it went; otherwise it says it stayed home. Staying home is the comfortable lie, and only a Lookout, Detective or Spy sighting can prove it false.
+- **Answering.** A seat asked today answers once. A town seat answers honestly with probability equal to its honesty appetite; honest and it went somewhere and its claimed badge is one that leaves home, it says where it went; otherwise it says it stayed home. A seat that is not town answers in its mask (section 3, consistency), and never names the house it attacked. Staying home is the comfortable lie, and only a Lookout, Detective or Spy sighting can prove it false; naming the wrong house is caught the same way when the sighting names its doorstep.
 - **Demanding reasons.** With at least one vote on it, and with probability 0.6 plus 0.3 times its push appetite, it asks an accuser that has given no reason (no hint, sighting, relay or denial about it) to explain. An accuser that never answers has its accusation heard at half from the next day.
 
 ### Deciding whom to accuse
@@ -261,20 +270,20 @@ Talking and voting are separate. The order of what gets said:
 
 1. Investigative findings, on the hoarding curve of section 3.
 2. A Lookout whose watched house died names every visitor and puts each on that doorstep (probability claim rate). A Detective whose tail ended at the dead house does the same (at least 0.6). A Bus Driver clears the surviving half of a swap where the other half died. An Escort or Jailor, from day three, hints at the seat it held on a night nobody died. A Spy clears the seat the family aimed at and missed. A Doctor announces a save with probability claim rate plus 0.9 times its desperation.
-3. **Defending.** A town seat, seeing a seat with two or more votes or on trial that is proven town, or wears an undisputed badge, or has a trust meter of 1.2 or more, clears it with probability 0.7.
+3. **Defending.** A town seat, seeing a seat with two or more votes or on trial that is proven town, or wears an undisputed badge, or has a trust meter of 1.2 or more, clears it with probability 0.7. And when a seat it follows (section 4) has called for a vote on somebody this seat holds its own proof about (a clean check, a save it made there), it does not follow, and clears that seat out loud with the reason.
 4. **Piling on a liar.** Every agenda accuses a contradicted seat with probability 0.7.
-5. **Urging the room.** With probability 0.3 plus 0.4 times its push appetite it says either "we have to vote" (when its best case reaches 0.5) or "let us skip today" (when it does not, or its best case is a brother). Nobody asks to skip once the town has only one mistake left.
+5. **Urging the room.** With probability 0.3 plus 0.4 times its push appetite it says "we have to vote" when it has a name of its own to vote for, or "let us skip today" when its own ballot would skip (the rule of section 5, holding and skipping); between the two it says nothing about the clock. Nobody asks to skip once the town has only one mistake left.
 6. **Relaying.** With probability 0.35 times herd it repeats an accusation or a clear from a voice worth at least 1.3.
 7. **Needling.** With probability 0.35 times its troll appetite it taunts a random seat.
-8. **Lies.** A family seat, with probability 0.4 times its false-accusation appetite, accuses the hottest non-family seat (most votes plus most accusations), or a random one a quarter of the time when nobody is hot. A Scumbag or Witch accuses the first seat with a vote on it with probability a quarter of its deceit. A family seat with a "framing" coin (heads half the days) dresses its fake accusations as a night's work of the badge it wears, so they are heard as a check rather than a hunch, as long as no brother has already used the same instrument on the same target.
-9. **A brother in danger** (two votes or on trial). A family seat first rolls its sacrifice appetite: if it comes up, it accuses the brother with probability 0.6 times the appetite; if not, it clears him with probability 0.6 times its fake-claim appetite. A Mason clears a fellow Mason in danger with probability 0.55.
+8. **Lies.** A family seat, with probability 0.4 times its false-accusation appetite, accuses the hottest non-family seat (most votes plus most accusations). When nobody is hot it invents nothing. A Scumbag or Witch accuses the first seat with a vote on it with probability a quarter of its deceit. A family seat wearing a badge with an instrument dresses a fake accusation as that badge's night work, so it is heard as a check rather than a hunch, when the accusation corroborates a case already running (the target has a vote on it, or a brother has already named it), as long as no brother has already used the same instrument on the same target, and at most once a day, like the badge it imitates.
+9. **A brother in danger** (two votes or on trial). A family seat reads the case as the room sees it (no private intel, no ally discount). If the room already has him (2.2 or more), it says nothing in his defence, and names him itself once its sacrifice appetite has opened. If the case is thin (under 1.4), the family is at least 18 percent of the room, it has not decided he is expendable, and it wears a Sheriff or Investigator badge, it clears him as that badge's night work ("I checked him"), since a bare vouch now counts as an opinion (section 4). Otherwise it stays quiet, and its mercy goes through the ballot. A Mason always clears a fellow Mason in danger, since it knows he is town.
 10. An Executioner accuses its target with probability equal to its deceit. A clown Jester accuses the least suspected seat; a scum Jester rides the biggest wagon that has nothing hard on it.
 
 ### Choosing the vote
 
 - An Executioner votes its target while it lives.
 - A Survivor at three seats left, or whenever the town is losing, votes the biggest wagon. A hurried Survivor does so from day four when a wagon is at least 30 percent to trial.
-- A family seat whose known brother has reached the bar minus one vote boards that wagon (the bus) with probability 0.2, or 0.7 if it is cold (deceit above 0.55), plus 0.3 times its sacrifice appetite.
+- A family seat whose known brother has reached the bar minus one vote boards that wagon (the bus) when the room already has him: the case as the room sees it is 2.2 or more, or 1.4 or more for a cold seat (deceit above 0.55). Never after vouching for him the same day.
 - Otherwise every candidate is scored with the suspicion of section 4 plus the wagon term. A family seat adds: minus 10 for a brother (never), plus 1.5 for a wagon a teammate is already on, plus 2.4 times how far the wagon has got from day three, plus 3 for a revealed Mayor, plus 1.2 for anyone accused once two or more corpses are signed by a solo killer (the family briefly votes with the town against a rampage). A family seat also adds a rival read: a seat it knows to be a rival killer or armoured is worth 2 to 2.5 more.
 - A seat that accuses this bot without any stated reason gets plus 0.8.
 - A seat acquitted today is not voted again unless today's rope decides the game.
@@ -315,9 +324,9 @@ The verdict is decided in this order; the first rule that applies wins.
 
 1. **The accused is a teammate.**
    - A Mason votes innocent on a fellow Mason.
-   - A family seat reads the case against its brother (with the ally discount, so it is usually deeply negative). If the case is 2.2 or worse, mercy is pointless: guilty with probability 0.55 plus 0.35 times its sacrifice appetite, otherwise abstain. If the case is under 1.4 and the family is at least 18 percent of the voting room and the sacrifice roll fails, it votes innocent. Anything else: abstain (guilty with probability 0.4 times the sacrifice appetite). An abstention lowers the bar without putting a name beside mercy.
+   - A family seat reads the case against its brother as the room sees it (no private intel, no ally discount). If the case is 2.2 or worse, the room has him and mercy only marks the seat: guilty. If the case is under 1.4, the family is at least 18 percent of the voting room and its sacrifice appetite is under 0.5, it votes innocent. Anything else: the cover ballot below.
 2. An Executioner votes guilty on its target.
-3. **Any family seat votes guilty on any non-brother**, whatever the evidence.
+3. **A family seat on a non-brother** votes guilty when the accused is a seat the town cannot afford to lose (a revealed Mayor, a role the record proves town, an undisputed investigative badge) or when the town is at one mistake or none. Otherwise it casts the **cover ballot**: the town's own curve (rules 8 to 10 below) read off the case as the room sees it, with the two draws replaced by the seat itself. Where its nerve sits in its range decides whether reasonable doubt catches it, and where its suspicion sits decides how strong a case it needs to convict. Both coefficients are rolled evenly across seats, so one seat always answers the same case the same way, while a family of several splits the way several townsfolk would.
 4. A scum Jester votes innocent if the accused has hard evidence of 1.5 or is proven evil, guilty if the evidence is under 0.8, and flips a coin otherwise. A clown Jester votes guilty with probability 0.35 plus half its push appetite.
 5. A Survivor votes guilty at three seats left, whenever the town is losing, and (if hurried) from day four with probability 0.8.
 6. **Certain reads.** Belief odds of 0.85 or more: guilty. Odds of 0.12 or less: innocent, unless today's rope decides the game.
@@ -350,7 +359,7 @@ The verdict is decided in this order; the first rule that applies wins.
 
 The hit list, in order, deduplicated:
 
-1. A living seat that accused one of us, if any (the Sheriff who found us).
+1. A living seat whose accusation of one of us is dangerous: a night's work behind it, something the record can check, or an undisputed badge, loudest voice first. A bare hunch nobody followed does not put its author here, and neither does an accusation of a brother the room already has (case 2.2 or more as the room sees it), since tomorrow hangs him either way.
 2. A revealed Mayor.
 3. Anyone the family's exact role results (Consigliere) show as Jailor, Sheriff, Doctor, Vigilante, Bodyguard, Escort or Marshall.
 4. The loudest living accusers, ranked by how many accusations they have made, skipping voices worth nothing.
@@ -359,7 +368,7 @@ The hit list, in order, deduplicated:
 
 Then the knife slips down that list. If the list is empty, a random legal house.
 
-**Coordination.** There is no plan shared between family bots. The engine carries one kill per family: the leader's order if the leader gave one, otherwise the first executor's. When an executor decides after its leader has already ordered, its legal list collapses to the leader's target and it falls in behind. When the executor orders first, the leader is not dragged along, and the engine carries the leader's order anyway. Support roles read the same order: the Janitor follows the knife; the Kidnapper, Blackmailer, Consort, Framer, Consigliere and Heartbreaker avoid the knife's house, and the knife in turn avoids the houses those roles are already working on tonight and the family's own captive. When a human teammate asks for a target in the family chat, the knife holder heeds it with probability 0.25 plus 0.2 times herd, doubled for a human asker, adjusted by the asker's track record, and never if the asker has a bad private record. Whether a bot Consigliere tells the family room its findings is (unverified).
+**Coordination.** There is no plan shared between family bots. The engine carries one kill per family: the leader's order if the leader gave one, otherwise the first executor's. When an executor decides after its leader has already ordered, its legal list collapses to the leader's target and it falls in behind. When the executor orders first, the leader is not dragged along, and the engine carries the leader's order anyway. Support roles read the same order: the Janitor follows the knife; the Kidnapper, Blackmailer, Consort, Framer, Consigliere and Heartbreaker avoid the knife's house, and the knife in turn avoids the houses those roles are already working on tonight and the family's own captive. When a person in the family chat asks for a target, the knife holder goes there unless the house has a defect it can name, and the refusal names it: out of the knife's reach tonight (the family's own captive, or already being worked on), armour the knife already bounced off, a proven Veteran's porch, a voice whose private tips have already cost this seat, a friend of the family (see below), last night's survivor, or a seat the room is about to hang anyway (case 2.2 or more as the room sees it). The last three give way when the person repeats the request with a new line after hearing the reason. A request from another bot passes the same test and then the old temperament roll (0.25 plus 0.2 times herd), so a family of bots does not lock onto whatever the first of them said. Whether a bot Consigliere tells the family room its findings is (unverified).
 
 ### Serial Killer, Poisoner, Mass Murderer
 
@@ -389,7 +398,7 @@ Wears the vest with a chance of 1.5 times the observed knives-per-night divided 
 
 ### Jailor, Kidnapper, Interrogator
 
-**Whom to jail** is decided by day: the seat the count singles out at odds 0.7 or more; failing that, once the clock is at 0.35 or from day four, the top suspect if its suspicion is at least 0.8; failing that, a random quiet seat (no claims, trust between minus 1 and 1, not cleared by its own checks); failing that, the top suspect. The cell is never left empty when anyone is eligible.
+**Whom to jail** is decided by day: for the Jailor, first any living seat claiming to be the Jailor (it is certainly lying); then the seat the count singles out at odds 0.7 or more; failing that, once the clock is at 0.35 or from day four, the top suspect if its suspicion is at least 0.8; failing that, a random quiet seat (no claims, trust between minus 1 and 1, not cleared by its own checks); failing that, the top suspect. The cell is never left empty when anyone is eligible.
 
 **Whether to execute.** A Jailor executes when the prisoner's suspicion plus what the cell proved reaches 2.3 minus courage. The cell proves 1.8 if the prisoner was held on one night the killing stopped, 3.2 if on two such nights, but only 0.6 per quiet night if the board goes quiet on its own half the time when the cell is empty. A Kidnapper or Interrogator executes when the prisoner is worth it to the family: 1.2 for an undisputed badge, 1.2 for a proven town role, half the prisoner's positive trust, plus 1.6 times the clock, against a bar of 1.2 minus 0.4 times courage. On a live table the prisoner's answer in the cell also counts: a claimed badge that another living seat also wears, or that the graveyard has already filled, is executed with probability 0.9; a prisoner who said nothing is executed with probability 0.8.
 
@@ -436,7 +445,7 @@ The bot only draws conclusions that are certain, never probable. Each is a fact 
 | A seat that has ever claimed Coroner, Janitor or Incense Master says it visited a living house | A morgue badge cannot visit the living | 2.5 |
 | A seat says it was guarded on a night when nobody died | A Bodyguard who steps in leaves a corpse | 2.5 |
 | A seat says it was jailed on a night and also says it visited somebody that night | Nobody acts from the cell | 2.5 |
-| A seat promised to prove itself tonight and produced nothing the next day | A broken promise | 2.5 |
+| A seat promised to prove itself tonight and did not produce, the next day, what its claimed role produces (a verdict on somebody for a Sheriff or Investigator, a doorstep or a report for a Lookout, Detective or Spy, a report on its prisoner for a Jailor, naming itself for a Crier, and for any other role a role claim plus a finding). Left open, not broken, for a Veteran, and for a seat that says it was blocked, jailed, controlled or moved that night | A broken promise | 2.5 |
 | A seat claims a role that is not in the role list | Impossible | 3 |
 | A seat claims a role the identified graveyard leaves no slot for | Impossible | 3 |
 | More living seats claim badges than the list has slots for, and this seat is one of the two or three whose removal alone would fix it | One of these is lying | 1.2 |
@@ -471,7 +480,7 @@ Each dawn every bot counts, from the published role list and the identified grav
 
 ### What the town does as the clock runs
 
-- **Pressure 0.6** (one mistake left): no town seat votes to skip, nobody asks for a skip, the Mayor's reveal chance rises by 0.3, and every town seat opens its **shortlist**: it strikes off everyone its own checks cleared, everyone credibly cleared in public (clears worth 1.5 together), and every proven town role, and votes only among what is left. A shortlist of three or fewer adds a point to each name on it and removes the evidence floor. The Survivor reads the town as losing and rides the biggest wagon.
+- **Pressure 0.6** (one mistake left): no town seat votes to skip, nobody asks for a skip, the Mayor's reveal chance rises by 0.3, and every town seat opens its **shortlist**: it strikes off everyone its own checks cleared, everyone credibly cleared in public (clears worth 1.5 together, each weighed by what stands behind it, section 4), and every proven town role, and votes only among what is left. A shortlist of three or fewer adds a point to each name on it and removes the evidence floor. The Survivor reads the town as losing and rides the biggest wagon.
 - **Pressure 1** (today's rope decides): every town seat votes its top suspect whatever the bars say, even a seat acquitted earlier today; at the trial it votes guilty unless it holds a better name; it never abstains; doubt drops to a fifth of its calm level.
 - The desperation floor of every town seat equals the pressure, so a losing town lies about its night more (honesty 1 minus 0.55 times the meter) and pushes harder.
 
@@ -512,7 +521,7 @@ Spikes: on trial 0.4, the wagon's share of the bar times 0.35, its real role nam
 - **The Spy's deduction**: the family aimed at a seat and missed, so that seat is probably not family; the Spy clears it with probability half its speak chance.
 - **The Escort's hint**: "I held 2 at home the night nobody died" is worth nearly nothing alone and a great deal beside a Sheriff check on 2 (corroboration multiplier, section 4).
 - **The buddy read** (section 4).
-- **Framing**: a family seat wearing an investigative mask dresses half its days' fake accusations as that instrument's night work.
+- **Framing**: a family seat wearing a badge with an instrument dresses a fake accusation as that instrument's night work when it corroborates a case already running (section 5).
 - **Answering back**: a seat with no case of its own votes the strongest accuser that gave no reason for accusing it.
 - **The bus**: a family seat boards a brother's nearly complete wagon to look town (section 5).
 - **Live-table pacing** (not part of the brain, but visible at the table): bots' accusation votes are spaced 400 ms apart, a bot waits up to 3.5 seconds for its sentence before its vote lands, a bot named by a human answers about 1 to 2 seconds later, and a first skip of the afternoon is held 15 seconds in case somebody brings a clue.
