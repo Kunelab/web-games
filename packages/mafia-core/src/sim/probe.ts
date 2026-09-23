@@ -5,10 +5,12 @@ import {
   grounded,
   isEvilRole,
   NO_CASE_CEILING,
+  sheriffSuspects,
   steadyVote,
   suspicionParts,
   type Claim,
   type DayDecision,
+  type Personality,
   type PublicInfo
 } from './policies.js';
 import { add, type Tally } from './report.js';
@@ -74,7 +76,12 @@ export interface ProbeChoice {
   role: RoleId;
   action: string;
   targetSlot: number | null;
+  /** Every house the seat could have chosen, for the chance baseline. */
+  legal: readonly number[];
 }
+
+/** The two halves of a trait, for asking whether the trait shows. */
+const band = (value: number, middle: number): 'bas' | 'haut' => (value < middle ? 'bas' : 'haut');
 
 export class Probe {
   readonly tally: Tally = {};
@@ -91,10 +98,20 @@ export class Probe {
   /** Family clears of a brother, settled at the end against the gallows. */
   private readonly brotherClears: { day: number; clearer: number; brother: number }[] = [];
 
+  /** The ballots of the trial on the stand, for its margin. */
+  private ballots = { guilty: 0, innocent: 0, abstain: 0 };
+
   constructor(
     private readonly state: MafiaState,
-    private readonly board: () => PublicInfo
+    private readonly board: () => PublicInfo,
+    /** Each seat's personality, for the temperament table. */
+    private readonly personalityOf: (slot: number) => Personality | undefined = () => undefined
   ) {}
+
+  private isTown(slot: number): boolean {
+    const role = this.roleAt(slot);
+    return role !== null && roleDef(role).faction === 'town';
+  }
 
   private roleAt(slot: number): RoleId | null {
     return playerBySlot(this.state, slot)?.role ?? null;
@@ -279,6 +296,7 @@ export class Probe {
 
   trialOpened(accusedSlot: number, info: PublicInfo): void {
     this.trial = { slot: accusedSlot, hard: publicHard(accusedSlot, info) };
+    this.ballots = { guilty: 0, innocent: 0, abstain: 0 };
     add(this.tally, 'trials');
     add(this.tally, `trials:${this.evilAt(accusedSlot) ? 'evil' : 'other'}`);
     if (this.trial.hard < 1) add(this.tally, 'trials:thin');
@@ -288,11 +306,32 @@ export class Probe {
     if (!this.trial) return;
     if (this.trial.hard < 1) this.tell('coupable-sur-proces-mince', player.slot, verdict === 'guilty');
     else this.tell('epargne-un-proces-solide', player.slot, verdict !== 'guilty');
+    this.ballots[verdict] += 1;
+
+    // Does a follower's temperament show in the booth? Town bots only, on thin cases where it should.
+    const personality = this.personalityOf(player.slot);
+    if (personality && player.isBot && this.isTown(player.slot) && this.trial.hard < 1) {
+      const herd = band(personality.herd, 0.5);
+      add(this.tally, `pers:herd:${herd}:thin`);
+      if (verdict === 'guilty') add(this.tally, `pers:herd:${herd}:thinGuilty`);
+    }
   }
 
   trialClosed(day: number, hanged: boolean): void {
     if (!this.trial) return;
     if (hanged) add(this.tally, `trials:${this.evilAt(this.trial.slot) ? 'evil' : 'other'}Hanged`);
+
+    /**
+     * How the room split. A jury of people rarely votes as one on a case with
+     * nothing in it; a jury of one policy read twenty times does.
+     */
+    const cast = this.ballots.guilty + this.ballots.innocent;
+    const share = cast > 0 ? this.ballots.guilty / cast : 0;
+    const shape = !hanged ? 'acquitte' : share >= 0.999 ? 'unanime' : share >= 0.9 ? 'ecrasant' : 'partage';
+    const scope = this.trial.hard < 1 ? 'mince' : 'solide';
+    add(this.tally, `jury:${scope}:trials`);
+    add(this.tally, `jury:${scope}:${shape}`);
+    if (hanged && this.isTown(this.trial.slot)) add(this.tally, `jury:${scope}:townHanged`);
     if (!hanged) {
       const set = this.acquitted.get(day) ?? new Set<number>();
       set.add(this.trial.slot);
@@ -331,6 +370,16 @@ export class Probe {
       } else {
         const target = this.roleAt(choice.targetSlot);
         if (target) this.role(dealt, `on:${sideOf(target)}`);
+        /**
+         * What a blindfolded seat would have hit: the share of killers among the
+         * houses it could legally have chosen. A power that aims no better than
+         * this is not reading the board.
+         */
+        const pool = choice.legal.filter((slot) => slot !== choice.slot);
+        if (pool.length > 0) {
+          this.role(dealt, 'chance', pool.filter((slot) => this.evilAt(slot)).length / pool.length);
+          this.role(dealt, 'chanceN');
+        }
       }
 
       const target = choice.targetSlot;
@@ -422,7 +471,7 @@ export class Probe {
 
   /* --------------------------------- end --------------------------------- */
 
-  end(claims: readonly Claim[]): void {
+  end(claims: readonly Claim[], voteHistory: readonly { voterSlot: number; targetSlot: number }[]): void {
     const state = this.state;
     const winners = new Set(state.winners.map((winner) => winner.playerId));
     for (const player of Object.values(state.players)) {
@@ -480,6 +529,125 @@ export class Probe {
       if (hanged) this.fault('blanchit-un-frere-ensuite-pendu');
     }
 
+    const lastDay = state.day;
+    const deathOf = (playerId: string) => state.deaths.find((entry) => entry.playerId === playerId);
+
+    /**
+     * A person and a bot in the same camp should run the same risks.
+     *
+     * Per seat: dead at night, hanged, dead before the end of day three (the
+     * player who barely got to play), and day votes received per day alive.
+     */
+    for (const player of Object.values(state.players)) {
+      if (!player.role) continue;
+      const dealt = this.dealt.get(player.playerId) ?? player.role;
+      const who = `par:${player.isBot ? 'bot' : 'humain'}:${sideOf(dealt)}`;
+      const death = deathOf(player.playerId);
+      add(this.tally, `${who}:seats`);
+      if (death?.phase === 'night') add(this.tally, `${who}:nightDead`);
+      if (death?.phase === 'day' && death.source === undefined) add(this.tally, `${who}:lynched`);
+      if (death && death.day <= 3) add(this.tally, `${who}:early`);
+      const alive = Math.max(1, (death?.day ?? lastDay) - 1);
+      add(this.tally, `${who}:days`, alive);
+      add(this.tally, `${who}:votes`, voteHistory.filter((vote) => vote.targetSlot === player.slot).length);
+    }
+
+    /**
+     * From a finding to a rope.
+     *
+     * Every killer a town seat found at night (a suspicious check that was
+     * right, a doorstep at a house that died): was it ever said out loud, was
+     * the killer hanged, and how many days after it was said.
+     */
+    const hangedOn = (slot: number): number | null => {
+      const seat = playerBySlot(state, slot);
+      const death = seat ? deathOf(seat.playerId) : undefined;
+      return death?.phase === 'day' && death.source === undefined ? death.day : null;
+    };
+    const diedOn = (slot: number, night: number): boolean =>
+      state.deaths.some(
+        (death) => death.phase === 'night' && death.day === night && playerBySlot(state, slot)?.playerId === death.playerId
+      );
+    for (const player of Object.values(state.players)) {
+      if (!player.role || roleDef(this.dealt.get(player.playerId) ?? player.role).faction !== 'town') continue;
+      const found = new Map<number, number>();
+      for (const entry of player.intel) {
+        if (entry.kind === 'sheriff' && sheriffSuspects(entry.value) && this.evilAt(entry.targetSlot)) {
+          if (!found.has(entry.targetSlot)) found.set(entry.targetSlot, entry.night);
+        }
+        if (entry.kind === 'visitors' && diedOn(entry.targetSlot, entry.night)) {
+          for (const visitor of entry.slots ?? []) {
+            if (this.evilAt(visitor) && !found.has(visitor)) found.set(visitor, entry.night);
+          }
+        }
+        if (entry.kind === 'tracked' && (entry.slots ?? []).some((slot) => diedOn(slot, entry.night))) {
+          if (this.evilAt(entry.targetSlot) && !found.has(entry.targetSlot)) found.set(entry.targetSlot, entry.night);
+        }
+      }
+      for (const [killer, night] of found) {
+        add(this.tally, 'info:found');
+        const said = claims
+          .filter(
+            (claim) =>
+              claim.claimerSlot === player.slot &&
+              claim.targetSlot === killer &&
+              (claim.kind === 'accuse' || claim.kind === 'sighting')
+          )
+          .map((claim) => claim.day)
+          .sort((left, right) => left - right)[0];
+        const rope = hangedOn(killer);
+        if (said !== undefined) {
+          add(this.tally, 'info:said');
+          add(this.tally, 'info:sayDelay', Math.max(0, said - (night + 1)));
+        }
+        if (rope !== null) add(this.tally, 'info:hanged');
+        if (said !== undefined && rope !== null && rope >= said) {
+          add(this.tally, 'info:hangedAfterSaid');
+          add(this.tally, 'info:hangDelay', rope - said);
+        }
+        if (playerBySlot(state, killer)?.alive) add(this.tally, 'info:aliveAtEnd');
+      }
+    }
+
+    /**
+     * Does a temperament show? The same question asked of four traits, each
+     * split at its middle: a trait that changes nothing visible is not a
+     * personality.
+     */
+    for (const player of Object.values(state.players)) {
+      const personality = this.personalityOf(player.slot);
+      if (!personality || !player.isBot || !player.role) continue;
+      const dealt = this.dealt.get(player.playerId) ?? player.role;
+      const death = deathOf(player.playerId);
+      const days = Math.max(1, (death?.day ?? lastDay) - 1);
+      const mine = claims.filter((claim) => claim.claimerSlot === player.slot);
+      if (roleDef(dealt).faction === 'town') {
+        const aggression = band(personality.aggression, 0.5);
+        add(this.tally, `pers:aggr:${aggression}:days`, days);
+        add(this.tally, `pers:aggr:${aggression}:acc`, mine.filter((claim) => claim.kind === 'accuse').length);
+        add(
+          this.tally,
+          `pers:aggr:${aggression}:votes`,
+          voteHistory.filter((vote) => vote.voterSlot === player.slot).length
+        );
+      }
+      if (dealt === 'sheriff' || dealt === 'investigator' || dealt === 'lookout' || dealt === 'detective') {
+        const haste = band(personality.temperament.haste, 1);
+        const first = mine.filter((claim) => claim.worked === true).map((claim) => claim.day).sort((a, b) => a - b)[0];
+        add(this.tally, `pers:haste:${haste}:seats`);
+        if (first !== undefined) {
+          add(this.tally, `pers:haste:${haste}:published`);
+          add(this.tally, `pers:haste:${haste}:firstDay`, first);
+        }
+      }
+      if (isEvilRole(dealt)) {
+        const deceit = band(personality.deceit, 0.4);
+        add(this.tally, `pers:deceit:${deceit}:seats`);
+        if (mine.some((claim) => claim.kind === 'role-claim' && claim.claimedRole !== dealt)) {
+          add(this.tally, `pers:deceit:${deceit}:faked`);
+        }
+      }
+    }
   }
 
   /**

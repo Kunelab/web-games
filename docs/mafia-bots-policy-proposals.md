@@ -76,6 +76,17 @@ Each run below is 900 games (12, 16 and 20 seats, half the requested setup and h
 
 The bots are harder to read, which is the point of goal 1, and a family that blends in wins more against bots that read the same public record. Whether to give that back by limiting framing further, or by rebalancing the role lists, is a design choice left open.
 
+**Second round: six more criteria.** The report gained a chance column per role (what a blind pick among the legal targets would have hit), a jury table (how verdicts split), a humans-and-bots table (same camp, same risks?), a findings-to-rope table, and a temperament table (does each trait show?). Two more scenarios cover messy humans: `muet` (a person's seat never speaks) and `mal-lu` (every line from a person is an uncertain reading, one in ten misfiled), and `--humains-comme-bots` seats human-marked players with the bots' own profile, as a control. Results, before and after this round's changes, with `--talk`:
+
+- *Roles do their job.* The Veteran's kills landing on townsfolk fell from 49% to 41% (town seats now keep off a porch that was claimed and not contested). The Escort's blocks on a town power fell from 25% to 22%, and the Doctor's saves rose from 0.85 to 0.91 per seat. The Vigilante's shots land more often (45% to 51%), but its victims are still about half town. The Jailor's executions did not improve (48% to 43% on killers, within noise for about 200 executions), and neither did the Sheriff's aim (41% on killers against 36% by chance). The firm-evidence gate and the investigator's partner rule changed too few decisions to show.
+- *Humans run the same risks as bots.* They already did, and still do: a town seat dies at night 61% of the time either way, and is hanged 14.7% as a person against 14.2% as a bot. The control confirms the bots do not treat the human marker differently.
+- *Juries split.* Barely moved: 47% of trials with no public evidence are still unanimous (50% before). Replacing the booth's dice with each juror's temperament keeps the same split by design, and weighting the chorus by herd moved little. The real reason juries converge is that every bot reads the same public board.
+- *Findings become ropes.* Already healthy: 92% of the killers the town finds at night are named within a day, and 80% of those are hanged about half a day later; 6% survive to the end (7% before).
+- *Personalities show.* Not achieved. High and low aggression still cast the same number of votes; herd separates guilty votes on thin trials by 4 points; haste moves the first report by a fifth of a day; only deceit shows clearly (63% against 73% fake claims). The traits vary by 0.2 either side of the default, and the evidence gates decide most moves whatever the temperament.
+- *Messy humans are not punished.* A mute person's seat is hanged less than a bot's (11% against 14% for town) and killed less at night; misread seats fare like everybody else. A line read with low confidence can no longer produce a contradiction, as a precaution for the live parser.
+
+Town win rate over the round: 35.9% to 39.2% with `--talk`, 29.9% to 31.3% without.
+
 **What each role does**, from the `--report` table, before any fix: the Vigilante's kills were 38% townspeople and it ended with about two bullets unused per seat; the Veteran's porch kills were 43% townspeople; the Jailor's executions were 23% townspeople; the Escort blocked a town power 19% of the time. None of the proposals target these; the table is there to track them.
 
 ---

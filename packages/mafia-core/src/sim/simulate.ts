@@ -613,7 +613,10 @@ export function simulateGame(options: SimOptions): SimResult {
    */
   const publicInfo = (): PublicInfo => toPublicInfo(state, claims, voteHistory);
   const forced = options.scenarios ?? [];
-  const probe = options.report || forced.length > 0 ? new Probe(state, publicInfo) : null;
+  const probe =
+    options.report || forced.length > 0
+      ? new Probe(state, publicInfo, (slot) => brainOf(slot)?.personality)
+      : null;
   probe?.start();
 
   const familyIntelFor = (playerId: string) => {
@@ -766,7 +769,9 @@ export function simulateGame(options: SimOptions): SimResult {
           probe?.spoke(player, decision, board);
           // Ground truth is stamped at push time, where the full state is
           // known — the brains themselves never see other players' roles.
-          for (const claim of decision.publishes) stampAndPush(claim);
+          for (const claim of scenarios ? scenarios.humanSpeech(player, decision.publishes) : decision.publishes) {
+            stampAndPush(claim);
+          }
           if (decision.jailSlot !== null) {
             jailTarget(state, player.playerId, decision.jailSlot);
             probe?.jailed(player, decision.jailSlot);
@@ -795,7 +800,9 @@ export function simulateGame(options: SimOptions): SimResult {
             );
             if (options.talk) {
               probe?.spoke(player, decision, board);
-              for (const claim of decision.publishes) stampAndPush(claim);
+              for (const claim of scenarios ? scenarios.humanSpeech(player, decision.publishes) : decision.publishes) {
+                stampAndPush(claim);
+              }
             }
             if (decision.voteSlot !== null) {
               castVote(state, player.playerId, decision.voteSlot, now);
@@ -951,7 +958,9 @@ export function simulateGame(options: SimOptions): SimResult {
         if (target !== null && (!needsSecondTarget(legal.type) || second !== null)) {
           setNightAction(state, player.playerId, target, second);
         }
-        if (player.role) choices.push({ slot: player.slot, role: player.role, action: legal.type, targetSlot: target });
+        if (player.role) {
+          choices.push({ slot: player.slot, role: player.role, action: legal.type, targetSlot: target, legal: legal.targets });
+        }
         if (options.nightWatch && player.role) {
           const aimedAt = target === null ? null : players.find((seat) => seat.slot === target);
           options.nightWatch({
@@ -1032,7 +1041,7 @@ export function simulateGame(options: SimOptions): SimResult {
     };
   }
 
-  probe?.end(claims);
+  probe?.end(claims, voteHistory);
   const result = tally(state, options, claims, voteHistory, strikes);
   return probe ? { ...result, report: probe.tally } : result;
 }

@@ -1590,6 +1590,9 @@ export function corroboration(targetSlot: number, info: PublicInfo, excluding: n
   return 1 + 0.6 * Math.min(2, Math.max(0, lines - 1));
 }
 
+/** The reader's sure readings: what it files at 0.85 or more. See `Claim.confidence` and `contradicted`. */
+const SURE_READING = 0.85;
+
 export function contradicted(slot: number, info: PublicInfo): boolean {
   /**
    * The account a seat is standing on *now*, not every account it has ever
@@ -1608,13 +1611,23 @@ export function contradicted(slot: number, info: PublicInfo): boolean {
    */
   const accounts = info.claims.filter((claim) => claim.kind === 'account' && claim.claimerSlot === slot);
   const standing = accounts[accounts.length - 1];
-  if (!standing) return false;
+  /**
+   * And only on words the record is sure were said.
+   *
+   * A person's line reaches the board through a reader that files it with a
+   * confidence, and the low readings are the ones it was guessing at. A guess is
+   * not a lie the seat told: "I was home" misread as a visit, or a watcher's
+   * sentence misread as a sighting, must not be the thing that hangs somebody.
+   * The reader's sure readings (0.85 and up) and every bot's own line still count.
+   */
+  if (!standing || (standing.confidence ?? 1) < SURE_READING) return false;
   if (standing.account === 'home') {
     return info.claims.some(
       (claim) =>
         claim.kind === 'sighting' &&
         claim.targetSlot === slot &&
         claim.claimerSlot !== slot &&
+        (claim.confidence ?? 1) >= SURE_READING &&
         claimerWeight(claim.claimerSlot, info) >= CREDIBLE
     );
   }
@@ -1637,6 +1650,7 @@ export function contradicted(slot: number, info: PublicInfo): boolean {
       claim.claimerSlot !== slot &&
       claim.at !== undefined &&
       claim.at !== standing.targetSlot &&
+      (claim.confidence ?? 1) >= SURE_READING &&
       (claim.night ?? Math.max(1, claim.day - 1)) === night &&
       claimerWeight(claim.claimerSlot, info) >= CREDIBLE
   );
@@ -2612,6 +2626,40 @@ export interface SuspicionParts {
    * doubt it buys there.
    */
   hard: number;
+  /**
+   * The part of `hard` the record has already vouched for.
+   *
+   * `hard` counts a night's work read out by any voice the room still listens
+   * to, which is right for a juror asked what it can point to, and wrong for a
+   * gun. A fresh badge's check is exactly what a family forges: two brothers,
+   * two fake instruments, one townsperson, and the Vigilante pulls the trigger
+   * for them. So this leaves out reports from voices the graveyard has not yet
+   * settled and calls from leaders the record has not proven, and keeps
+   * everything else: this seat's own nights, the deductions, a doorstep a
+   * witness saw, the record of a badge contest, the graveyard's verdicts.
+   *
+   * Read by the seats that act alone and cannot take it back: the Vigilante and
+   * the Jailor's lever.
+   */
+  firm: number;
+  /**
+   * How much of `evidence` is the room agreeing: the chorus of accusations, after
+   * the hearsay cap. See `coverBallot`, where a juror holding nothing of its own
+   * weighs it by its own temperament.
+   */
+  chorus: number;
+}
+
+/**
+ * The record has vouched for this voice: a call that turned out right, a role it
+ * proved, or a town corpse whose will this is.
+ */
+function settledVoice(slot: number, info: PublicInfo): boolean {
+  const proven = info.provenRoles.get(slot);
+  if (proven !== undefined && roleDef(proven).faction === 'town') return true;
+  const dead = info.deadRoles.get(slot);
+  if (dead !== undefined && roleDef(dead).faction === 'town') return true;
+  return settledCredit(slot, info) > 0;
 }
 
 /**
@@ -2865,6 +2913,8 @@ export function suspicionParts(
 
   /** Everything below that a juror could point to itself, kept apart. */
   let hard = 0;
+  /** The part of it that rests on voices the record has not settled. See `SuspicionParts.firm`. */
+  let soft = 0;
 
   // Being out at night *after saying you were home* is a different matter.
   if (contradicted(targetSlot, info)) {
@@ -2930,7 +2980,10 @@ export function suspicionParts(
     if (claim.kind !== 'accuse' || claim.targetSlot !== targetSlot || claim.worked !== true) continue;
     if (claim.claimerSlot === self.slot) continue;
     const voice = claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1);
-    if (voice >= CREDIBLE) hard += 0.8 * voice;
+    if (voice >= CREDIBLE) {
+      hard += 0.8 * voice;
+      if (!settledVoice(claim.claimerSlot, info)) soft += 0.8 * voice;
+    }
   }
 
   /**
@@ -2947,7 +3000,11 @@ export function suspicionParts(
     if (claim.kind !== 'accuse' || claim.targetSlot !== targetSlot || claim.worked === true) continue;
     if (claim.claimerSlot === self.slot || claim.day < info.day - 1) continue;
     const lead = leadership(claim.claimerSlot, self, info, allies);
-    if (lead > 0) hard += 0.8 * claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1) * lead;
+    if (lead > 0) {
+      const called = 0.8 * claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1) * lead;
+      hard += called;
+      if (!settledVoice(claim.claimerSlot, info)) soft += called;
+    }
   }
 
   const record = settledCredit(targetSlot, info);
@@ -3261,9 +3318,10 @@ export function suspicionParts(
    */
   const converge = corroboration(targetSlot, info, self.slot);
   const said = (crowd + (hard > 0 ? echoed : echoed / 3)) * converge;
-  score += hard > 0 ? said : Math.min(said, HEARSAY_CAP);
+  const agreed = hard > 0 ? said : Math.min(said, HEARSAY_CAP);
+  score += agreed;
 
-  return { evidence: score + rng() * 0.3, wagon: wagon * 0.5 * brainHerd(self), hard };
+  return { evidence: score + rng() * 0.3, wagon: wagon * 0.5 * brainHerd(self), hard, firm: hard - soft, chorus: agreed };
 }
 
 /**
@@ -3336,6 +3394,18 @@ export const NO_CASE_CEILING = 0.5;
  * it by itself. See the cap there.
  */
 export const HEARSAY_FLOOR = 2.2;
+
+/**
+ * The patience at which an investigator publishes a finding nobody is voting on.
+ *
+ * Read against `speakChance` (claim rate times the day's patience times haste).
+ * Set so an average seat (claim rate 0.7, haste 1) speaks on day four, a hasty
+ * one (haste 1.4) on day three and a slow one (haste 0.6) on day five.
+ */
+const SPECULATIVE_AT = 0.35;
+
+/** A claim rate this low is the table's quietest kind of seat, the one that keeps even a doorstep to itself. */
+const QUIET_SEAT = 0.3;
 
 /**
  * The most a room agreeing with itself may ever be worth.
@@ -4446,8 +4516,15 @@ export function decideDay(
         // Timely findings jump the queue: confirming a live wagon is worth
         // the exposure. Otherwise, one finding, sometimes, and having two in
         // the notebook loosens the tongue.
+        /**
+         * Timely means a wagon this seat is willing to be seen confirming, and
+         * that is its temperament's call rather than a coin's. A hasty seat
+         * confirms the first vote on its suspect; a careful one waits until the
+         * room has put a second vote there, or a trial.
+         */
+        const timelyAt = brain.personality.temperament.haste >= 1 ? 1 : 2;
         const timely = suspects.find(
-          (entry) => votesAgainst(entry.targetSlot, info) >= 1 || info.trialSlot === entry.targetSlot
+          (entry) => votesAgainst(entry.targetSlot, info) >= timelyAt || info.trialSlot === entry.targetSlot
         );
         const confident = suspects.length >= 2 ? 1.4 : 1;
         /**
@@ -4472,10 +4549,16 @@ export function decideDay(
         const badge = (): void => {
           if (!alreadyClaimed(info, self.slot, self.slot, 'role-claim')) publish(self.slot, 'role-claim', role);
         };
-        if (timely && rng() < Math.max(speakChance, 0.75)) {
+        if (timely) {
           badge();
           publish(timely.targetSlot, 'accuse');
-        } else if (suspects.length > 0 && rng() < speakChance * confident * 0.7) {
+        /**
+         * And a finding nobody is voting on yet goes out on the day this seat's
+         * patience runs out, not on a daily coin: `speakChance` climbs with the
+         * day and with haste, so a hasty seat speaks a day or so before a
+         * careful one, and each always on the same day for the same board.
+         */
+        } else if (suspects.length > 0 && speakChance * confident >= SPECULATIVE_AT) {
           /**
            * And not here, which is the measured half of the rule.
            *
@@ -4559,7 +4642,8 @@ export function decideDay(
         (entry) =>
           entry.kind === 'visitors' && entry.night === info.day - 1 && info.lastNightDeathSlots.has(entry.targetSlot)
       );
-      if (watch && rng() < brain.personality.claimRate) {
+      // Said by every watcher but the very quietest: a doorstep at the house that died is worth most the morning after.
+      if (watch && brain.personality.claimRate >= QUIET_SEAT) {
         for (const visitor of watch.slots ?? []) {
           if (!info.aliveSlots.includes(visitor)) continue;
           // Three things, and they do different work: the accusation points,
@@ -4581,7 +4665,7 @@ export function decideDay(
           info.aliveSlots.includes(entry.targetSlot) &&
           (entry.slots ?? []).some((slot) => info.lastNightDeathSlots.has(slot))
       );
-      if (caught && rng() < Math.max(speakChance, 0.6)) {
+      if (caught && brain.personality.claimRate >= QUIET_SEAT) {
         publish(caught.targetSlot, 'accuse');
         // The tail ended on a doorstep, and the doorstep is the point: this is
         // the seat that walked to the house that died.
@@ -4968,7 +5052,20 @@ export function decideDay(
      * spend a vote.
      */
     const caught = others.find((slot) => !teammates.has(slot) && contradicted(slot, info));
-    if (caught !== undefined && rng() < 0.7) publish(caught, 'accuse');
+    /**
+     * How long a chorus this seat joins, which is its aggression's call.
+     *
+     * A seat caught out by a doorstep is real evidence and everybody may say so,
+     * but a room where every seat repeats it is a chorus. A calm seat speaks
+     * while the accusers are still few; an aggressive one adds its voice to a
+     * longer line. The same board always gets the same answer from the same seat.
+     */
+    if (caught !== undefined) {
+      const already = new Set(
+        info.claims.filter((claim) => claim.kind === 'accuse' && claim.targetSlot === caught).map((claim) => claim.claimerSlot)
+      ).size;
+      if (already < 1 + Math.round(brain.personality.aggression * 4)) publish(caught, 'accuse');
+    }
 
     /* ------------------- the five kinds that were types only ---------------- */
     /**
@@ -6318,7 +6415,17 @@ function pickVote(
    * what a Mafioso riding a wagon is doing, and neither of them cares whether
    * the man is guilty.
    */
-  const unchecked = top.hard > 0 || isMafiaSeat || isEvilRole(role) ? 0 : HEARSAY_FLOOR * (1 - pressure);
+  /**
+   * Moved a little by temperament, so an aggressive seat is seen to vote on less.
+   *
+   * The floor bound every town seat to the same line whatever its aggression,
+   * and the bench measured it: aggressive and calm town seats cast the same
+   * number of votes a day. A tenth of the floor either way at the ends of the
+   * range keeps the rule the rule and lets the person show.
+   */
+  const temperFloor = 1 + (0.5 - brain.personality.aggression) * 0.5;
+  const unchecked =
+    top.hard > 0 || isMafiaSeat || isEvilRole(role) ? 0 : HEARSAY_FLOOR * temperFloor * (1 - pressure);
   if (top.score >= threshold && top.evidence >= Math.max(evidenceFloor, unchecked)) return top.slot;
 
   /**
@@ -6566,13 +6673,24 @@ function coverBallot(
 ): 'guilty' | 'innocent' | 'abstain' {
   if (pressure >= 1) return 'guilty';
   const herd = personality.herd;
+  /**
+   * What the room's agreement is worth to a juror who holds nothing of its own.
+   *
+   * The chorus alone carried trials: a case with no public evidence reached the
+   * hearsay cap, and the curve at the cap is a conviction, so half the trials
+   * with no public evidence ended unanimous (bench, with talk). A juror
+   * with a check or a sighting of its own is weighing that; one without is
+   * weighing the room, and how much the room moves it is its temperament: a
+   * follower keeps most of the chorus, a sceptic keeps less.
+   */
+  const evidence = parts.hard < 1 ? parts.evidence - parts.chorus * (1 - herd) : parts.evidence;
   if (parts.hard < 1) {
-    const thin = Math.max(0, 1 - Math.max(0, parts.evidence) / 3);
+    const thin = Math.max(0, 1 - Math.max(0, evidence) / 3);
     const doubt = (0.45 - 0.25 * pressure) * (1 - herd * 0.5) * thin;
     if (quantileOf(personality.temperament.nerve) < doubt) return 'innocent';
   }
-  if (parts.evidence < 0.3 && pressure < 0.6) return 'innocent';
-  const score = parts.evidence + 0.3 - defended;
+  if (evidence < 0.3 && pressure < 0.6) return 'innocent';
+  const score = evidence + 0.3 - defended;
   const bar = 0.7 - 0.45 * pressure - (herd - 0.5) * 0.4;
   const chance = 1 / (1 + Math.exp(-(score - bar) / 0.35));
   if (parts.hard < 1 && pressure < 0.6 && Math.abs(chance - 0.5) < 0.12) return 'abstain';
@@ -6809,110 +6927,18 @@ export function decideBallot(
   }
 
   /**
-   * ...and doubt fades as the pile grows, which it did not.
+   * The rest is the town's curve, cast by the juror itself rather than by dice.
    *
-   * The gate above is right about what it is for: a room where every ballot is
-   * a readout of every other ballot should sometimes say so. What it got wrong
-   * is that it returned `innocent` *before reading the evidence at all*, at one
-   * flat rate, so a seat sitting on five and a half points of case was acquitted
-   * exactly as often as a seat sitting on half a point. With nine jurors each
-   * rolling it independently, a verdict on a well-evidenced seat was close to a
-   * coin toss, and the same seat could be acquitted seven to two and hanged six
-   * to three an hour apart on an unchanged board. That is not a jury being
-   * careful, it is a jury being random, and it reads from the outside as bots
-   * voting for no reason — then inventing a reason, because the sentence is
-   * fetched after the verdict is chosen.
-   *
-   * `hard` still decides whether the gate opens at all: a seat holding a check
-   * of its own never doubts, which was always the intent. What is new is that a
-   * mountain of agreement closes it too, on a slope rather than a cliff, so
-   * doubt is gone by the time a case is worth three points and full only when
-   * the board is genuinely empty.
+   * See `coverBallot`: the same doubt, the same nomination worth 0.3, the same
+   * logistic around a bar the clock and a follower's temperament move, the same
+   * narrow abstain band. What changed is who rolls. Each draw used to be fresh,
+   * so one juror acquitted a seat and convicted the same seat an hour later on
+   * an unchanged board; now the juror's own temperament is the draw, so a juror
+   * answers a case the same way every time and two jurors differ because they
+   * are different people. A seat that personally feels the clock leans harder.
    */
-  if (parts.hard < 1) {
-    const thin = Math.max(0, 1 - Math.max(0, parts.evidence) / 3);
-    const doubt = (0.45 - 0.25 * parityPressure(info)) * (1 - brain.personality.herd * 0.5) * thin;
-    if (rng() < doubt) return 'innocent';
-  }
-
-  // `parts.wagon` is zero in the booth and the comment above says why: opening a
-  // trial clears the votes. It was still being multiplied by a half here, which
-  // read as "the crowd counts for less in here" and was actually "the crowd
-  // counts for nothing, twice". `broughtToTrial` is the term that carries it.
-  /**
-   * Halved, because it was doing more work than a nomination is worth.
-   *
-   * At 0.6 against a bar of 1.2 the nomination alone was half a conviction, and
-   * at the parity bell, where the bar falls to 0.7, it was most of one: being
-   * named was very nearly the verdict. A real table showed what that costs — a
-   * Sheriff who had personally checked the accused clean, and whose evidence
-   * had therefore been dragged down to 0.99, still voted guilty, because the
-   * flat term was larger than the gap his own check had opened.
-   *
-   * It is still here, and it should be: the crowd that voted to try somebody is
-   * erased from the board before the ballots (see above), so without a stand-in
-   * the room's own decision to hold a trial counts for nothing at all. At 0.3 it
-   * is what it claims to be, a thumb on the scale, rather than the scale.
-   */
-  const broughtToTrial = 0.3;
-  const against = parts.evidence + broughtToTrial;
-  const defended = defenceStrength(accusedSlot, info);
-  const score = against - defended;
-
-  // At LyLo the town leans guilty: sparing the wrong person ends the game. A
-  // seat that personally feels the clock leans harder still.
   const pressure = Math.max(parityPressure(info), stance.pushHard * 0.6);
-
-  /**
-   * Genuinely undecided, which is where the old code hanged people.
-   *
-   * It fell through to `rng() < herd`, and `herd` averages well over a half —
-   * so a seat that had heard nothing either way voted guilty most of the time,
-   * and a room full of them convicted on no evidence at all. A ballot with
-   * nothing behind it is an acquittal while the town can still afford one;
-   * only the parity clock turns "I don't know" into a hanging.
-   */
-  if (parts.evidence < 0.3 && pressure < 0.6) return 'innocent';
-
-  /**
-   * A spectrum, because a case is one and a doorway is not.
-   *
-   * This used to be two hard thresholds with a coin flip between them: at or
-   * above 1.2 the seat hanged you every time, at or below 0.4 it acquitted you
-   * every time, and anywhere in the middle it ignored the score completely and
-   * rolled against its own temperament. So 1.19 and 1.21 were different games —
-   * one a coin flip, the other a certainty — while 0.45 and 1.19, which are not
-   * remotely the same case, got identical treatment. A juror that reads 1.1 as
-   * "not guilty" and 1.3 as "certainly guilty" is not weighing anything.
-   *
-   * One logistic curve instead, over the same score. Certainty still arrives,
-   * it just arrives *gradually*: around the bar the room genuinely splits, a
-   * couple of points past it a conviction is all but unanimous, and every step
-   * in between moves the odds rather than crossing a line. Two seats a tenth
-   * apart now disagree about a tenth's worth, which is what a jury is.
-   *
-   * The bar carries what the flat thresholds carried: the parity clock lowers
-   * it, and temperament shifts it, so a follower still convicts more readily
-   * than a sceptic. What temperament no longer does is *decide* — it moves
-   * where the doubt sits, not whether the evidence is consulted.
-   */
-  const bar = 0.7 - 0.45 * pressure - (brain.personality.herd - 0.5) * 0.4;
-  const chance = 1 / (1 + Math.exp(-(score - bar) / 0.35));
-
-  /**
-   * And the third answer, which only the family ever used.
-   *
-   * The ballot has always had three faces and a town seat could reach exactly
-   * two of them: every juror who did not know was made to guess anyway, and a
-   * guess is a hanging half the time. A seat holding nothing of its own, on a
-   * case sitting right on its own bar, has a truthful answer available and this
-   * is it. Narrow on purpose — a hair either side of the bar, not a shrug
-   * whenever a trial is close — and gone at the bell, where abstaining is just
-   * a slower way of losing.
-   */
-  if (parts.hard < 1 && pressure < 0.6 && Math.abs(chance - 0.5) < 0.12) return 'abstain';
-
-  return rng() < chance ? 'guilty' : 'innocent';
+  return coverBallot(parts, defenceStrength(accusedSlot, info), pressure, brain.personality);
 }
 
 /* -------------------------------- night --------------------------------- */
@@ -7238,6 +7264,25 @@ export function decideNightTarget(
   const porches = new Set(
     [...info.provenRoles.entries()].filter(([, role]) => role === 'veteran').map(([slot]) => slot)
   );
+  /**
+   * And, for the town, a porch the square has only been told about.
+   *
+   * A seat that claimed Veteran and that nobody contests is either the Veteran
+   * or a liar hoping to be left alone, and in both cases a town visit there buys
+   * nothing: a real Veteran needs no heal and no check, and a real alert kills
+   * the Doctor or the Sheriff who knocked. The bench measured the Veteran's
+   * shots landing on townsfolk nearly half the time. A family is not asked to
+   * respect it, since walking up to a bluff is exactly the call a family makes.
+   */
+  if (roleDef(role).faction === 'town') {
+    const claimedVeteran = new Map<number, number>();
+    for (const claim of info.claims) {
+      if (claim.kind !== 'role-claim' || claim.claimedRole !== 'veteran') continue;
+      if (claim.claimerSlot === self.slot || !info.aliveSlots.includes(claim.claimerSlot)) continue;
+      claimedVeteran.set(claim.claimerSlot, (claimedVeteran.get(claim.claimerSlot) ?? 0) + 1);
+    }
+    if (claimedVeteran.size === 1) for (const slot of claimedVeteran.keys()) porches.add(slot);
+  }
   if (porches.size > 0 && legalTargets.some((slot) => !porches.has(slot))) {
     legalTargets = legalTargets.filter((slot) => !porches.has(slot));
   }
@@ -7424,7 +7469,11 @@ export function decideNightTarget(
     const spared = info.trials
       .filter((trial) => !trial.lynched && legalTargets.includes(trial.accusedSlot))
       .map((trial) => trial.accusedSlot)
-      .filter((slot) => suspicion(slot, self, info, rng) >= 1.8 - brain.personality.courage * 0.5);
+      .filter(
+        (slot) =>
+          suspicion(slot, self, info, rng) >= 1.8 - brain.personality.courage * 0.5 &&
+          suspicionParts(slot, self, info, rng, teammates).firm >= 1
+      );
     if (spared.length > 0) return pickRanked([...new Set(spared)], rng);
 
     /**
@@ -7508,7 +7557,8 @@ export function decideNightTarget(
      */
     const corroborated =
       evidenceLines(top.slot, info, self.slot) >= 2 ||
-      suspicionParts(top.slot, self, info, rng, teammates).hard >= 1.5 ||
+      // Firm, not merely hard: a fresh badge's check is the one thing a family forges. See `SuspicionParts.firm`.
+      suspicionParts(top.slot, self, info, rng, teammates).firm >= 1.5 ||
       parityPressure(info) >= 1;
     return corroborated ? top.slot : null;
   }
@@ -7613,7 +7663,20 @@ export function decideNightTarget(
      * `cellProves` is the half that is not an opinion, and the interrogation in
      * `bots.ts` is where a live Jailor learns something the square never will.
      */
-    return score >= 2.3 - brain.personality.courage ? prisoner : null;
+    /**
+     * And something under the number that is not merely somebody's word.
+     *
+     * The score counts the chorus and every badge's report, and a family can
+     * manufacture both: the bench measured the Jailor's executions landing on a
+     * killer half the time once framed checks became common. So the lever also
+     * wants the cell's own proof, or a firm case (see `SuspicionParts.firm`), or
+     * a town that has run out of time to be careful.
+     */
+    const firm =
+      cellProves(brain, prisoner) > 0 ||
+      suspicionParts(prisoner, self, info, rng, teammates).firm >= 1 ||
+      parityPressure(info) >= 0.6;
+    return score >= 2.3 - brain.personality.courage && firm ? prisoner : null;
   }
 
   /* ------------------------------ protectors ------------------------------ */
@@ -7726,6 +7789,20 @@ export function decideNightTarget(
     for (const [slot, role] of info.provenRoles) {
       if (roleDef(role).faction === 'town') cleared.add(slot);
     }
+    /**
+     * And the seats the town is visibly relying on tonight.
+     *
+     * A badge nobody contests, and a seat that has read out a night's work, are
+     * the investigators and protectors the square is counting on, and blocking
+     * one hands the family a night for nothing. The bench measured a quarter of
+     * the Escort's blocks landing on a town power. A liar wearing a badge is
+     * spared by this too, which is the price of it and the reason a badge is
+     * worth claiming.
+     */
+    for (const slot of info.aliveSlots) {
+      if (uncontestedBadge(slot, info) !== null) cleared.add(slot);
+      if (info.claims.some((claim) => claim.claimerSlot === slot && claim.from !== undefined)) cleared.add(slot);
+    }
     const worth = legalTargets.filter((slot) => !cleared.has(slot));
     const pool = worth.length > 0 ? worth : legalTargets;
 
@@ -7783,7 +7860,41 @@ export function decideNightTarget(
 
   if (['investigate', 'examine', 'watch', 'track', 'shadow'].includes(actionType)) {
     const fresh = legalTargets.filter((slot) => !brain.checked.has(slot));
-    const pool = fresh.length > 0 ? fresh : legalTargets;
+    let pool = fresh.length > 0 ? fresh : legalTargets;
+
+    /**
+     * A town examiner spends its night where the answer is still open.
+     *
+     * The bench measured the Sheriff's checks landing on a killer 41% of the
+     * time against 36% for a blind pick among the same houses: a full point of
+     * noise on top of a suspicion score that is near zero for most of the table
+     * makes the early nights a lottery. Two things a person with the badge does
+     * instead:
+     *
+     *  - it does not check a seat the record has already answered: a role the
+     *    graveyard or the porch proved town, or a badge nobody contests whose
+     *    calls have come true;
+     *  - once a killer has flipped, it checks the seat that voted alongside that
+     *    killer and never against it (see `buddyRead`). A family votes together
+     *    and does not vote its own, and the dead one's closest partner is the
+     *    best lead on the rest of it.
+     */
+    if (roleDef(role).faction === 'town') {
+      const open = pool.filter((slot) => {
+        const proven = info.provenRoles.get(slot);
+        if (proven !== undefined && roleDef(proven).faction === 'town') return false;
+        return !(uncontestedBadge(slot, info) !== null && settledCredit(slot, info) > 0);
+      });
+      if (open.length > 0) pool = open;
+      const partners = new Set<number>();
+      for (const [dead, deadRole] of info.deadRoles) {
+        if (!isEvilRole(deadRole)) continue;
+        const partner = buddyRead(dead, info).partner;
+        if (partner !== null && pool.includes(partner)) partners.add(partner);
+      }
+      if (partners.size > 0) pool = [...partners];
+    }
+
     // Investigate where the smoke is: bias toward currently suspected seats.
     const scored = pool
       .map((slot) => ({ slot, score: suspicion(slot, self, info, rng) + rng() }))

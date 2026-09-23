@@ -51,6 +51,17 @@ const asJson = process.argv.includes('--json');
 const humans = Math.max(0, Number(arg('humans', '0')) || 0);
 
 /**
+ * `--humains-comme-bots`: the person-marked seats play with the bots' own profile and habits.
+ *
+ * The control for the humans-and-bots table. With it, the only difference left between a person's seat and a
+ * bot's is the marker the board reads, so any gap that remains is the bots treating people differently rather than
+ * people playing differently.
+ */
+const humanProfile = process.argv.includes('--humains-comme-bots')
+  ? { aggression: 0.5, herd: 0.5, claimRate: 0.7, deceit: 0.4, courage: 0.5, quirks: { stonewall: 0, waffle: 0, lateSwitch: 0, press: 0 } }
+  : undefined;
+
+/**
  * `--autopsy`: every trial the run opened, and what the board held at the time.
  *
  * Win rates say a lynching was wrong. They never say what the room was
@@ -285,6 +296,7 @@ for (const players of playerCounts) {
           seed: baseSeed * 1_000_003 + players * 10_007 + index,
           profile,
           humans,
+          humanProfile,
           autopsy,
           calibrate,
           report: reportingAny,
@@ -299,6 +311,7 @@ for (const players of playerCounts) {
           seed: baseSeed * 2_000_003 + players * 10_007 + index,
           profile,
           humans,
+          humanProfile,
           autopsy,
           calibrate,
           report: reportingAny,
@@ -319,6 +332,7 @@ for (const players of playerCounts) {
           seed: baseSeed * 2_000_003 + players * 10_007 + index,
           profile,
           humans,
+          humanProfile,
           autopsy,
           calibrate,
           report: reportingAny,

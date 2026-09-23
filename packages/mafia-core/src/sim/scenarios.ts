@@ -28,11 +28,18 @@ import { add, type Tally } from './report.js';
  *  - `promesse`: an evil seat on the stand promises to prove itself tonight and
  *    says something, anything, the next day. Counts hangings and whether the
  *    board called the promise broken.
+ *  - `muet`: the person-shaped seats (`--humans`) never say a word and still
+ *    vote, as somebody away from the keyboard or new to the game does. Read
+ *    against the humans-and-bots table: they should not hang for silence alone.
+ *  - `mal-lu`: every line from a person-shaped seat reaches the board the way
+ *    the live parser files it, as a reading it is not sure of, and one in ten is
+ *    filed the wrong way round (an accusation read as a clearing, "home" read as
+ *    a visit). A misreading should not be what hangs somebody.
  *
  * Every choice a scenario makes is drawn from its own dice, so the game's own
  * stream is untouched until the injected move changes what the bots see.
  */
-export const SCENARIOS = ['famille', 'peche', 'barre', 'meneur', 'promesse'] as const;
+export const SCENARIOS = ['famille', 'peche', 'barre', 'meneur', 'promesse', 'muet', 'mal-lu'] as const;
 export type ScenarioName = (typeof SCENARIOS)[number];
 
 export interface ScenarioContext {
@@ -255,6 +262,39 @@ export class Scenarios {
     if (!this.stand) return;
     if (hanged) this.count(this.stand.kind, 'pendus');
     this.stand = null;
+  }
+
+  /**
+   * What a person-shaped seat's words become on the board.
+   *
+   * Nothing, for a mute seat. For a misread one, the live parser's uncertain
+   * reading (the ear files a person's line with a confidence under one), and
+   * now and then the opposite of what was meant.
+   */
+  humanSpeech(player: MafiaPlayer, claims: readonly Claim[]): Claim[] {
+    if (player.isBot) return [...claims];
+    if (this.on.has('muet')) {
+      if (claims.length > 0) this.count('muet', 'lignesTues', claims.length);
+      return [];
+    }
+    if (!this.on.has('mal-lu')) return [...claims];
+    const others = this.ctx.board().aliveSlots.filter((slot) => slot !== player.slot);
+    return claims.map((claim) => {
+      this.count('mal-lu', 'lignes');
+      const read: Claim = { ...claim, confidence: 0.65 };
+      if (this.ctx.rng() >= 0.1) return read;
+      this.count('mal-lu', 'retournees');
+      if (claim.kind === 'accuse') return { ...read, kind: 'clear' };
+      if (claim.kind === 'clear') return { ...read, kind: 'accuse' };
+      if (claim.kind === 'account' && claim.account === 'home') {
+        const elsewhere = others[Math.floor(this.ctx.rng() * others.length)];
+        return elsewhere === undefined ? read : { ...read, account: 'visited', targetSlot: elsewhere };
+      }
+      if (claim.kind === 'account' && claim.account === 'visited') {
+        return { ...read, account: 'home', targetSlot: player.slot };
+      }
+      return read;
+    });
   }
 
   /* -------------------------------- night -------------------------------- */

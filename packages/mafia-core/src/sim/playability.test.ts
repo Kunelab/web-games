@@ -6,8 +6,10 @@ import type { RoleId } from '../roles.js';
 import { createMafiaGame, playerBySlot, type MafiaPlayer, type MafiaState } from '../state.js';
 import { deductions } from './deduce.js';
 import {
+  contradicted,
   decideBallot,
   decideDay,
+  decideNightTarget,
   DEFAULT_PROFILE,
   judgeRequest,
   makeBrain,
@@ -289,6 +291,113 @@ describe('a call from a revealed ally', () => {
     assert.ok(
       decision.publishes.some((entry) => entry.kind === 'clear' && entry.targetSlot === 4),
       'and it says why, where the call was made'
+    );
+  });
+});
+
+describe('the seats that act alone read the firm part of a case', () => {
+  it('does not shoot on two fresh badges agreeing, which is what a family forges', () => {
+    const state = table(['vigilante', 'mafioso', 'consort', 'citizen', 'citizen', 'doctor', 'citizen']);
+    const brain = makeBrain(1, DEFAULT_PROFILE);
+    const board = toPublicInfo(
+      state,
+      [
+        claim({ claimerSlot: 2, targetSlot: 2, kind: 'role-claim', claimedRole: 'sheriff', day: 2 }),
+        claim({ claimerSlot: 3, targetSlot: 3, kind: 'role-claim', claimedRole: 'escort', day: 2 }),
+        claim({ claimerSlot: 2, targetSlot: 4, kind: 'accuse', worked: true, from: 'sheriff', day: 3 }),
+        claim({ claimerSlot: 3, targetSlot: 4, kind: 'accuse', worked: true, from: 'blocked', day: 3 })
+      ],
+      []
+    );
+    const parts = suspicionParts(4, playerBySlot(state, 1)!, board, always(0));
+    assert.ok(parts.hard >= 1.5, 'a juror can point to two reports');
+    assert.equal(parts.firm, 0, 'and the record has vouched for neither voice');
+    const shot = decideNightTarget(playerBySlot(state, 1)!, brain, board, [2, 3, 4, 5, 6, 7], 'kill', new Set(), [], always(0));
+    assert.notEqual(shot, 4, 'the gun waits for something the record has settled');
+  });
+
+  it('keeps a Doctor off a porch the square was told is armed', () => {
+    const state = table(['doctor', 'veteran', 'sheriff', 'citizen', 'mafioso', 'citizen']);
+    const brain = makeBrain(1, DEFAULT_PROFILE);
+    const board = toPublicInfo(
+      state,
+      [
+        claim({ claimerSlot: 2, targetSlot: 2, kind: 'role-claim', claimedRole: 'veteran', day: 2 }),
+        // The loudest voice at the table, which is where the knife is expected.
+        claim({ claimerSlot: 2, targetSlot: 5, kind: 'accuse', day: 2 }),
+        claim({ claimerSlot: 2, targetSlot: 4, kind: 'accuse', day: 3 })
+      ],
+      []
+    );
+    const healed = decideNightTarget(playerBySlot(state, 1)!, brain, board, [2, 3, 4, 5, 6], 'heal', new Set(), [], always(0));
+    assert.notEqual(healed, 2);
+  });
+
+  it('checks the seat that voted alongside a killer the graveyard just named', () => {
+    const state = table(['sheriff', 'mafioso', 'godfather', 'citizen', 'citizen', 'citizen', 'doctor'], 5);
+    const corpse = playerBySlot(state, 2)!;
+    corpse.alive = false;
+    state.deaths.push({
+      playerId: corpse.playerId,
+      day: 4,
+      phase: 'day',
+      cause: { k: 'mafia.cause.lynched' },
+      role: 'mafioso',
+      hidden: false
+    });
+    // Three days of ballots: 2 and 3 on the same house every day, never on each other; the rest scattered.
+    const votes = [2, 3, 4].flatMap((day) => [
+      { day, voterSlot: 2, targetSlot: 5 },
+      { day, voterSlot: 3, targetSlot: 5 },
+      { day, voterSlot: 4, targetSlot: day === 2 ? 6 : day === 3 ? 7 : 3 },
+      { day, voterSlot: 6, targetSlot: day === 2 ? 4 : day === 3 ? 2 : 7 },
+      { day, voterSlot: 7, targetSlot: day === 2 ? 3 : day === 3 ? 6 : 4 }
+    ]);
+    const board = toPublicInfo(state, [], votes);
+    const checked = decideNightTarget(
+      playerBySlot(state, 1)!,
+      makeBrain(1, DEFAULT_PROFILE),
+      board,
+      [3, 4, 5, 6, 7],
+      'investigate',
+      new Set(),
+      [],
+      always(0.5)
+    );
+    assert.equal(checked, 3);
+  });
+});
+
+describe('a juror is one person', () => {
+  it('answers the same case the same way whatever the dice', () => {
+    const state = table(['citizen', 'mafioso', 'citizen', 'citizen', 'doctor', 'citizen']);
+    state.stage = 'judgement';
+    const board = toPublicInfo(
+      state,
+      [
+        claim({ claimerSlot: 3, targetSlot: 2, kind: 'accuse' }),
+        claim({ claimerSlot: 4, targetSlot: 2, kind: 'accuse' }),
+        claim({ claimerSlot: 5, targetSlot: 2, kind: 'accuse' })
+      ],
+      []
+    );
+    const juror = playerBySlot(state, 1)!;
+    const brain = makeBrain(1, DEFAULT_PROFILE);
+    const verdicts = [0, 0.3, 0.6, 0.99].map((roll) => decideBallot(juror, brain, board, 2, new Set(), always(roll)));
+    assert.equal(new Set(verdicts).size, 1, verdicts.join(', '));
+  });
+});
+
+describe('a misread line does not hang anybody', () => {
+  it('is not caught out on an alibi the reader was guessing at', () => {
+    const state = table(['citizen', 'lookout', 'mafioso', 'doctor', 'citizen']);
+    const seen = claim({ claimerSlot: 2, targetSlot: 1, kind: 'sighting' });
+    const sure = claim({ claimerSlot: 1, targetSlot: 1, kind: 'account', account: 'home' });
+    assert.equal(contradicted(1, toPublicInfo(state, [sure, seen], [])), true, 'a sure reading is held to');
+    assert.equal(
+      contradicted(1, toPublicInfo(state, [{ ...sure, confidence: 0.65 }, seen], [])),
+      false,
+      'a guessed one is not'
     );
   });
 });

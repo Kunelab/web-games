@@ -76,7 +76,7 @@ export function printRoles(tally: Tally): void {
 
   console.log('\n=== Rôles : ce que chaque siège a fait de son pouvoir ===');
   console.log(
-    'rôle             | sièges | gagne  | survit | pendu  | nuit † | nuits/s | utilisé | cible mal | ville  | résultats'
+    'rôle             | sièges | gagne  | survit | pendu  | nuit † | nuits/s | utilisé | cible mal | hasard | ville  | résultats'
   );
   for (const role of roles) {
     const r = (metric: string) => get(tally, `r:${role}:${metric}`);
@@ -92,6 +92,8 @@ export function printRoles(tally: Tally): void {
       per(r('nights'), seats, 1).padStart(7),
       pct(r('acted'), r('nights')).padStart(7),
       pct(r('on:evil'), aimed).padStart(9),
+      // What a seat choosing blindly among its legal targets would have hit.
+      pct(r('chance'), r('chanceN')),
       pct(r('on:town'), aimed),
       roleLine(tally, role).join(' ; ')
     ];
@@ -252,6 +254,15 @@ export function printScenarios(tally: Tally): void {
     );
   }
 
+  if (s('muet:lignesTues') > 0) {
+    console.log(`  muet: ${s('muet:lignesTues')} lignes de joueurs jamais dites ; voir la table humains et bots`);
+  }
+  if (s('mal-lu:lignes') > 0) {
+    console.log(
+      `  mal-lu: ${s('mal-lu:lignes')} lignes de joueurs lues avec doute, dont retournées ${pct(s('mal-lu:retournees'), s('mal-lu:lignes')).trim()} ; voir la table humains et bots`
+    );
+  }
+
   if (s('promesse:proces') > 0) {
     console.log(
       `  promesse: ${s('promesse:proces')} tueurs promettent au procès, pendus ${pct(s('promesse:pendus'), s('promesse:proces')).trim()} ;` +
@@ -260,9 +271,99 @@ export function printScenarios(tally: Tally): void {
   }
 }
 
+/** How the booth split, on thin cases and on proven ones. */
+export function printJury(tally: Tally): void {
+  console.log('\n=== Jurys : comment la salle se partage ===');
+  console.log('procès          | n      | acquitté | partagé | écrasant (90%+) | unanime | villageois pendus');
+  for (const scope of ['mince', 'solide']) {
+    const j = (key: string) => get(tally, `jury:${scope}:${key}`);
+    const n = j('trials');
+    if (n === 0) continue;
+    console.log(
+      [
+        (scope === 'mince' ? 'sans preuve' : 'avec preuve').padEnd(15),
+        String(n).padStart(6),
+        pct(j('acquitte'), n).padStart(8),
+        pct(j('partage'), n).padStart(7),
+        pct(j('ecrasant'), n).padStart(15),
+        pct(j('unanime'), n).padStart(7),
+        pct(j('townHanged'), n).padStart(17)
+      ].join(' | ')
+    );
+  }
+}
+
+/** A person and a bot in the same camp, side by side. Printed only when a run seated people. */
+export function printParity(tally: Tally): void {
+  if (get(tally, 'par:humain:town:seats') + get(tally, 'par:humain:evil:seats') === 0) return;
+  console.log('\n=== Humains et bots, même camp ===');
+  console.log('camp    | qui    | sièges | tué la nuit | pendu  | mort avant J4 | votes reçus / jour');
+  for (const side of ['town', 'evil', 'neutral']) {
+    for (const who of ['humain', 'bot']) {
+      const p = (key: string) => get(tally, `par:${who}:${side}:${key}`);
+      const seats = p('seats');
+      if (seats === 0) continue;
+      console.log(
+        [
+          side.padEnd(7),
+          who.padEnd(6),
+          String(seats).padStart(6),
+          pct(p('nightDead'), seats).padStart(11),
+          pct(p('lynched'), seats),
+          pct(p('early'), seats).padStart(13),
+          per(p('votes'), p('days')).padStart(18)
+        ].join(' | ')
+      );
+    }
+  }
+}
+
+/** From a killer found at night to a killer hanged. */
+export function printInformation(tally: Tally): void {
+  const found = get(tally, 'info:found');
+  if (found === 0) return;
+  const said = get(tally, 'info:said');
+  const after = get(tally, 'info:hangedAfterSaid');
+  console.log('\n=== De la découverte à la corde ===');
+  console.log(`  tueurs découverts la nuit par la ville (vérification, porte d un mort)  ${found}`);
+  console.log(
+    `  dits en public                   ${pct(said, found)} (après ${per(get(tally, 'info:sayDelay'), said, 1)} jours en moyenne)`
+  );
+  console.log(`  pendus un jour ou l autre        ${pct(get(tally, 'info:hanged'), found)}`);
+  console.log(
+    `  pendus après avoir été dits      ${pct(after, said)} des dits (${per(get(tally, 'info:hangDelay'), after, 1)} jours après)`
+  );
+  console.log(`  encore vivants à la fin          ${pct(get(tally, 'info:aliveAtEnd'), found)}`);
+}
+
+/** Whether a trait shows: each split at its middle, bots only. */
+export function printPersonality(tally: Tally): void {
+  const t = (key: string) => get(tally, `pers:${key}`);
+  if (t('aggr:bas:days') + t('aggr:haut:days') === 0) return;
+  console.log('\n=== Personnalités : le trait se voit-il ? (bas | haut) ===');
+  console.log(
+    `  agressivité (ville): accusations par jour   ${per(t('aggr:bas:acc'), t('aggr:bas:days'))} | ${per(t('aggr:haut:acc'), t('aggr:haut:days'))}` +
+      ` ; votes par jour ${per(t('aggr:bas:votes'), t('aggr:bas:days'))} | ${per(t('aggr:haut:votes'), t('aggr:haut:days'))}`
+  );
+  console.log(
+    `  suivisme (ville): coupable sur procès mince  ${pct(t('herd:bas:thinGuilty'), t('herd:bas:thin')).trim()} | ${pct(t('herd:haut:thinGuilty'), t('herd:haut:thin')).trim()}`
+  );
+  console.log(
+    `  hâte (enquêteurs): publie                   ${pct(t('haste:bas:published'), t('haste:bas:seats')).trim()} | ${pct(t('haste:haut:published'), t('haste:haut:seats')).trim()}` +
+      ` ; premier rapport jour ${per(t('haste:bas:firstDay'), t('haste:bas:published'), 1)} | ${per(t('haste:haut:firstDay'), t('haste:haut:published'), 1)}`
+  );
+  console.log(
+    `  duplicité (tueurs): faux rôle               ${pct(t('deceit:bas:faked'), t('deceit:bas:seats')).trim()} | ${pct(t('deceit:haut:faked'), t('deceit:haut:seats')).trim()}`
+  );
+}
+
 export function printReport(tally: Tally): void {
   printRoles(tally);
   printTells(tally);
   printFaults(tally);
+  printJury(tally);
+  printParity(tally);
+  printInformation(tally);
+  printPersonality(tally);
   printScenarios(tally);
 }
