@@ -467,6 +467,36 @@ export const bugReports = sqliteTable(
 
 export type BugReportRow = typeof bugReports.$inferSelect;
 
+/**
+ * Dismissed "possible duplicate" flags in the generated-rounds catalogue.
+ *
+ * Duplicate detection is pairwise (two entries looking like the same
+ * recording), so a dismissal is a pair too: an admin who reviewed two rows
+ * and found them different suppresses exactly that pair. A third entry that
+ * collides with either of them still flags, and a new entry colliding with a
+ * dismissed one flags as well — a dismissal never grants a row immunity, only
+ * settles one comparison.
+ *
+ * Both columns cascade from `Media`, so deleting a duplicate entry cleans up
+ * its dismissals with it. `media_a < media_b` is enforced by the writer, and
+ * the composite primary key makes the pair unique.
+ */
+export const blindtestDuplicateDismissals = sqliteTable(
+  'BlindtestDuplicateDismissals',
+  {
+    media_a: integer('media_a')
+      .notNull()
+      .references(() => media.id, { onDelete: 'cascade' }),
+    media_b: integer('media_b')
+      .notNull()
+      .references(() => media.id, { onDelete: 'cascade' }),
+    created_at: text('created_at').default(now)
+  },
+  (table) => [primaryKey({ columns: [table.media_a, table.media_b] })]
+);
+
+export type BlindtestDuplicateDismissal = typeof blindtestDuplicateDismissals.$inferSelect;
+
 export type MediaRow = typeof media.$inferSelect;
 export type GameResultRow = typeof gameResults.$inferSelect;
 export type NewMediaRow = typeof media.$inferInsert;

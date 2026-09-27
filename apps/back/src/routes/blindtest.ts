@@ -6,7 +6,9 @@ import { env } from '../env.js';
 import { GameManager } from '../game/manager.js';
 import { GENRES, SECTIONS, catalogAvailable, genreById, poolStatus } from '../services/blindtest-catalog.js';
 import { countAvailable, drawRounds, emptyHistory } from '../services/blindtest-draw.js';
+import { dismissDuplicateFlags, findLibraryDuplicateGroups } from '../services/blindtest-duplicates.js';
 import { takeOpener, warmOpener } from '../services/blindtest-opener.js';
+import { isAdmin } from '../services/ownership.js';
 
 /**
  * The generated blind test: a room that never runs out.
@@ -238,6 +240,42 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
 
   /** Pool diagnostics: sizes, ages, and any source that came back suspiciously thin. */
   app.get('/blindtest/pools', { preHandler: app.requireAuth }, async () => ({ pools: poolStatus() }));
+
+  /**
+   * Possible duplicates in the shared catalogue, for the admin's cleanup.
+   *
+   * Admin-only: the catalogue is public to play but only an admin may curate
+   * it, and the flags are a curation aid rather than game data. Returns groups
+   * of media ids that look like the same recording, strongest reason first —
+   * see `blindtest-duplicates` for what each reason means.
+   */
+  app.get('/blindtest/library/duplicates', { preHandler: app.requireAuth }, async (request) => {
+    if (!isAdmin(request.currentUser)) {
+      throw app.httpErrors.forbidden('Réservé à un administrateur');
+    }
+    return { groups: await findLibraryDuplicateGroups() };
+  });
+
+  /**
+   * Settles every flag raised against one entry: "these are not duplicates".
+   *
+   * Stores the entry's current pairs rather than the entry, so a genuinely new
+   * collision later still flags. Deleting the entry instead is the existing
+   * `DELETE /media/:id`, which an admin may call on any row.
+   */
+  app.post(
+    '/blindtest/library/duplicates/dismiss',
+    {
+      preHandler: app.requireAuth,
+      schema: { body: z.object({ mediaId: z.coerce.number().int().positive() }) }
+    },
+    async (request) => {
+      if (!isAdmin(request.currentUser)) {
+        throw app.httpErrors.forbidden('Réservé à un administrateur');
+      }
+      return { dismissed: await dismissDuplicateFlags(request.body.mediaId) };
+    }
+  );
 };
 
 export default blindtestRoutes;

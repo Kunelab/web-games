@@ -19,7 +19,7 @@ import { isAdmin, useAuth } from '../hooks/useAuth';
 import { useT } from '../i18n/locale-context';
 import { kindColor, kindKey } from '../app/kinds';
 import { useAsync } from '../hooks/useAsync';
-import { Badge, Button, Chip, Field, IconButton, Input, Loading, Switch } from '../ui';
+import { Badge, Button, Chip, Dialog, Field, IconButton, Input, Loading, Switch } from '../ui';
 import './library.css';
 import './playlists.css';
 
@@ -166,10 +166,42 @@ interface EditorProps {
   onSaved: () => void;
 }
 
+/**
+ * The shared generated-rounds catalogue, by the name the server files it
+ * under. Kept as a literal with the sync note rather than served by the API:
+ * the playlist itself is the identifier here, and renaming it on either side
+ * without the other only hides the duplicate flags, never breaks an edit.
+ * Must stay identical to `EVERYTHING_PLAYLIST_NAME` in
+ * `apps/back/src/services/blindtest-library.ts`.
+ */
+const EVERYTHING_PLAYLIST_NAME = 'Tout (généré)';
+
+type DuplicateReason = 'same-video' | 'same-track' | 'similar';
+
+interface DuplicatePartner {
+  id: number;
+  reason: DuplicateReason;
+}
+
+interface DuplicateInfo {
+  /** Strongest reason found against this entry. */
+  reason: DuplicateReason;
+  partners: DuplicatePartner[];
+}
+
+const DUPLICATE_RANK: Record<DuplicateReason, number> = { 'same-video': 0, 'same-track': 1, similar: 2 };
+
+function duplicateReasonKey(reason: DuplicateReason): string {
+  if (reason === 'same-video') return 'ple.duplicate.sameVideo';
+  if (reason === 'same-track') return 'ple.duplicate.sameTrack';
+  return 'ple.duplicate.similar';
+}
+
 function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   const t = useT();
   const { user } = useAuth();
   const playlistId = playlist.id;
+  const admin = isAdmin(user);
 
   /**
    * Whether this row offers a way through to the media editor.
@@ -195,6 +227,9 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   const [kindFilter, setKindFilter] = useState('');
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  /** The entry whose duplicate flag the admin is settling, by id. */
+  const [dupTargetId, setDupTargetId] = useState<number | null>(null);
+  const [dupBusy, setDupBusy] = useState<'clear' | 'delete' | null>(null);
 
   const byId = useMemo(() => {
     const map = new Map<number, MediaItem>();
@@ -205,6 +240,100 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
 
   const chosen = order.map((mediaId) => byId.get(mediaId)).filter((item): item is MediaItem => Boolean(item));
   const chosenIds = new Set(order);
+
+  /**
+   * Possible duplicates in the shared catalogue, admin only.
+   *
+   * Fetched solely on the `Tout (généré)` playlist: that playlist *is* the
+   * catalogue the detector scans, so anywhere else the flags would be about
+   * rows that are not even on screen. Non-admins never fetch — the endpoint
+   * would refuse them, and there is no icon to feed.
+   */
+  const showDuplicates = admin && playlist.name === EVERYTHING_PLAYLIST_NAME;
+  const duplicates = useAsync(
+    () => (showDuplicates ? api.blindtestDuplicates() : Promise.resolve({ groups: [] })),
+    [showDuplicates, playlistId]
+  );
+
+  /**
+   * Flags by entry, with the partners each entry collides with.
+   *
+   * Partners accumulate across groups with the strongest reason kept per
+   * partner, so the dialog can name each collision honestly rather than
+   * repeating the group's headline reason for all of them.
+   */
+  const dupById = useMemo(() => {
+    const acc = new Map<number, { reason: DuplicateReason; partners: Map<number, DuplicateReason> }>();
+    for (const group of duplicates.data?.groups ?? []) {
+      const reason = group.reason;
+      for (const id of group.mediaIds) {
+        let entry = acc.get(id);
+        if (!entry) {
+          entry = { reason, partners: new Map() };
+          acc.set(id, entry);
+        } else if (DUPLICATE_RANK[reason] < DUPLICATE_RANK[entry.reason]) {
+          entry.reason = reason;
+        }
+        for (const other of group.mediaIds) {
+          if (other === id) continue;
+          const current = entry.partners.get(other);
+          if (!current || DUPLICATE_RANK[reason] < DUPLICATE_RANK[current]) entry.partners.set(other, reason);
+        }
+      }
+    }
+    const map = new Map<number, DuplicateInfo>();
+    for (const [id, entry] of acc) {
+      map.set(id, {
+        reason: entry.reason,
+        partners: [...entry.partners.entries()].map(([partnerId, partnerReason]) => ({
+          id: partnerId,
+          reason: partnerReason
+        }))
+      });
+    }
+    return map;
+  }, [duplicates.data]);
+
+  const dupTarget = dupTargetId !== null ? byId.get(dupTargetId) : undefined;
+  const dupInfo = dupTargetId !== null ? dupById.get(dupTargetId) : undefined;
+
+  /**
+   * "These are not duplicates": settles every flag raised against the entry.
+   *
+   * Stored server-side as the entry's current pairs, so a genuinely new
+   * collision later still flags. The icon drops on the reload below.
+   */
+  async function clearDuplicateFlag(item: MediaItem) {
+    setDupBusy('clear');
+    try {
+      await api.blindtestDismissDuplicate(item.id);
+      setDupTargetId(null);
+      duplicates.reload();
+    } finally {
+      setDupBusy(null);
+    }
+  }
+
+  /**
+   * Deletes the duplicate entry outright.
+   *
+   * The row goes through the ordinary `DELETE /media/:id` — an admin may call
+   * it on any row, including an ownerless one — whose cascade drops the
+   * playlist link with it. Local order follows, and the saved playlist is
+   * reloaded for the counts.
+   */
+  async function deleteDuplicateMedia(item: MediaItem) {
+    setDupBusy('delete');
+    try {
+      await api.deleteMedia(item.id);
+      setOrder((current) => current.filter((mediaId) => mediaId !== item.id));
+      setDupTargetId(null);
+      duplicates.reload();
+      onSaved();
+    } finally {
+      setDupBusy(null);
+    }
+  }
 
   const available = library.filter((item) => {
     if (chosenIds.has(item.id)) return false;
@@ -332,6 +461,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
             <span className="pl-panel-count">
               {chosen.length} ·{' '}
               {notReady > 0 ? t(msg('pl.toFinish', { count: notReady })) : t(msg('ple.allReady'))}
+              {dupById.size > 0 && <> · {t(msg('ple.duplicate.count', { count: dupById.size }))}</>}
             </span>
           </header>
 
@@ -352,6 +482,8 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                       item={item}
                       index={index}
                       canEdit={mayEditMedia(item)}
+                      duplicate={showDuplicates ? dupById.get(item.id) : undefined}
+                      onShowDuplicate={() => setDupTargetId(item.id)}
                       onRemove={() => remove(item.id)}
                     />
                   ))}
@@ -440,6 +572,44 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
           )}
         </section>
       </div>
+
+      <Dialog
+        open={dupTarget !== undefined && dupInfo !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setDupTargetId(null);
+        }}
+        title={t(msg('ple.duplicate.title'))}
+        description={dupTarget?.title}
+        actions={
+          <>
+            <Button variant="ghost" disabled={dupBusy !== null} onClick={() => setDupTargetId(null)}>
+              {t(msg('ple.duplicate.cancel'))}
+            </Button>
+            {dupTarget && (
+              <Button variant="secondary" busy={dupBusy === 'clear'} onClick={() => void clearDuplicateFlag(dupTarget)}>
+                {t(msg('ple.duplicate.clear'))}
+              </Button>
+            )}
+            {dupTarget && (
+              <Button variant="danger" busy={dupBusy === 'delete'} onClick={() => void deleteDuplicateMedia(dupTarget)}>
+                {t(msg('ple.duplicate.delete'))}
+              </Button>
+            )}
+          </>
+        }
+      >
+        <p className="dialog-desc">{t(msg('ple.duplicate.explains'))}</p>
+        {dupInfo && (
+          <ul className="pl-dup-list">
+            {dupInfo.partners.map((partner) => (
+              <li key={partner.id}>
+                <span className="pl-dup-partner">{byId.get(partner.id)?.title ?? `#${partner.id}`}</span>
+                <span className="pl-dup-reason"> — {t(msg(duplicateReasonKey(partner.reason)))}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Dialog>
     </>
   );
 }
@@ -448,11 +618,15 @@ function SortableRow({
   item,
   index,
   canEdit,
+  duplicate,
+  onShowDuplicate,
   onRemove
 }: {
   item: MediaItem;
   index: number;
   canEdit: boolean;
+  duplicate?: DuplicateInfo;
+  onShowDuplicate?: () => void;
   onRemove: () => void;
 }) {
   const t = useT();
@@ -487,6 +661,19 @@ function SortableRow({
       <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
         {!item.readiness.ready && <Badge tone="warn">{t(msg('lib.unfinished'))}</Badge>}
         {/*
+          The duplicate flag, on the generated catalogue only and for admins.
+          A warning triangle rather than a badge: the row is playable as is,
+          and a badge would read as a verdict where this is a question.
+        */}
+        {duplicate && (
+          <IconButton
+            icon={<DuplicateIcon />}
+            className="pl-dup-flag"
+            label={t(msg('ple.duplicate.flag', { title: item.title }))}
+            onClick={onShowDuplicate}
+          />
+        )}
+        {/*
           A new tab, deliberately.
 
           This playlist is very likely half-edited: the order moved, the name
@@ -513,6 +700,23 @@ function SortableRow({
         <IconButton icon={<MinusIcon />} label={t(msg('ple.remove', { title: item.title }))} onClick={onRemove} />
       </span>
     </li>
+  );
+}
+
+/** A warning triangle, at the same weight as the grip and the minus beside it. */
+function DuplicateIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 4 2.5 20h19L12 4Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M12 10v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="12" cy="17" r="1.2" fill="currentColor" />
+    </svg>
   );
 }
 

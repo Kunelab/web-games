@@ -238,6 +238,14 @@ const statements = [
   )`,
   `CREATE INDEX IF NOT EXISTS "PasswordResets_user_id_idx" ON "PasswordResets" ("user_id")`,
 
+  // Dismissed duplicate flags in the generated-rounds catalogue. Pairwise by
+  // design (see schema.ts): both sides cascade from Media.
+  `CREATE TABLE IF NOT EXISTS "BlindtestDuplicateDismissals" (
+    "media_a" INTEGER NOT NULL REFERENCES "Media" ("id") ON DELETE CASCADE,
+    "media_b" INTEGER NOT NULL REFERENCES "Media" ("id") ON DELETE CASCADE,
+    "created_at" TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY ("media_a", "media_b")
+  )`,
   `CREATE INDEX IF NOT EXISTS "Media_user_id_idx" ON "Media" ("user_id")`,
   `CREATE INDEX IF NOT EXISTS "Media_kind_idx" ON "Media" ("kind")`,
   `CREATE INDEX IF NOT EXISTS "Media_category_idx" ON "Media" ("category")`,

@@ -315,6 +315,18 @@ export const atelierEn: Catalogue = {
   "ple.move": "Move {title}, position {position}",
   "ple.remove": "Remove {title}",
   "ple.editMedia": "Edit {title} (opens in a new tab)",
+  /* ------- possible duplicates in the generated-rounds catalogue (admin) ---- */
+  "ple.duplicate.flag": "Possible duplicate: {title}",
+  "ple.duplicate.count": "{count} possible duplicate(s)",
+  "ple.duplicate.title": "Possible duplicate",
+  "ple.duplicate.explains":
+    "This entry looks like other entries in the catalogue. Keep one of them, or mark them as different.",
+  "ple.duplicate.sameVideo": "Same YouTube video",
+  "ple.duplicate.sameTrack": "Same recording",
+  "ple.duplicate.similar": "Very similar",
+  "ple.duplicate.clear": "Not duplicates",
+  "ple.duplicate.delete": "Delete this media",
+  "ple.duplicate.cancel": "Cancel",
   /* ------------------------- opening a room from a playlist ----------------- */
   "launch.failed": "The launch failed.",
   "launch.backPlaylist": "Playlist",

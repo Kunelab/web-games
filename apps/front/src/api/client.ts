@@ -512,6 +512,21 @@ export const api = {
     }),
   blindtestStop: (code: string) =>
     request<{ stoppingAfter: number }>(`/blindtest/sessions/${code}/stop`, { method: 'POST' }),
+  /**
+   * Possible duplicates in the shared generated catalogue, for an admin's
+   * cleanup. Each group is entries that look like the same recording, with
+   * the strongest reason found between them.
+   */
+  blindtestDuplicates: () =>
+    request<{ groups: { reason: 'same-video' | 'same-track' | 'similar'; mediaIds: number[] }[] }>(
+      '/blindtest/library/duplicates'
+    ),
+  /** Settles every flag raised against one entry: "these are not duplicates". */
+  blindtestDismissDuplicate: (mediaId: number) =>
+    request<{ dismissed: number }>('/blindtest/library/duplicates/dismiss', {
+      method: 'POST',
+      body: { mediaId }
+    }),
   mafiaMe: () => request<MafiaCareer>('/mafia/me')
 };
 

@@ -299,6 +299,18 @@ export const atelierFr: Catalogue = {
   "ple.move": "Déplacer {title}, position {position}",
   "ple.remove": "Retirer {title}",
   "ple.editMedia": "Modifier {title} (nouvel onglet)",
+  /* ------- possible duplicates in the generated-rounds catalogue (admin) ---- */
+  "ple.duplicate.flag": "Doublon possible : {title}",
+  "ple.duplicate.count": "{count} doublon(s) possible(s)",
+  "ple.duplicate.title": "Doublon possible",
+  "ple.duplicate.explains":
+    "Cet extrait ressemble à d’autres entrées du catalogue. N’en gardez qu’un, ou marquez-les comme différents.",
+  "ple.duplicate.sameVideo": "Même vidéo YouTube",
+  "ple.duplicate.sameTrack": "Même morceau",
+  "ple.duplicate.similar": "Très ressemblant",
+  "ple.duplicate.clear": "Ce ne sont pas des doublons",
+  "ple.duplicate.delete": "Supprimer ce média",
+  "ple.duplicate.cancel": "Annuler",
   /* --------------------- ouvrir un salon depuis une playlist ---------------- */
   "launch.failed": "Le lancement a échoué.",
   "launch.backPlaylist": "Playlist",
