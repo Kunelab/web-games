@@ -18,13 +18,6 @@ const TILES: MenuTile[] = [
     primary: true
   },
   {
-    to: '/quiz/infini',
-    label: 'site.tile.endless',
-    hint: 'site.tile.endless.hint',
-    emoji: '♾️',
-    requiresAccount: true
-  },
-  {
     to: '/quiz/creer',
     label: 'site.tile.createRoom',
     hint: 'site.tile.createRoom.hint',
