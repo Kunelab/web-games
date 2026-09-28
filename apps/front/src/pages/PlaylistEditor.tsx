@@ -379,6 +379,18 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
     [catalog.data]
   );
 
+  /**
+   * The old prompts the bulk fix can rewrite: those whose genre is a known work genre.
+   *
+   * The rest (an unknown genre, a genre of the other shape) are left for the
+   * per-row dialog, and the button offering to fix them did nothing when pressed.
+   */
+  const fixableLegacy = [...legacyIds].filter((mediaId) => {
+    const item = byId.get(mediaId);
+    const category = item ? (categoryOverrides.get(item.id) ?? item.category) : null;
+    return category ? genreById.get(category)?.answerShape === 'work' : false;
+  }).length;
+
   /** A genre as a person reads it: "Rap · Rap US". The raw id when unknown. */
   function genreName(id: string | null | undefined): string {
     if (!id) return t(msg('ple.genre.none'));
@@ -638,7 +650,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
             kind of work it is. The ones whose genre is unknown stay flagged
             for a person, which is what the per-row dialog is for.
           */}
-          {curating && legacyIds.size > 0 && (
+          {curating && fixableLegacy > 0 && (
             <div className="pl-curation-bar">
               <Button variant="secondary" size="sm" busy={genreBusy === 'fixAll'} onClick={() => void fixAllLabels()}>
                 {t(msg('ple.genre.fixAll'))}

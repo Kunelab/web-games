@@ -160,6 +160,15 @@ export interface ClientToServerEvents {
   'host:correctRound': (payload: {
     hostToken: string;
     /**
+     * The round the correction was typed against.
+     *
+     * Checked against the round in play, and the correction dropped when they
+     * differ: a form left open across "next" would otherwise write one song's
+     * answers and genre onto the song after it, catalogue row and all. Optional
+     * only so an older screen still works; every current one sends it.
+     */
+    roundId?: string;
+    /**
      * The answers, each with the spellings that are to count as it.
      *
      * `aliases` omitted leaves the stored ones alone; sent, it replaces them

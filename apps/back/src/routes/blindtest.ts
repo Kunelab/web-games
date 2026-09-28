@@ -6,7 +6,7 @@ import { env } from '../env.js';
 import { GameManager } from '../game/manager.js';
 import { GENRES, SECTIONS, catalogAvailable, genreById, poolStatus } from '../services/blindtest-catalog.js';
 import { countAvailable, drawRounds, emptyHistory } from '../services/blindtest-draw.js';
-import { countLibrary } from '../services/blindtest-library.js';
+import { catalogueKeys, countLibrary } from '../services/blindtest-library.js';
 import { dismissDuplicateFlags, findLibraryDuplicates } from '../services/blindtest-duplicates.js';
 import {
   dismissGenreFlag,
@@ -101,7 +101,8 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
    */
   app.post('/blindtest/count', { preHandler: app.requireAuth, schema: { body: settingsSchema } }, async (request) => {
     const settings = ordered(request.body);
-    const counted = countAvailable(settings);
+    const catalogued = await catalogueKeys().catch(() => ({ codes: new Set<string>(), tracks: new Set<string>() }));
+    const counted = countAvailable(settings, catalogued);
 
     /**
      * Plus what the catalogue can replay.

@@ -775,6 +775,19 @@ export function registerRealtime(
         // generated here, or one replayed out of the shared catalogue. A round
         // from somebody's own library is theirs, and is edited in the editor.
         const round = state.round;
+
+        /**
+         * Only onto the round it was typed against.
+         *
+         * Read here, after the account check, because the game can move on
+         * while that check is out, and the round in hand is the one written to.
+         */
+        const sentRound = (payload as { roundId?: unknown }).roundId;
+        if (typeof sentRound === 'string' && sentRound !== round?.id) {
+          socket.emit('session:error', { message: 'La manche a changé : correction ignorée' });
+          return;
+        }
+
         const libraryCode = round ? libraryCodeOf(round) : undefined;
 
         /**

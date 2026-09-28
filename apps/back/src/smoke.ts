@@ -1598,6 +1598,28 @@ check(
 if (arrived) await db.delete(media).where(eq(media.id, arrived.id));
 
 /**
+ * And the catalogue's list is its own rows, whatever else is in the playlist.
+ *
+ * An admin can add anybody's media to it, and the checks and the bulk label
+ * fix read this list: a member's item there was rewritten by "fix the old
+ * labels" while every single-entry write refused to touch it.
+ */
+await playlistService.update(
+  catalogueId,
+  { mediaIds: [...catalogueOrder, blindItem.id], baseMediaIds: catalogueOrder },
+  { id: 0, login: 'smoke-admin', role: 'admin' }
+);
+check(
+  "a member's item in the catalogue playlist is not one of the catalogue's rows",
+  !(await listLibrary()).some((item) => item.id === blindItem.id)
+);
+await playlistService.update(
+  catalogueId,
+  { mediaIds: catalogueOrder, baseMediaIds: [...catalogueOrder, blindItem.id] },
+  { id: 0, login: 'smoke-admin', role: 'admin' }
+);
+
+/**
  * Duplicates are found one entry at a time, and again only when one changes.
  *
  * Comparing every pair on every look at the flags was quadratic in the size of

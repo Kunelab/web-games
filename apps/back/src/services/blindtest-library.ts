@@ -96,6 +96,29 @@ export async function libraryVideoCodes(): Promise<Set<string>> {
   return codes;
 }
 
+/**
+ * What the catalogue holds, by video id and by recording.
+ *
+ * The video ids alone let a *twin* through: the same recording under another
+ * upload (the Topic track of a song whose music video is catalogued, another
+ * opening of a catalogued anime, since a work's key is the work). The draw
+ * dealt those as new, and a correction made to one at the table went nowhere,
+ * because the catalogue files that recording under the other video: the
+ * correction matched nothing, and at the reveal the twin was found and left as
+ * it was.
+ */
+export async function catalogueKeys(): Promise<{ codes: Set<string>; tracks: Set<string> }> {
+  const codes = new Set<string>();
+  const tracks = new Set<string>();
+  for (const item of (await libraryRows()).map(toMediaView)) {
+    const code = videoCodeOf(item.payload);
+    if (code) codes.add(code);
+    const key = trackKeyOf(item);
+    if (key) tracks.add(key);
+  }
+  return { codes, tracks };
+}
+
 /** Every row of the shared catalogue. Ownerless by construction; see the header. */
 async function libraryRows(): Promise<MediaRow[]> {
   return db
@@ -470,11 +493,19 @@ export async function countLibrary(
 export async function listLibrary(): Promise<MediaView[]> {
   const playlistId = await everythingPlaylistId();
 
+  /**
+   * The catalogue's own rows only: ownerless blind tests.
+   *
+   * The playlist is an admin's to edit, and an admin's library lists everybody's
+   * media, so a member's private item can be added to it. The checks and the
+   * bulk label fix read this list, and without the filter "fix the old labels"
+   * rewrote that member's row while every single-entry write refused to touch it.
+   */
   const rows = await db
     .select({ row: media })
     .from(playlistItems)
     .innerJoin(media, eq(media.id, playlistItems.media_id))
-    .where(eq(playlistItems.playlist_id, playlistId))
+    .where(and(eq(playlistItems.playlist_id, playlistId), isNull(media.user_id), eq(media.kind, 'blindtest')))
     .orderBy(asc(playlistItems.order_num));
 
   return rows.map((entry) => toMediaView(entry.row));

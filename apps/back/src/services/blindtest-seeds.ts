@@ -251,11 +251,17 @@ export function weightedSample<T>(items: T[], count: number, weight: (item: T) =
  * near the fame its window implies instead: difficulty 0 is fame 1.
  */
 export function fameWeight(fame: number, window?: { min: number; max: number }): number {
-  if (!window) return 0.05 + 1.5 * fame * fame;
+  // A window this wide is no preference at all, and it is what every room
+  // left on the default 0 to 100 sends. Read as a target it centred the draw on
+  // middling fame and weighed deep cuts the same as household names.
+  if (!window || window.max - window.min >= WIDE_WINDOW) return 0.05 + 1.5 * fame * fame;
   const target = 1 - (window.min + window.max) / 200;
   const spread = 0.2 + (window.max - window.min) / 400;
   return 0.05 + Math.exp(-((fame - target) ** 2) / (2 * spread ** 2));
 }
+
+/** A difficulty window at least this wide says nothing about fame. */
+const WIDE_WINDOW = 80;
 
 /** A name as a YouTube phrase. Quotes inside it would end the phrase early. */
 function phrase(name: string): string {
@@ -430,6 +436,10 @@ export function deezerSeeds(raw: unknown): RawSeed[] {
     const title = (track.title_short || track.title).trim();
     if (!artist || !title) continue;
     if (artist.length > 40 || NOT_AN_ARTIST.test(artist)) continue;
+    // "¥$" or "†‡†" normalise to nothing, and the planner groups by the
+    // normalised name: such a seed would sit unsearched for ever and keep the
+    // genre from ever recycling. See `ensureSeeds`.
+    if (!normalizeAnswer(artist)) continue;
     seeds.push({
       source: 'deezer',
       sourceKey: String(track.id),
@@ -454,9 +464,15 @@ export function deezerSeeds(raw: unknown): RawSeed[] {
  * genre's catalogue lives: a rap editor publishes one playlist per decade and
  * city, and a search finds three of them.
  */
-async function harvestDeezer(source: Extract<SeedSource, { kind: 'deezer' }>): Promise<RawSeed[]> {
+async function harvestDeezer(source: Extract<SeedSource, { kind: 'deezer' }>): Promise<Harvest> {
   const playlists = new Map<number, string>();
   const editors = new Map<number, string>();
+  let failed = 0;
+  const get = async (path: string, params: Record<string, string>) => {
+    const raw = await deezerGet(path, params);
+    if (raw === null) failed += 1;
+    return raw;
+  };
   const take = (found: { id: number; title: string }[]) => {
     for (const playlist of found) {
       if (playlists.size >= DEEZER_PLAYLISTS_PER_GENRE) return;
@@ -466,7 +482,7 @@ async function harvestDeezer(source: Extract<SeedSource, { kind: 'deezer' }>): P
 
   for (const query of source.playlistQueries) {
     for (let index = 0; index < DEEZER_RESULTS_PER_QUERY; index += 50) {
-      const raw = await deezerGet('/search/playlist', { q: query, limit: '50', index: String(index) });
+      const raw = await get('/search/playlist', { q: query, limit: '50', index: String(index) });
       take(curatedPlaylists(raw, source.titleMatch));
       for (const editor of genreEditors(raw, source.titleMatch)) editors.set(editor.id, editor.name);
       if (pageSize(raw) < 50) break;
@@ -476,7 +492,7 @@ async function harvestDeezer(source: Extract<SeedSource, { kind: 'deezer' }>): P
   for (const [editor, name] of editors) {
     if (playlists.size >= DEEZER_PLAYLISTS_PER_GENRE) break;
     for (let index = 0; index < DEEZER_PLAYLISTS_PER_EDITOR; index += 100) {
-      const raw = await deezerGet(`/user/${editor}/playlists`, { limit: '100', index: String(index) });
+      const raw = await get(`/user/${editor}/playlists`, { limit: '100', index: String(index) });
       take(editorPlaylists(raw, name, source.titleMatch));
       if (pageSize(raw) < 100) break;
     }
@@ -485,15 +501,21 @@ async function harvestDeezer(source: Extract<SeedSource, { kind: 'deezer' }>): P
   const seeds = new Map<string, RawSeed>();
   for (const id of playlists.keys()) {
     for (let index = 0; index < DEEZER_TRACKS_PER_PLAYLIST; index += 100) {
-      const raw = await deezerGet(`/playlist/${id}/tracks`, { limit: '100', index: String(index) });
-      const page = deezerSeeds(raw);
-      for (const seed of page) {
+      const raw = await get(`/playlist/${id}/tracks`, { limit: '100', index: String(index) });
+      for (const seed of deezerSeeds(raw)) {
         if (!seeds.has(seed.sourceKey)) seeds.set(seed.sourceKey, seed);
       }
-      if (page.length < 100) break;
+      // What the API sent, not what survived the filter: one track not playable
+      // here made a full page of a 250-track playlist look like its last.
+      if (trackPageSize(raw) < 100) break;
     }
   }
-  return [...seeds.values()];
+  return { seeds: [...seeds.values()], failed };
+}
+
+/** How many tracks a page carried, filtered or not, to know whether there is another. */
+function trackPageSize(raw: unknown): number {
+  return deezerTracks.safeParse(raw).data?.data.length ?? 0;
 }
 
 /* -------------------------------------------------------------- AniList */
@@ -563,10 +585,13 @@ export function anilistSeeds(raw: unknown): { seeds: RawSeed[]; more: boolean } 
  */
 let anilistCache: { at: number; seeds: RawSeed[] } | null = null;
 
-async function harvestAnilist(): Promise<RawSeed[]> {
-  if (anilistCache && Date.now() - anilistCache.at < 6 * 60 * 60 * 1000) return anilistCache.seeds;
+async function harvestAnilist(): Promise<Harvest> {
+  if (anilistCache && Date.now() - anilistCache.at < 6 * 60 * 60 * 1000) {
+    return { seeds: anilistCache.seeds, failed: 0 };
+  }
 
   const seeds: RawSeed[] = [];
+  let failed = 0;
   for (let page = 1; page <= ANILIST_PAGES; page++) {
     let raw: unknown = null;
     for (let attempt = 0; attempt < 2 && raw === null; attempt++) {
@@ -586,13 +611,22 @@ async function harvestAnilist(): Promise<RawSeed[]> {
       if (raw === null) break;
     }
 
+    // A page that would not come is skipped rather than taken for the end of
+    // the list, which is what it used to be: one bad minute cut two thousand
+    // series to however many pages had arrived, and filed that as a success.
+    if (raw === null) {
+      failed += 1;
+      if (failed >= 3) break;
+      continue;
+    }
     const result = anilistSeeds(raw);
     seeds.push(...result.seeds);
     if (!result.more) break;
   }
 
-  if (seeds.length > 0) anilistCache = { at: Date.now(), seeds };
-  return seeds;
+  // Only a whole list is shared with the other anime genre.
+  if (seeds.length > 0 && failed === 0) anilistCache = { at: Date.now(), seeds };
+  return { seeds, failed };
 }
 
 /* ------------------------------------------------------------- Wikidata */
@@ -747,7 +781,7 @@ export function compositionSeeds(raw: unknown): RawSeed[] {
     const title = (row.fr?.value || row.mul?.value || row.en?.value || '').trim();
     const artist = (row.cfr?.value || row.cmul?.value || row.cen?.value || '').trim();
     const searchAs = (row.cen?.value || row.cmul?.value || row.cfr?.value || '').trim();
-    if (!title || !artist) continue;
+    if (!title || !artist || !normalizeAnswer(artist)) continue;
     seeds.set(id, {
       source: 'wikidata',
       sourceKey: id,
@@ -762,14 +796,24 @@ export function compositionSeeds(raw: unknown): RawSeed[] {
   return [...seeds.values()];
 }
 
-async function harvestCompositions(source: Extract<SeedSource, { kind: 'wikidata-compositions' }>): Promise<RawSeed[]> {
-  return compositionSeeds(await sparql('https://qlever.dev/api/wikidata', compositionsQuery(source), 60_000));
+async function harvestCompositions(source: Extract<SeedSource, { kind: 'wikidata-compositions' }>): Promise<Harvest> {
+  const seeds = compositionSeeds(await sparql('https://qlever.dev/api/wikidata', compositionsQuery(source), 60_000));
+  return { seeds, failed: 0 };
 }
 
-async function harvestWikidata(source: Extract<SeedSource, { kind: 'wikidata' }>): Promise<RawSeed[]> {
+async function harvestWikidata(source: Extract<SeedSource, { kind: 'wikidata' }>): Promise<Harvest> {
   const fast = wikidataSeeds(await sparql('https://qlever.dev/api/wikidata', qleverQuery(source), 60_000));
-  if (fast.length > 0) return fast;
-  return wikidataSeeds(await sparql('https://query.wikidata.org/sparql', wdqsQuery(source), 70_000));
+  if (fast.length > 0) return { seeds: fast, failed: 0 };
+  return {
+    seeds: wikidataSeeds(await sparql('https://query.wikidata.org/sparql', wdqsQuery(source), 70_000)),
+    failed: 0
+  };
+}
+
+/** What one source returned, and how many of its requests failed on the way. */
+interface Harvest {
+  seeds: RawSeed[];
+  failed: number;
 }
 
 /* --------------------------------------------------------------- storage */
@@ -802,7 +846,18 @@ function storeSeeds(genreId: string, seeds: RawSeed[]): void {
         })
         .onConflictDoUpdate({
           target: [blindtestSeeds.genre_id, blindtestSeeds.source, blindtestSeeds.source_key],
-          set: { fame: seed.fame, aliases: JSON.stringify(seed.aliases), year: seed.year }
+          // The names as well as the aliases: the aliases are computed without
+          // the title, so keeping an old title beside new aliases lost the new
+          // name entirely (a series that gained its English title, a film its
+          // French label).
+          set: {
+            artist: seed.artist,
+            title: seed.title,
+            search: seed.search,
+            aliases: JSON.stringify(seed.aliases),
+            year: seed.year,
+            fame: seed.fame
+          }
         })
         .run();
     }
@@ -815,6 +870,39 @@ function recordHarvest(genreId: string, seeds: number, error: string | null): vo
     .values({ genre_id: genreId, harvested_at: harvestedAt, seeds, error })
     .onConflictDoUpdate({ target: blindtestSeedHarvests.genre_id, set: { harvested_at: harvestedAt, seeds, error } })
     .run();
+}
+
+/** Whether a genre's seeds should be fetched again. */
+function harvestDue(genreId: string): boolean {
+  const state = db.select().from(blindtestSeedHarvests).where(eq(blindtestSeedHarvests.genre_id, genreId)).get();
+  if (!state) return true;
+  const age = Date.now() - Date.parse(state.harvested_at);
+  return (
+    age > HARVEST_TTL_MS ||
+    (state.error !== null && age > HARVEST_RETRY_MS) ||
+    (freshCount(genreId) < LOW_STOCK && age > DAY_MS)
+  );
+}
+
+/**
+ * Starts every due harvest, one after another, without waiting for any.
+ *
+ * Called at boot so that the first host of the day finds the seeds already
+ * there rather than waiting behind a harvest for their first round. Costs
+ * nothing on a boot where nothing is due, which is every boot but the monthly
+ * one: the mini PC restarts often and this must not hammer anybody for it.
+ */
+export function warmSeeds(genres: readonly SeededGenre[]): void {
+  for (const genre of genres) {
+    if (genre.seeds && genre.seeds.length > 0 && harvestDue(genre.id)) {
+      void harvestSeeds(genre).catch(() => 0);
+    }
+  }
+}
+
+function seedTotal(genreId: string): number {
+  const row = db.select({ value: count() }).from(blindtestSeeds).where(eq(blindtestSeeds.genre_id, genreId)).get();
+  return row?.value ?? 0;
 }
 
 function freshCount(genreId: string): number {
@@ -841,33 +929,66 @@ export function harvestSeeds(genre: SeededGenre): Promise<number> {
   const running = harvesting.get(genre.id);
   if (running) return running;
 
-  const run = (async () => {
-    const collected: RawSeed[] = [];
-    const errors: string[] = [];
-    for (const source of genre.seeds ?? []) {
-      try {
-        if (source.kind === 'deezer') collected.push(...(await harvestDeezer(source)));
-        else if (source.kind === 'anilist') collected.push(...(await harvestAnilist()));
-        else if (source.kind === 'wikidata-compositions') collected.push(...(await harvestCompositions(source)));
-        else collected.push(...(await harvestWikidata(source)));
-      } catch (error) {
-        errors.push(`${source.kind}: ${String(error).slice(0, 120)}`);
-      }
-    }
-
-    if (collected.length === 0) {
-      recordHarvest(genre.id, 0, errors.join('; ') || 'no seeds returned');
-      return 0;
-    }
-
-    storeSeeds(genre.id, collected);
-    recordHarvest(genre.id, collected.length, null);
-    invalidateOracles();
-    return collected.length;
-  })().finally(() => harvesting.delete(genre.id));
-
+  /**
+   * Queued behind every other harvest, never beside one.
+   *
+   * "Select all" on the setup screen warms every genre at once, and each warm
+   * harvested in parallel: nine Deezer harvests at one request per 150 ms is
+   * forty a second against a limit of ten, and the openings and the endings
+   * both fetched AniList's forty pages because neither had finished to share
+   * them. One at a time keeps each source at its own pace, and the second anime
+   * genre finds the first's list waiting.
+   */
+  const run = harvestQueue.then(() => harvestNow(genre)).finally(() => harvesting.delete(genre.id));
+  harvestQueue = run.catch(() => 0);
   harvesting.set(genre.id, run);
   return run;
+}
+
+let harvestQueue: Promise<unknown> = Promise.resolve();
+
+async function harvestNow(genre: SeededGenre): Promise<number> {
+  const collected: RawSeed[] = [];
+  const errors: string[] = [];
+  let failed = 0;
+  for (const source of genre.seeds ?? []) {
+    try {
+      const harvest =
+        source.kind === 'deezer'
+          ? await harvestDeezer(source)
+          : source.kind === 'anilist'
+            ? await harvestAnilist()
+            : source.kind === 'wikidata-compositions'
+              ? await harvestCompositions(source)
+              : await harvestWikidata(source);
+      collected.push(...harvest.seeds);
+      failed += harvest.failed;
+    } catch (error) {
+      errors.push(`${source.kind}: ${String(error).slice(0, 120)}`);
+    }
+  }
+
+  if (collected.length === 0) {
+    recordHarvest(genre.id, 0, errors.join('; ') || 'no seeds returned');
+    return 0;
+  }
+
+  storeSeeds(genre.id, collected);
+  /**
+   * Kept, but not called finished.
+   *
+   * A harvest missing some of its pages was recorded as a success and left
+   * alone for a month. What arrived is stored, since it is good, and the error
+   * makes `harvestDue` try again in six hours for the rest.
+   */
+  const partial = failed > 0 || errors.length > 0;
+  recordHarvest(
+    genre.id,
+    collected.length,
+    partial ? `partial: ${failed} request(s) failed ${errors.join('; ')}`.trim() : null
+  );
+  invalidateOracles();
+  return collected.length;
 }
 
 /**
@@ -880,19 +1001,27 @@ export function harvestSeeds(genre: SeededGenre): Promise<number> {
 export async function ensureSeeds(genre: SeededGenre): Promise<void> {
   if (!genre.seeds || genre.seeds.length === 0) return;
 
-  const state = db.select().from(blindtestSeedHarvests).where(eq(blindtestSeedHarvests.genre_id, genre.id)).get();
-  const age = state ? Date.now() - Date.parse(state.harvested_at) : Number.POSITIVE_INFINITY;
-  const stock = freshCount(genre.id);
+  if (harvestDue(genre.id)) {
+    const harvest = harvestSeeds(genre).catch(() => 0);
+    /**
+     * Waited for only when there is nothing to search without it.
+     *
+     * A refresh of a genre that already has seeds runs in the background: the
+     * fill has plenty to search meanwhile, and waiting cost it the harvest's
+     * minute or two (and, queued behind other harvests, several), long enough
+     * for its own abandonment clock to run out.
+     */
+    if (seedTotal(genre.id) === 0) await harvest;
+  }
 
-  const due =
-    !state ||
-    age > HARVEST_TTL_MS ||
-    (state.error !== null && age > HARVEST_RETRY_MS) ||
-    (stock < LOW_STOCK && age > DAY_MS);
-
-  if (due) await harvestSeeds(genre).catch(() => 0);
-
-  if (freshCount(genre.id) === 0) {
+  /**
+   * Recycled when nothing more can be planned, not when nothing is unsearched.
+   *
+   * The two used to be the same test, and they are not: a seed the planner
+   * cannot use is unsearched for ever, so one of them kept a genre from ever
+   * recycling and it fell back to the fixed queries this whole module replaces.
+   */
+  if (planSeedSearches(genre, 1).length === 0) {
     const cutoff = new Date(Date.now() - RECYCLE_AFTER_MS).toISOString();
     db.update(blindtestSeeds)
       .set({ searched_at: null })
@@ -1029,6 +1158,15 @@ export function markSearched(search: SeedSearch, found: number): void {
   db.transaction((tx) => {
     for (const id of ids) {
       tx.update(blindtestSeeds).set({ searched_at: at, found }).where(eq(blindtestSeeds.id, id)).run();
+    }
+  });
+}
+
+/** Hands a search's seeds back, for a run that could make nothing of its results. */
+export function unmarkSearched(search: SeedSearch): void {
+  db.transaction((tx) => {
+    for (const seed of search.seeds) {
+      tx.update(blindtestSeeds).set({ searched_at: null, found: 0 }).where(eq(blindtestSeeds.id, seed.id)).run();
     }
   });
 }

@@ -34,7 +34,7 @@ import {
   type Genre,
   type PoolEntry
 } from './blindtest-catalog.js';
-import { libraryVideoCodes } from './blindtest-library.js';
+import { catalogueKeys } from './blindtest-library.js';
 import { playableIn } from './youtube-service.js';
 
 export interface DrawSettings {
@@ -148,7 +148,19 @@ function eligible(entry: PoolEntry, genre: Genre, settings: DrawSettings, histor
  * room full of people to it. Also the early warning for a rotted playlist: a
  * genre that reports nothing has a source that needs replacing.
  */
-export function countAvailable(settings: DrawSettings): {
+export function countAvailable(
+  settings: DrawSettings,
+  /**
+   * What the catalogue already holds, left out of the pools' count.
+   *
+   * A pool drops catalogued videos when it is built and keeps its entries for a
+   * day, so every round kept tonight is still in it, and the setup screen adds
+   * the catalogue on top: each of those rounds was counted twice, and the number
+   * climbed as the room played. The draw leaves these out too, so a count that
+   * leaves them out describes the game that will be dealt.
+   */
+  catalogued: { codes: ReadonlySet<string>; tracks: ReadonlySet<string> } = { codes: new Set(), tracks: new Set() }
+): {
   perGenre: { genreId: string; available: number | null }[];
   total: number;
   pending: number;
@@ -183,6 +195,7 @@ export function countAvailable(settings: DrawSettings): {
     for (const entry of pool) {
       // The window is part of eligibility now, so this counts exactly what a draw
       // would be allowed to serve.
+      if (catalogued.codes.has(entry.videoId) || catalogued.tracks.has(entry.trackKey)) continue;
       if (!eligible(entry, genre, settings, history)) continue;
       available += 1;
       counted.add(entry.trackKey);
@@ -413,7 +426,7 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
    * Best-effort. A catalogue that cannot be read is a reason to draw a song that
    * may be a repeat, never a reason to fail to draw at all.
    */
-  const catalogued = await libraryVideoCodes().catch(() => new Set<string>());
+  const catalogued = await catalogueKeys().catch(() => ({ codes: new Set<string>(), tracks: new Set<string>() }));
 
   for (let round = 0; round < count; round++) {
     const target = Math.round(
@@ -423,7 +436,11 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
     const remaining = buckets.map((bucket) => ({
       genre: bucket.genre,
       entries: bucket.entries.filter(
-        (entry) => !catalogued.has(entry.videoId) && eligible(entry, bucket.genre, settings, history)
+        // By recording as well as by video: see `catalogueKeys` for the twin.
+        (entry) =>
+          !catalogued.codes.has(entry.videoId) &&
+          !catalogued.tracks.has(entry.trackKey) &&
+          eligible(entry, bucket.genre, settings, history)
       )
     }));
 

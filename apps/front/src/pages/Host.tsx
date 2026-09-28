@@ -124,6 +124,16 @@ export default function Host() {
    * once, and this is where it can be refiled for every room after it.
    */
   const [genre, setGenre] = useState('');
+  /**
+   * The round the correction form was opened on.
+   *
+   * Everything in the form was typed against that round, so the form belongs
+   * to it: once the game moves on (the host presses "next" with it open), it
+   * closes rather than showing one song's artist, title and genre over the
+   * next one, where saving would write them into the wrong song, catalogue
+   * row included. The server holds the same line with the id sent below.
+   */
+  const [correctingRound, setCorrectingRound] = useState('');
   /** The genres, for the picker. Fetched once, and only by an admin. */
   const [catalog, setCatalog] = useState<BlindtestCatalog | null>(null);
 
@@ -166,6 +176,7 @@ export default function Host() {
   }, [socket, connected, hostToken, code, t]);
 
   const round = session?.hostRound ?? null;
+  const formOpen = correcting !== null && round !== null && correctingRound === round.roundId;
   const remaining = useCountdown(round?.phaseEndsAt ?? null, serverNow);
 
   const blindtestCode = round?.kind === 'blindtest' ? ((round.payload as { code?: string }).code ?? '') : '';
@@ -185,7 +196,17 @@ export default function Host() {
       )
     }))
     .filter((group) => group.genres.length > 0);
-  const knownGenre = (catalog?.genres ?? []).some((candidate) => candidate.id === round?.category);
+  /**
+   * Whether the round's genre is one of the options on offer.
+   *
+   * Not the same as being a known genre: a round filed under a genre of the
+   * other answer shape (an artist and a title under anime openings) is known
+   * and not listed, and the select then showed the first option as chosen
+   * while holding the real one, so picking that option did nothing at all.
+   */
+  const listedGenre = genreGroups.some((group) => group.genres.some((candidate) => candidate.id === round?.category));
+  const currentGenreName =
+    (catalog?.genres ?? []).find((candidate) => candidate.id === round?.category)?.label ?? round?.category ?? '';
 
   /**
    * Whether the media plays here.
@@ -224,7 +245,7 @@ export default function Host() {
 
     function onKey(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey || event.altKey || event.repeat) return;
-      if (correcting !== null) return;
+      if (formOpen) return;
 
       const target = event.target as HTMLElement | null;
       if (target?.isContentEditable) return;
@@ -263,7 +284,7 @@ export default function Host() {
 
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [socket, hostToken, session?.phase, round, correcting, toggleFullscreen]);
+  }, [socket, hostToken, session?.phase, round, formOpen, toggleFullscreen]);
 
   if (!hostToken) {
     return (
@@ -649,7 +670,7 @@ export default function Host() {
             is *drawn*; the server decides what is honoured, from the role on
             the session rather than from anything this screen says.
           */}
-          {canCorrect && round.libraryCode && correcting !== null && (
+          {canCorrect && round.libraryCode && formOpen && correcting && (
             <form
               className="host-correct"
               onSubmit={(event) => {
@@ -674,6 +695,7 @@ export default function Host() {
                 const rating = Number(difficulty);
                 socket?.emit('host:correctRound', {
                   hostToken,
+                  roundId: correctingRound,
                   fields,
                   clip: seconds,
                   // Blank is "leave it as it is", which is not zero: zero is a
@@ -738,7 +760,7 @@ export default function Host() {
                     onChange={(event) => setGenre(event.target.value)}
                   >
                     {/* A genre this screen does not know still shows, as it is. */}
-                    {round.category && !knownGenre && <option value={round.category}>{round.category}</option>}
+                    {round.category && !listedGenre && <option value={round.category}>{currentGenreName}</option>}
                     {!round.category && <option value="">—</option>}
                     {genreGroups.map((group) => (
                       <optgroup key={group.section.id} label={group.section.label}>
@@ -839,7 +861,7 @@ export default function Host() {
               <Button variant="ghost" onClick={() => socket?.emit('host:holdRound', { hostToken, hold: !round.held })}>
                 {round.held ? `▶ ${t(msg('host.resume'))}` : `⏸ ${t(msg('host.hold'))}`}
               </Button>
-              {canCorrect && round.libraryCode && correcting === null && (
+              {canCorrect && round.libraryCode && !formOpen && (
                 <Button
                   variant="ghost"
                   onClick={() => {
@@ -862,6 +884,7 @@ export default function Host() {
                     );
                     setDifficulty(typeof payload.difficulty === 'number' ? String(payload.difficulty) : '');
                     setGenre(round.category ?? '');
+                    setCorrectingRound(round.roundId);
                   }}
                 >
                   ✎ {t(msg('host.correct'))}

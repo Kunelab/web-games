@@ -44,6 +44,7 @@ import {
   genreOracle,
   markSearched,
   otherNames,
+  unmarkSearched,
   planSeedSearches,
   trackOracleKey,
   type GenreOracle,
@@ -609,6 +610,8 @@ interface Pool {
   fetchedAt: number;
   /** Sources that came back empty or tiny, so a rotten playlist is visible. */
   thinSources: string[];
+  /** YouTube searches the fill spent. Decides how long an empty result is kept. */
+  spent?: number;
 }
 
 /**
@@ -628,6 +631,26 @@ const POOL_TTL_MS = 24 * 60 * 60 * 1000;
  * screen polling every four seconds costs one attempt, not fifty.
  */
 const EMPTY_POOL_RETRY_MS = 5 * 60 * 1000;
+
+/**
+ * How long a fill that spent searches and still found nothing is remembered.
+ *
+ * Far longer than the five minutes above, because the retry is not free: a
+ * fill with no model to annotate for it spends three searches and comes back
+ * empty, and retried every five minutes that is the day's budget by lunch.
+ * Nothing the retry could learn in five minutes is worth that.
+ */
+const FAILED_FILL_RETRY_MS = 60 * 60 * 1000;
+
+/**
+ * Searches kept back from the extensions for the daily fills.
+ *
+ * An extension is the endless mode's refill and a fill is a genre's whole day;
+ * a room running five genres low used to spend the budget on extensions in
+ * half an hour, and every pool that expired after that refilled with nothing.
+ * Thirty is ten genres' worth of fills.
+ */
+const FILL_RESERVE = 30;
 
 /** Bounds memory. A few hundred entries per genre is ample for an evening. */
 const MAX_POOL_ENTRIES = 600;
@@ -1025,16 +1048,20 @@ async function buildEntries(
   steps: SearchStep[],
   extraIds: string[],
   exclude: { videoIds: ReadonlySet<string>; trackKeys: ReadonlySet<string> },
-  checkpoint: () => void
-): Promise<{ entries: PoolEntry[]; thinSources: string[] }> {
+  checkpoint: () => void,
+  /** The day's searches this run may take the count up to. See `FILL_RESERVE`. */
+  budget: number = env.BLINDTEST_SEARCH_BUDGET
+): Promise<{ entries: PoolEntry[]; thinSources: string[]; spent: number }> {
   const harvested: string[] = [];
   const thinSources: string[] = [];
   /** Which search found each video, for the hint the model is given. */
   const origin = new Map<string, SearchStep>();
+  const ran: SeedSearch[] = [];
+  let spent = 0;
 
   for (const step of steps) {
     checkpoint();
-    if (!spendSearch()) {
+    if (!spendSearch(budget)) {
       thinSources.push('budget: the daily YouTube search budget is spent');
       break;
     }
@@ -1059,7 +1086,11 @@ async function buildEntries(
       }
       // Spent the moment it ran: the quota is gone whatever the model makes of
       // the results, and a seed searched twice is a hundred units for nothing.
-      if (step.seed) markSearched(step.seed, ids.length);
+      if (step.seed) {
+        markSearched(step.seed, ids.length);
+        ran.push(step.seed);
+      }
+      spent += 1;
     } catch (error) {
       thinSources.push(step.label);
       if (!(error instanceof YoutubeError)) throw error;
@@ -1109,6 +1140,19 @@ async function buildEntries(
   // See toEntry: an empty result means no endpoint answered, which is a very
   // different thing from a model that read the list and kept none of it.
   const annotationRan = annotations.size > 0;
+
+  /**
+   * No model answered, so a work genre can use none of this: hand the seeds back.
+   *
+   * A work answer comes from the model or not at all (see `toEntry`), so a run
+   * with every endpoint down produced nothing and still spent its seeds, each
+   * marked searched and never tried again for a month. The searches are gone
+   * either way; the seeds need not be.
+   */
+  if (genre.answerShape === 'work' && surviving.length > 0 && !annotationRan) {
+    for (const seed of ran) unmarkSearched(seed);
+  }
+
   const oracle =
     genre.seeds && genre.seeds.length > 0
       ? genreOracle(genre.id, (other) => genreById.get(other)?.section === genre.section)
@@ -1146,7 +1190,7 @@ async function buildEntries(
     if (entries.length >= MAX_POOL_ENTRIES) break;
   }
 
-  return { entries, thinSources };
+  return { entries, thinSources, spent };
 }
 
 /**
@@ -1200,6 +1244,15 @@ function checkpointFor(key: string): () => void {
 async function fillPool(genre: Genre): Promise<Pool> {
   const checkpoint = checkpointFor(genre.id);
   const steps = await searchPlan(genre, FILL_SEARCHES, { allowFixed: true });
+  /**
+   * The abandonment clock starts once the searches are ready.
+   *
+   * `searchPlan` may have waited on a genre's first harvest, which is a minute
+   * or two nobody chose (AniList alone is forty paced pages), and the clock
+   * counted it: a quick match that warmed its genre once found the fill
+   * abandoned at its first checkpoint and the pool cached empty.
+   */
+  noteWanted(genre.id);
 
   const thinSources: string[] = [];
   const playlistIds: string[] = [];
@@ -1232,7 +1285,7 @@ async function fillPool(genre: Genre): Promise<Pool> {
   rankDifficulty(built.entries);
   await verifyYears(genre, built.entries, checkpoint);
 
-  return { entries: built.entries, fetchedAt: Date.now(), thinSources };
+  return { entries: built.entries, fetchedAt: Date.now(), thinSources, spent: built.spent };
 }
 
 /* ------------------------------------------------------------- extensions */
@@ -1254,6 +1307,24 @@ const EXTEND_COOLDOWN_MS = 90_000;
 
 /** Past this a pool has plenty, and a room asking for more is asking for a filter. */
 const MAX_EXTENDED_POOL = MAX_POOL_ENTRIES * 2;
+
+/**
+ * And across every genre, one extension at a time per this gap.
+ *
+ * The cooldown above is per genre, so a room with five genres running low
+ * spent five searches every ninety seconds. This caps the whole deployment.
+ */
+const EXTEND_GLOBAL_GAP_MS = 60_000;
+let lastExtensionAt = 0;
+
+/**
+ * How long a genre is left alone after an extension that added nothing.
+ *
+ * Usually a narrow difficulty window that the new seeds fell outside, or a
+ * genre whose seeds are spent; asking again every ninety seconds would only
+ * spend searches on the same answer.
+ */
+const FRUITLESS_EXTENSION_BACKOFF_MS = 15 * 60 * 1000;
 
 /**
  * Searches a few more seeds into a live pool, in the background.
@@ -1281,7 +1352,9 @@ export function extendPool(genreId: string, window?: { min: number; max: number 
   if (pool.entries.length >= MAX_EXTENDED_POOL) return;
   if (filling.has(key) || extending.has(key)) return;
   if (Date.now() - (extendedAt.get(key) ?? 0) < EXTEND_COOLDOWN_MS) return;
+  if (Date.now() - lastExtensionAt < EXTEND_GLOBAL_GAP_MS) return;
   extendedAt.set(key, Date.now());
+  lastExtensionAt = Date.now();
 
   const checkpoint = checkpointFor(key);
   const run = (async () => {
@@ -1296,9 +1369,14 @@ export function extendPool(genreId: string, window?: { min: number; max: number 
         videoIds: new Set(pool.entries.map((entry) => entry.videoId)),
         trackKeys: new Set(pool.entries.map((entry) => entry.trackKey))
       },
-      checkpoint
+      checkpoint,
+      Math.max(0, env.BLINDTEST_SEARCH_BUDGET - FILL_RESERVE)
     );
-    if (built.entries.length === 0) return;
+    if (built.entries.length === 0) {
+      // Pushed into the future so the cooldown check keeps failing for the back-off.
+      extendedAt.set(key, Date.now() + FRUITLESS_EXTENSION_BACKOFF_MS);
+      return;
+    }
     await verifyYears(source, built.entries, checkpoint);
 
     // Replaced by a fresh fill while this was out: that pool has its own.
@@ -1389,7 +1467,9 @@ export async function poolFor(genreId: string): Promise<PoolEntry[]> {
    */
   const promise = fillPool(source)
     .then((pool) => {
-      pools.set(key, pool.entries.length > 0 ? pool : { ...pool, fetchedAt: failureStamp() });
+      // An empty fill that spent searches is kept longer; see `FAILED_FILL_RETRY_MS`.
+      const retry = (pool.spent ?? 0) > 0 ? FAILED_FILL_RETRY_MS : EMPTY_POOL_RETRY_MS;
+      pools.set(key, pool.entries.length > 0 ? pool : { ...pool, fetchedAt: failureStamp(retry) });
       return pool;
     })
     .catch((error: unknown) => {
@@ -1403,13 +1483,13 @@ export async function poolFor(genreId: string): Promise<PoolEntry[]> {
 }
 
 /**
- * A `fetchedAt` that expires after `EMPTY_POOL_RETRY_MS` rather than the full TTL.
+ * A `fetchedAt` that expires after `retryMs` rather than the full TTL.
  *
  * Backdating the timestamp is how one cache expresses two lifetimes without
  * every reader having to know there are two.
  */
-function failureStamp(): number {
-  return Date.now() - (POOL_TTL_MS - EMPTY_POOL_RETRY_MS);
+function failureStamp(retryMs: number = EMPTY_POOL_RETRY_MS): number {
+  return Date.now() - (POOL_TTL_MS - retryMs);
 }
 
 /**

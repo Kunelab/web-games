@@ -80,6 +80,15 @@ describe('fameWeight', () => {
   });
 });
 
+describe('fameWeight on a full window', () => {
+  it('reads the default 0 to 100 as no preference, not as a target of 50', () => {
+    const full = { min: 0, max: 100 };
+    assert.equal(fameWeight(1, full), fameWeight(1));
+    assert.equal(fameWeight(0, full), fameWeight(0));
+    assert.ok(fameWeight(1, full) > fameWeight(0.5, full));
+  });
+});
+
 describe('otherNames', () => {
   it('keeps typeable, distinct names other than the title', () => {
     assert.deepEqual(
@@ -137,6 +146,21 @@ describe('Deezer', () => {
     assert.deepEqual(
       curatedPlaylists(raw, /rap|hip[- ]?hop/i).map((playlist) => playlist.id),
       [1]
+    );
+  });
+
+  it('skips an artist whose name normalises to nothing', () => {
+    // The planner groups by the normalised name, so "¥$" could never be
+    // searched, and one of them kept its genre from ever recycling.
+    const seeds = deezerSeeds({
+      data: [
+        { id: 1, title: 'Carnival', rank: 5, artist: { name: '¥$' } },
+        { id: 2, title: 'HUMBLE.', rank: 5, artist: { name: 'Kendrick Lamar' } }
+      ]
+    });
+    assert.deepEqual(
+      seeds.map((entry) => entry.artist),
+      ['Kendrick Lamar']
     );
   });
 
