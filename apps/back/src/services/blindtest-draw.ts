@@ -488,6 +488,18 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
 }
 
 /**
+ * A pool entry as the round a room would be dealt, enriched first.
+ *
+ * What `drawRounds` does for each round it serves, for a caller that files the
+ * round without serving it: the overnight prefill. The clip window is aimed at
+ * the entry's own difficulty, there being no room to have asked for another.
+ */
+export async function catalogueRound(entry: PoolEntry): Promise<MediaView> {
+  await enrich([entry]);
+  return toMediaView(entry, entry.difficulty);
+}
+
+/**
  * The genre's own prompt on a work round that still carries the old catch-all.
  *
  * Rounds kept before each genre named its work were saved with `field.work`,

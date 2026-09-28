@@ -1051,7 +1051,16 @@ async function buildEntries(
   checkpoint: () => void,
   /** The day's searches this run may take the count up to. See `FILL_RESERVE`. */
   budget: number = env.BLINDTEST_SEARCH_BUDGET
-): Promise<{ entries: PoolEntry[]; thinSources: string[]; spent: number }> {
+): Promise<{
+  entries: PoolEntry[];
+  thinSources: string[];
+  spent: number;
+  /** Whether a model read the candidates, and how many there were to read. */
+  annotated: boolean;
+  candidates: number;
+  /** The seed searches that ran, so a caller that discards the result can hand them back. */
+  searched: SeedSearch[];
+}> {
   const harvested: string[] = [];
   const thinSources: string[] = [];
   /** Which search found each video, for the hint the model is given. */
@@ -1190,7 +1199,42 @@ async function buildEntries(
     if (entries.length >= MAX_POOL_ENTRIES) break;
   }
 
-  return { entries, thinSources, spent };
+  return { entries, thinSources, spent, annotated: annotationRan, candidates: surviving.length, searched: ran };
+}
+
+/**
+ * One seed search, straight into rounds for the catalogue.
+ *
+ * For the overnight prefill (see `blindtest-prefill`), which spends the day's
+ * unused searches on the catalogue instead of letting them lapse. Returns null
+ * when the genre has nothing left to search.
+ *
+ * Stricter than a fill in one way. With no model to read the titles, a fill
+ * still makes rounds for a music genre by splitting "Artist - Title", which is
+ * a fair fallback for a pool that lives a day and a poor thing to file for good.
+ * So a run the model did not read keeps nothing, and hands its seeds back.
+ *
+ * Difficulty is not a rank here: a rank among one search's results says
+ * nothing. The model's opinion and the seed's fame decide it, around the middle.
+ */
+export async function searchForCatalogue(
+  genre: Genre,
+  budget: number
+): Promise<{ entries: PoolEntry[]; spent: number; modelDown: boolean } | null> {
+  const steps = await searchPlan(genre, 1, { allowFixed: false });
+  if (steps.length === 0) return null;
+
+  const built = await buildEntries(genre, steps, [], { videoIds: new Set(), trackKeys: new Set() }, () => {}, budget);
+  const modelDown = built.candidates > 0 && !built.annotated;
+  if (modelDown) {
+    for (const seed of built.searched) unmarkSearched(seed);
+    return { entries: [], spent: built.spent, modelDown };
+  }
+
+  for (const entry of built.entries) {
+    entry.difficulty = scoreDifficulty(0, 1, entry.modelDifficulty, entry.seedFame);
+  }
+  return { entries: built.entries, spent: built.spent, modelDown };
 }
 
 /**

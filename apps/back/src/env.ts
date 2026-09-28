@@ -137,6 +137,15 @@ const envSchema = z.object({
   BLINDTEST_SEARCH_BUDGET: z.coerce.number().int().min(0).max(100).default(95),
 
   /**
+   * How many hours before the quota resets the overnight prefill starts.
+   *
+   * Google resets the quota at midnight Pacific, 9:00 in Paris all year, and
+   * whatever the evening did not spend is lost. The prefill spends it on the
+   * catalogue instead, while nobody plays. 0 turns it off. See `blindtest-prefill`.
+   */
+  BLINDTEST_PREFILL_HOURS: z.coerce.number().min(0).max(12).default(3),
+
+  /**
    * Brains for the Mafia bots, in the order they are tried.
    *
    * A comma-separated chain rather than one name: `openai,ollama` means "a free

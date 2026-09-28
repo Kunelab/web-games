@@ -15,6 +15,7 @@ import {
   setLibraryGenre
 } from '../services/blindtest-genres.js';
 import { takeOpener, warmOpener } from '../services/blindtest-opener.js';
+import { prefillCatalogue, prefillStatus } from '../services/blindtest-prefill.js';
 import { harvestSeeds, seedStats } from '../services/blindtest-seeds.js';
 import { isAdmin } from '../services/ownership.js';
 import { searchesToday } from '../services/youtube-budget.js';
@@ -381,7 +382,25 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
     if (!isAdmin(request.currentUser)) {
       throw app.httpErrors.forbidden('Réservé à un administrateur');
     }
-    return { genres: seedStats(), searches: searchesToday() };
+    return { genres: seedStats(), searches: searchesToday(), prefill: prefillStatus() };
+  });
+
+  /**
+   * Spends what is left of today's searches on the catalogue, now.
+   *
+   * The overnight prefill, on demand: the same run, bounded by the same
+   * budget. Not awaited, since a full one takes an hour; `GET /blindtest/seeds`
+   * shows it going.
+   */
+  app.post('/blindtest/prefill', { preHandler: app.requireAuth }, async (request, reply) => {
+    if (!isAdmin(request.currentUser)) {
+      throw app.httpErrors.forbidden('Réservé à un administrateur');
+    }
+    if (!catalogAvailable()) {
+      return reply.code(503).send({ message: "La recherche YouTube n'est pas configurée sur ce serveur" });
+    }
+    void prefillCatalogue(app.log);
+    return reply.code(202).send(prefillStatus());
   });
 
   /**

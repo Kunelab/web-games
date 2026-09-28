@@ -27,14 +27,18 @@ import { toMediaView, type MediaView } from './media-service.js';
  *    evening of endless mode leaves a catalogue behind rather than only a
  *    scoreboard, and that catalogue is public: anybody can play it.
  *
- * ## Only what was played
+ * ## What was played, and what the night filed
  *
- * Deliberately not everything the model annotated. A pool fill annotates hundreds
- * of candidates per genre and a session plays a few dozen, so saving the pool
- * would fill the table with thousands of rows nobody has ever heard, most of them
- * never to be played and none of them checked by a human. A round that reached a
- * room is one a room can vouch for, which is exactly the property that makes the
- * catalogue worth curating rather than worth ignoring.
+ * Deliberately not everything a pool fill annotated: a fill annotates hundreds
+ * of candidates per genre and a session plays a few dozen, and a pool's are
+ * the leftovers of whatever a search happened to return.
+ *
+ * Two ways in, then. A round a room played, which a room can vouch for. And,
+ * since the searches a day does not spend are lost at the quota reset, the
+ * overnight prefill (`blindtest-prefill`), which spends them on seeds and files
+ * what a model read, what plays here and what the catalogue does not already
+ * hold. Those rows have not been heard at a reveal, which is what the
+ * duplicate and genre checks on the admin screen are there to make up for.
  *
  * ## Who owns it
  *
