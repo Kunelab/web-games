@@ -141,6 +141,8 @@ export interface RawSeed {
   year: number | null;
   /** The source's own popularity figure, on any scale. Ranked into `fame`. */
   popularity: number;
+  /** The recording's length in seconds, when the source gives it: Deezer does. */
+  duration?: number | null;
 }
 
 export interface Seed {
@@ -308,6 +310,7 @@ const deezerTracks = z.object({
         title: z.string().default(''),
         title_short: z.string().optional(),
         rank: z.number().default(0),
+        duration: z.number().optional(),
         readable: z.boolean().optional(),
         artist: z.object({ name: z.string().default('') }).optional()
       })
@@ -448,7 +451,8 @@ export function deezerSeeds(raw: unknown): RawSeed[] {
       search: '',
       aliases: [],
       year: null,
-      popularity: track.rank
+      popularity: track.rank,
+      duration: track.duration && track.duration > 0 ? track.duration : null
     });
   }
   return seeds;
@@ -842,7 +846,8 @@ function storeSeeds(genreId: string, seeds: RawSeed[]): void {
           search: seed.search,
           aliases: JSON.stringify(seed.aliases),
           year: seed.year,
-          fame: seed.fame
+          fame: seed.fame,
+          duration: seed.duration ?? null
         })
         .onConflictDoUpdate({
           target: [blindtestSeeds.genre_id, blindtestSeeds.source, blindtestSeeds.source_key],
@@ -856,7 +861,8 @@ function storeSeeds(genreId: string, seeds: RawSeed[]): void {
             search: seed.search,
             aliases: JSON.stringify(seed.aliases),
             year: seed.year,
-            fame: seed.fame
+            fame: seed.fame,
+            duration: seed.duration ?? null
           }
         })
         .run();
@@ -1183,8 +1189,14 @@ export function unmarkSearched(search: SeedSearch): void {
 export interface GenreOracle {
   /** Normalised artist to the fame of their best-known seeded track. */
   artists: Map<string, number>;
-  /** `artist::title`, normalised, to that track's fame. */
-  tracks: Map<string, number>;
+  /**
+   * `artist::title`, normalised, to that track's fame and its length.
+   *
+   * The length is what tells a music video from its recording: a video longer
+   * than the track it carries has that much that is not the song. See
+   * `clipWindow`.
+   */
+  tracks: Map<string, { fame: number; duration: number | null }>;
   /** Any normalised name of a work to the work. */
   works: Map<string, { names: string[]; fame: number; year: number | null }>;
   /**
@@ -1209,7 +1221,14 @@ function invalidateOracles(): void {
 }
 
 export function buildOracle(
-  seeds: { artist: string; title: string; aliases: string[]; fame: number; year: number | null }[]
+  seeds: {
+    artist: string;
+    title: string;
+    aliases: string[];
+    fame: number;
+    year: number | null;
+    duration?: number | null;
+  }[]
 ): GenreOracle {
   const oracle: GenreOracle = { artists: new Map(), tracks: new Map(), works: new Map(), contested: new Set() };
   for (const seed of seeds) {
@@ -1217,7 +1236,7 @@ export function buildOracle(
       const artist = normalizeAnswer(seed.artist);
       if (!artist) continue;
       oracle.artists.set(artist, Math.max(oracle.artists.get(artist) ?? 0, seed.fame));
-      oracle.tracks.set(trackOracleKey(seed.artist, seed.title), seed.fame);
+      oracle.tracks.set(trackOracleKey(seed.artist, seed.title), { fame: seed.fame, duration: seed.duration ?? null });
       continue;
     }
     const work = { names: [seed.title, ...seed.aliases], fame: seed.fame, year: seed.year };
@@ -1245,7 +1264,8 @@ export function genreOracle(genreId: string, sameShelf: (otherGenreId: string) =
       title: blindtestSeeds.title,
       aliases: blindtestSeeds.aliases,
       fame: blindtestSeeds.fame,
-      year: blindtestSeeds.year
+      year: blindtestSeeds.year,
+      duration: blindtestSeeds.duration
     })
     .from(blindtestSeeds)
     .where(eq(blindtestSeeds.genre_id, genreId))

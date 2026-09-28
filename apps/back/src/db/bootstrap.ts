@@ -343,9 +343,32 @@ function enforceUniqueLogins(sqlite: Database, warn: (message: string) => void):
   }
 }
 
+/**
+ * Columns added to a table after it first shipped.
+ *
+ * `CREATE TABLE IF NOT EXISTS` leaves an existing table exactly as it was, so a
+ * column added to one of the statements above reaches a fresh database and no
+ * deployed one. Each entry here is added when the table lacks it, which makes
+ * it safe to run on every boot.
+ */
+const addedColumns: { table: string; column: string; definition: string }[] = [
+  // The recording's length, which is how a clip is kept clear of a music video's skit.
+  { table: 'BlindtestSeeds', column: 'duration', definition: 'INTEGER' }
+];
+
+function addMissingColumns(sqlite: Database): void {
+  for (const { table, column, definition } of addedColumns) {
+    const columns = sqlite.prepare(`PRAGMA table_info("${table}")`).all() as { name: string }[];
+    if (!columns.some((existing) => existing.name === column)) {
+      sqlite.exec(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${definition}`);
+    }
+  }
+}
+
 export function bootstrapSchema(sqlite: Database, warn: (message: string) => void = console.warn): void {
   for (const statement of statements) {
     sqlite.exec(statement);
   }
+  addMissingColumns(sqlite);
   enforceUniqueLogins(sqlite, warn);
 }

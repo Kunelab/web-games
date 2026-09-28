@@ -131,7 +131,8 @@ describe('Deezer', () => {
         search: '',
         aliases: [],
         year: null,
-        popularity: 973060
+        popularity: 973060,
+        duration: null
       }
     ]);
   });
@@ -397,7 +398,7 @@ describe('buildOracle', () => {
       { artist: '', title: 'Attack on Titan', aliases: ['Shingeki no Kyojin'], fame: 0.8, year: 2013 }
     ]);
     assert.equal(oracle.artists.get('orelsan'), 0.9);
-    assert.equal(oracle.tracks.get(trackOracleKey('OrelSan', 'Basique')), 0.9);
+    assert.deepEqual(oracle.tracks.get(trackOracleKey('OrelSan', 'Basique')), { fame: 0.9, duration: null });
     assert.equal(oracle.works.get('shingeki no kyojin')?.year, 2013);
     assert.deepEqual(oracle.works.get('attack on titan')?.names, ['Attack on Titan', 'Shingeki no Kyojin']);
   });

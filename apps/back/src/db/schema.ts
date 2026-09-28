@@ -585,6 +585,8 @@ export const blindtestSeeds = sqliteTable(
     aliases: text('aliases').notNull().default('[]'),
     year: integer('year'),
     fame: real('fame').notNull().default(0),
+    /** The recording's length in seconds, when the source gives it (Deezer does). */
+    duration: integer('duration'),
     searched_at: text('searched_at'),
     /** How many pool entries its search produced, for diagnostics. */
     found: integer('found').notNull().default(0),

@@ -7,6 +7,7 @@ import {
   VOCAL_PROFILE,
   alignsWith,
   clipWindow,
+  uploadKind,
   type ChorusInfo
 } from './chorus-service.js';
 
@@ -30,6 +31,15 @@ describe('alignsWith', () => {
   it('rejects when either duration is unknown', () => {
     assert.equal(alignsWith(chorus, null), false);
     assert.equal(alignsWith({ ...chorus, trackDuration: null }, 180), false);
+  });
+});
+
+describe('uploadKind', () => {
+  it('tells the recording from the video', () => {
+    assert.equal(uploadKind('Daft Punk - Topic', 'One More Time'), 'topic');
+    assert.equal(uploadKind('Daft Punk', 'Daft Punk - One More Time (Official Audio)'), 'audio');
+    assert.equal(uploadKind('Stromae', 'Stromae - Papaoutai (Audio officiel)'), 'audio');
+    assert.equal(uploadKind('Stromae', 'Stromae - Papaoutai (Clip Officiel)'), 'video');
   });
 });
 
@@ -86,21 +96,73 @@ describe('clipWindow', () => {
     assert.equal(plan.startGuess, 70);
   });
 
-  it('always reveals into the first chorus, whatever the guess window was', () => {
+  it('carries the reveal on from the guess window', () => {
+    // Guess 22 to 42, reveal 41 to 53: the song keeps playing into the answer.
     for (const difficulty of [5, 50, 95]) {
-      const plan = clipWindow(180, { chorus, difficulty, random: always(0.1) });
-      assert.equal(plan.startReveal, 34, 'the reveal should lead into the first hook');
-      assert.ok(plan.endReveal > plan.startReveal);
+      for (const roll of [0.1, 0.5, 0.9]) {
+        const plan = clipWindow(180, { chorus, difficulty, random: always(roll) });
+        assert.equal(plan.startReveal, plan.endGuess - 1, `${difficulty}/${roll}: ${JSON.stringify(plan)}`);
+        assert.equal(plan.endReveal - plan.startReveal, 12);
+      }
     }
   });
 
-  it('falls back to the profile when the lyrics do not align', () => {
-    // Same chorus, a video a minute longer: the timestamps are unusable and the
-    // window has to come from the genre's convention instead.
-    const plan = clipWindow(245, { chorus, difficulty: 50, profile: VOCAL_PROFILE, random: always(0.5) });
+  it('slides the reveal back rather than cut it short at the end of the video', () => {
+    const plan = clipWindow(40, { chorus: null, difficulty: 50, upload: 'topic', random: always(0.5) });
+    assert.ok(plan.endReveal <= 38, JSON.stringify(plan));
+    assert.equal(plan.endReveal - plan.startReveal, 12);
+  });
+
+  it('shifts the lyrics past a music video’s skit', () => {
+    // Same chorus, a video 65 seconds longer than the recording: a cold open.
+    // The timings are moved past it, and no window starts inside it.
+    for (const roll of [0.1, 0.5, 0.9]) {
+      const plan = clipWindow(245, { chorus, difficulty: 50, profile: VOCAL_PROFILE, random: always(roll) });
+      assert.ok(plan.startGuess >= 65, `started at ${plan.startGuess}, inside the extra`);
+    }
+    const hook = clipWindow(245, { chorus, difficulty: 20, profile: VOCAL_PROFILE, random: always(0.9) });
+    assert.equal(hook.angle, 'chorus');
+    assert.equal(hook.startGuess, 70 + 65);
+  });
+
+  it('keeps both windows inside the recording, wherever the extra sits', () => {
+    // 65 seconds of extra: if it were all at the end, the song stops at 180.
+    for (const roll of [0.1, 0.5, 0.9]) {
+      const plan = clipWindow(245, { chorus, difficulty: 50, profile: VOCAL_PROFILE, random: always(roll) });
+      assert.ok(plan.endReveal <= 180, JSON.stringify(plan));
+    }
+  });
+
+  it('gives up on lyrics too far from the video, but still starts past the extra', () => {
+    const plan = clipWindow(400, { chorus, difficulty: 50, profile: VOCAL_PROFILE, random: always(0.5) });
     assert.equal(plan.source, 'profile');
-    assert.ok(plan.startGuess >= VOCAL_PROFILE.minStart);
-    assert.ok(plan.startGuess <= VOCAL_PROFILE.maxStart);
+    assert.ok(plan.startGuess >= 220, `started at ${plan.startGuess}`);
+  });
+
+  it('uses the recording length from a catalogue when there are no lyrics', () => {
+    const plan = clipWindow(260, {
+      difficulty: 10,
+      trackSeconds: 200,
+      profile: VOCAL_PROFILE,
+      random: always(0.1)
+    });
+    // 60 seconds of video that is not the song: the intro is past it.
+    assert.equal(plan.angle, 'intro');
+    assert.ok(plan.startGuess >= 60, JSON.stringify(plan));
+  });
+
+  it('still opens an anime opening or a film theme on its intro', () => {
+    // Those uploads start on the music; the caution is for sung music videos.
+    const plan = clipWindow(91, { difficulty: 10, profile: THEME_PROFILE, random: always(0.1) });
+    assert.equal(plan.angle, 'intro');
+    assert.equal(plan.startGuess, THEME_PROFILE.minStart);
+  });
+
+  it('never opens a music video it knows nothing about on its intro', () => {
+    for (const roll of [0, 0.5, 0.99]) {
+      const plan = clipWindow(180, { difficulty: 10, random: always(roll) });
+      assert.notEqual(plan.angle, 'intro');
+    }
   });
 
   it('uses a model hint for an instrumental, clamped into range', () => {
@@ -130,7 +192,8 @@ describe('clipWindow', () => {
 
   it('has no chorus angle to offer when there are no lyrics', () => {
     for (const roll of [0, 0.5, 0.99]) {
-      const plan = clipWindow(180, { difficulty: 10, random: always(roll) });
+      // An audio upload, which starts on the music, so its intro is safe to ask about.
+      const plan = clipWindow(180, { difficulty: 10, upload: 'audio', random: always(roll) });
       assert.equal(plan.angle, 'intro');
       assert.equal(plan.source, 'profile');
     }

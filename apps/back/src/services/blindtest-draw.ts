@@ -273,7 +273,9 @@ function toMediaView(entry: PoolEntry, difficultyTarget: number): MediaView {
     chorus: entry.chorus,
     profile: genre ? profileFor(genre) : undefined,
     difficulty: difficultyTarget,
-    hintFraction: entry.hintFraction
+    hintFraction: entry.hintFraction,
+    trackSeconds: entry.trackSeconds,
+    upload: entry.upload
   });
 
   const answers: AnswerField[] =

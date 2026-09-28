@@ -218,10 +218,23 @@ export interface ClipProfile {
   minStart: number;
   /** Never start after this, however long the track is. */
   maxStart: number;
+  /**
+   * Whether this kind of music is usually uploaded as a music video, with a
+   * scene, a skit or a spoken intro before the song starts. Such an upload is
+   * never opened on its intro unless the recording's length says where the
+   * music begins. Openings, film themes and game tracks start on the music.
+   */
+  sceneBeforeMusic?: boolean;
 }
 
 /** Sung music: skip the intro, land somewhere around the first chorus. */
-export const VOCAL_PROFILE: ClipProfile = { anchor: 0.3, spread: 0.06, minStart: 15, maxStart: 80 };
+export const VOCAL_PROFILE: ClipProfile = {
+  anchor: 0.3,
+  spread: 0.06,
+  minStart: 15,
+  maxStart: 80,
+  sceneBeforeMusic: true
+};
 
 /**
  * Instrumental themes: the statement comes early and the piece is usually built
@@ -267,13 +280,13 @@ const GUESS_SECONDS = 20;
 const REVEAL_SECONDS = 12;
 
 /**
- * The reveal starts this long before its anchor.
+ * How much the reveal overlaps the end of the guess window.
  *
- * So the payoff lands: the room already knows the answer by then, and hearing the
- * few seconds that build into the hook is the part that makes people go "ah",
- * where dropping them straight onto it merely repeats the question.
+ * The player reloads the video between the two, which leaves a short gap; a
+ * second of overlap makes the join sound like the song carrying on rather than
+ * skipping a beat.
  */
-const REVEAL_LEAD_IN = 6;
+const REVEAL_OVERLAP = 1;
 
 /** An intro worth asking about is over by roughly here. */
 const INTRO_SECONDS = 18;
@@ -307,6 +320,15 @@ export interface ClipOptions {
    * clamped into a sane range and is still better than a blind convention.
    */
   hintFraction?: number | null;
+  /**
+   * The recording's own length, from a catalogue, when it is known.
+   *
+   * A video longer than its recording carries that much that is not the song,
+   * which is what a window has to start past. See `clipWindow`.
+   */
+  trackSeconds?: number | null;
+  /** What kind of upload this is. Unknown is treated as a music video, the cautious guess. */
+  upload?: UploadKind;
   /** Injectable for tests. */
   random?: () => number;
 }
@@ -372,21 +394,102 @@ function verseStart(chorus: ChorusInfo, duration: number): number | null {
 }
 
 /**
+ * What kind of upload a video is, as far as its clock goes.
+ *
+ * `topic` is an auto-generated Art Track: the recording and nothing else.
+ * `audio` is an official audio or visualiser upload, which also starts on the
+ * music. `video` is everything else, most of it music videos, whose cold opens,
+ * skits and spoken intros are exactly where a round opened on silence.
+ */
+export type UploadKind = 'topic' | 'audio' | 'video';
+
+const AUDIO_UPLOAD = /\b(official audio|audio officiel|visuali[sz]er)\b|[([](?:official )?audio[)\]]/i;
+
+export function uploadKind(channel: string, videoTitle: string): UploadKind {
+  if (/ - Topic$/i.test(channel.trim())) return 'topic';
+  if (AUDIO_UPLOAD.test(videoTitle)) return 'audio';
+  return 'video';
+}
+
+/**
+ * The most of a video that may be something other than the recording before
+ * its lyrics timings are given up on even after shifting.
+ *
+ * A music video's skit or cold open runs from a few seconds to a minute or so.
+ * Past this, the video is more likely another edit (an extended cut, a live
+ * version) than the recording with a scene in front of it.
+ */
+const MAX_EXTRA_SECONDS = 90;
+
+/** How far into the music a window starts once a video's extra has been skipped. */
+const MUSIC_MARGIN = 3;
+
+/**
  * Where to cut, for a video of known length.
  *
- * The guess window follows the angle. The reveal always goes to the most iconic
- * thing available, because by then the answer is on screen and the point is to
- * let the room hear the bit they know.
+ * ## Inside the music
+ *
+ * The complaint this is built around: generated rounds opening on silence, or on
+ * the part of a music video where nobody sings. Two things caused it. A music
+ * video carries seconds that are not the recording (a skit, a cold open, a long
+ * outro), and nothing here knew how many; and the intro angle started at a fixed
+ * fifteen seconds, which on a video with a spoken opening is the spoken opening.
+ *
+ * So the recording's own length is used when it is known (from Deezer, the
+ * lyrics source or MusicBrainz). The difference from the video's length is the
+ * part that is not the song, and a window starting past it is inside the music
+ * wherever that part sits: at the front, the window starts just after it; at the
+ * back, the window starts a little later in the song than it would have. The
+ * lyrics timings are shifted by it too, on the likelier assumption that it sits
+ * at the front. And when nothing is known about a music video, the intro angle
+ * is not drawn at all, since it is the one angle that lands on its opening.
+ *
+ * ## The reveal carries on
+ *
+ * The reveal used to jump to the first chorus, or six seconds before the guess
+ * window when there was none, and both could land somewhere silent: the first
+ * because the chorus timing was a music video's, the second because the six
+ * seconds before a window that starts at the top of the music are not music.
+ * It now picks up where the guess window ends, a second before, so the room
+ * hears the song carry on: guess 22 to 42, reveal 41 to 53.
  */
 export function clipWindow(durationSeconds: number, options: ClipOptions = {}): ClipPlan {
   const random = options.random ?? Math.random;
   const profile = options.profile ?? VOCAL_PROFILE;
   const difficulty = options.difficulty ?? 50;
+  const upload = options.upload ?? 'video';
 
   const latest = Math.max(0, durationSeconds - 2);
-  const chorus = options.chorus && alignsWith(options.chorus, durationSeconds) ? options.chorus : null;
 
-  const angle = pickAngle(difficulty, chorus !== null, random());
+  /**
+   * How much of the video is not the recording, when the recording's length is
+   * known: the lyrics source's length first, then the one the caller has.
+   */
+  const trackSeconds = options.chorus?.trackDuration ?? options.trackSeconds ?? null;
+  const extra = trackSeconds !== null ? Math.max(0, durationSeconds - trackSeconds) : null;
+  const drifted = extra !== null && extra > MAX_DRIFT_SECONDS;
+  /** The earliest second known to be inside the music. */
+  const musicFrom = drifted ? extra + MUSIC_MARGIN : 0;
+  /** And the latest a window may end and still be sure to be, wherever the extra sits. */
+  const musicUntil = trackSeconds !== null && drifted ? Math.min(latest, trackSeconds) : latest;
+
+  // The lyrics on this video's clock: as they are when it is the recording,
+  // shifted past the extra when it is not, and not at all past a plausible extra.
+  let chorus: ChorusInfo | null = null;
+  if (options.chorus && alignsWith(options.chorus, durationSeconds)) {
+    chorus = options.chorus;
+  } else if (options.chorus && drifted && extra <= MAX_EXTRA_SECONDS) {
+    chorus = { ...options.chorus, hits: options.chorus.hits.map((hit) => hit + extra) };
+  }
+
+  /**
+   * The intro only where the start of the video is known to be the start of the
+   * music: an audio upload, a video whose extra has been measured, or a genre
+   * whose uploads are not music videos in the first place.
+   */
+  const introSafe = !profile.sceneBeforeMusic || upload !== 'video' || extra !== null;
+  let angle = pickAngle(difficulty, chorus !== null, random());
+  if (angle === 'intro' && !introSafe) angle = chorus ? 'chorus' : 'verse';
 
   let at: number;
   let source: HighlightSource;
@@ -401,7 +504,7 @@ export function clipWindow(durationSeconds: number, options: ClipOptions = {}): 
     at = found ?? Math.round(durationSeconds * profile.anchor);
     source = found === null ? 'profile' : 'chorus';
   } else if (angle === 'intro') {
-    at = profile.minStart;
+    at = Math.max(profile.minStart, musicFrom);
     source = chorus ? 'chorus' : 'profile';
   } else if (options.hintFraction != null && Number.isFinite(options.hintFraction)) {
     // Clamped hard: a hint is allowed to steer, never to point off the end.
@@ -425,23 +528,25 @@ export function clipWindow(durationSeconds: number, options: ClipOptions = {}): 
    * served the easiest thing in the track.
    */
   if (angle !== 'intro') {
-    const ceiling = source === 'chorus' ? durationSeconds : profile.maxStart;
+    const ceiling = source === 'chorus' ? durationSeconds : profile.maxStart + musicFrom;
     at = Math.max(profile.minStart, Math.min(at, ceiling, Math.max(0, durationSeconds - GUESS_SECONDS - 2)));
   }
+
+  // Never before the music, and early enough for both windows to end inside it.
+  const guessLength = angle === 'intro' ? INTRO_SECONDS : GUESS_SECONDS;
+  at = Math.max(at, musicFrom);
+  at = Math.min(at, Math.max(musicFrom, musicUntil - guessLength - REVEAL_SECONDS));
 
   const startGuess = Math.max(0, Math.min(Math.round(at), latest));
   // Both windows are guarded the same way: the payload schema refuses one that is
   // not at least a second wide, and a pathologically short video would otherwise
   // collapse it to nothing and fail validation rather than merely play badly.
-  const endGuess = Math.max(
-    Math.min(startGuess + (angle === 'intro' ? INTRO_SECONDS : GUESS_SECONDS), latest),
-    startGuess + 1
-  );
+  const endGuess = Math.max(Math.min(startGuess + guessLength, latest), startGuess + 1);
 
-  // The reveal is the reward, so it goes to the hook when there is one, whatever
-  // the guess window did, and to the opening when there is not.
-  const revealAnchor = chorus ? (chorus.hits[0] ?? 0) : startGuess;
-  const startReveal = Math.max(0, Math.min(revealAnchor - REVEAL_LEAD_IN, latest));
+  // Carried on from the guess window, a second of overlap so the cut is not a gap,
+  // and slid back rather than cut short when the video ends first.
+  let startReveal = Math.max(0, endGuess - REVEAL_OVERLAP);
+  if (startReveal + REVEAL_SECONDS > latest) startReveal = Math.max(0, latest - REVEAL_SECONDS);
   const endReveal = Math.max(Math.min(startReveal + REVEAL_SECONDS, latest), startReveal + 1);
 
   return { startGuess, endGuess, startReveal, endReveal, angle, source };

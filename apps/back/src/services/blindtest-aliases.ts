@@ -88,6 +88,8 @@ export interface AliasLookup {
   aliases: string[];
   /** Release year when the source knows it, which the YouTube upload date is not. */
   year: number | null;
+  /** The recording's length, when the source has one. MusicBrainz does; AniList does not. */
+  durationSeconds?: number | null;
 }
 
 /**
@@ -134,6 +136,8 @@ const musicbrainzSchema = z.object({
       z.object({
         score: z.number().optional(),
         'first-release-date': z.string().optional(),
+        /** Milliseconds. */
+        length: z.number().nullable().optional(),
         'artist-credit': z
           .array(
             z.object({
@@ -191,6 +195,7 @@ export async function musicbrainzAliases(artist: string, title: string): Promise
 
   return {
     aliases: usable(artist, candidates),
-    year: Number.isFinite(year) ? year : null
+    year: Number.isFinite(year) ? year : null,
+    durationSeconds: best.length ? Math.round(best.length / 1000) : null
   };
 }

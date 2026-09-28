@@ -36,7 +36,15 @@ import { normalizeAnswer, splitArtistTitle } from 'game-core';
 
 import { env } from '../env.js';
 import { anilistAliases, musicbrainzAliases } from './blindtest-aliases.js';
-import { THEME_PROFILE, VOCAL_PROFILE, fetchChorus, type ChorusInfo, type ClipProfile } from './chorus-service.js';
+import {
+  THEME_PROFILE,
+  VOCAL_PROFILE,
+  fetchChorus,
+  uploadKind,
+  type ChorusInfo,
+  type ClipProfile,
+  type UploadKind
+} from './chorus-service.js';
 import { libraryVideoCodes } from './blindtest-library.js';
 import { annotateCandidates, type Annotation } from './blindtest-llm.js';
 import {
@@ -589,6 +597,14 @@ export interface PoolEntry {
    */
   modelDifficulty: number | null;
   seedFame: number | null;
+  /**
+   * The recording's length in seconds, when a catalogue says: the seed's, the
+   * lyrics source's or MusicBrainz's, filled in that order. Against the video's
+   * own length it says how much of the video is not the song.
+   */
+  trackSeconds: number | null;
+  /** Topic track, audio upload or music video: which of them starts on the music. */
+  upload: UploadKind;
   /** A model's estimate of where the theme sits, for instrumentals only. */
   hintFraction: number | null;
   chorus: ChorusInfo | null;
@@ -725,15 +741,8 @@ class PoolAbandoned extends Error {
 
 /* ------------------------------------------------------------------ helpers */
 
-/**
- * An auto-generated "Art Track": the recording with nothing around it.
- *
- * Worth recognising because its clock is the track's, which is what makes lyric
- * timestamps usable. See the dedup in .
- */
-function isTopic(channel: string): boolean {
-  return / - Topic$/i.test(channel.trim());
-}
+/** Which upload wins when a recording turns up twice. Lower is better. */
+const UPLOAD_RANK: Record<UploadKind, number> = { topic: 0, audio: 1, video: 2 };
 
 /**
  * Drops the artist when it has been repeated inside the title.
@@ -883,6 +892,7 @@ function toEntry(
   let title = '';
   let work = '';
   let seedFame: number | null = null;
+  let trackSeconds: number | null = null;
   let seedNames: string[] = [];
   let seedYear: number | null = null;
 
@@ -913,7 +923,9 @@ function toEntry(
     const editorsVouch = genre.seeds?.some((source) => source.kind === 'deezer') ?? false;
     const knownArtist = Boolean(editorsVouch && oracle?.artists.has(artistKey) && !oracle.contested.has(artistKey));
     if (judgedOutOfGenre && !knownArtist) return null;
-    seedFame = oracle?.tracks.get(trackOracleKey(artist, title)) ?? null;
+    const seedTrack = oracle?.tracks.get(trackOracleKey(artist, title));
+    seedFame = seedTrack?.fame ?? null;
+    trackSeconds = seedTrack?.duration ?? null;
   } else {
     /**
      * A `work` answer has to come from the model, or not at all.
@@ -983,6 +995,8 @@ function toEntry(
     difficulty: 50,
     modelDifficulty: annotation?.difficulty ?? null,
     seedFame,
+    trackSeconds,
+    upload: uploadKind(facts.channel, rawTitle),
     hintFraction: annotation?.hookFraction ?? null,
     chorus: null,
     enriched: false,
@@ -1188,7 +1202,9 @@ async function buildEntries(
     const existing = byTrack.get(entry.trackKey);
     if (existing !== undefined) {
       const incumbent = entries[existing];
-      if (incumbent && !isTopic(incumbent.channel) && isTopic(entry.channel)) {
+      // Topic first, then an audio upload, then a music video: the order in which
+      // they start on the music rather than on a scene.
+      if (incumbent && UPLOAD_RANK[entry.upload] < UPLOAD_RANK[incumbent.upload]) {
         entries[existing] = entry;
       }
       continue;
@@ -1567,6 +1583,10 @@ export async function enrich(entries: PoolEntry[]): Promise<void> {
           musicbrainzAliases(entry.artist, entry.title)
         ]);
         entry.chorus = chorus;
+        // The recording's length, for keeping the clip inside the music, when the
+        // seed did not give one. (`clipWindow` prefers the lyrics source's own
+        // anyway when it shifts the chorus timings, since those belong to it.)
+        entry.trackSeconds ??= chorus?.trackDuration ?? catalogued?.durationSeconds ?? null;
         if (catalogued) {
           // MusicBrainz returns names for the *artist*, so they go on the artist.
           entry.artistAliases = [...new Set([...entry.artistAliases, ...catalogued.aliases])];
