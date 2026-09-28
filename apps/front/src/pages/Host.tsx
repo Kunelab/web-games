@@ -3,7 +3,7 @@ import { msg } from 'i18n';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
-import { api } from '../api/client';
+import { api, type BlindtestCatalog } from '../api/client';
 import { fieldText } from '../forms/fieldText';
 import { isAdmin, useAuth } from '../hooks/useAuth';
 import { useFullscreen } from '../hooks/useFullscreen';
@@ -116,6 +116,30 @@ export default function Host() {
    * them independently.
    */
   const [clip, setClip] = useState<Record<string, string> | null>(null);
+  /**
+   * The genre the round is being moved to, by id. Empty leaves it alone.
+   *
+   * The search that found a generated round chose its genre, and a search has
+   * no idea what a genre is. The room hears a pop song in a rap evening at
+   * once, and this is where it can be refiled for every room after it.
+   */
+  const [genre, setGenre] = useState('');
+  /** The genres, for the picker. Fetched once, and only by an admin. */
+  const [catalog, setCatalog] = useState<BlindtestCatalog | null>(null);
+
+  useEffect(() => {
+    if (!canCorrect) return;
+    let cancelled = false;
+    api
+      .blindtestCatalog()
+      .then((loaded) => {
+        if (!cancelled) setCatalog(loaded);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [canCorrect]);
 
   // Re-runs on every reconnect: a fresh socket after a drop knows nothing, so
   // the television re-presents its token each time the line comes back.
@@ -145,6 +169,23 @@ export default function Host() {
   const remaining = useCountdown(round?.phaseEndsAt ?? null, serverNow);
 
   const blindtestCode = round?.kind === 'blindtest' ? ((round.payload as { code?: string }).code ?? '') : '';
+
+  /**
+   * The genres this round could move to: only those asking for the answers it
+   * has. An artist and a title cannot become an anime by changing shelf, and
+   * the server refuses it too. Grouped by section, as the setup screen lists
+   * them.
+   */
+  const roundShape = round?.answers.some((answer) => answer.key === 'work') ? 'work' : 'artist-title';
+  const genreGroups = (catalog?.sections ?? [])
+    .map((section) => ({
+      section,
+      genres: (catalog?.genres ?? []).filter(
+        (candidate) => candidate.section === section.id && candidate.answerShape === roundShape
+      )
+    }))
+    .filter((group) => group.genres.length > 0);
+  const knownGenre = (catalog?.genres ?? []).some((candidate) => candidate.id === round?.category);
 
   /**
    * Whether the media plays here.
@@ -637,11 +678,14 @@ export default function Host() {
                   clip: seconds,
                   // Blank is "leave it as it is", which is not zero: zero is a
                   // real claim about a clip, and it says everybody knows it.
-                  difficulty: difficulty.trim() === '' || !Number.isFinite(rating) ? undefined : rating
+                  difficulty: difficulty.trim() === '' || !Number.isFinite(rating) ? undefined : rating,
+                  // Only a real move: resending the genre it has changes nothing.
+                  category: genre && genre !== round.category ? genre : undefined
                 });
                 setCorrecting(null);
                 setClip(null);
                 setDifficulty('');
+                setGenre('');
                 socket?.emit('host:holdRound', { hostToken, hold: false });
               }}
             >
@@ -685,6 +729,29 @@ export default function Host() {
                   </label>
                 </div>
               ))}
+              {genreGroups.length > 0 && (
+                <label className="host-correct-difficulty">
+                  <span className="play-label">{t(msg('host.correctGenre'))}</span>
+                  <select
+                    className="host-correct-input"
+                    value={genre}
+                    onChange={(event) => setGenre(event.target.value)}
+                  >
+                    {/* A genre this screen does not know still shows, as it is. */}
+                    {round.category && !knownGenre && <option value={round.category}>{round.category}</option>}
+                    {!round.category && <option value="">—</option>}
+                    {genreGroups.map((group) => (
+                      <optgroup key={group.section.id} label={group.section.label}>
+                        {group.genres.map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="host-correct-difficulty">
                 <span className="play-label">{t(msg('host.correctDifficulty'))}</span>
                 <input
@@ -735,6 +802,7 @@ export default function Host() {
                     setCorrecting(null);
                     setClip(null);
                     setDifficulty('');
+                    setGenre('');
                     socket?.emit('host:holdRound', { hostToken, hold: false });
                   }}
                 >
@@ -793,6 +861,7 @@ export default function Host() {
                       )
                     );
                     setDifficulty(typeof payload.difficulty === 'number' ? String(payload.difficulty) : '');
+                    setGenre(round.category ?? '');
                   }}
                 >
                   ✎ {t(msg('host.correct'))}

@@ -182,6 +182,14 @@ export interface HostRoundView {
    * editor and not from here.
    */
   libraryCode?: string;
+  /**
+   * The genre a catalogue round is filed under, for the correction form.
+   *
+   * Present alongside `libraryCode` only: a genre is the shared catalogue's
+   * filing, and a round from somebody's own library has a category of their
+   * own choosing that nobody else should rewrite from here.
+   */
+  category?: string;
   phaseStartAt: number;
   phaseEndsAt: number | null;
   answerMs: number;

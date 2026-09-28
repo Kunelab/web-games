@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 
 import {
   findDuplicatePairs,
+  findDuplicatePairsFor,
   groupPairs,
   levenshtein,
   pairReason,
@@ -15,11 +16,17 @@ function item(id: number, artist: string, title: string, code: string | null = `
 
 describe('pairReason', () => {
   it('flags the same upload saved twice', () => {
-    assert.equal(pairReason(item(1, 'Queen', 'Bohemian Rhapsody', 'abc'), item(2, 'Queen', 'Bohemian Rhapsody', 'abc')), 'same-video');
+    assert.equal(
+      pairReason(item(1, 'Queen', 'Bohemian Rhapsody', 'abc'), item(2, 'Queen', 'Bohemian Rhapsody', 'abc')),
+      'same-video'
+    );
   });
 
   it('flags the same recording under two uploads', () => {
-    assert.equal(pairReason(item(1, 'Queen', 'Bohemian Rhapsody'), item(2, 'Queen', 'Bohemian Rhapsody')), 'same-track');
+    assert.equal(
+      pairReason(item(1, 'Queen', 'Bohemian Rhapsody'), item(2, 'Queen', 'Bohemian Rhapsody')),
+      'same-track'
+    );
   });
 
   it('ignores case, accents and featuring credits', () => {
@@ -52,6 +59,37 @@ describe('pairReason', () => {
   it('never flags an entry against itself', () => {
     assert.equal(pairReason(item(1, 'Queen', 'Halo'), item(1, 'Queen', 'Halo')), null);
   });
+
+  it('gives the same verdict whichever side comes first', () => {
+    // The length floors used to read the left side only.
+    const long = item(1, 'ABC', 'Bohemian Rhapsody');
+    const short = item(2, 'AB', 'Bohemian Rhapsody');
+    assert.equal(pairReason(long, short), pairReason(short, long));
+    assert.equal(pairReason(long, short), null);
+  });
+});
+
+describe('findDuplicatePairsFor', () => {
+  it('finds the pairs one entry is part of, and only those', () => {
+    const items = [
+      item(1, 'Queen', 'Bohemian Rhapsody'),
+      item(2, 'Queen', 'Bohemian Rhapsody'),
+      item(3, 'ABBA', 'Dancing Queen'),
+      item(4, 'ABBA', 'Dancing Queen')
+    ];
+    assert.deepEqual(findDuplicatePairsFor(2, items), [{ a: 1, b: 2, reason: 'same-track' }]);
+    assert.deepEqual(findDuplicatePairsFor(99, items), []);
+  });
+
+  it('agrees with the full scan', () => {
+    const items = [
+      item(1, 'Queen', 'Bohemian Rhapsody', 'x'),
+      item(2, 'Queen', 'Bohemian Rhapsody', 'x'),
+      item(3, 'Queen', 'Bohemian Rapsody')
+    ];
+    const full = findDuplicatePairs(items).filter((pair) => pair.a === 3 || pair.b === 3);
+    assert.deepEqual(findDuplicatePairsFor(3, items), full);
+  });
 });
 
 describe('levenshtein', () => {
@@ -79,7 +117,12 @@ describe('findDuplicatePairs and groupPairs', () => {
   });
 
   it('keeps unrelated pairs apart', () => {
-    const items = [item(1, 'Queen', 'Halo'), item(2, 'Queen', 'Halo'), item(3, 'ABBA', 'Dancing Queen'), item(4, 'ABBA', 'Dancing Queen')];
+    const items = [
+      item(1, 'Queen', 'Halo'),
+      item(2, 'Queen', 'Halo'),
+      item(3, 'ABBA', 'Dancing Queen'),
+      item(4, 'ABBA', 'Dancing Queen')
+    ];
     const groups = groupPairs(findDuplicatePairs(items));
     assert.equal(groups.length, 2);
   });

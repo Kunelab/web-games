@@ -42,6 +42,12 @@ export interface Candidate {
   videoId: string;
   title: string;
   channel: string;
+  /**
+   * What the search that found it was for, when it was aimed at a catalogue
+   * entry: "Naruto, Bleach", "Booba, Nekfeu". A hint and nothing more; the
+   * search returns neighbours as well, and the model is told so.
+   */
+  hint?: string;
 }
 
 export interface Annotation {
@@ -143,6 +149,7 @@ For each numbered title, decide:
 - confidence: 0 to 1, how sure you are the answer is right.
 - fitsGenre: false when the track does not belong to the genre named below. A search for one genre returns neighbours, and a pop hit in a rap round is a bug.
 - hookFraction: for INSTRUMENTAL pieces only, roughly where the recognisable theme sits as a fraction of the track (0 = the very start, 0.5 = halfway). Many themes state themselves in the first seconds. Use 0 for anything sung.
+- some lines say what the search was for. That is a hint, never a fact: a search also returns other videos. Answer with what the title actually names, and use the hint only to settle a title that could name several things.
 
 Answer in French where the work has a well-known French name. Reply with json.`;
 
@@ -235,7 +242,8 @@ function plausibleAliases(answer: string, aliases: string[]): string[] {
 async function annotateBatch(
   batch: Candidate[],
   shape: 'artist-title' | 'work',
-  genreLabel: string
+  genreLabel: string,
+  note?: string
 ): Promise<Map<string, Annotation>> {
   const result = new Map<string, Annotation>();
   const available = apiSlots;
@@ -243,7 +251,7 @@ async function annotateBatch(
 
   const wanted =
     shape === 'work'
-      ? 'This genre asks WHICH WORK each clip is from. Answer with the film, series, anime or game. Never answer with the song or the band. If you do not know the work, reject the entry.'
+      ? 'This genre asks WHICH WORK each clip is from. Answer with the film, series, anime or game. Never answer with the song or the band. If you do not know the work, reject the entry. fitsGenre is false for a clip that is not the kind of music the genre names: a scene, a trailer, an episode extract or dialogue, or an ending in an openings genre.'
       : 'This genre asks for the ARTIST and the TRACK.';
   /**
    * The genre is named, so `fitsGenre` has something to judge against.
@@ -257,8 +265,14 @@ async function annotateBatch(
   const user = [
     `Genre: ${genreLabel}.`,
     wanted,
+    ...(note ? [note] : []),
     '',
-    batch.map((item, index) => `${index}. ${item.title}   [channel: ${item.channel}]`).join('\n')
+    batch
+      .map(
+        (item, index) =>
+          `${index}. ${item.title}   [channel: ${item.channel}]${item.hint ? `   [searched for: ${item.hint}]` : ''}`
+      )
+      .join('\n')
   ].join('\n');
 
   for (const slot of available) {
@@ -309,19 +323,22 @@ async function annotateBatch(
  * @param checkpoint Called between batches, never during one. Throw from it to
  * abandon the run — the tokens already spent on the batch in flight are spent
  * either way, so the cut is made where it costs nothing.
+ * @param note What this genre's answers need beyond the general rules, such as
+ * the composer being the artist in a classical round.
  */
 export async function annotateCandidates(
   candidates: Candidate[],
   shape: 'artist-title' | 'work',
   genreLabel: string,
-  checkpoint?: () => void
+  checkpoint?: () => void,
+  note?: string
 ): Promise<Map<string, Annotation>> {
   const all = new Map<string, Annotation>();
 
   for (let offset = 0; offset < candidates.length; offset += BATCH_SIZE) {
     checkpoint?.();
     const batch = candidates.slice(offset, offset + BATCH_SIZE);
-    const annotated = await annotateBatch(batch, shape, genreLabel);
+    const annotated = await annotateBatch(batch, shape, genreLabel, note);
     for (const [videoId, annotation] of annotated) {
       all.set(videoId, annotation);
     }

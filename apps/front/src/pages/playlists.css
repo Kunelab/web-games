@@ -200,6 +200,25 @@
   color: var(--ink-faint);
 }
 
+/* The old-label badge is a button: it opens the genre dialog that fixes it. */
+.pl-legacy-flag {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.pl-legacy-flag:focus-visible {
+  outline: 2px solid var(--warn);
+  outline-offset: 2px;
+}
+
+/* Catalogue-wide fixes, under the panel header. */
+.pl-curation-bar {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--rule);
+}
+
 /* --------------------------------------------------------------- launch --- */
 
 .launch-layout {

@@ -84,6 +84,8 @@ import {
   type SessionState
 } from '../game/session.js';
 import { isAdmin } from '../services/ownership.js';
+import { genreById } from '../services/blindtest-catalog.js';
+import { answersForGenre } from '../services/blindtest-genres.js';
 import { correctLibraryRound, purgeLibraryRound } from '../services/blindtest-library.js';
 import { careerKey, czCareerService } from '../services/cz-career-service.js';
 import { resultsService } from '../services/results-service.js';
@@ -753,7 +755,14 @@ export function registerRealtime(
         clip.difficulty = Math.min(100, Math.max(0, difficulty));
       }
 
-      if (fields.length === 0 && Object.keys(clip).length === 0) return;
+      /** And the genre, by id. Checked against the genres below, once the round is in hand. */
+      const sentCategory = (payload as { category?: unknown }).category;
+      const category =
+        typeof sentCategory === 'string' && sentCategory.length > 0 && sentCategory.length <= 40
+          ? sentCategory
+          : undefined;
+
+      if (fields.length === 0 && Object.keys(clip).length === 0 && !category) return;
 
       void (async () => {
         const user = await sessionUserOf(app, socket).catch(() => null);
@@ -768,16 +777,38 @@ export function registerRealtime(
         const round = state.round;
         const libraryCode = round ? libraryCodeOf(round) : undefined;
 
-        // Either may land on its own: an answer that was right with a window
-        // that was not is the commonest correction of the two.
+        /**
+         * The genre first, because it rewrites the prompts the answer fix below
+         * leaves alone. Only for a catalogue round, and only to a genre asking
+         * for the same kind of answer: moving an artist and a title under
+         * anime openings would leave a round whose boxes ask for an anime.
+         */
+        let refiled = false;
+        let genreFix: Parameters<typeof correctLibraryRound>[3];
+        if (category && round) {
+          const genre = genreById.get(category);
+          const shape = round.answers.some((answer) => answer.key === 'work') ? 'work' : 'artist-title';
+          if (!libraryCode || !genre || genre.answerShape !== shape) {
+            socket.emit('session:error', { message: 'Ce genre ne convient pas à cette manche' });
+          } else {
+            const labels = Object.fromEntries(
+              answersForGenre(round.answers, genre).map((answer) => [answer.key, answer.label])
+            );
+            refiled = games.refileRound(state, genre.id, labels);
+            genreFix = { id: genre.id, relabel: (answers) => answersForGenre(answers, genre) };
+          }
+        }
+
+        // Any may land on its own: an answer that was right with a window
+        // that was not is the commonest correction of them.
         const fixedAnswers = correctAnswers(state, fields);
         const fixedClip = correctPayloadNumbers(state, clip);
-        if (!fixedAnswers && !fixedClip) return;
+        if (!fixedAnswers && !fixedClip && !refiled && !genreFix) return;
 
         // The shared copy second: a correction that cannot be stored has still
         // fixed the screen the room is arguing in front of.
         if (libraryCode) {
-          await correctLibraryRound(libraryCode, fields, clip).catch((error: unknown) => {
+          await correctLibraryRound(libraryCode, fields, clip, genreFix).catch((error: unknown) => {
             app.log.warn({ err: error, code: state.code }, 'could not store a round correction');
           });
         }

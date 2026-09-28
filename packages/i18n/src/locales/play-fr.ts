@@ -97,6 +97,7 @@ export const playFr: Catalogue = {
   "host.correctClip": "Extrait (secondes)",
   "host.correctAliases": "Autres r\u00e9ponses accept\u00e9es (une par ligne)",
   "host.correctDifficulty": "Difficult\u00e9 (0-100)",
+  "host.correctGenre": "Genre",
   "host.correctSave": "Enregistrer",
   "host.correctCancel": "Annuler",
   "host.correctNote":

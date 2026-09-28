@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /**
  * These tables were originally created by Sequelize `sync()`, which pluralises
@@ -496,6 +496,122 @@ export const blindtestDuplicateDismissals = sqliteTable(
 );
 
 export type BlindtestDuplicateDismissal = typeof blindtestDuplicateDismissals.$inferSelect;
+
+/**
+ * What each catalogue entry looked like the last time it was compared.
+ *
+ * Duplicate detection is pairwise, and comparing every pair on every look at
+ * the flags is quadratic: fine at a few hundred rows, hopeless at the sizes the
+ * catalogue is headed for. But a pair's verdict only changes when one of its
+ * two entries does. So each entry is compared once, when it arrives or is
+ * edited, against everything already there, and the pairs it forms are kept.
+ *
+ * The fields are the normalised values the comparison reads, which makes them
+ * their own change detector: an edit from any door (the live correction, the
+ * media editor, a script) shows up as a row that no longer matches, and that
+ * entry alone is compared again.
+ */
+export const blindtestDuplicateIndex = sqliteTable('BlindtestDuplicateIndex', {
+  media_id: integer('media_id')
+    .primaryKey()
+    .references(() => media.id, { onDelete: 'cascade' }),
+  code: text('code').notNull().default(''),
+  artist: text('artist').notNull().default(''),
+  title: text('title').notNull().default('')
+});
+
+/** The duplicate pairs those comparisons found. `media_a < media_b`. */
+export const blindtestDuplicatePairs = sqliteTable(
+  'BlindtestDuplicatePairs',
+  {
+    media_a: integer('media_a')
+      .notNull()
+      .references(() => media.id, { onDelete: 'cascade' }),
+    media_b: integer('media_b')
+      .notNull()
+      .references(() => media.id, { onDelete: 'cascade' }),
+    /** `same-video`, `same-track` or `similar`. */
+    reason: text('reason').notNull()
+  },
+  (table) => [primaryKey({ columns: [table.media_a, table.media_b] })]
+);
+
+/**
+ * "This genre is right": a dismissed genre flag on one catalogue entry.
+ *
+ * Tied to the category the admin looked at, not to the row alone. Moving the
+ * entry to another genre afterwards is a new claim, and the check gets to
+ * judge it again; the stored category simply stops matching.
+ */
+export const blindtestGenreDismissals = sqliteTable('BlindtestGenreDismissals', {
+  media_id: integer('media_id')
+    .primaryKey()
+    .references(() => media.id, { onDelete: 'cascade' }),
+  category: text('category').notNull(),
+  created_at: text('created_at').default(now)
+});
+
+/**
+ * Things worth searching YouTube for, per genre.
+ *
+ * The endless blind test used to find its songs with three fixed queries per
+ * genre. YouTube answers a fixed query with the same fifty videos every day,
+ * so once the catalogue held those the searches kept paying for rounds the
+ * room had already heard, and the mode ran dry at a few hundred videos. A seed
+ * is one entry from a real catalogue (a track from Deezer's editors, an anime
+ * from AniList, a film, series or game from Wikidata) and the search is aimed
+ * at it, so each one is spent once and the list is thousands long.
+ *
+ * `searched_at` null means never searched. `fame` is 0 to 1 within the
+ * genre's harvest, 1 being the most famous, from whatever popularity figure
+ * the source publishes.
+ */
+export const blindtestSeeds = sqliteTable(
+  'BlindtestSeeds',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    genre_id: text('genre_id').notNull(),
+    /** `deezer`, `anilist` or `wikidata`. */
+    source: text('source').notNull(),
+    /** The source's own id: a Deezer track, an AniList id, a Wikidata Q-number. */
+    source_key: text('source_key').notNull(),
+    /** Empty for a work. */
+    artist: text('artist').notNull().default(''),
+    /** The track, or the work's display name. */
+    title: text('title').notNull(),
+    /** What to type into YouTube for it, when that differs from the title. */
+    search: text('search').notNull().default(''),
+    /** JSON array of other names, from the source. Facts, not guesses. */
+    aliases: text('aliases').notNull().default('[]'),
+    year: integer('year'),
+    fame: real('fame').notNull().default(0),
+    searched_at: text('searched_at'),
+    /** How many pool entries its search produced, for diagnostics. */
+    found: integer('found').notNull().default(0),
+    created_at: text('created_at').default(now)
+  },
+  (table) => [
+    uniqueIndex('BlindtestSeeds_source_unique').on(table.genre_id, table.source, table.source_key),
+    index('BlindtestSeeds_genre_idx').on(table.genre_id, table.searched_at)
+  ]
+);
+
+export type BlindtestSeedRow = typeof blindtestSeeds.$inferSelect;
+
+/** When each genre's seeds were last fetched, and how that went. */
+export const blindtestSeedHarvests = sqliteTable('BlindtestSeedHarvests', {
+  genre_id: text('genre_id').primaryKey(),
+  harvested_at: text('harvested_at').notNull(),
+  /** Seeds the harvest returned, new or already known. */
+  seeds: integer('seeds').notNull().default(0),
+  error: text('error')
+});
+
+/** YouTube searches spent per Pacific day. See `youtube-budget`. */
+export const blindtestSearchLedger = sqliteTable('BlindtestSearchLedger', {
+  day: text('day').primaryKey(),
+  searches: integer('searches').notNull().default(0)
+});
 
 export type MediaRow = typeof media.$inferSelect;
 export type GameResultRow = typeof gameResults.$inferSelect;

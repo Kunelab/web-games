@@ -296,13 +296,24 @@ export function measureBudget(): BudgetRow[] {
        * learns nothing. 800, which is the measured 783 with room for the next
        * sentence rather than a number pinned to today's byte count.
        *
+       * The fourth move came with a fault attached, and the fault went first.
+       * The pass that taught the mouth to use names rather than numbers wrote
+       * its new rule into the sheet twice, word for word, beside an older rule
+       * that already said "call people by their name": three lines for one
+       * instruction, 962 tokens, and the check failing by 162. The copy came
+       * out and the two survivors became one rule. What is left over the old
+       * ceiling is the rule against accusing on a feeling ("you're up to
+       * something" is the worst line at this table), which passes the same
+       * test as the others: it is about how to talk and tells the seat nothing
+       * about the board. 920, the measured 902 with room for the next sentence.
+       *
        * So the number moves and keeps meaning what it meant. It is worth saying
        * what would not be allowed to move it: a board, a roster, a role, or any
        * line that tells the mouth something the seat it speaks for has not been
        * told. If one of those ever makes this fail, the prompt is the thing to
        * change.
        */
-      ceiling: 800,
+      ceiling: 920,
       sections: [{ head: 'rules + intent + four lines', tokens: tokens(mouth), lines: mouth.split('\n').length }]
     },
     {

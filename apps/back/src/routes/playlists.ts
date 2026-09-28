@@ -1,6 +1,7 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 
-import { playlistInputSchema, playlistService } from '../services/playlist-service.js';
+import { EVERYTHING_PLAYLIST_NAME } from '../services/blindtest-library.js';
+import { PLAYLIST_BODY_LIMIT, playlistInputSchema, playlistService } from '../services/playlist-service.js';
 import { idParamSchema } from './schemas.js';
 
 const playlistRoutes: FastifyPluginAsyncZod = async (app) => {
@@ -26,20 +27,36 @@ const playlistRoutes: FastifyPluginAsyncZod = async (app) => {
     return playlist;
   });
 
-  app.post('/playlists', { schema: { body: playlistInputSchema } }, async (request, reply) => {
-    const created = await playlistService.create(request.body, request.currentUser);
-    return reply.code(201).send(created);
-  });
+  // Both writes that take a list of ids get the body that list needs; see
+  // `PLAYLIST_BODY_LIMIT`. Every other route keeps Fastify's 1 MiB.
+  app.post(
+    '/playlists',
+    { bodyLimit: PLAYLIST_BODY_LIMIT, schema: { body: playlistInputSchema } },
+    async (request, reply) => {
+      const created = await playlistService.create(request.body, request.currentUser);
+      return reply.code(201).send(created);
+    }
+  );
 
   app.patch(
     '/playlists/:id',
-    { schema: { params: idParamSchema, body: playlistInputSchema.partial() } },
+    { bodyLimit: PLAYLIST_BODY_LIMIT, schema: { params: idParamSchema, body: playlistInputSchema.partial() } },
     async (request, reply) => {
       // Visibility and ownership are different questions: a public playlist is
       // readable by everyone and editable only by its owner, or by an admin.
       const mayEdit = await playlistService.mayEdit(request.params.id, request.currentUser);
       if (!mayEdit) {
         throw app.httpErrors.notFound('Playlist introuvable');
+      }
+      // The catalogue is found by its name; see `isCatalogue`.
+      if (
+        request.body.name !== undefined &&
+        request.body.name !== EVERYTHING_PLAYLIST_NAME &&
+        (await playlistService.isCatalogue(request.params.id))
+      ) {
+        return reply
+          .code(409)
+          .send({ message: 'Le catalogue commun garde son nom : le blind test infini le retrouve ainsi' });
       }
 
       const updated = await playlistService.update(request.params.id, request.body, request.currentUser);
@@ -66,6 +83,9 @@ const playlistRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   app.delete('/playlists/:id', { schema: { params: idParamSchema } }, async (request, reply) => {
+    if (await playlistService.isCatalogue(request.params.id)) {
+      return reply.code(409).send({ message: 'Le catalogue commun ne peut pas être supprimé' });
+    }
     const deleted = await playlistService.remove(request.params.id, request.currentUser);
     if (!deleted) {
       throw app.httpErrors.notFound('Playlist introuvable');

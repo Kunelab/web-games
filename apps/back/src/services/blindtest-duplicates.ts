@@ -1,7 +1,8 @@
+import { eq, or } from 'drizzle-orm';
 import { normalizeAnswer } from 'game-core';
 
 import { db } from '../db/index.js';
-import { blindtestDuplicateDismissals } from '../db/schema.js';
+import { blindtestDuplicateDismissals, blindtestDuplicateIndex, blindtestDuplicatePairs } from '../db/schema.js';
 import { listLibrary } from './blindtest-library.js';
 
 /**
@@ -10,8 +11,9 @@ import { listLibrary } from './blindtest-library.js';
  * `rememberPlayedRound` already keeps exact repeats out going forward, but the
  * catalogue predates that guard, admin corrections can merge two rows onto one
  * recording afterwards, and typos never matched anything exactly in the first
- * place. So this scans the whole `Tout (généré)` playlist and flags what looks
- * like the same recording twice, for an admin to settle.
+ * place. So this flags what looks like the same recording twice across the
+ * whole `Tout (généré)` playlist, for an admin to settle, comparing each entry
+ * once rather than every pair on every look (see "the index" below).
  *
  * Three strengths, strongest first:
  *
@@ -90,18 +92,33 @@ export function levenshtein(a: string, b: string, cap: number): number {
   return previous[b.length] ?? cap + 1;
 }
 
-function normalized(item: DuplicateItem): { artist: string; title: string } {
-  return { artist: normalizeAnswer(item.artist), title: normalizeAnswer(item.title) };
+/**
+ * An entry with its answers already normalised.
+ *
+ * Normalising inside the pairwise loop ran `normalizeAnswer` four times per
+ * pair, so a catalogue of two thousand rows paid eight million of them for one
+ * look at the flags. Once per entry is all the comparison needs.
+ */
+interface NormalizedItem {
+  id: number;
+  code: string | null;
+  artist: string;
+  title: string;
+}
+
+function normalized(item: DuplicateItem): NormalizedItem {
+  return { id: item.id, code: item.code, artist: normalizeAnswer(item.artist), title: normalizeAnswer(item.title) };
 }
 
 /** The strongest reason two entries look like one recording, if any. */
 export function pairReason(left: DuplicateItem, right: DuplicateItem): DuplicateReason | null {
-  if (left.id === right.id) return null;
+  return normalizedPairReason(normalized(left), normalized(right));
+}
 
-  if (left.code && right.code && left.code === right.code) return 'same-video';
+function normalizedPairReason(a: NormalizedItem, b: NormalizedItem): DuplicateReason | null {
+  if (a.id === b.id) return null;
 
-  const a = normalized(left);
-  const b = normalized(right);
+  if (a.code && b.code && a.code === b.code) return 'same-video';
 
   if (a.artist && a.artist === b.artist && a.title && a.title === b.title) return 'same-track';
   // A `work` answer has no artist: the normalised work alone is the key, which
@@ -116,24 +133,30 @@ export function pairReason(left: DuplicateItem, right: DuplicateItem): Duplicate
    * for a two-letter artist. The cap of two is absolute rather than scaled —
    * three wrong letters in a song title is a different title until proven
    * otherwise.
+   *
+   * The floors apply to the shorter side. Testing only the left one made the
+   * verdict depend on argument order: "ABC" against "AB" flagged, "AB" against
+   * "ABC" did not.
    */
+  const artistFloor = Math.min(a.artist.length, b.artist.length);
+  const titleFloor = Math.min(a.title.length, b.title.length);
   if (a.title && a.title === b.title && a.artist && b.artist) {
-    if (a.artist.length >= 3 && levenshtein(a.artist, b.artist, 2) <= 2) return 'similar';
+    if (artistFloor >= 3 && levenshtein(a.artist, b.artist, 2) <= 2) return 'similar';
   }
   if (a.artist && a.artist === b.artist && a.title && b.title) {
-    if (a.title.length >= 4 && levenshtein(a.title, b.title, 2) <= 2) return 'similar';
+    if (titleFloor >= 4 && levenshtein(a.title, b.title, 2) <= 2) return 'similar';
   }
   // Two work answers with no artist: same rule on the work alone, with a
   // higher floor since there is only one field to judge by.
   if (!a.artist && !b.artist && a.title && b.title) {
-    if (a.title.length >= 6 && levenshtein(a.title, b.title, 2) <= 2) return 'similar';
+    if (titleFloor >= 6 && levenshtein(a.title, b.title, 2) <= 2) return 'similar';
   }
   // Both fields off by a little (a typo on each side). Kept to one per side:
   // any more and the two rows simply describe different recordings.
   if (a.artist && b.artist && a.title && b.title) {
     if (
-      a.artist.length >= 3 &&
-      a.title.length >= 4 &&
+      artistFloor >= 3 &&
+      titleFloor >= 4 &&
       levenshtein(a.artist, b.artist, 1) <= 1 &&
       levenshtein(a.title, b.title, 1) <= 1 &&
       (a.artist !== b.artist || a.title !== b.title)
@@ -147,15 +170,39 @@ export function pairReason(left: DuplicateItem, right: DuplicateItem): Duplicate
 
 /** Every suspicious pair in the list, strongest reason first. */
 export function findDuplicatePairs(items: DuplicateItem[]): DuplicatePair[] {
+  const prepared = items.map(normalized);
   const pairs: DuplicatePair[] = [];
-  for (let i = 0; i < items.length; i++) {
-    for (let j = i + 1; j < items.length; j++) {
-      const left = items[i];
-      const right = items[j];
+  for (let i = 0; i < prepared.length; i++) {
+    for (let j = i + 1; j < prepared.length; j++) {
+      const left = prepared[i];
+      const right = prepared[j];
       if (!left || !right) continue;
-      const reason = pairReason(left, right);
+      const reason = normalizedPairReason(left, right);
       if (reason) pairs.push({ a: left.id, b: right.id, reason });
     }
+  }
+  return pairs.sort((x, y) => REASON_RANK[x.reason] - REASON_RANK[y.reason]);
+}
+
+/**
+ * The pairs one entry is part of, compared against the rest only.
+ *
+ * Settling one row's flags used to rebuild every pair in the catalogue and
+ * then keep the handful that mention it: quadratic work for a linear question.
+ */
+export function findDuplicatePairsFor(targetId: number, items: DuplicateItem[]): DuplicatePair[] {
+  const target = items.find((item) => item.id === targetId);
+  if (!target) return [];
+  return pairsAgainst(normalized(target), items.map(normalized));
+}
+
+/** One entry against the rest: the unit of work everything below is made of. */
+function pairsAgainst(left: NormalizedItem, others: readonly NormalizedItem[]): DuplicatePair[] {
+  const pairs: DuplicatePair[] = [];
+  for (const other of others) {
+    if (other.id === left.id) continue;
+    const reason = normalizedPairReason(left, other);
+    if (reason) pairs.push({ a: Math.min(left.id, other.id), b: Math.max(left.id, other.id), reason });
   }
   return pairs.sort((x, y) => REASON_RANK[x.reason] - REASON_RANK[y.reason]);
 }
@@ -214,7 +261,7 @@ export function groupPairs(pairs: DuplicatePair[]): DuplicateGroup[] {
   return groups.sort((x, y) => REASON_RANK[x.reason] - REASON_RANK[y.reason]);
 }
 
-function toDuplicateItem(view: {
+export function toDuplicateItem(view: {
   id: number;
   answers: { key: string; value: string }[];
   payload: unknown;
@@ -234,17 +281,146 @@ async function dismissedPairKeys(): Promise<Set<string>> {
   return new Set(rows.map((row) => pairKey(row.media_a, row.media_b)));
 }
 
+/* ------------------------------------------------------------ the index */
+
+/**
+ * Comparing one entry at a time, and keeping what was found.
+ *
+ * The flags used to be every pair of the catalogue, recomputed on every look:
+ * a few hundred thousand comparisons at a thousand rows, a hundred and twenty
+ * five billion at half a million. But a pair's verdict can only change when
+ * one of its two entries does, and entries arrive one at a time. So each entry
+ * is compared against the rest once, when it is kept, and the pairs it forms
+ * are stored; an entry is compared again only if its answers change.
+ *
+ * Correctness does not rest on every write path remembering to call this.
+ * `BlindtestDuplicateIndex` holds the normalised values each entry was compared
+ * with, and anything that no longer matches (an entry corrected at a reveal,
+ * edited in the media editor, or never indexed at all) is simply compared
+ * again the next time the flags are read. The first read after this shipped
+ * does the whole catalogue once; every read after it does only what changed.
+ */
+
+type IndexRow = typeof blindtestDuplicateIndex.$inferSelect;
+
+function indexMatches(row: IndexRow | undefined, item: NormalizedItem): boolean {
+  return Boolean(row && row.code === (item.code ?? '') && row.artist === item.artist && row.title === item.title);
+}
+
+function asNormalized(row: IndexRow): NormalizedItem {
+  return { id: row.media_id, code: row.code || null, artist: row.artist, title: row.title };
+}
+
+/** Replaces one entry's pairs with a fresh comparison, and records what it was compared as. */
+function reindex(tx: Tx, item: NormalizedItem, others: readonly NormalizedItem[]): void {
+  tx.delete(blindtestDuplicatePairs)
+    .where(or(eq(blindtestDuplicatePairs.media_a, item.id), eq(blindtestDuplicatePairs.media_b, item.id)))
+    .run();
+  for (const pair of pairsAgainst(item, others)) {
+    tx.insert(blindtestDuplicatePairs)
+      .values({ media_a: pair.a, media_b: pair.b, reason: pair.reason })
+      .onConflictDoUpdate({
+        target: [blindtestDuplicatePairs.media_a, blindtestDuplicatePairs.media_b],
+        set: { reason: pair.reason }
+      })
+      .run();
+  }
+  const fields = { code: item.code ?? '', artist: item.artist, title: item.title };
+  tx.insert(blindtestDuplicateIndex)
+    .values({ media_id: item.id, ...fields })
+    .onConflictDoUpdate({ target: blindtestDuplicateIndex.media_id, set: fields })
+    .run();
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Brings the stored pairs up to date with the catalogue as it stands.
+ *
+ * Compares only the entries whose values differ from what they were last
+ * compared as, each against the whole current catalogue; forgets the entries
+ * that have left it. Returns how many were compared, which is zero on the
+ * ordinary read.
+ */
+export function syncDuplicateIndex(items: readonly DuplicateItem[]): number {
+  const prepared = items.map(normalized);
+  const indexed = new Map(
+    db
+      .select()
+      .from(blindtestDuplicateIndex)
+      .all()
+      .map((row) => [row.media_id, row])
+  );
+  const present = new Set(prepared.map((item) => item.id));
+
+  const stale = prepared.filter((item) => !indexMatches(indexed.get(item.id), item));
+  // Taken out of the playlist without being deleted: no longer the catalogue's
+  // to flag, and compared afresh if it is ever put back.
+  const gone = [...indexed.keys()].filter((mediaId) => !present.has(mediaId));
+  if (stale.length === 0 && gone.length === 0) return 0;
+
+  db.transaction((tx) => {
+    for (const mediaId of gone) {
+      tx.delete(blindtestDuplicatePairs)
+        .where(or(eq(blindtestDuplicatePairs.media_a, mediaId), eq(blindtestDuplicatePairs.media_b, mediaId)))
+        .run();
+      tx.delete(blindtestDuplicateIndex).where(eq(blindtestDuplicateIndex.media_id, mediaId)).run();
+    }
+    for (const item of stale) reindex(tx, item, prepared);
+  });
+  return stale.length;
+}
+
+/**
+ * Compares one newly kept entry against the catalogue, as it is kept.
+ *
+ * Against the index rather than against the rows, so the cost is one pass over
+ * a narrow table of short strings instead of reading and parsing every row.
+ * An entry the index does not know yet is not missed: it is compared against
+ * everything, this one included, the moment `syncDuplicateIndex` finds it.
+ * A no-op for an entry already indexed as it is, which is every call but the
+ * first for a round that is kept once and revealed several times.
+ */
+export function indexCatalogueEntry(view: {
+  id: number;
+  answers: { key: string; value: string }[];
+  payload: unknown;
+}): void {
+  const item = normalized(toDuplicateItem(view));
+  const current = db.select().from(blindtestDuplicateIndex).where(eq(blindtestDuplicateIndex.media_id, item.id)).get();
+  if (indexMatches(current, item)) return;
+
+  const others = db.select().from(blindtestDuplicateIndex).all().map(asNormalized);
+  db.transaction((tx) => reindex(tx, item, others));
+}
+
+/** The stored pairs among these entries, dismissals honoured, strongest first. */
+function livePairs(present: ReadonlySet<number>, dismissed: ReadonlySet<string>): DuplicatePair[] {
+  return db
+    .select()
+    .from(blindtestDuplicatePairs)
+    .all()
+    .filter(
+      (row) => present.has(row.media_a) && present.has(row.media_b) && !dismissed.has(pairKey(row.media_a, row.media_b))
+    )
+    .map((row) => ({ a: row.media_a, b: row.media_b, reason: row.reason as DuplicateReason }))
+    .sort((x, y) => REASON_RANK[x.reason] - REASON_RANK[y.reason]);
+}
+
 /**
  * The catalogue's duplicates as they stand, dismissals honoured.
  *
  * For the admin's editing screen: each group is a set of entries to look at
- * together, with the strongest reason found between them.
+ * together, with the strongest reason found between them. The pairs travel as
+ * well, because a group is transitive and a dialog is not: in a chain A≈B≈C,
+ * A and C may share nothing, and naming C as A's duplicate with the group's
+ * headline reason would be a claim no comparison made.
  */
-export async function findLibraryDuplicateGroups(): Promise<DuplicateGroup[]> {
+export async function findLibraryDuplicates(): Promise<{ groups: DuplicateGroup[]; pairs: DuplicatePair[] }> {
   const items = (await listLibrary()).map(toDuplicateItem);
-  const dismissed = await dismissedPairKeys();
-  const live = findDuplicatePairs(items).filter((pair) => !dismissed.has(pairKey(pair.a, pair.b)));
-  return groupPairs(live);
+  syncDuplicateIndex(items);
+  const live = livePairs(new Set(items.map((item) => item.id)), await dismissedPairKeys());
+  return { groups: groupPairs(live), pairs: live };
 }
 
 /**
@@ -256,13 +432,12 @@ export async function findLibraryDuplicateGroups(): Promise<DuplicateGroup[]> {
  */
 export async function dismissDuplicateFlags(mediaId: number): Promise<number> {
   const items = (await listLibrary()).map(toDuplicateItem);
-  if (!items.some((item) => item.id === mediaId)) return 0;
-
-  const pairs = findDuplicatePairs(items).filter((pair) => pair.a === mediaId || pair.b === mediaId);
+  syncDuplicateIndex(items);
+  const pairs = livePairs(new Set(items.map((item) => item.id)), new Set()).filter(
+    (pair) => pair.a === mediaId || pair.b === mediaId
+  );
   for (const pair of pairs) {
-    const a = Math.min(pair.a, pair.b);
-    const b = Math.max(pair.a, pair.b);
-    await db.insert(blindtestDuplicateDismissals).values({ media_a: a, media_b: b }).onConflictDoNothing();
+    await db.insert(blindtestDuplicateDismissals).values({ media_a: pair.a, media_b: pair.b }).onConflictDoNothing();
   }
   return pairs.length;
 }

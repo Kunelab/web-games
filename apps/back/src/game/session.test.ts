@@ -19,6 +19,7 @@ import {
   expireBuzzWindow,
   joinSession,
   nextDeadline,
+  relabelAnswers,
   resolveBuzzRace,
   submitAnswer,
   toRoundView,
@@ -505,6 +506,13 @@ describe('correcting a round', () => {
     const { state } = playing(['Ana'], { buzzer: false });
     assert.equal(correctAnswers(state, [{ key: 'invented', value: 'x' }]), false);
     assert.equal(state.round?.answers.length, 2, 'and does not grow the round');
+  });
+
+  it('moves a prompt, and says nothing changed when it was already there', () => {
+    const { state } = playing(['Ana'], { buzzer: false });
+    assert.equal(relabelAnswers(state, { title: 'field.work.film' }), true);
+    assert.equal(state.round?.answers.find((field) => field.key === 'title')?.label, 'field.work.film');
+    assert.equal(relabelAnswers(state, { title: 'field.work.film', invented: 'x' }), false);
   });
 
   it('ignores a blank, so a cleared box is not a correction', () => {

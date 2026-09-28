@@ -704,6 +704,31 @@ export function correctAnswers(
 }
 
 /**
+ * Rewrites the prompts over this round's answers, by field key.
+ *
+ * For a round moved to another genre, whose work prompt names the genre's kind
+ * of work. In place, as `correctAnswers` is, because the round and the item it
+ * was dealt from share their answer fields: the copy that is kept at the reveal
+ * then carries the new prompt without being told twice.
+ */
+export function relabelAnswers(state: SessionState, labels: Record<string, string>): boolean {
+  const round = state.round;
+  if (!round) return false;
+
+  let changed = false;
+  for (const answer of round.answers) {
+    const label = labels[answer.key];
+    if (label && answer.label !== label) {
+      answer.label = label;
+      changed = true;
+    }
+  }
+
+  if (changed) state.lastActivityAt = Date.now();
+  return changed;
+}
+
+/**
  * The accepted spellings, as the answer field's schema would have them.
  *
  * Blank entries and duplicates out, each one trimmed and cut to the length the
@@ -1584,10 +1609,11 @@ export function toRevealView(state: SessionState): RevealView | null {
  * the session was created, so this is the one path where the payload and the answers
  * are allowed out.
  */
-function toHostRoundView(state: SessionState, title: string): HostRoundView | null {
+function toHostRoundView(state: SessionState, title: string, category?: string | null): HostRoundView | null {
   const round = state.round;
   if (!round) return null;
 
+  const libraryCode = libraryCodeOf(round);
   return {
     roundId: round.id,
     index: round.index,
@@ -1598,7 +1624,9 @@ function toHostRoundView(state: SessionState, title: string): HostRoundView | nu
     phaseStartAt: round.phaseStartAt,
     phaseEndsAt: round.phaseEndsAt,
     held: round.heldAt != null,
-    libraryCode: libraryCodeOf(round),
+    libraryCode,
+    // Only with the code: see `HostRoundView.category`.
+    ...(libraryCode && category ? { category } : {}),
     answerMs: round.timing.answerMs,
     payload: round.payload,
     answers: round.answers.map((field) => ({
@@ -1668,7 +1696,9 @@ export function toSessionView(
   playerId: string | null,
   isHost: boolean,
   context: ViewContext,
-  currentTitle = ''
+  currentTitle = '',
+  /** The dealt item's category, which the engine state does not carry either. */
+  currentCategory: string | null = null
 ): SessionView {
   const television = televisionOf(state);
 
@@ -1687,7 +1717,7 @@ export function toSessionView(
     isHost,
     // Read back by the host screen and by nobody else; see `SessionView.password`.
     password: isHost && state.config.password ? state.config.password : undefined,
-    hostRound: isHost ? toHostRoundView(state, currentTitle) : null,
+    hostRound: isHost ? toHostRoundView(state, currentTitle, currentCategory) : null,
     /**
      * The stage goes to every phone unless a television has claimed it.
      *

@@ -128,6 +128,8 @@ export const atelierEn: Catalogue = {
   "field.work.film": "Movie",
   "field.work.series": "TV series",
   "field.work.game": "Video game",
+  "field.composer": "Composer",
+  "field.piece": "Piece",
   /*
    * The number the endless mode draws against, and the one the reveal prints
    * small. Left empty it means nobody has judged this clip, which is not the
@@ -327,6 +329,31 @@ export const atelierEn: Catalogue = {
   "ple.duplicate.clear": "Not duplicates",
   "ple.duplicate.delete": "Delete this media",
   "ple.duplicate.cancel": "Cancel",
+  /* ---------- genres in question in the generated-rounds catalogue (admin) ---------- */
+  "ple.genre.flag": "Genre to check: {title}",
+  "ple.genre.count": "{count} genre(s) to check",
+  "ple.genre.title": "Genre to check",
+  "ple.genre.unknownGenre": "This genre no longer exists: no game can deal this entry.",
+  "ple.genre.wrongShape":
+    "This genre does not expect this kind of answer: a work where the entry has an artist and a title, or the other way round.",
+  "ple.genre.labelDisagrees": "The question names another genre, such as “Movie” on an anime opening.",
+  "ple.genre.seedElsewhere":
+    "The reference catalogues (Deezer, AniList, Wikidata) file this artist or work under another genre, never this one.",
+  "ple.genre.artistElsewhere": "Every other entry by this artist is in another genre.",
+  "ple.genre.legacyFlag": "Old label: {title}",
+  "ple.genre.legacyBadge": "Old label",
+  "ple.genre.legacyCount": "{count} old label(s)",
+  "ple.genre.legacy":
+    "Old entry: the question still asks for “a film, series or game”. Confirm or change its genre to fix it.",
+  "ple.genre.fixAll": "Fix the old labels",
+  "ple.genre.current": "Current genre: {genre}",
+  "ple.genre.suggested": "Suggested: {genres}",
+  "ple.genre.none": "none",
+  "ple.genre.choose": "Genre",
+  "ple.genre.apply": "Apply",
+  "ple.genre.dismiss": "The genre is right",
+  "ple.genre.cancel": "Cancel",
+  "ple.catalogueName": "The shared catalogue keeps its name: the endless blind test finds it by it.",
   /* ------------------------- opening a room from a playlist ----------------- */
   "launch.failed": "The launch failed.",
   "launch.backPlaylist": "Playlist",

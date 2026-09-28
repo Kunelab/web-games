@@ -104,6 +104,7 @@ export const playEn: Catalogue = {
   "host.correctClip": "Clip (seconds)",
   "host.correctAliases": "Other accepted answers (one per line)",
   "host.correctDifficulty": "Difficulty (0-100)",
+  "host.correctGenre": "Genre",
   "host.correctSave": "Save",
   "host.correctCancel": "Cancel",
   "host.correctNote":

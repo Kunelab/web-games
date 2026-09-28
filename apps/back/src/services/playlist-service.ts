@@ -3,16 +3,47 @@ import { z } from 'zod';
 
 import { db } from '../db/index.js';
 import { media, playlistItems, playlists, users, type Playlist } from '../db/schema.js';
+import { EVERYTHING_PLAYLIST_NAME } from './blindtest-library.js';
 import { copyName } from './copy-name.js';
 import { toMediaView, type MediaView } from './media-service.js';
 import type { SessionUser } from '../types/fastify.js';
 import { definedOnly, hasUpdates, ownerFilter } from './ownership.js';
 
+/**
+ * The most media ids one playlist request may carry.
+ *
+ * It was five hundred, which no hand-built quiz reaches and the generated-rounds
+ * catalogue passes in a few weeks: past it the catalogue could no longer be
+ * saved from the editor at all, which is the moment it most needs curating. Set
+ * well past anything the catalogue will grow to, so the cap is a guard against
+ * a runaway request rather than a size the catalogue can hit.
+ */
+export const MAX_PLAYLIST_ITEMS = 500_000;
+
+/**
+ * The body a request carrying that many ids needs.
+ *
+ * Fastify refuses anything over 1 MiB by default, and 500,000 ids of up to seven
+ * digits are three and a half megabytes, twice that with `baseMediaIds` beside
+ * them. Without this the cap above would be unreachable: the request would be
+ * turned away as too large before it was ever validated.
+ */
+export const PLAYLIST_BODY_LIMIT = 16 * 1024 * 1024;
+
 export const playlistInputSchema = z.object({
   name: z.string().min(1, 'Le nom est requis').max(200),
   public: z.boolean().optional(),
   /** Media ids in play order. Absent leaves the contents untouched. */
-  mediaIds: z.array(z.coerce.number().int().positive()).max(500).optional()
+  mediaIds: z.array(z.coerce.number().int().positive()).max(MAX_PLAYLIST_ITEMS).optional(),
+  /**
+   * The contents the editor started from, when it sends new ones.
+   *
+   * Saving replaces the contents, and the catalogue gains rows while an admin
+   * has it open: every round a room plays is filed into it. Without this, a
+   * save dropped whatever had arrived since the page loaded. With it, anything
+   * the editor never saw is kept, after what it sent.
+   */
+  baseMediaIds: z.array(z.coerce.number().int().positive()).max(MAX_PLAYLIST_ITEMS).optional()
 });
 
 export type PlaylistInput = z.infer<typeof playlistInputSchema>;
@@ -58,8 +89,30 @@ async function attachItems(rows: Playlist[]): Promise<PlaylistView[]> {
       : Promise.resolve([])
   ]);
 
-  const mediaIds = [...new Set(links.map((link) => link.media_id))];
-  const mediaRows = mediaIds.length > 0 ? await db.select().from(media).where(inArray(media.id, mediaIds)) : [];
+  /**
+   * By subquery, not by the list of ids.
+   *
+   * The ids themselves were bound one value each, and SQLite caps a statement
+   * at a few tens of thousands: the public generated-rounds catalogue is in
+   * every member's playlist listing, so the day it outgrew that, the playlists
+   * page would have failed for everybody. The subquery binds only the playlist
+   * ids, which are a handful.
+   */
+  const mediaRows =
+    links.length > 0
+      ? await db
+          .select()
+          .from(media)
+          .where(
+            inArray(
+              media.id,
+              db
+                .select({ id: playlistItems.media_id })
+                .from(playlistItems)
+                .where(inArray(playlistItems.playlist_id, playlistIds))
+            )
+          )
+      : [];
 
   const mediaById = new Map(mediaRows.map((row) => [row.id, toMediaView(row)]));
   const ownerById = new Map(owners.map((owner) => [owner.id, owner]));
@@ -149,6 +202,23 @@ export const playlistService = {
    * it is written with no owner, so no member's id matches it and no member can
    * touch it, and without the admin widening here nobody could correct it either.
    */
+  /**
+   * Whether this is the shared generated-rounds catalogue.
+   *
+   * The endless blind test finds it by name (see `everythingPlaylistId`), so
+   * renaming it or deleting it does not retire it: the next round played
+   * creates a fresh, empty one, and every row already kept falls out of the
+   * catalogue's duplicate and genre checks with no way back in.
+   */
+  async isCatalogue(id: number): Promise<boolean> {
+    const [row] = await db
+      .select({ user_id: playlists.user_id, name: playlists.name })
+      .from(playlists)
+      .where(eq(playlists.id, id))
+      .limit(1);
+    return Boolean(row && row.user_id === null && row.name === EVERYTHING_PLAYLIST_NAME);
+  },
+
   async mayEdit(id: number, user: SessionUser): Promise<boolean> {
     const [row] = await db
       .select({ id: playlists.id })
@@ -202,7 +272,22 @@ export const playlistService = {
 
       // Absent means "leave the contents alone"; an empty array clears them.
       if (input.mediaIds !== undefined) {
-        replaceItemsSync(tx, id, input.mediaIds, user);
+        let ids = input.mediaIds;
+        if (input.baseMediaIds) {
+          // What arrived after the editor loaded: neither sent nor seen.
+          const base = new Set(input.baseMediaIds);
+          const sent = new Set(ids);
+          const arrived = tx
+            .select({ media_id: playlistItems.media_id })
+            .from(playlistItems)
+            .where(eq(playlistItems.playlist_id, id))
+            .orderBy(asc(playlistItems.order_num))
+            .all()
+            .map((row) => row.media_id)
+            .filter((mediaId) => !base.has(mediaId) && !sent.has(mediaId));
+          ids = [...ids, ...arrived];
+        }
+        replaceItemsSync(tx, id, ids, user);
       }
     });
 
@@ -281,18 +366,38 @@ function replaceItemsSync(tx: Tx, playlistId: number, mediaIds: number[], user: 
     return true;
   });
 
-  const allowed = tx
-    .select({ id: media.id })
-    .from(media)
-    .where(and(inArray(media.id, ordered), ownerFilter(media.user_id, user)))
-    .all();
+  /**
+   * In batches, because SQLite caps how many values one statement may bind.
+   *
+   * Both of these used to be a single statement: one `IN (...)` with every id,
+   * and one insert with three values per row. A playlist of five thousand saved
+   * in a quarter of a second; one of twenty thousand failed outright with "too
+   * many SQL variables", so the item cap was a promise the database could not
+   * keep. The sizes stay under 999, the oldest limit SQLite has shipped with.
+   */
+  const allowedIds = new Set<number>();
+  for (let start = 0; start < ordered.length; start += LOOKUP_BATCH) {
+    const batch = ordered.slice(start, start + LOOKUP_BATCH);
+    const allowed = tx
+      .select({ id: media.id })
+      .from(media)
+      .where(and(inArray(media.id, batch), ownerFilter(media.user_id, user)))
+      .all();
+    for (const row of allowed) allowedIds.add(row.id);
+  }
 
-  const allowedIds = new Set(allowed.map((row) => row.id));
   const rows = ordered
     .filter((id) => allowedIds.has(id))
     .map((id, index) => ({ playlist_id: playlistId, media_id: id, order_num: index }));
 
-  if (rows.length > 0) {
-    tx.insert(playlistItems).values(rows).run();
+  for (let start = 0; start < rows.length; start += INSERT_BATCH) {
+    tx.insert(playlistItems)
+      .values(rows.slice(start, start + INSERT_BATCH))
+      .run();
   }
 }
+
+/** Ids per ownership lookup: one bound value each. */
+const LOOKUP_BATCH = 900;
+/** Rows per insert: three bound values each. */
+const INSERT_BATCH = 300;

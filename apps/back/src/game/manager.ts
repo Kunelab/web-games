@@ -4,8 +4,9 @@ import { defaultSessionConfig, sessionConfigSchema, type SessionConfig } from 'g
 
 import { db } from '../db/index.js';
 import { gameSessions } from '../db/schema.js';
+import { indexCatalogueEntry } from '../services/blindtest-duplicates.js';
 import { rememberPlayedRound, replayFromLibrary } from '../services/blindtest-library.js';
-import { drawRounds, reserveEphemeralIdsBelow, type DrawHistory } from '../services/blindtest-draw.js';
+import { drawRounds, reserveEphemeralIdsBelow, withGenreLabel, type DrawHistory } from '../services/blindtest-draw.js';
 import { mediaService, type MediaView } from '../services/media-service.js';
 import { resultsService } from '../services/results-service.js';
 import { assetUrlFor, sweepAssets } from './assets.js';
@@ -17,6 +18,7 @@ import {
   expireBuzzWindow,
   nextDeadline,
   openAnswers,
+  relabelAnswers,
   resolveBuzzRace,
   toSessionView,
   type InfiniteState,
@@ -314,8 +316,36 @@ export class GameManager {
   view(state: SessionState, playerId: string | null, isHost: boolean) {
     // The host screen shows which item is playing, which the engine state does not
     // carry: it stores the answers and payload, not the librarian-facing title.
-    const title = state.round ? (this.mediaBySession.get(state.code)?.get(state.round.mediaId)?.title ?? '') : '';
-    return toSessionView(state, playerId, isHost, this.viewContext(state), title);
+    const item = state.round ? this.mediaBySession.get(state.code)?.get(state.round.mediaId) : undefined;
+    return toSessionView(state, playerId, isHost, this.viewContext(state), item?.title ?? '', item?.category ?? null);
+  }
+
+  /**
+   * Files the round on screen under another genre, in this session's copy.
+   *
+   * The item is what gets kept at the reveal, so moving it here is what files
+   * a generated round under the right genre in the catalogue; a round already
+   * kept is moved in the catalogue by the caller, by its video id. The prompts
+   * are rewritten on the round and on the item both: they share their answer
+   * fields when dealt, but a session restored from its snapshot does not.
+   */
+  refileRound(state: SessionState, category: string, labels: Record<string, string>): boolean {
+    const round = state.round;
+    if (!round) return false;
+
+    let changed = relabelAnswers(state, labels);
+    const item = this.mediaBySession.get(state.code)?.get(round.mediaId);
+    if (item) {
+      if (item.category !== category) {
+        item.category = category;
+        changed = true;
+      }
+      for (const answer of item.answers) {
+        const label = labels[answer.key];
+        if (label) answer.label = label;
+      }
+    }
+    return changed;
   }
 
   async create(options: {
@@ -468,26 +498,31 @@ export class GameManager {
 
     const share = infinite.replayShare ?? GameManager.REPLAY_SHARE;
 
-    if (share > 0 && Math.random() < share) {
-      /**
-       * Every media id this session has already dealt, so nothing comes round twice.
-       *
-       * The track key would very nearly do it — both sources share one — but
-       * "nearly" is not the promise. An admin correcting a row's artist between
-       * two rounds changes its key, and the session holding the old one would be
-       * free to play the same song again. The id cannot drift, so it is what the
-       * guarantee is made of; the key still does the rest of the work, which is
-       * keeping a *pool* draw off a song the catalogue already supplied.
-       */
-      const dealt = new Set(state.order);
-      const replayed = await replayFromLibrary(infinite.genreIds, history, wanted, dealt, {
-        min: infinite.difficultyMin,
-        max: infinite.difficultyMax
-      }).catch(() => [] as MediaView[]);
+    /**
+     * Every media id this session has already dealt, so nothing comes round twice.
+     *
+     * The track key would very nearly do it — both sources share one — but
+     * "nearly" is not the promise. An admin correcting a row's artist between
+     * two rounds changes its key, and the session holding the old one would be
+     * free to play the same song again. The id cannot drift, so it is what the
+     * guarantee is made of; the key still does the rest of the work, which is
+     * keeping a *pool* draw off a song the catalogue already supplied.
+     */
+    const replay = async () =>
+      (
+        await replayFromLibrary(infinite.genreIds, history, wanted, new Set(state.order), {
+          min: infinite.difficultyMin,
+          max: infinite.difficultyMax
+        }).catch(() => [] as MediaView[])
+      ).map(withGenreLabel);
+
+    const tossedReplay = share > 0 && Math.random() < share;
+    if (tossedReplay) {
+      const replayed = await replay();
       if (replayed.length > 0) return replayed;
     }
 
-    return drawRounds(
+    const drawn = await drawRounds(
       {
         genreIds: infinite.genreIds,
         difficultyMin: infinite.difficultyMin,
@@ -497,6 +532,17 @@ export class GameManager {
       history,
       wanted
     );
+
+    /**
+     * A dry draw falls back on the catalogue rather than on silence.
+     *
+     * The draw comes back empty while a genre's extension is still out, or
+     * once the day's search budget is spent, and before this the room simply
+     * waited for the next coin toss. A room that allowed replays at all would
+     * rather have one now. A room that asked for none gets none.
+     */
+    if (drawn.length > 0 || tossedReplay || share <= 0) return drawn;
+    return replay();
   }
 
   /** Whether this session should keep generating rounds. */
@@ -772,9 +818,15 @@ export class GameManager {
     const item = this.mediaBySession.get(state.code)?.get(round.mediaId);
     if (!item) return;
 
-    void rememberPlayedRound(item).catch((error: unknown) => {
-      this.log.warn({ err: error, code: state.code }, 'could not keep a generated round');
-    });
+    void rememberPlayedRound(item)
+      // Compared for duplicates as it arrives, one entry against the rest,
+      // so the admin's flags never have to scan the catalogue pair by pair.
+      .then((kept) => {
+        if (kept) indexCatalogueEntry(kept);
+      })
+      .catch((error: unknown) => {
+        this.log.warn({ err: error, code: state.code }, 'could not keep a generated round');
+      });
   }
 
   /**

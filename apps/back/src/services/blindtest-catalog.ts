@@ -37,7 +37,20 @@ import { normalizeAnswer, splitArtistTitle } from 'game-core';
 import { env } from '../env.js';
 import { anilistAliases, musicbrainzAliases } from './blindtest-aliases.js';
 import { THEME_PROFILE, VOCAL_PROFILE, fetchChorus, type ChorusInfo, type ClipProfile } from './chorus-service.js';
+import { libraryVideoCodes } from './blindtest-library.js';
 import { annotateCandidates, type Annotation } from './blindtest-llm.js';
+import {
+  ensureSeeds,
+  genreOracle,
+  markSearched,
+  otherNames,
+  planSeedSearches,
+  trackOracleKey,
+  type GenreOracle,
+  type SeedSearch,
+  type SeedSource
+} from './blindtest-seeds.js';
+import { spendSearch } from './youtube-budget.js';
 import { fetchPlaylistItems, fetchVideoFacts, searchVideos, YoutubeError, type VideoFacts } from './youtube-service.js';
 
 /* -------------------------------------------------------------- the taxonomy */
@@ -124,6 +137,31 @@ export interface Genre {
    * theme early. Overridden where that correlation breaks down.
    */
   profile?: ClipProfile;
+  /**
+   * Where this genre's searches come from once it has any: real catalogues,
+   * one entry per search, instead of the fixed `queries`. Those stay as the
+   * fallback for a genre whose harvest failed. See `blindtest-seeds`.
+   */
+  seeds?: SeedSource[];
+  /** Added to a work's name to find its music: "opening", "soundtrack". */
+  seedSuffix?: string;
+  /** The suffix inside each quoted name rather than once at the end. See `SeededGenre`. */
+  seedSuffixInPhrase?: boolean;
+  /** Whom to search first among a genre's artists. See `SeededGenre`. */
+  artistWeight?: 'fame' | 'repertoire';
+  /**
+   * The prompts over an artist-title round's two boxes, when "artist" and
+   * "title" are the wrong words: a classical round asks for the composer and
+   * the piece. The keys stay `artist` and `title`, so everything that reads a
+   * round (duplicates, corrections, the genre check) treats it like any song.
+   */
+  artistLabel?: string;
+  titleLabel?: string;
+  /**
+   * What the model has to be told about this genre's answers in particular,
+   * beyond its name. Only where the general instructions would read it wrong.
+   */
+  modelNote?: string;
 }
 
 export interface Section {
@@ -139,7 +177,8 @@ export const SECTIONS: Section[] = [
   { id: 'anime', label: 'Japanimation' },
   { id: 'ecrans', label: 'Écrans' },
   { id: 'jeux', label: 'Jeux vidéo' },
-  { id: 'monde', label: 'Musiques du monde' }
+  { id: 'monde', label: 'Musiques du monde' },
+  { id: 'classique', label: 'Classique' }
 ];
 
 /**
@@ -159,14 +198,45 @@ export const GENRES: Genre[] = [
     section: 'rap',
     answerShape: 'artist-title',
     queries: ['rap français clip officiel', 'rap fr classique morceau', 'rappeur français titre officiel'],
-    playlists: [{ playlistId: 'PL39z-AAkkatsDhv2Fkr-efPk34iQvtAHW' }]
+    playlists: [{ playlistId: 'PL39z-AAkkatsDhv2Fkr-efPk34iQvtAHW' }],
+    seeds: [
+      {
+        kind: 'deezer',
+        playlistQueries: [
+          'rap français',
+          'rap fr classiques',
+          'rap français années 2000',
+          'rap français années 90',
+          'rap fr 2010'
+        ],
+        titleMatch: /rap|hip[- ]?hop|drill|trap/i
+      }
+    ]
   },
   {
     id: 'rap-us',
     label: 'Rap US',
     section: 'rap',
     answerShape: 'artist-title',
-    queries: ['hip hop classics official video', 'rap song official audio', '90s hip hop official video']
+    queries: ['hip hop classics official video', 'rap song official audio', '90s hip hop official video'],
+    seeds: [
+      {
+        kind: 'deezer',
+        playlistQueries: [
+          'hip hop classics',
+          'rap us',
+          '90s hip hop',
+          '2000s hip hop',
+          '2010s rap',
+          'hip hop essentials',
+          'trap',
+          'west coast rap',
+          'old school hip hop',
+          'rap hits'
+        ],
+        titleMatch: /rap|hip[- ]?hop|west coast|east coast|trap|drill|breakdance/i
+      }
+    ]
   },
   {
     id: 'rap-90s',
@@ -193,21 +263,54 @@ export const GENRES: Genre[] = [
     label: 'Pop internationale',
     section: 'pop-rock',
     answerShape: 'artist-title',
-    queries: ['pop hits official video', 'pop song official audio', '2000s pop official video']
+    queries: ['pop hits official video', 'pop song official audio', '2000s pop official video'],
+    seeds: [
+      {
+        kind: 'deezer',
+        playlistQueries: ['pop essentials', 'pop hits', '80s pop', '90s pop', '2000s pop', '2010s pop'],
+        titleMatch: /pop|hits?\b/i
+      }
+    ]
   },
   {
     id: 'rock',
     label: 'Rock',
     section: 'pop-rock',
     answerShape: 'artist-title',
-    queries: ['classic rock official video', 'rock anthem official audio', '90s rock official video']
+    queries: ['classic rock official video', 'rock anthem official audio', '90s rock official video'],
+    seeds: [
+      {
+        kind: 'deezer',
+        playlistQueries: ['rock essentials', 'rock classics', '70s rock', '80s rock', '90s rock', 'indie rock'],
+        titleMatch: /rock|grunge|punk|indie/i
+      }
+    ]
   },
   {
     id: 'metal',
     label: 'Metal',
     section: 'pop-rock',
     answerShape: 'artist-title',
-    queries: ['heavy metal official video', 'metal band official audio', 'thrash metal official video']
+    queries: ['heavy metal official video', 'metal band official audio', 'thrash metal official video'],
+    seeds: [
+      {
+        kind: 'deezer',
+        playlistQueries: [
+          'metal essentials',
+          'metal',
+          '80s metal',
+          'nu metal',
+          'metal français',
+          'heavy metal',
+          'thrash metal',
+          'metalcore',
+          'death metal',
+          'power metal',
+          'symphonic metal'
+        ],
+        titleMatch: /metal|core\b|heavy|thrash|hellfest/i
+      }
+    ]
   },
 
   /* --------------------------------------------------------------- chanson */
@@ -216,7 +319,28 @@ export const GENRES: Genre[] = [
     label: 'Chanson française',
     section: 'chanson',
     answerShape: 'artist-title',
-    queries: ['chanson française clip officiel', 'variété française titre officiel', 'chanson francaise classique']
+    queries: ['chanson française clip officiel', 'variété française titre officiel', 'chanson francaise classique'],
+    seeds: [
+      {
+        kind: 'deezer',
+        playlistQueries: [
+          'chanson française',
+          'variété française',
+          'chanson française essentiels',
+          'variété années 70',
+          'chanson française années 80',
+          'variété 2000',
+          'chanson française années 60',
+          'variété française 90',
+          'chanson française années 90',
+          'chanson française 2000',
+          'nouvelle scène française',
+          'chanteuses françaises',
+          'variété française hits'
+        ],
+        titleMatch: /chanson|vari[ée]t[ée]|fran[çc]ais|france|bleu blanc/i
+      }
+    ]
   },
   {
     id: 'variete-80',
@@ -234,7 +358,21 @@ export const GENRES: Genre[] = [
     label: 'Électro',
     section: 'electro',
     answerShape: 'artist-title',
-    queries: ['electronic music official video', 'house music official audio', 'edm official video']
+    queries: ['electronic music official video', 'house music official audio', 'edm official video'],
+    seeds: [
+      {
+        kind: 'deezer',
+        playlistQueries: [
+          'electro hits',
+          'edm hits',
+          'french touch',
+          'house classics',
+          'dance 90s',
+          'techno essentials'
+        ],
+        titleMatch: /[ée]lectro|house|edm|techno|dance|french touch|club/i
+      }
+    ]
   },
 
   /* ----------------------------------------------------------------- anime */
@@ -245,6 +383,9 @@ export const GENRES: Genre[] = [
     answerShape: 'work',
     workLabel: 'field.work.animeOpening',
     queries: ['anime opening official', 'anime opening full', 'anime op creditless'],
+    seeds: [{ kind: 'anilist' }],
+    seedSuffix: 'opening',
+    seedSuffixInPhrase: true,
     reject: /\b(amv|nightcore|cover|piano|8d|reaction)\b/i
   },
   {
@@ -254,6 +395,9 @@ export const GENRES: Genre[] = [
     answerShape: 'work',
     workLabel: 'field.work.animeEnding',
     queries: ['anime ending official', 'anime ending full'],
+    seeds: [{ kind: 'anilist' }],
+    seedSuffix: 'ending',
+    seedSuffixInPhrase: true,
     reject: /\b(amv|nightcore|cover|piano|8d|reaction)\b/i
   },
 
@@ -265,6 +409,8 @@ export const GENRES: Genre[] = [
     answerShape: 'work',
     workLabel: 'field.work.film',
     queries: ['movie soundtrack main theme', 'film score official soundtrack', 'bande originale film thème'],
+    seeds: [{ kind: 'wikidata', types: ['Q11424'], minLinks: 40, dateProperty: 'P577', requireComposer: true }],
+    seedSuffix: 'soundtrack theme',
     reject: /\b(cover|piano tutorial|remix|reaction|epic music mix)\b/i
   },
   {
@@ -274,6 +420,8 @@ export const GENRES: Genre[] = [
     answerShape: 'work',
     workLabel: 'field.work.series',
     queries: ['tv series opening theme', 'série générique officiel', 'tv show intro theme song'],
+    seeds: [{ kind: 'wikidata', types: ['Q5398426', 'Q581714'], minLinks: 20, dateProperty: 'P580' }],
+    seedSuffix: 'opening theme',
     reject: /\b(cover|reaction|fan made)\b/i
   },
 
@@ -285,6 +433,8 @@ export const GENRES: Genre[] = [
     answerShape: 'work',
     workLabel: 'field.work.game',
     queries: ['video game soundtrack main theme', 'game ost official', 'videogame music theme'],
+    seeds: [{ kind: 'wikidata', types: ['Q7889'], minLinks: 20, dateProperty: 'P577' }],
+    seedSuffix: 'OST theme',
     reject: /\b(cover|remix|piano tutorial|reaction|playthrough|gameplay)\b/i
   },
 
@@ -294,14 +444,69 @@ export const GENRES: Genre[] = [
     label: 'Reggae',
     section: 'monde',
     answerShape: 'artist-title',
-    queries: ['reggae classics official video', 'reggae song official audio']
+    queries: ['reggae classics official video', 'reggae song official audio'],
+    seeds: [
+      {
+        kind: 'deezer',
+        playlistQueries: [
+          'reggae essentials',
+          'reggae classics',
+          'roots reggae',
+          'dancehall',
+          'reggae français',
+          'reggae',
+          'ska',
+          'dub',
+          'reggae hits'
+        ],
+        titleMatch: /reggae|dancehall|dub\b|ska\b|roots/i
+      }
+    ]
   },
   {
     id: 'kpop',
     label: 'K-pop',
     section: 'monde',
     answerShape: 'artist-title',
-    queries: ['kpop official mv', 'k-pop official music video']
+    queries: ['kpop official mv', 'k-pop official music video'],
+    seeds: [
+      {
+        kind: 'deezer',
+        playlistQueries: [
+          'kpop',
+          'k-pop hits',
+          'kpop essentials',
+          'kpop girl groups',
+          'kpop boy groups',
+          'k-pop',
+          'kpop hits',
+          'kpop classics',
+          'kpop 2010s',
+          'kpop girl group',
+          'kpop boy group',
+          'kpop dance',
+          'kpop ballad'
+        ],
+        titleMatch: /k-?pop/i
+      }
+    ]
+  },
+
+  /* ------------------------------------------------------------- classique */
+  {
+    id: 'classique',
+    label: 'Musique classique',
+    section: 'classique',
+    answerShape: 'artist-title',
+    artistLabel: 'field.composer',
+    titleLabel: 'field.piece',
+    // Instrumental: the theme states itself early and there are no lyrics to find a chorus in.
+    profile: THEME_PROFILE,
+    modelNote:
+      'In this genre the ARTIST is the COMPOSER (Beethoven), never the orchestra, the conductor or the soloist. The answer is the piece by the name a French room knows it by ("La Lettre à Élise", "Symphonie n° 5", "Le Lac des cygnes"), without catalogue numbers, keys or movement numbers. Reject a compilation of several pieces.',
+    queries: ['classical music masterpiece', 'musique classique célèbre', 'famous classical piece orchestra'],
+    seeds: [{ kind: 'wikidata-compositions', minLinks: 8, bornBefore: 1915 }],
+    artistWeight: 'repertoire'
   }
 ];
 
@@ -376,6 +581,13 @@ export interface PoolEntry {
   restriction: VideoFacts['restriction'];
   /** 0 (household name) to 100 (deep cut). See `scoreDifficulty`. */
   difficulty: number;
+  /**
+   * The two other opinions `difficulty` is blended from, kept so the pool can
+   * be re-ranked when an extension adds entries: the model's, and the fame of
+   * the seed this entry matched, when it matched one.
+   */
+  modelDifficulty: number | null;
+  seedFame: number | null;
   /** A model's estimate of where the theme sits, for instrumentals only. */
   hintFraction: number | null;
   chorus: ChorusInfo | null;
@@ -554,12 +766,34 @@ function trackKeyFor(artist: string, title: string, work: string): string {
  * viewed edit can carry an obscure work, which is exactly the gap the language
  * model annotation fills. Blended rather than switched, so a genre with no
  * annotation still gets a usable spread.
+ *
+ * A matched seed adds a third opinion: its rank in a catalogue's own popularity
+ * figures, which knows a famous song from a famous upload. Weighted like the
+ * model's, and absent for a deep cut the catalogue never listed.
  */
-function scoreDifficulty(rank: number, total: number, annotated: number | null): number {
+function scoreDifficulty(rank: number, total: number, annotated: number | null, seedFame: number | null): number {
   // 0 for the most viewed in the pool, 100 for the least.
   const byViews = total <= 1 ? 50 : Math.round((rank / (total - 1)) * 100);
-  if (annotated === null) return byViews;
-  return Math.round(byViews * 0.6 + annotated * 0.4);
+  let sum = byViews * 3;
+  let weight = 3;
+  if (annotated !== null) {
+    sum += annotated * 2;
+    weight += 2;
+  }
+  if (seedFame !== null) {
+    sum += (1 - seedFame) * 100 * 2;
+    weight += 2;
+  }
+  return Math.round(sum / weight);
+}
+
+/** Difficulty is a rank within the pool, so it is assigned to the whole pool at once. */
+function rankDifficulty(entries: PoolEntry[]): void {
+  // Most viewed first, so rank 0 is the household name.
+  entries.sort((left, right) => right.views - left.views);
+  entries.forEach((entry, index) => {
+    entry.difficulty = scoreDifficulty(index, entries.length, entry.modelDifficulty, entry.seedFame);
+  });
 }
 
 /* --------------------------------------------------------------- the filler */
@@ -587,7 +821,20 @@ function toEntry(
    * with nothing, and a pool with a few neighbours in it is a far better evening
    * than a mode that refuses to start.
    */
-  annotationRan: boolean
+  annotationRan: boolean,
+  /**
+   * What the genre's seeds know, or null for a genre without any.
+   *
+   * It overrules the model on one question, whether an *artist* belongs to this
+   * genre, and only in one direction: an artist Deezer's rap editors list is a
+   * rap artist even when the model hesitates. An answer the seeds do not know
+   * still has to pass the model's own judgement, as before.
+   *
+   * Never for a work. There the model's "does not fit" is about the clip, not
+   * the work: a scene from an anime AniList knows well is still not its
+   * opening, and a live search returned a pool's worth of exactly those.
+   */
+  oracle: GenreOracle | null = null
 ): PoolEntry | null {
   const rawTitle = facts.title;
 
@@ -599,14 +846,22 @@ function toEntry(
   // The model gets the last word on whether this is answerable at all: it is the
   // only thing that can tell a montage from a track by reading the title.
   if (annotation?.kind === 'reject') return null;
-  // And on whether it belongs here. YouTube search has no notion of genre below
-  // its Music category, so a query for rap returns pop, and only something that
-  // recognises the artist can say so.
-  if (annotation?.fitsGenre === false) return null;
+  /**
+   * And on whether it belongs here, unless the seeds already know.
+   *
+   * YouTube search has no notion of genre below its Music category, so a query
+   * for rap returns pop, and only something that recognises the artist can say
+   * so. Decided below, once the answer is known, because the seeds are keyed by
+   * the answer.
+   */
+  const judgedOutOfGenre = annotation?.fitsGenre === false;
 
   let artist = '';
   let title = '';
   let work = '';
+  let seedFame: number | null = null;
+  let seedNames: string[] = [];
+  let seedYear: number | null = null;
 
   if (genre.answerShape === 'artist-title') {
     if (annotationRan && !annotation) return null;
@@ -621,6 +876,21 @@ function toEntry(
     if (!artist || !title) return null;
 
     title = withoutArtistPrefix(title, artist);
+
+    /**
+     * Only an editor's list may overrule the model on fit.
+     *
+     * Deezer's genre editors put an artist on a rap playlist because they are a
+     * rap artist. Wikidata's composers are anybody with the occupation, which
+     * includes the woman who wrote "Happy Birthday": a list that good for
+     * choosing whom to search is not one to keep a pop song in a classical
+     * round against the model's judgement.
+     */
+    const artistKey = normalizeAnswer(artist);
+    const editorsVouch = genre.seeds?.some((source) => source.kind === 'deezer') ?? false;
+    const knownArtist = Boolean(editorsVouch && oracle?.artists.has(artistKey) && !oracle.contested.has(artistKey));
+    if (judgedOutOfGenre && !knownArtist) return null;
+    seedFame = oracle?.tracks.get(trackOracleKey(artist, title)) ?? null;
   } else {
     /**
      * A `work` answer has to come from the model, or not at all.
@@ -650,6 +920,22 @@ function toEntry(
     if (work.length > 80) return null;
     // A leftover fragment of the video's own title is not an answer.
     if (/official|music video|mv\b|opening|ending|\bost\b|theme song|full ver/i.test(work)) return null;
+
+    /**
+     * A work the seeds know brings its other names with it.
+     *
+     * The model answers in French where it can ("L'Attaque des Titans"), the
+     * room types whatever it grew up with, and the seed has the rest as facts:
+     * AniList's romaji and English titles, Wikidata's labels. Those are safe to
+     * accept in a way the model's own alias guesses never were.
+     */
+    if (judgedOutOfGenre) return null;
+    const seedWork = oracle?.works.get(normalizeAnswer(work));
+    if (seedWork) {
+      seedFame = seedWork.fame;
+      seedNames = seedWork.names;
+      seedYear = seedWork.year;
+    }
   }
 
   return {
@@ -662,14 +948,18 @@ function toEntry(
     // to the field that carries that answer and nowhere else.
     titleAliases: genre.answerShape === 'artist-title' ? (annotation?.aliases ?? []) : [],
     artistAliases: [],
-    workAliases: genre.answerShape === 'work' ? (annotation?.aliases ?? []) : [],
-    year: facts.year,
-    yearVerified: false,
+    workAliases:
+      genre.answerShape === 'work' ? otherNames(work, [...(annotation?.aliases ?? []), ...seedNames], 12) : [],
+    // A catalogue's year is a release year, which the upload date is not.
+    year: seedYear ?? facts.year,
+    yearVerified: seedYear !== null,
     views: facts.views,
     durationSeconds: facts.durationSeconds,
     channel: facts.channel,
     restriction: facts.restriction,
     difficulty: 50,
+    modelDifficulty: annotation?.difficulty ?? null,
+    seedFame,
     hintFraction: annotation?.hookFraction ?? null,
     chorus: null,
     enriched: false,
@@ -678,71 +968,117 @@ function toEntry(
   };
 }
 
+/** One YouTube search, and what it was aimed at. */
+interface SearchStep {
+  query: string;
+  limit: number;
+  /** Set when the search is aimed at seeds rather than a fixed query. */
+  seed?: SeedSearch;
+  /** How `thinSources` names it. */
+  label: string;
+}
+
 /**
- * Fills one genre's pool.
- *
- * Three network stages, in order of cost: the playlists (one unit per fifty), the
- * video facts (one unit per fifty), then the free enrichment. Nothing here is on
- * any room's critical path, so it is allowed to be slow; what it must not be is
- * wasteful, because the quota is shared by the whole deployment for a day.
+ * Searches per daily fill: the same three the fixed queries cost, now aimed at
+ * seeds nobody has searched yet.
  */
-async function fillPool(genre: Genre): Promise<Pool> {
+const FILL_SEARCHES = 3;
+
+/** Searches per extension. Small, because an extension repeats as needed. */
+const EXTEND_SEARCHES = 1;
+
+/**
+ * What to search for.
+ *
+ * Seeds when the genre has them, harvesting first if its stock is due. The
+ * fixed queries only when there are none, because a fixed query is exactly
+ * what ran dry: the same fifty videos, every day. An extension never falls back
+ * to them for that reason; it would only find the fill's results again.
+ */
+async function searchPlan(
+  genre: Genre,
+  searches: number,
+  options: { window?: { min: number; max: number }; allowFixed: boolean }
+): Promise<SearchStep[]> {
+  if (genre.seeds && genre.seeds.length > 0) {
+    await ensureSeeds(genre).catch(() => undefined);
+    const planned = planSeedSearches(genre, searches, options.window);
+    if (planned.length > 0) {
+      return planned.map((seed) => ({ query: seed.query, limit: seed.limit, seed, label: `seeds:${seed.hint}` }));
+    }
+  }
+  if (!options.allowFixed) return [];
+  return genre.queries.map((query) => ({ query, limit: 50, label: `query:${query}` }));
+}
+
+/**
+ * Searches, looks up and annotates, and returns the candidates as entries.
+ *
+ * Shared by the daily fill and by an extension, which differ only in how many
+ * searches they make and what they already hold. Three network stages, in
+ * order of cost: the searches (a hundred units each, budgeted), the video facts
+ * (one unit per fifty), then the model. Nothing here is on any room's critical
+ * path, so it is allowed to be slow; what it must not be is wasteful.
+ */
+async function buildEntries(
+  genre: Genre,
+  steps: SearchStep[],
+  extraIds: string[],
+  exclude: { videoIds: ReadonlySet<string>; trackKeys: ReadonlySet<string> },
+  checkpoint: () => void
+): Promise<{ entries: PoolEntry[]; thinSources: string[] }> {
   const harvested: string[] = [];
   const thinSources: string[] = [];
+  /** Which search found each video, for the hint the model is given. */
+  const origin = new Map<string, SearchStep>();
 
-  /**
-   * Stops the run if nothing has asked for this pool in a while.
-   *
-   * Throwing rather than returning what has been annotated so far, because a
-   * partial annotation is the one outcome that must not be kept: every candidate
-   * the model never reached would be dropped by `toEntry`, and the short pool
-   * that resulted would be cached as this genre's pool for the next twenty-four
-   * hours. `poolFor` turns the throw into the brief cache a failed fill gets, so
-   * the next room to ask for the genre starts a fresh, whole fill.
-   */
-  const checkpoint = (): void => {
-    const last = wantedAt.get(genre.id) ?? 0;
-    if (Date.now() - last > FILL_ABANDON_MS) throw new PoolAbandoned(genre.id);
-  };
-
-  /**
-   * Searches first, because they are what keeps a genre alive.
-   *
-   * Each is one `search.list`, so a genre with three queries costs three hundred
-   * quota units to fill and then serves for a day. `musicOnly` pins the search to
-   * YouTube's own Music category for the genres where that is meaningful, which
-   * is most of the cheap quality here: without it "rock" returns documentaries
-   * and "metal" returns metalworking.
-   */
-  const musicOnly = genre.section !== 'ecrans' && genre.section !== 'jeux';
-
-  for (const query of genre.queries) {
-    try {
-      const ids = await searchVideos(query, { musicOnly });
-      if (ids.length < 10) thinSources.push(`query:${query}`);
-      harvested.push(...ids);
-    } catch (error) {
-      thinSources.push(`query:${query}`);
-      if (!(error instanceof YoutubeError)) throw error;
+  for (const step of steps) {
+    checkpoint();
+    if (!spendSearch()) {
+      thinSources.push('budget: the daily YouTube search budget is spent');
+      break;
     }
-  }
-
-  for (const source of genre.playlists ?? []) {
+    /**
+     * `musicOnly` pins the search to YouTube's own Music category for the genres
+     * where that is meaningful, which is most of the cheap quality here: without
+     * it "rock" returns documentaries and "metal" returns metalworking.
+     *
+     * Not for a search aimed at works. Tried on the live API, four anime by
+     * their English names inside the Music category returned nothing at all:
+     * the official openings under those names are Crunchyroll's, filed as film
+     * and animation, and the Music uploads are titled in Japanese.
+     */
+    const musicOnly =
+      genre.section !== 'ecrans' && genre.section !== 'jeux' && !(step.seed && genre.answerShape === 'work');
     try {
-      const items = await fetchPlaylistItems(source.playlistId);
-      if (items.length < 10) thinSources.push(source.playlistId);
-      const start = Math.min(source.depth ?? 0, Math.max(0, items.length - 1));
-      for (const item of items.slice(start)) {
-        harvested.push(item.videoId);
+      const ids = await searchVideos(step.query, { musicOnly, limit: step.limit });
+      if (ids.length < 10) thinSources.push(step.label);
+      for (const id of ids) {
+        harvested.push(id);
+        if (!origin.has(id)) origin.set(id, step);
       }
+      // Spent the moment it ran: the quota is gone whatever the model makes of
+      // the results, and a seed searched twice is a hundred units for nothing.
+      if (step.seed) markSearched(step.seed, ids.length);
     } catch (error) {
-      // One dead playlist must not empty a genre that has other sources.
-      thinSources.push(source.playlistId);
+      thinSources.push(step.label);
       if (!(error instanceof YoutubeError)) throw error;
     }
   }
+  harvested.push(...extraIds);
 
-  const unique = [...new Set(harvested)].slice(0, MAX_POOL_ENTRIES * 2);
+  /**
+   * And nothing the shared catalogue already holds.
+   *
+   * The draw would never serve those (a search exists to find something new,
+   * and `drawRounds` skips a catalogued video), so annotating them was model
+   * time spent on candidates that could only ever be thrown away. Once the
+   * catalogue ran to hundreds of rounds that was most of every fill.
+   */
+  const catalogued = await libraryVideoCodes().catch(() => new Set<string>());
+  const unique = [...new Set(harvested)]
+    .filter((id) => !catalogued.has(id) && !exclude.videoIds.has(id))
+    .slice(0, MAX_POOL_ENTRIES * 2);
   const facts = unique.length > 0 ? await fetchVideoFacts(unique) : new Map<string, VideoFacts>();
 
   // Annotation is batched over everything that survived the cheap filters, so the
@@ -756,22 +1092,34 @@ async function fillPool(genre: Genre): Promise<Pool> {
   );
 
   const annotations = await annotateCandidates(
-    surviving.map((fact) => ({ videoId: fact.videoId, title: fact.title, channel: fact.channel })),
+    surviving.map((fact) => ({
+      videoId: fact.videoId,
+      title: fact.title,
+      channel: fact.channel,
+      hint: origin.get(fact.videoId)?.seed?.hint
+    })),
     genre.answerShape,
-    genre.label,
-    checkpoint
+    // "Japanimation / Openings" rather than "Openings": the model judges fit
+    // against this name, and the bare one does not say openings of what.
+    `${SECTIONS.find((section) => section.id === genre.section)?.label ?? genre.section} / ${genre.label}`,
+    checkpoint,
+    genre.modelNote
   );
 
   // See toEntry: an empty result means no endpoint answered, which is a very
   // different thing from a model that read the list and kept none of it.
   const annotationRan = annotations.size > 0;
+  const oracle =
+    genre.seeds && genre.seeds.length > 0
+      ? genreOracle(genre.id, (other) => genreById.get(other)?.section === genre.section)
+      : null;
 
   const entries: PoolEntry[] = [];
   const byTrack = new Map<string, number>();
 
   for (const fact of surviving) {
-    const entry = toEntry(fact, genre, annotations.get(fact.videoId), annotationRan);
-    if (!entry) continue;
+    const entry = toEntry(fact, genre, annotations.get(fact.videoId), annotationRan, oracle);
+    if (!entry || exclude.trackKeys.has(entry.trackKey)) continue;
 
     /**
      * One recording, one entry, and when there is a choice the Topic upload wins.
@@ -798,38 +1146,171 @@ async function fillPool(genre: Genre): Promise<Pool> {
     if (entries.length >= MAX_POOL_ENTRIES) break;
   }
 
-  // Difficulty is a rank *within this pool*, so it can only be assigned once the
-  // pool is known. Most viewed first, so rank 0 is the household name.
-  entries.sort((left, right) => right.views - left.views);
-  entries.forEach((entry, index) => {
-    entry.difficulty = scoreDifficulty(index, entries.length, annotations.get(entry.videoId)?.difficulty ?? null);
-  });
+  return { entries, thinSources };
+}
 
-  /**
-   * A pool that backs an era facet has its years checked now, not at draw time.
-   *
-   * `inEra` filters on `entry.year`, and until an entry is enriched that year is
-   * YouTube's *publication* date: the day somebody uploaded the video. For a
-   * Topic upload of a back catalogue that is the day the label bulk-loaded it, so
-   * "Rap 90s" drawn from unenriched entries returns tracks published in 2015 and
-   * silently omits every actual nineties record. The facet looked like it worked
-   * and was wrong about its entire purpose.
-   *
-   * So the correction happens here, once a day, for the handful of pools that
-   * need it, rather than after selection when it is far too late to filter on.
-   * Bounded and serialised because MusicBrainz asks anonymous callers for about a
-   * request a second and this is the one place that would otherwise flood it.
-   */
-  if (GENRES.some((other) => other.facetOf === genre.id)) {
-    for (const entry of entries.slice(0, YEAR_CHECK_LIMIT)) {
-      // Eighty serialised lookups at roughly a second each: the same reason the
-      // annotation above can be cut short applies here, for the same abandoned room.
-      checkpoint();
-      await enrich([entry]);
+/**
+ * A pool that backs an era facet has its years checked now, not at draw time.
+ *
+ * `inEra` filters on `entry.year`, and until an entry is enriched that year is
+ * YouTube's *publication* date: the day somebody uploaded the video. For a
+ * Topic upload of a back catalogue that is the day the label bulk-loaded it, so
+ * "Rap 90s" drawn from unenriched entries returns tracks published in 2015 and
+ * silently omits every actual nineties record. The facet looked like it worked
+ * and was wrong about its entire purpose.
+ *
+ * So the correction happens here, once a day, for the handful of pools that
+ * need it, rather than after selection when it is far too late to filter on.
+ * Bounded and serialised because MusicBrainz asks anonymous callers for about a
+ * request a second and this is the one place that would otherwise flood it.
+ */
+async function verifyYears(genre: Genre, entries: PoolEntry[], checkpoint: () => void): Promise<void> {
+  if (!GENRES.some((other) => other.facetOf === genre.id)) return;
+  for (const entry of entries.slice(0, YEAR_CHECK_LIMIT)) {
+    // Eighty serialised lookups at roughly a second each: the same reason the
+    // annotation can be cut short applies here, for the same abandoned room.
+    checkpoint();
+    await enrich([entry]);
+  }
+}
+
+/**
+ * Stops a run if nothing has asked for this pool in a while.
+ *
+ * Throwing rather than returning what has been annotated so far, because a
+ * partial annotation is the one outcome that must not be kept: every candidate
+ * the model never reached would be dropped by `toEntry`, and the short pool
+ * that resulted would be cached as this genre's pool for the next twenty-four
+ * hours. `poolFor` turns the throw into the brief cache a failed fill gets, so
+ * the next room to ask for the genre starts a fresh, whole fill.
+ */
+function checkpointFor(key: string): () => void {
+  return () => {
+    const last = wantedAt.get(key) ?? 0;
+    if (Date.now() - last > FILL_ABANDON_MS) throw new PoolAbandoned(key);
+  };
+}
+
+/**
+ * Fills one genre's pool.
+ *
+ * The searches first, then the configured playlists, which are nearly free
+ * (one unit per fifty) and add whatever a curator put there.
+ */
+async function fillPool(genre: Genre): Promise<Pool> {
+  const checkpoint = checkpointFor(genre.id);
+  const steps = await searchPlan(genre, FILL_SEARCHES, { allowFixed: true });
+
+  const thinSources: string[] = [];
+  const playlistIds: string[] = [];
+  for (const source of genre.playlists ?? []) {
+    try {
+      const items = await fetchPlaylistItems(source.playlistId);
+      if (items.length < 10) thinSources.push(source.playlistId);
+      const start = Math.min(source.depth ?? 0, Math.max(0, items.length - 1));
+      for (const item of items.slice(start)) {
+        playlistIds.push(item.videoId);
+      }
+    } catch (error) {
+      // One dead playlist must not empty a genre that has other sources.
+      thinSources.push(source.playlistId);
+      if (!(error instanceof YoutubeError)) throw error;
     }
   }
 
-  return { entries, fetchedAt: Date.now(), thinSources };
+  const built = await buildEntries(
+    genre,
+    steps,
+    playlistIds,
+    { videoIds: new Set(), trackKeys: new Set() },
+    checkpoint
+  );
+  thinSources.push(...built.thinSources);
+
+  // Difficulty is a rank *within this pool*, so it can only be assigned once the
+  // pool is known.
+  rankDifficulty(built.entries);
+  await verifyYears(genre, built.entries, checkpoint);
+
+  return { entries: built.entries, fetchedAt: Date.now(), thinSources };
+}
+
+/* ------------------------------------------------------------- extensions */
+
+/** Extensions in flight, one per pool. */
+const extending = new Map<string, Promise<void>>();
+/** When each pool was last extended, so a dry genre is not searched every round. */
+const extendedAt = new Map<string, number>();
+
+/**
+ * How often a pool may be extended.
+ *
+ * A search costs a hundred of the day's ten thousand units, and a room
+ * draining a pool asks on every round. Once every minute and a half keeps an
+ * evening fed (an extension brings several rounds) without letting one genre
+ * spend the day's budget in an hour.
+ */
+const EXTEND_COOLDOWN_MS = 90_000;
+
+/** Past this a pool has plenty, and a room asking for more is asking for a filter. */
+const MAX_EXTENDED_POOL = MAX_POOL_ENTRIES * 2;
+
+/**
+ * Searches a few more seeds into a live pool, in the background.
+ *
+ * The daily fill used to be all a genre got until tomorrow. A room that played
+ * through its pool in an evening was left with the catalogue's replays and
+ * then nothing; this is what makes the endless mode endless. The draw calls it
+ * when a genre it is dealing from runs low, and it adds to the pool in place,
+ * so the next draw simply has more to choose from.
+ *
+ * `window` is the room's difficulty window, which steers which seeds are
+ * searched: a room asking for hard rounds gets lesser-known artists searched
+ * for it rather than more household names it will filter out.
+ */
+export function extendPool(genreId: string, window?: { min: number; max: number }): void {
+  const genre = genreById.get(genreId);
+  if (!genre) return;
+  const source = sourceGenreFor(genre);
+  const key = source.id;
+
+  if (!source.seeds || source.seeds.length === 0) return;
+  const pool = pools.get(key);
+  // No pool, or a stale one: a fill is what it needs, and `warmPool` starts it.
+  if (!pool || pool.entries.length === 0 || Date.now() - pool.fetchedAt >= POOL_TTL_MS) return;
+  if (pool.entries.length >= MAX_EXTENDED_POOL) return;
+  if (filling.has(key) || extending.has(key)) return;
+  if (Date.now() - (extendedAt.get(key) ?? 0) < EXTEND_COOLDOWN_MS) return;
+  extendedAt.set(key, Date.now());
+
+  const checkpoint = checkpointFor(key);
+  const run = (async () => {
+    const steps = await searchPlan(source, EXTEND_SEARCHES, { window, allowFixed: false });
+    if (steps.length === 0) return;
+
+    const built = await buildEntries(
+      source,
+      steps,
+      [],
+      {
+        videoIds: new Set(pool.entries.map((entry) => entry.videoId)),
+        trackKeys: new Set(pool.entries.map((entry) => entry.trackKey))
+      },
+      checkpoint
+    );
+    if (built.entries.length === 0) return;
+    await verifyYears(source, built.entries, checkpoint);
+
+    // Replaced by a fresh fill while this was out: that pool has its own.
+    if (pools.get(key) !== pool) return;
+    const known = new Set(pool.entries.map((entry) => entry.trackKey));
+    pool.entries.push(...built.entries.filter((entry) => !known.has(entry.trackKey)));
+    rankDifficulty(pool.entries);
+  })()
+    .catch(() => undefined)
+    .finally(() => extending.delete(key));
+
+  extending.set(key, run);
 }
 
 /**
@@ -953,8 +1434,12 @@ export async function enrich(entries: PoolEntry[]): Promise<void> {
       entry.enriched = true;
 
       if (entry.answerShape === 'artist-title' && entry.artist && entry.title) {
+        // No lyrics, so no chorus to find: an instrumental genre skips the lookup
+        // and plays from its profile and the model's estimate of the theme.
+        const genre = genreById.get(entry.genreId);
+        const sung = !genre || profileFor(genre) !== THEME_PROFILE;
         const [chorus, catalogued] = await Promise.all([
-          fetchChorus(entry.artist, entry.title),
+          sung ? fetchChorus(entry.artist, entry.title) : Promise.resolve(null),
           musicbrainzAliases(entry.artist, entry.title)
         ]);
         entry.chorus = chorus;
@@ -977,7 +1462,15 @@ export async function enrich(entries: PoolEntry[]): Promise<void> {
         return;
       }
 
-      if (entry.answerShape === 'work' && entry.work) {
+      /**
+       * AniList for anime only.
+       *
+       * It used to be asked about every work, and it answers whatever it is
+       * asked: a search for a film or a game returns the nearest anime, whose
+       * titles then became accepted answers and whose year filed the film under
+       * the wrong decade. Films, series and games get theirs from their seeds.
+       */
+      if (entry.answerShape === 'work' && entry.work && genreById.get(entry.genreId)?.section === 'anime') {
         const catalogued = await anilistAliases(entry.work);
         if (catalogued) {
           entry.workAliases = [...new Set([...entry.workAliases, ...catalogued.aliases])];
@@ -1008,4 +1501,4 @@ export function poolStatus(): { genreId: string; entries: number; ageMs: number;
 }
 
 /** Internals reachable from the tests, which is the only reason they are exported. */
-export const __testing = { withoutArtistPrefix };
+export const __testing = { withoutArtistPrefix, toEntry, scoreDifficulty };

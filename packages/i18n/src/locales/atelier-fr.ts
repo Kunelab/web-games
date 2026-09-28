@@ -115,6 +115,8 @@ export const atelierFr: Catalogue = {
   "field.work.film": "Film",
   "field.work.series": "Série",
   "field.work.game": "Jeu vidéo",
+  "field.composer": "Compositeur",
+  "field.piece": "Œuvre",
   "field.difficulty": "Difficult\u00e9",
   "field.difficultyHelp":
     "De 0, que tout le monde trouve, \u00e0 100, que seul un passionn\u00e9 trouvera. Renseign\u00e9e par le tirage pour une manche g\u00e9n\u00e9r\u00e9e, et corrigeable ensuite \u2014 y compris pendant la partie, depuis l\u2019\u00e9cran de l\u2019animateur. Vide : personne ne s\u2019est prononc\u00e9.",
@@ -311,6 +313,31 @@ export const atelierFr: Catalogue = {
   "ple.duplicate.clear": "Ce ne sont pas des doublons",
   "ple.duplicate.delete": "Supprimer ce média",
   "ple.duplicate.cancel": "Annuler",
+  /* ---------- genres in question in the generated-rounds catalogue (admin) ---------- */
+  "ple.genre.flag": "Genre à vérifier : {title}",
+  "ple.genre.count": "{count} genre(s) à vérifier",
+  "ple.genre.title": "Genre à vérifier",
+  "ple.genre.unknownGenre": "Ce genre n’existe plus : aucune partie ne peut tirer cette entrée.",
+  "ple.genre.wrongShape":
+    "Ce genre n’attend pas ce type de réponse : une œuvre là où l’entrée a un artiste et un titre, ou l’inverse.",
+  "ple.genre.labelDisagrees": "La question posée nomme un autre genre, par exemple « Film » sur un opening d’anime.",
+  "ple.genre.seedElsewhere":
+    "Les catalogues de référence (Deezer, AniList, Wikidata) rangent cet artiste ou cette œuvre dans un autre genre, jamais dans celui-ci.",
+  "ple.genre.artistElsewhere": "Toutes les autres entrées de cet artiste sont dans un autre genre.",
+  "ple.genre.legacyFlag": "Ancien libellé : {title}",
+  "ple.genre.legacyBadge": "Ancien libellé",
+  "ple.genre.legacyCount": "{count} ancien(s) libellé(s)",
+  "ple.genre.legacy":
+    "Entrée ancienne : la question demande encore « Film, série ou jeu ». Confirmez ou changez son genre pour la corriger.",
+  "ple.genre.fixAll": "Corriger les anciens libellés",
+  "ple.genre.current": "Genre actuel : {genre}",
+  "ple.genre.suggested": "Suggéré : {genres}",
+  "ple.genre.none": "aucun",
+  "ple.genre.choose": "Genre",
+  "ple.genre.apply": "Appliquer",
+  "ple.genre.dismiss": "Le genre est correct",
+  "ple.genre.cancel": "Annuler",
+  "ple.catalogueName": "Le catalogue commun garde son nom : le blind test infini le retrouve ainsi.",
   /* --------------------- ouvrir un salon depuis une playlist ---------------- */
   "launch.failed": "Le lancement a échoué.",
   "launch.backPlaylist": "Playlist",

@@ -188,6 +188,16 @@ export interface ClientToServerEvents {
      * same as 0 - that would be a claim that everybody knows it.
      */
     difficulty?: number;
+    /**
+     * And which genre it really is, by genre id.
+     *
+     * The search that found a round decides its genre, and a search has no
+     * idea what a genre is: a pop song kept from a rap search is dealt to every
+     * rap room afterwards. Only a genre with the same kind of answer is taken
+     * (an artist and a title cannot become a work by moving shelf), and a work
+     * round's prompt follows the genre it moves to.
+     */
+    category?: string;
   }) => void;
 }
 

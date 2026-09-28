@@ -382,8 +382,11 @@ export const api = {
   getPlaylist: (id: number) => request<Playlist>(`/playlists/${id}`),
   createPlaylist: (body: { name: string; public?: boolean; mediaIds?: number[] }) =>
     request<Playlist>('/playlists', { method: 'POST', body }),
-  updatePlaylist: (id: number, body: { name?: string; public?: boolean; mediaIds?: number[] }) =>
-    request<Playlist>(`/playlists/${id}`, { method: 'PATCH', body }),
+  updatePlaylist: (
+    id: number,
+    /** `baseMediaIds`: the contents the editor loaded, so rows added since are kept. */
+    body: { name?: string; public?: boolean; mediaIds?: number[]; baseMediaIds?: number[] }
+  ) => request<Playlist>(`/playlists/${id}`, { method: 'PATCH', body }),
   /** `dropped` counts items the copy could not carry over, see the route. */
   duplicatePlaylist: (id: number) =>
     request<Playlist & { dropped: number }>(`/playlists/${id}/duplicate`, { method: 'POST' }),
@@ -518,15 +521,33 @@ export const api = {
    * the strongest reason found between them.
    */
   blindtestDuplicates: () =>
-    request<{ groups: { reason: 'same-video' | 'same-track' | 'similar'; mediaIds: number[] }[] }>(
-      '/blindtest/library/duplicates'
-    ),
+    request<{
+      groups: { reason: DuplicateReason; mediaIds: number[] }[];
+      /** The direct comparisons behind the groups: what each entry actually collides with. */
+      pairs: { a: number; b: number; reason: DuplicateReason }[];
+    }>('/blindtest/library/duplicates'),
   /** Settles every flag raised against one entry: "these are not duplicates". */
   blindtestDismissDuplicate: (mediaId: number) =>
     request<{ dismissed: number }>('/blindtest/library/duplicates/dismiss', {
       method: 'POST',
       body: { mediaId }
     }),
+  /**
+   * Catalogue entries that look filed under the wrong genre, and the ones still
+   * carrying the old `field.work` prompt. Admin only.
+   */
+  blindtestGenreFlags: () => request<BlindtestGenreCheck>('/blindtest/library/genre-flags'),
+  /** "This genre is right", for as long as the entry keeps it. */
+  blindtestDismissGenre: (mediaId: number) =>
+    request<{ dismissed: boolean }>('/blindtest/library/genre-flags/dismiss', {
+      method: 'POST',
+      body: { mediaId }
+    }),
+  /** Files an entry under a genre; sending its current one fixes an old prompt. */
+  blindtestSetGenre: (mediaId: number, genreId: string) =>
+    request<{ item: MediaItem }>('/blindtest/library/genre', { method: 'POST', body: { mediaId, genreId } }),
+  /** Rewrites every old `field.work` prompt whose genre is known. */
+  blindtestFixLabels: () => request<{ fixed: number }>('/blindtest/library/fix-labels', { method: 'POST' }),
   mafiaMe: () => request<MafiaCareer>('/mafia/me')
 };
 
@@ -537,6 +558,18 @@ export interface BlindtestGenre {
   section: string;
   answerShape: 'artist-title' | 'work';
   facet: boolean;
+}
+
+export type DuplicateReason = 'same-video' | 'same-track' | 'similar';
+
+/** Why an entry's genre is in question. See `blindtest-genres` on the server. */
+export type GenreFlagReason =
+  'unknown-genre' | 'wrong-shape' | 'label-disagrees' | 'seed-elsewhere' | 'artist-elsewhere';
+
+export interface BlindtestGenreCheck {
+  flags: { mediaId: number; reason: GenreFlagReason; suggestions: string[] }[];
+  /** Entries still asking for "a film, series or game" whatever their genre. */
+  legacyLabels: number[];
 }
 
 export interface BlindtestCatalog {

@@ -124,6 +124,19 @@ const envSchema = z.object({
     .default('FR'),
 
   /**
+   * How many YouTube searches the endless blind test may spend per day.
+   *
+   * A search costs a hundred quota units against a daily ten thousand, so the
+   * key allows a hundred of them for the whole deployment. Nothing else in the
+   * app searches: the editor's link lookup and playlist import use calls that
+   * cost one unit each. So the default leaves five searches' worth of slack for
+   * those, and for anything else sharing the key, which this counter cannot see.
+   * Counted per Pacific day, which is when Google resets the quota, and kept in
+   * the database so a restart does not hand out the day's allowance twice.
+   */
+  BLINDTEST_SEARCH_BUDGET: z.coerce.number().int().min(0).max(100).default(95),
+
+  /**
    * Brains for the Mafia bots, in the order they are tried.
    *
    * A comma-separated chain rather than one name: `openai,ollama` means "a free

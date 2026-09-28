@@ -246,6 +246,60 @@ const statements = [
     "created_at" TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY ("media_a", "media_b")
   )`,
+
+  // Duplicates found one entry at a time: what each entry looked like when it
+  // was compared, and the pairs it formed. See schema.ts.
+  `CREATE TABLE IF NOT EXISTS "BlindtestDuplicateIndex" (
+    "media_id" INTEGER PRIMARY KEY REFERENCES "Media" ("id") ON DELETE CASCADE,
+    "code" TEXT NOT NULL DEFAULT '',
+    "artist" TEXT NOT NULL DEFAULT '',
+    "title" TEXT NOT NULL DEFAULT ''
+  )`,
+  `CREATE TABLE IF NOT EXISTS "BlindtestDuplicatePairs" (
+    "media_a" INTEGER NOT NULL REFERENCES "Media" ("id") ON DELETE CASCADE,
+    "media_b" INTEGER NOT NULL REFERENCES "Media" ("id") ON DELETE CASCADE,
+    "reason" TEXT NOT NULL,
+    PRIMARY KEY ("media_a", "media_b")
+  )`,
+  `CREATE INDEX IF NOT EXISTS "BlindtestDuplicatePairs_b_idx" ON "BlindtestDuplicatePairs" ("media_b")`,
+
+  // "This genre is right" for one catalogue entry, while it keeps that genre.
+  `CREATE TABLE IF NOT EXISTS "BlindtestGenreDismissals" (
+    "media_id" INTEGER PRIMARY KEY REFERENCES "Media" ("id") ON DELETE CASCADE,
+    "category" TEXT NOT NULL,
+    "created_at" TEXT DEFAULT CURRENT_TIMESTAMP
+  )`,
+
+  // What the endless blind test searches YouTube for, harvested from real
+  // catalogues (Deezer, AniList, Wikidata). See schema.ts.
+  `CREATE TABLE IF NOT EXISTS "BlindtestSeeds" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "genre_id" TEXT NOT NULL,
+    "source" TEXT NOT NULL,
+    "source_key" TEXT NOT NULL,
+    "artist" TEXT NOT NULL DEFAULT '',
+    "title" TEXT NOT NULL,
+    "search" TEXT NOT NULL DEFAULT '',
+    "aliases" TEXT NOT NULL DEFAULT '[]',
+    "year" INTEGER,
+    "fame" REAL NOT NULL DEFAULT 0,
+    "searched_at" TEXT,
+    "found" INTEGER NOT NULL DEFAULT 0,
+    "created_at" TEXT DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "BlindtestSeeds_source_unique" ON "BlindtestSeeds" ("genre_id", "source", "source_key")`,
+  `CREATE INDEX IF NOT EXISTS "BlindtestSeeds_genre_idx" ON "BlindtestSeeds" ("genre_id", "searched_at")`,
+  `CREATE TABLE IF NOT EXISTS "BlindtestSeedHarvests" (
+    "genre_id" TEXT PRIMARY KEY,
+    "harvested_at" TEXT NOT NULL,
+    "seeds" INTEGER NOT NULL DEFAULT 0,
+    "error" TEXT
+  )`,
+  // YouTube searches per Pacific day, so a restart cannot spend the quota twice.
+  `CREATE TABLE IF NOT EXISTS "BlindtestSearchLedger" (
+    "day" TEXT PRIMARY KEY,
+    "searches" INTEGER NOT NULL DEFAULT 0
+  )`,
   `CREATE INDEX IF NOT EXISTS "Media_user_id_idx" ON "Media" ("user_id")`,
   `CREATE INDEX IF NOT EXISTS "Media_kind_idx" ON "Media" ("kind")`,
   `CREATE INDEX IF NOT EXISTS "Media_category_idx" ON "Media" ("category")`,

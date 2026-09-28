@@ -25,6 +25,7 @@ import { clipWindow } from './chorus-service.js';
 import {
   cachedPool,
   enrich,
+  extendPool,
   genreById,
   poolFor,
   warmPool,
@@ -79,6 +80,16 @@ const ARTIST_WINDOW_MAX = 2;
  * draw rather than a lookup.
  */
 const TARGET_SHORTLIST = 12;
+
+/**
+ * Below this many rounds left for the room, a genre asks for more.
+ *
+ * Counted per room, after its history and the catalogue are taken out: a pool
+ * can hold five hundred entries and still have nothing left for a room that
+ * has played the rest. Asked early enough that the extension, a search and a
+ * model call, lands before the last of them is dealt.
+ */
+const EXTEND_BELOW = 12;
 
 function artistBlocked(entry: PoolEntry, history: DrawHistory): boolean {
   if (!entry.artist) return false;
@@ -257,7 +268,7 @@ function toMediaView(entry: PoolEntry, difficultyTarget: number): MediaView {
       ? [
           {
             key: 'title',
-            label: 'field.title',
+            label: genre?.titleLabel ?? 'field.title',
             value: entry.title,
             aliases: entry.titleAliases,
             points: 3,
@@ -266,7 +277,7 @@ function toMediaView(entry: PoolEntry, difficultyTarget: number): MediaView {
           },
           {
             key: 'artist',
-            label: 'field.artist',
+            label: genre?.artistLabel ?? 'field.artist',
             value: entry.artist,
             // Artist spellings only. A track-title alias here would score the
             // artist's points for naming the song.
@@ -409,14 +420,31 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
       settings.difficultyMin + Math.random() * Math.max(0, settings.difficultyMax - settings.difficultyMin)
     );
 
-    const usable = buckets
-      .map((bucket) => ({
-        genre: bucket.genre,
-        entries: bucket.entries.filter(
-          (entry) => !catalogued.has(entry.videoId) && eligible(entry, bucket.genre, settings, history)
-        )
-      }))
-      .filter((bucket) => bucket.entries.length > 0);
+    const remaining = buckets.map((bucket) => ({
+      genre: bucket.genre,
+      entries: bucket.entries.filter(
+        (entry) => !catalogued.has(entry.videoId) && eligible(entry, bucket.genre, settings, history)
+      )
+    }));
+
+    /**
+     * A genre running low for this room asks for more, and does not wait.
+     *
+     * This is what used to end an endless evening: the pool was filled once a
+     * day, and a room that played through it had nothing new until tomorrow.
+     * The extension searches a few more seeds in the background and grows the
+     * pool in place, so a later round finds them. Asked on the first round of a
+     * draw only; `extendPool` keeps its own pace besides.
+     */
+    if (round === 0) {
+      for (const bucket of remaining) {
+        if (bucket.entries.length < EXTEND_BELOW) {
+          extendPool(bucket.genre.id, { min: settings.difficultyMin, max: settings.difficultyMax });
+        }
+      }
+    }
+
+    const usable = remaining.filter((bucket) => bucket.entries.length > 0);
 
     const bucket = pickGenre(usable);
     if (!bucket) break;
@@ -440,6 +468,26 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
   }
 
   return drawn;
+}
+
+/**
+ * The genre's own prompt on a work round that still carries the old catch-all.
+ *
+ * Rounds kept before each genre named its work were saved with `field.work`,
+ * which asks the room for "a film, series or game" over an anime opening. The
+ * genre knows better, so a replayed copy is dealt with the right prompt; the
+ * stored row is fixed from the catalogue editor, where it is flagged.
+ */
+export function withGenreLabel(item: MediaView): MediaView {
+  const workLabel = item.category ? genreById.get(item.category)?.workLabel : undefined;
+  if (!workLabel) return item;
+  if (!item.answers.some((answer) => answer.key === 'work' && answer.label === 'field.work')) return item;
+  return {
+    ...item,
+    answers: item.answers.map((answer) =>
+      answer.key === 'work' && answer.label === 'field.work' ? { ...answer, label: workLabel } : answer
+    )
+  };
 }
 
 /** Re-exported so the routes can describe the catalogue without importing two modules. */

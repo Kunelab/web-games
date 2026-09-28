@@ -33,10 +33,17 @@ import {
   trackKeyOf
 } from './services/blindtest-library.js';
 import { emptyHistory } from './services/blindtest-draw.js';
+import {
+  findLibraryDuplicates,
+  indexCatalogueEntry,
+  syncDuplicateIndex,
+  toDuplicateItem
+} from './services/blindtest-duplicates.js';
 import { closeDb, db } from './db/index.js';
-import { gameResults, media, passwordResets, sessions } from './db/schema.js';
+import { gameResults, media, passwordResets, playlists, sessions } from './db/schema.js';
 import { eraseAccount } from './services/account-erasure.js';
 import { mediaService } from './services/media-service.js';
+import { playlistService } from './services/playlist-service.js';
 import { passwordResetService } from './services/password-reset-service.js';
 import { userService } from './services/user-service.js';
 import { clearAssets, resolveAsset } from './game/assets.js';
@@ -430,6 +437,31 @@ check(
   reorderedView.items.map((i) => i.id)
 );
 check('and dropping an item works', reorderedView.items.length === 2, reorderedView.items.length);
+
+/**
+ * A list bigger than Fastify's default body limit still gets through.
+ *
+ * The item cap is half a million, and a request carrying that many ids is
+ * megabytes: without the route's own limit it was refused as too large before
+ * the cap was ever reached. The repeats are dropped by the save, so the
+ * playlist comes out exactly as it went in.
+ */
+const longList = [quizItem.id, blindItem.id, ...Array.from({ length: 300_000 }, () => quizItem.id)];
+const longSave = await app.inject({
+  method: 'PATCH',
+  url: `/api/playlists/${playlistView.id}`,
+  headers,
+  payload: { mediaIds: longList }
+});
+check('a playlist request over a megabyte is accepted', longSave.statusCode === 200, {
+  status: longSave.statusCode,
+  bytes: JSON.stringify({ mediaIds: longList }).length
+});
+check(
+  'and saves what it names, once each',
+  (JSON.parse(longSave.body) as { items?: MediaView[] }).items?.map((item) => item.id).join() ===
+    [quizItem.id, blindItem.id].join()
+);
 
 const renamed = await app.inject({
   method: 'PATCH',
@@ -1528,6 +1560,85 @@ check(
   'so the playlist still holds it once',
   (await listLibrary()).filter((item) => trackKeyOf(item) === trackKeyOf(kept!)).length === 1
 );
+
+/**
+ * The catalogue is found by its name, and it fills while an admin edits it.
+ *
+ * A save replaces a playlist's contents with what the editor sends, so a round
+ * a room played in the meantime used to fall out of the catalogue on the next
+ * save. The editor now says what it loaded, and anything it never saw stays.
+ */
+const catalogueRow = (await db.select().from(playlists).where(eq(playlists.name, EVERYTHING_PLAYLIST_NAME))).find(
+  (row) => row.user_id === null
+);
+const catalogueId = catalogueRow?.id ?? 0;
+check('the catalogue is known for what it is', await playlistService.isCatalogue(catalogueId), catalogueId);
+check('and an ordinary playlist is not it', !(await playlistService.isCatalogue(playlistView.id)));
+
+const loadedIds = (await listLibrary()).map((item) => item.id);
+const arrived = await rememberPlayedRound(
+  generated('arrivedlater', 'Une autre chanson', 'Un autre groupe', 'smoke-late')
+);
+const catalogueOrder = [...loadedIds].reverse();
+await playlistService.update(
+  catalogueId,
+  { mediaIds: catalogueOrder, baseMediaIds: loadedIds },
+  { id: 0, login: 'smoke-admin', role: 'admin' }
+);
+const afterSave = (await listLibrary()).map((item) => item.id);
+check('a save keeps a round filed while the editor was open', arrived !== null && afterSave.includes(arrived.id), {
+  afterSave,
+  arrived: arrived?.id
+});
+check(
+  'after the ones it sent, in the order it sent them',
+  JSON.stringify(afterSave.slice(0, catalogueOrder.length)) === JSON.stringify(catalogueOrder),
+  afterSave
+);
+if (arrived) await db.delete(media).where(eq(media.id, arrived.id));
+
+/**
+ * Duplicates are found one entry at a time, and again only when one changes.
+ *
+ * Comparing every pair on every look at the flags was quadratic in the size of
+ * the catalogue. An entry is compared against the rest when it is kept, the
+ * pairs are stored, and a read after that compares nothing new.
+ */
+const nearTwin = await rememberPlayedRound(generated('typocode', 'Une chansonn', 'Un groupe', 'smoke-dup'));
+if (nearTwin) indexCatalogueEntry(nearTwin);
+const involves = (pair: { a: number; b: number }, id: number | undefined) => pair.a === id || pair.b === id;
+const flagged = await findLibraryDuplicates();
+check(
+  'a new entry a typo away from a kept one is flagged',
+  flagged.pairs.some((pair) => involves(pair, nearTwin?.id) && involves(pair, kept?.id)),
+  flagged.pairs
+);
+check(
+  'and reading the flags again compares nothing',
+  syncDuplicateIndex((await listLibrary()).map(toDuplicateItem)) === 0
+);
+if (nearTwin) {
+  await db
+    .update(media)
+    .set({
+      answers: JSON.stringify([
+        answerFieldSchema.parse({ key: 'title', label: 'field.title', value: 'Tout autre chose' }),
+        answerFieldSchema.parse({ key: 'artist', label: 'field.artist', value: 'Personne' })
+      ])
+    })
+    .where(eq(media.id, nearTwin.id));
+}
+check(
+  'an edited entry is compared again, and only that one',
+  syncDuplicateIndex((await listLibrary()).map(toDuplicateItem)) === 1
+);
+const afterEdit = await findLibraryDuplicates();
+check(
+  'and its flag goes once it no longer looks like anything',
+  !afterEdit.pairs.some((pair) => involves(pair, nearTwin?.id)),
+  afterEdit.pairs
+);
+if (nearTwin) await db.delete(media).where(eq(media.id, nearTwin.id));
 
 /* --------------------- replaying what the room already heard -------------- */
 

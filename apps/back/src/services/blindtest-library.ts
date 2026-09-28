@@ -244,7 +244,13 @@ export async function rememberPlayedRound(item: MediaView): Promise<MediaView | 
 export async function correctLibraryRound(
   code: string,
   fields: { key: string; value: string; aliases?: string[] }[],
-  numbers: Record<string, number | undefined> = {}
+  numbers: Record<string, number | undefined> = {},
+  /**
+   * The genre it belongs to, and the answers as they read under it (a work's
+   * prompt names the genre's kind of work). Worked out by the caller, which
+   * knows the genres; this module deliberately does not.
+   */
+  genre?: { id: string; relabel: <T extends { key: string; label: string }>(answers: T[]) => T[] }
 ): Promise<boolean> {
   const [row] = await db
     .select()
@@ -307,12 +313,24 @@ export async function correctLibraryRound(
     }
   }
 
+  let category = row.category;
+  let answers = view.answers;
+  if (genre) {
+    const relabelled = genre.relabel(answers);
+    if (genre.id !== category || JSON.stringify(relabelled) !== JSON.stringify(answers)) {
+      category = genre.id;
+      answers = relabelled;
+      changed = true;
+    }
+  }
+
   if (!changed) return false;
 
   await db
     .update(media)
     .set({
-      answers: JSON.stringify(view.answers),
+      category,
+      answers: JSON.stringify(answers),
       payload: JSON.stringify(payload),
       last_modified: new Date().toISOString()
     })
@@ -421,6 +439,31 @@ export async function replayFromLibrary(
   }
 
   return picked;
+}
+
+/**
+ * How many catalogue rounds each genre could replay, for the setup screen.
+ *
+ * The pools leave out anything the catalogue already holds (a search is for
+ * something new), so the count on screen has to add the catalogue back or it
+ * would shrink as the catalogue grows, which is the opposite of the truth.
+ * Filtered the way `replayFromLibrary` filters, minus the session history a
+ * count does not have.
+ */
+export async function countLibrary(
+  genreIds: readonly string[],
+  difficulty: { min: number; max: number }
+): Promise<Map<string, number>> {
+  const wanted = new Set(genreIds);
+  const counts = new Map<string, number>();
+  for (const item of (await libraryRows()).map(toMediaView)) {
+    const genreId = item.category ?? '';
+    if (!wanted.has(genreId) || !item.readiness.ready) continue;
+    const rating = (item.payload as { difficulty?: unknown } | null)?.difficulty;
+    if (typeof rating === 'number' && (rating < difficulty.min || rating > difficulty.max)) continue;
+    counts.set(genreId, (counts.get(genreId) ?? 0) + 1);
+  }
+  return counts;
 }
 
 /** The catalogue as it stands, oldest first. For the admin's editing screen. */

@@ -14,12 +14,19 @@ import { CSS } from '@dnd-kit/utilities';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
-import { api, type MediaItem, type Playlist } from '../api/client';
+import {
+  api,
+  type BlindtestGenre,
+  type DuplicateReason,
+  type GenreFlagReason,
+  type MediaItem,
+  type Playlist
+} from '../api/client';
 import { isAdmin, useAuth } from '../hooks/useAuth';
 import { useT } from '../i18n/locale-context';
 import { kindColor, kindKey } from '../app/kinds';
 import { useAsync } from '../hooks/useAsync';
-import { Badge, Button, Chip, Dialog, Field, IconButton, Input, Loading, Switch } from '../ui';
+import { Badge, Button, Chip, Dialog, Field, IconButton, Input, Loading, Select, Switch } from '../ui';
 import './library.css';
 import './playlists.css';
 
@@ -176,8 +183,6 @@ interface EditorProps {
  */
 const EVERYTHING_PLAYLIST_NAME = 'Tout (généré)';
 
-type DuplicateReason = 'same-video' | 'same-track' | 'similar';
-
 interface DuplicatePartner {
   id: number;
   reason: DuplicateReason;
@@ -195,6 +200,34 @@ function duplicateReasonKey(reason: DuplicateReason): string {
   if (reason === 'same-video') return 'ple.duplicate.sameVideo';
   if (reason === 'same-track') return 'ple.duplicate.sameTrack';
   return 'ple.duplicate.similar';
+}
+
+/** Why an entry's genre is in question, as the dialog says it. */
+const GENRE_REASON_KEYS: Record<GenreFlagReason, string> = {
+  'unknown-genre': 'ple.genre.unknownGenre',
+  'wrong-shape': 'ple.genre.wrongShape',
+  'label-disagrees': 'ple.genre.labelDisagrees',
+  'seed-elsewhere': 'ple.genre.seedElsewhere',
+  'artist-elsewhere': 'ple.genre.artistElsewhere'
+};
+
+/**
+ * The reasons an admin can answer with "the genre is right".
+ *
+ * The other three are facts about the row rather than opinions about it: a
+ * genre that no longer exists, answer boxes that cannot fit it, a prompt naming
+ * another genre. Those are fixed by applying a genre, never waved away.
+ */
+const DISMISSABLE: ReadonlySet<GenreFlagReason> = new Set(['seed-elsewhere', 'artist-elsewhere']);
+
+interface GenreFlagInfo {
+  reason: GenreFlagReason;
+  suggestions: string[];
+}
+
+/** Which genres an entry could move to: the ones asking for the answers it has. */
+function shapeOfItem(item: MediaItem): BlindtestGenre['answerShape'] {
+  return item.answers.some((answer) => answer.key === 'work') ? 'work' : 'artist-title';
 }
 
 function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
@@ -230,6 +263,23 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   /** The entry whose duplicate flag the admin is settling, by id. */
   const [dupTargetId, setDupTargetId] = useState<number | null>(null);
   const [dupBusy, setDupBusy] = useState<'clear' | 'delete' | null>(null);
+  /**
+   * Entries deleted from this screen, until the page is next loaded.
+   *
+   * Deleting used to reload the playlist, and a reload unmounts this editor
+   * (the page shows its loader while the request is out), so every unsaved
+   * reorder, rename or addition was thrown away and the list jumped back to
+   * the top: in a catalogue of hundreds, once per duplicate settled. The row
+   * is gone on the server already; this only stops the stale copies in the
+   * props from offering it back.
+   */
+  const [deletedIds, setDeletedIds] = useState<ReadonlySet<number>>(() => new Set());
+  /** The entry whose genre the admin is looking at, and the genre picked for it. */
+  const [genreTargetId, setGenreTargetId] = useState<number | null>(null);
+  const [genreChoice, setGenreChoice] = useState('');
+  const [genreBusy, setGenreBusy] = useState<'apply' | 'dismiss' | 'fixAll' | null>(null);
+  /** Genres changed from this screen, so the row says so without a reload. */
+  const [categoryOverrides, setCategoryOverrides] = useState<ReadonlyMap<number, string>>(() => new Map());
 
   const byId = useMemo(() => {
     const map = new Map<number, MediaItem>();
@@ -249,37 +299,41 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
    * rows that are not even on screen. Non-admins never fetch — the endpoint
    * would refuse them, and there is no icon to feed.
    */
-  const showDuplicates = admin && playlist.name === EVERYTHING_PLAYLIST_NAME;
+  /** The shared catalogue, which the endless blind test finds by this very name. */
+  const isCatalogue = playlist.user_id === null && playlist.name === EVERYTHING_PLAYLIST_NAME;
+  const curating = admin && isCatalogue;
   const duplicates = useAsync(
-    () => (showDuplicates ? api.blindtestDuplicates() : Promise.resolve({ groups: [] })),
-    [showDuplicates, playlistId]
+    () => (curating ? api.blindtestDuplicates() : Promise.resolve({ groups: [], pairs: [] })),
+    [curating, playlistId]
   );
 
   /**
    * Flags by entry, with the partners each entry collides with.
    *
-   * Partners accumulate across groups with the strongest reason kept per
-   * partner, so the dialog can name each collision honestly rather than
-   * repeating the group's headline reason for all of them.
+   * Built from the direct pairs, not the groups. A group is transitive (A≈B
+   * and B≈C put A and C together even when they share nothing), and the dialog
+   * used to name every member of it as a partner under the group's headline
+   * reason: "same YouTube video" against a row that was only a typo away from
+   * a third one. Each partner here is a comparison that actually matched, with
+   * its own reason.
    */
   const dupById = useMemo(() => {
     const acc = new Map<number, { reason: DuplicateReason; partners: Map<number, DuplicateReason> }>();
-    for (const group of duplicates.data?.groups ?? []) {
-      const reason = group.reason;
-      for (const id of group.mediaIds) {
-        let entry = acc.get(id);
-        if (!entry) {
-          entry = { reason, partners: new Map() };
-          acc.set(id, entry);
-        } else if (DUPLICATE_RANK[reason] < DUPLICATE_RANK[entry.reason]) {
-          entry.reason = reason;
-        }
-        for (const other of group.mediaIds) {
-          if (other === id) continue;
-          const current = entry.partners.get(other);
-          if (!current || DUPLICATE_RANK[reason] < DUPLICATE_RANK[current]) entry.partners.set(other, reason);
-        }
+    const note = (id: number, other: number, reason: DuplicateReason) => {
+      let entry = acc.get(id);
+      if (!entry) {
+        entry = { reason, partners: new Map() };
+        acc.set(id, entry);
+      } else if (DUPLICATE_RANK[reason] < DUPLICATE_RANK[entry.reason]) {
+        entry.reason = reason;
       }
+      const current = entry.partners.get(other);
+      if (!current || DUPLICATE_RANK[reason] < DUPLICATE_RANK[current]) entry.partners.set(other, reason);
+    };
+    for (const pair of duplicates.data?.pairs ?? []) {
+      if (deletedIds.has(pair.a) || deletedIds.has(pair.b)) continue;
+      note(pair.a, pair.b, pair.reason);
+      note(pair.b, pair.a, pair.reason);
     }
     const map = new Map<number, DuplicateInfo>();
     for (const [id, entry] of acc) {
@@ -292,7 +346,112 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
       });
     }
     return map;
-  }, [duplicates.data]);
+  }, [duplicates.data, deletedIds]);
+
+  /**
+   * Genre flags and old prompts, admin only, on the catalogue only: the same
+   * rule as the duplicates, for the same reason.
+   */
+  const genreCheck = useAsync(
+    () => (curating ? api.blindtestGenreFlags() : Promise.resolve({ flags: [], legacyLabels: [] })),
+    [curating, playlistId]
+  );
+  const catalog = useAsync(() => (curating ? api.blindtestCatalog() : Promise.resolve(null)), [curating]);
+
+  const genreFlagById = useMemo(() => {
+    const map = new Map<number, GenreFlagInfo>();
+    for (const flag of genreCheck.data?.flags ?? []) {
+      if (!deletedIds.has(flag.mediaId)) map.set(flag.mediaId, flag);
+    }
+    return map;
+  }, [genreCheck.data, deletedIds]);
+  const legacyIds = useMemo(
+    () => new Set((genreCheck.data?.legacyLabels ?? []).filter((mediaId) => !deletedIds.has(mediaId))),
+    [genreCheck.data, deletedIds]
+  );
+
+  const genreById = useMemo(
+    () => new Map((catalog.data?.genres ?? []).map((genre) => [genre.id, genre])),
+    [catalog.data]
+  );
+  const sectionLabel = useMemo(
+    () => new Map((catalog.data?.sections ?? []).map((section) => [section.id, section.label])),
+    [catalog.data]
+  );
+
+  /** A genre as a person reads it: "Rap · Rap US". The raw id when unknown. */
+  function genreName(id: string | null | undefined): string {
+    if (!id) return t(msg('ple.genre.none'));
+    const genre = genreById.get(id);
+    if (!genre) return id;
+    const section = sectionLabel.get(genre.section);
+    return section ? `${section} · ${genre.label}` : genre.label;
+  }
+
+  function categoryOf(item: MediaItem): string | null {
+    return categoryOverrides.get(item.id) ?? item.category;
+  }
+
+  const genreTarget = genreTargetId !== null ? byId.get(genreTargetId) : undefined;
+  const genreFlag = genreTargetId !== null ? genreFlagById.get(genreTargetId) : undefined;
+  const genreOptions = genreTarget
+    ? (catalog.data?.genres ?? [])
+        .filter((genre) => genre.answerShape === shapeOfItem(genreTarget))
+        .map((genre) => ({ value: genre.id, label: genreName(genre.id) }))
+    : [];
+
+  /**
+   * Opens the genre dialog on the evidence's best guess.
+   *
+   * The first suggestion when there is one, the current genre when it can hold
+   * this entry, and otherwise the first genre that can.
+   */
+  function openGenre(item: MediaItem) {
+    const shape = shapeOfItem(item);
+    const fits = (id: string | null | undefined) => Boolean(id && genreById.get(id)?.answerShape === shape);
+    const suggestion = genreFlagById.get(item.id)?.suggestions.find(fits);
+    const current = categoryOf(item);
+    const first = (catalog.data?.genres ?? []).find((genre) => genre.answerShape === shape)?.id ?? '';
+    setGenreChoice(suggestion ?? (current && fits(current) ? current : first));
+    setGenreTargetId(item.id);
+  }
+
+  /** Files the entry under the chosen genre; its prompt follows on the server. */
+  async function applyGenre(item: MediaItem) {
+    if (!genreChoice) return;
+    setGenreBusy('apply');
+    try {
+      const { item: saved } = await api.blindtestSetGenre(item.id, genreChoice);
+      setCategoryOverrides((current) => new Map(current).set(item.id, saved.category ?? genreChoice));
+      setGenreTargetId(null);
+      genreCheck.reload();
+    } finally {
+      setGenreBusy(null);
+    }
+  }
+
+  /** "The genre is right": settled for as long as the entry keeps it. */
+  async function dismissGenre(item: MediaItem) {
+    setGenreBusy('dismiss');
+    try {
+      await api.blindtestDismissGenre(item.id);
+      setGenreTargetId(null);
+      genreCheck.reload();
+    } finally {
+      setGenreBusy(null);
+    }
+  }
+
+  /** Every old prompt whose genre is known, in one press. */
+  async function fixAllLabels() {
+    setGenreBusy('fixAll');
+    try {
+      await api.blindtestFixLabels();
+      genreCheck.reload();
+    } finally {
+      setGenreBusy(null);
+    }
+  }
 
   const dupTarget = dupTargetId !== null ? byId.get(dupTargetId) : undefined;
   const dupInfo = dupTargetId !== null ? dupById.get(dupTargetId) : undefined;
@@ -319,24 +478,24 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
    *
    * The row goes through the ordinary `DELETE /media/:id` — an admin may call
    * it on any row, including an ownerless one — whose cascade drops the
-   * playlist link with it. Local order follows, and the saved playlist is
-   * reloaded for the counts.
+   * playlist link with it. Local order follows, and nothing is reloaded: see
+   * `deletedIds` for what a reload used to cost.
    */
   async function deleteDuplicateMedia(item: MediaItem) {
     setDupBusy('delete');
     try {
       await api.deleteMedia(item.id);
       setOrder((current) => current.filter((mediaId) => mediaId !== item.id));
+      setDeletedIds((current) => new Set(current).add(item.id));
       setDupTargetId(null);
       duplicates.reload();
-      onSaved();
     } finally {
       setDupBusy(null);
     }
   }
 
   const available = library.filter((item) => {
-    if (chosenIds.has(item.id)) return false;
+    if (chosenIds.has(item.id) || deletedIds.has(item.id)) return false;
     if (kindFilter && item.kind !== kindFilter) return false;
     if (search && !item.title.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
@@ -397,7 +556,10 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
       await api.updatePlaylist(playlistId, {
         name: name.trim() || t(msg('pl.untitled')),
         public: isPublic,
-        mediaIds: order
+        mediaIds: order,
+        // What this screen loaded: the catalogue gains rounds while it is open,
+        // and the server keeps the ones this list never saw.
+        baseMediaIds: playlist.items.map((item) => item.id)
       });
       setDirty(false);
       onSaved();
@@ -417,10 +579,12 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
 
       <div className="page-head">
         <div style={{ flex: 1, minWidth: '14rem' }}>
-          <Field label={t(msg('ple.name'))}>
-            {({ id: fieldId }) => (
+          <Field label={t(msg('ple.name'))} hint={isCatalogue ? t(msg('ple.catalogueName')) : undefined}>
+            {({ id: fieldId, describedBy }) => (
               <Input
                 id={fieldId}
+                aria-describedby={describedBy}
+                disabled={isCatalogue}
                 value={name}
                 onChange={(event) => {
                   setName(event.target.value);
@@ -462,8 +626,25 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
               {chosen.length} ·{' '}
               {notReady > 0 ? t(msg('pl.toFinish', { count: notReady })) : t(msg('ple.allReady'))}
               {dupById.size > 0 && <> · {t(msg('ple.duplicate.count', { count: dupById.size }))}</>}
+              {genreFlagById.size > 0 && <> · {t(msg('ple.genre.count', { count: genreFlagById.size }))}</>}
+              {legacyIds.size > 0 && <> · {t(msg('ple.genre.legacyCount', { count: legacyIds.size }))}</>}
             </span>
           </header>
+
+          {/*
+            The old prompts, all at once.
+
+            Nothing to decide for most of them: the genre already says which
+            kind of work it is. The ones whose genre is unknown stay flagged
+            for a person, which is what the per-row dialog is for.
+          */}
+          {curating && legacyIds.size > 0 && (
+            <div className="pl-curation-bar">
+              <Button variant="secondary" size="sm" busy={genreBusy === 'fixAll'} onClick={() => void fixAllLabels()}>
+                {t(msg('ple.genre.fixAll'))}
+              </Button>
+            </div>
+          )}
 
           {chosen.length === 0 ? (
             <p className="pl-panel-empty">{t(msg('ple.addFromLibrary'))}</p>
@@ -482,8 +663,13 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                       item={item}
                       index={index}
                       canEdit={mayEditMedia(item)}
-                      duplicate={showDuplicates ? dupById.get(item.id) : undefined}
+                      category={categoryOf(item)}
+                      categoryLabel={curating ? genreName(categoryOf(item)) : undefined}
+                      duplicate={curating ? dupById.get(item.id) : undefined}
                       onShowDuplicate={() => setDupTargetId(item.id)}
+                      genreFlag={curating ? genreFlagById.get(item.id) : undefined}
+                      legacyLabel={curating && legacyIds.has(item.id)}
+                      onShowGenre={() => openGenre(item)}
                       onRemove={() => remove(item.id)}
                     />
                   ))}
@@ -610,6 +796,57 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
           </ul>
         )}
       </Dialog>
+
+      <Dialog
+        open={genreTarget !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setGenreTargetId(null);
+        }}
+        title={t(msg('ple.genre.title'))}
+        description={genreTarget?.title}
+        actions={
+          <>
+            <Button variant="ghost" disabled={genreBusy !== null} onClick={() => setGenreTargetId(null)}>
+              {t(msg('ple.genre.cancel'))}
+            </Button>
+            {genreTarget && genreFlag && DISMISSABLE.has(genreFlag.reason) && (
+              <Button variant="secondary" busy={genreBusy === 'dismiss'} onClick={() => void dismissGenre(genreTarget)}>
+                {t(msg('ple.genre.dismiss'))}
+              </Button>
+            )}
+            {genreTarget && (
+              <Button
+                variant="primary"
+                busy={genreBusy === 'apply'}
+                disabled={!genreChoice}
+                onClick={() => void applyGenre(genreTarget)}
+              >
+                {t(msg('ple.genre.apply'))}
+              </Button>
+            )}
+          </>
+        }
+      >
+        {genreFlag && <p className="dialog-desc">{t(msg(GENRE_REASON_KEYS[genreFlag.reason]))}</p>}
+        {genreTarget && legacyIds.has(genreTarget.id) && <p className="dialog-desc">{t(msg('ple.genre.legacy'))}</p>}
+        {genreTarget && (
+          <div className="stack-3">
+            <p className="pl-dup-reason">
+              {t(msg('ple.genre.current', { genre: genreName(categoryOf(genreTarget)) }))}
+            </p>
+            {genreFlag && genreFlag.suggestions.length > 0 && (
+              <p className="pl-dup-reason">
+                {t(msg('ple.genre.suggested', { genres: genreFlag.suggestions.map(genreName).join(', ') }))}
+              </p>
+            )}
+            <Field label={t(msg('ple.genre.choose'))}>
+              {({ id: fieldId }) => (
+                <Select id={fieldId} value={genreChoice} onValueChange={setGenreChoice} options={genreOptions} />
+              )}
+            </Field>
+          </div>
+        )}
+      </Dialog>
     </>
   );
 }
@@ -618,19 +855,33 @@ function SortableRow({
   item,
   index,
   canEdit,
+  category,
+  categoryLabel,
   duplicate,
   onShowDuplicate,
+  genreFlag,
+  legacyLabel = false,
+  onShowGenre,
   onRemove
 }: {
   item: MediaItem;
   index: number;
   canEdit: boolean;
+  /** The genre as it stands, which a change from this screen may have moved. */
+  category?: string | null;
+  /** The genre by name, on the catalogue only. */
+  categoryLabel?: string;
   duplicate?: DuplicateInfo;
   onShowDuplicate?: () => void;
+  genreFlag?: GenreFlagInfo;
+  /** Still asking for "a film, series or game". */
+  legacyLabel?: boolean;
+  onShowGenre?: () => void;
   onRemove: () => void;
 }) {
   const t = useT();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
+  const shownCategory = category === undefined ? item.category : category;
 
   return (
     <li
@@ -655,11 +906,36 @@ function SortableRow({
         </span>
         <span className="pl-item-meta">
           {t(msg(kindKey(item.kind)))}
-          {item.category ? ` · ${item.category}` : ''}
+          {categoryLabel ? ` · ${categoryLabel}` : shownCategory ? ` · ${shownCategory}` : ''}
         </span>
       </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
         {!item.readiness.ready && <Badge tone="warn">{t(msg('lib.unfinished'))}</Badge>}
+        {/*
+          An entry from before each genre named its work, still asking the room
+          for "a film, series or game". A badge and not an icon, because it is
+          a stale value rather than a question; it opens the genre dialog,
+          where confirming the genre rewrites it.
+        */}
+        {legacyLabel && (
+          <button
+            type="button"
+            className="pl-legacy-flag"
+            aria-label={t(msg('ple.genre.legacyFlag', { title: item.title }))}
+            title={t(msg('ple.genre.legacyFlag', { title: item.title }))}
+            onClick={onShowGenre}
+          >
+            <Badge tone="warn">{t(msg('ple.genre.legacyBadge'))}</Badge>
+          </button>
+        )}
+        {genreFlag && (
+          <IconButton
+            icon={<GenreIcon />}
+            className="pl-dup-flag"
+            label={t(msg('ple.genre.flag', { title: item.title }))}
+            onClick={onShowGenre}
+          />
+        )}
         {/*
           The duplicate flag, on the generated catalogue only and for admins.
           A warning triangle rather than a badge: the row is playable as is,
@@ -700,6 +976,22 @@ function SortableRow({
         <IconButton icon={<MinusIcon />} label={t(msg('ple.remove', { title: item.title }))} onClick={onRemove} />
       </span>
     </li>
+  );
+}
+
+/** A tag, at the same weight as the triangle beside it: the genre is in question. */
+function GenreIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M3 12V4h8l10 10-8 8L3 12Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="7.5" cy="8.5" r="1.4" fill="currentColor" />
+    </svg>
   );
 }
 
