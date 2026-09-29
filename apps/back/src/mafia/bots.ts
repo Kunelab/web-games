@@ -7473,7 +7473,10 @@ export class MafiaBotDriver {
       Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
     const who = nameOf(targetSlot);
     const seed = botId + ':for:' + String(targetSlot);
+    const speaker = state.players[botId]?.slot;
     const parts = defenceFor(targetSlot, board, 3)
+      // Its own clear is not a second voice: "Zorro has already cleared them", said by Zorro.
+      .filter((reason) => !(reason.code === 'vouched-for' && reason.slot === speaker))
       .map((reason) => this.forFragment(reason, nameOf, seed))
       .filter((part): part is Msg => part !== null)
       .slice(0, 2);
@@ -7771,6 +7774,8 @@ export class MafiaBotDriver {
       (claim) =>
         claim.kind === 'sighting' &&
         claim.targetSlot === targetSlot &&
+        // Somebody *else's*: a Lookout said "Rambo saw them visiting a house", and it was Rambo.
+        claim.claimerSlot !== me.slot &&
         ownsUpTo(targetSlot, claim, board) === null
     );
     if (seen) {
@@ -10500,9 +10505,9 @@ export class MafiaBotDriver {
           ? { kind: 'sighting', slot: entry.slots[0], role: null, worked, from, at: entry.targetSlot }
           : { kind: 'account', slot: entry.targetSlot, role: null, account: 'visited', worked, from };
       case 'tracked': {
-        // Where the tail ended is the finding; "they left" alone is half of it.
+        // Where the tail ended is the finding. A tail that went nowhere saw nobody go out, so it is no sighting.
         const where = entry.slots?.[0];
-        return { kind: 'sighting', slot: entry.targetSlot, role: null, worked, from, ...(where !== undefined ? { at: where } : {}) };
+        return where === undefined ? null : { kind: 'sighting', slot: entry.targetSlot, role: null, worked, from, at: where };
       }
       default:
         return { kind: 'account', slot: entry.targetSlot, role: null, account: 'visited', worked, from };

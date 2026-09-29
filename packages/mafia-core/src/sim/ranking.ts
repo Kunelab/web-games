@@ -288,10 +288,19 @@ export function rank(info: PublicInfo): Suspect[] {
        * whole room read this morning and that a bot can quote back word for
        * word. See the will quoting in `bots.ts`.
        */
+      /**
+       * A night's work only, not an opinion that happened to outlive its owner.
+       *
+       * A Lookout said "Stewie Griffin. A hunch, not a case" and died that
+       * night; from the next morning the hunch was a town corpse's testimony at
+       * full weight, quoted beside an unrelated line of the will, and it hanged
+       * an Escort for visiting the Godfather. Dying does not make a read a check.
+       */
       const buried = info.claims
         .filter(
           (claim) =>
             claim.kind === 'accuse' &&
+            claim.worked === true &&
             claim.targetSlot === slot &&
             !info.aliveSlots.includes(claim.claimerSlot) &&
             info.deadRoles.has(claim.claimerSlot)

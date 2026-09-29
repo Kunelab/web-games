@@ -274,8 +274,21 @@ describe('a name written down by the dead', () => {
       totalDead: 1,
       deadRoles: new Map<number, RoleId>([[accuser, role]]),
       deaths: [{ slot: accuser, day: 2, phase: 'night', source: 'mafia' }],
-      claims: [said({ claimerSlot: accuser, targetSlot: target, kind: 'accuse', day: 2 })]
+      claims: [said({ claimerSlot: accuser, targetSlot: target, kind: 'accuse', day: 2, worked: true, from: 'sheriff' })]
     });
+
+  /** A Lookout's "a hunch, not a case" hanged an Escort once its author was dead. */
+  it('does not turn a dead seat’s hunch into testimony', () => {
+    const hunch = board({
+      aliveSlots: [1, 2, 3, 4],
+      totalDead: 1,
+      deadRoles: new Map<number, RoleId>([[5, 'lookout']]),
+      deaths: [{ slot: 5, day: 2, phase: 'night', source: 'mafia' }],
+      claims: [said({ claimerSlot: 5, targetSlot: 3, kind: 'accuse', day: 2 })]
+    });
+    const found = rank(hunch).find((suspect) => suspect.slot === 3);
+    assert.ok(!codes(found?.against ?? []).includes('named-in-a-will'));
+  });
 
   it('counts a dead townsperson naming somebody', () => {
     const found = rank(graveyard(5, 'sheriff', 3)).find((suspect) => suspect.slot === 3);

@@ -623,8 +623,15 @@ function readTestaments(state: MafiaState): Claim[] {
           }
           break;
         case 'tracked': {
+          /**
+           * Only a tail that went somewhere is a sighting.
+           *
+           * "Night 2 I was on Pac-Man, and they never left" was filed as Pac-Man
+           * seen out, and the room hanged a Veteran for "Garuda watched them go to
+           * someone's house" on the very night the will said he stayed in.
+           */
           const where = entry.slots?.[0];
-          file({ ...base, targetSlot: entry.targetSlot, kind: 'sighting', ...(where !== undefined ? { at: where } : {}) });
+          if (where !== undefined) file({ ...base, targetSlot: entry.targetSlot, kind: 'sighting', at: where });
           break;
         }
         /**
