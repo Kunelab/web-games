@@ -44,6 +44,7 @@ export {
   isMafia,
   isMason,
   jailChannel,
+  keepsCell,
   isKeeper,
   captiveOf,
   keeperHolding,

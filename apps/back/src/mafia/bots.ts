@@ -21,8 +21,10 @@ import {
   judgeRequest,
   type RequestRefusal,
   cellProves,
+  chatLineFor,
   chatRules,
   jailChannel,
+  keepsCell,
   isKeeper,
   captiveOf,
   legalNightAction,
@@ -3370,6 +3372,8 @@ export class MafiaBotDriver {
       for (const entry of filed) {
         const from = fresh.players[entry.claimerId];
         if (!from) continue;
+        // A faceless voice stakes no house's word. See `hearPrivately`.
+        if (keepsCell(room, from.playerId)) continue;
         if (entry.kind === 'target' || entry.kind === 'spare') {
           const ask = {
             kind: entry.kind,
@@ -3446,6 +3450,15 @@ export class MafiaBotDriver {
     const room = message.channel;
     const author = message.authorId ? state.players[message.authorId] : null;
     if (!author || room === 'dead' || room === 'mafia' || room === 'triad' || room === 'cult') return;
+    /**
+     * The keeper's own words in its own cell are not a claim by anybody.
+     *
+     * The only other seat that hears them is the prisoner, and to the prisoner
+     * they come from a voice with no face. Filed against the keeper's house,
+     * "I am the jailor" reached the captive's board as that house claiming the
+     * badge, and the anonymity the chat keeps was handed back through the board.
+     */
+    if (keepsCell(room, author.playerId)) return;
 
     const span = state.phase === 'night' ? state.config.nightMs : state.config.dayMs;
     const read = readRoom(state, room, (state.phaseEndsAt ?? 0) - span, new Set([author.slot]));
@@ -4314,11 +4327,7 @@ export class MafiaBotDriver {
     const recent = [...new Set([...human, ...square.slice(-2)])]
       .sort((left, right) => left.id - right.id)
       .slice(-4)
-      .map((message) => ({
-        slot: message.authorId ? (state.players[message.authorId]?.slot ?? 0) : 0,
-        name: message.authorName,
-        text: message.text
-      }));
+      .map((message) => ({ ...this.heardAs(state, botId, message), text: message.text }));
 
     /**
      * And what this seat has already said in here today.
@@ -6565,6 +6574,27 @@ export class MafiaBotDriver {
    *
    * Clipped, because this goes into a prompt and a person can paste anything.
    */
+  /**
+   * Who a line sounds like to this seat, which is not always who said it.
+   *
+   * The model is handed the raw log, and the raw log carries every byline. The
+   * phone projects each line through `chatLineFor` first, so a prisoner sees a
+   * voice with no face; the bot in the same cell was being handed the keeper's
+   * name at the top of its prompt and read it straight back into the room. On
+   * a real table a Ravisseur said "Hello" and the captive answered "La B1te?",
+   * which is the keeper's nickname and the one thing that room exists to hide.
+   *
+   * Faceless comes back as a description rather than `ANONYMOUS`: a row of dots
+   * is a name the model will try to pronounce.
+   */
+  private heardAs(state: MafiaState, botId: string, message: ChatMessage): { name: string; slot: number } {
+    const seen = chatLineFor(state, botId, message);
+    if (!seen.authorId) {
+      return { name: message.channel.startsWith('jail:') ? 'The voice in the cell' : 'Someone', slot: 0 };
+    }
+    return { name: seen.authorName, slot: state.players[seen.authorId]?.slot ?? 0 };
+  }
+
   private answering(state: MafiaState, botId: string, room: string): { who: string; text: string }[] {
     const self = state.players[botId];
     if (!self) return [];
@@ -6611,7 +6641,7 @@ export class MafiaBotDriver {
     );
     const mine = lines.filter((message) => named.test(message.text));
     return (mine.length > 0 ? mine : lines).slice(-2).map((message) => ({
-      who: message.authorName,
+      who: this.heardAs(state, botId, message).name,
       // Quoted back to a model, so screened; the room still sees the original.
       text: clip(screen(message.text).text.replace(/\s+/g, ' ').trim(), 160)
     }));

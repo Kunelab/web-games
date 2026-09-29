@@ -1019,6 +1019,17 @@ function cellTag(keeperId: string): string {
   return Math.abs(hash).toString(36).padStart(6, '0').slice(-6);
 }
 
+/**
+ * Whether this cell, on any night, is the one this seat keeps.
+ *
+ * The keeper's end of the room is the only end that gets to put names to the
+ * voices in it. Any night rather than tonight's, because an old transcript is
+ * still read back and the keeper was just as much the keeper then.
+ */
+export function keepsCell(channel: string, playerId: string): boolean {
+  return channel.startsWith('jail:') && channel.endsWith(':' + cellTag(playerId));
+}
+
 /** Who this keeper is holding tonight, if anybody. */
 export function captiveOf(state: MafiaState, keeperId: string): string | null {
   return state.captives?.[keeperId] ?? null;
@@ -1094,8 +1105,13 @@ export function chatRules(): ChannelRules<MafiaState> {
          * in, and neither can see anybody else's. This used to answer `true` for
          * any seat whose role was Jailor, on any cell, on any night, which was
          * harmless while there was one cell a night and is not now.
+         *
+         * Both ends at once, when a keeper is itself somebody's captive. A keeper
+         * used to be answered from its own cell alone, so a Jailor the Ravisseur
+         * took sat in the cellar blind: its captor's questions never reached it,
+         * and it had no way to plead.
          */
-        if (isKeeper(member)) return channel === jailChannel(state.day, memberId);
+        if (isKeeper(member) && channel === jailChannel(state.day, memberId)) return true;
         const keeperId = keeperHolding(state, memberId);
         return keeperId !== null && channel === jailChannel(state.day, keeperId);
       }
@@ -1145,8 +1161,8 @@ export function chatRules(): ChannelRules<MafiaState> {
          * The jailor's own gag is its own business: it is the one asking.
          */
         const keeperId = keeperHolding(state, memberId);
-        if (keeperId !== null) {
-          return channel === jailChannel(state.day, keeperId) && member.silencedDay !== state.day;
+        if (keeperId !== null && channel === jailChannel(state.day, keeperId)) {
+          return member.silencedDay !== state.day;
         }
         return isKeeper(member) && captiveOf(state, memberId) !== null && channel === jailChannel(state.day, memberId);
       }

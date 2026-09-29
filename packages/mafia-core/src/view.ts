@@ -528,8 +528,11 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
        * keeps; a captive sees the room it is in; everybody else has no cell tab
        * at all.
        */
-      const ownCellKeeper = isKeeper(self) ? self.playerId : keeperHolding(state, self.playerId);
-      const cellIds = ownCellKeeper ? [jailChannel(state.day, ownCellKeeper)] : [];
+      // Both, for a keeper that is itself held tonight: it keeps one room and sits in another.
+      const heldBy = keeperHolding(state, self.playerId);
+      const cellIds = [...(isKeeper(self) ? [self.playerId] : []), ...(heldBy ? [heldBy] : [])].map((keeperId) =>
+        jailChannel(state.day, keeperId)
+      );
       const channelIds = ['day', 'dead', 'mafia', 'triad', 'cult', 'mason', ...cellIds, ...pmIds];
 
       /**

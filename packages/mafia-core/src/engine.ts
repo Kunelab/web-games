@@ -59,6 +59,7 @@ import {
   chatRules,
   isMason,
   jailChannel,
+  keepsCell,
   isKeeper,
   captiveOf,
   keeperHolding,
@@ -727,10 +728,14 @@ export function chatLineFor(
    *
    * The prisoner keeps its own byline: the jailor chose the cell and knows
    * perfectly well who is sitting in it.
+   *
+   * "The keeper of this cell", not "a Jailor". Tested on the role, a Jailor
+   * held in a Ravisseur's cellar read its captor's name off every line, and
+   * the Ravisseur and the Interrogateur could not read their own prisoner's.
    */
   if (
     message.channel.startsWith("jail:") &&
-    reader.role !== "jailor" &&
+    !keepsCell(message.channel, playerId) &&
     message.authorId !== playerId
   )
     return { ...message, authorId: null, authorName: ANONYMOUS };

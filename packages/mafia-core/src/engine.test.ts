@@ -3132,8 +3132,37 @@ describe("the cellar is a cell", () => {
         ANONYMOUS,
         "a captive must not be handed the name of whoever took it",
       );
+      const answered = state.chat.messages.find(
+        (message) =>
+          message.channel === cell && message.authorId === captive.playerId,
+      )!;
+      assert.equal(
+        chatLineFor(state, boss.playerId, answered).authorName,
+        captive.name,
+        "the keeper chose the cell and knows who is in it, whatever its badge",
+      );
     });
   }
+
+  /**
+   * The byline was kept for anybody holding the Jailor's badge, not for the
+   * keeper of the room. So a Jailor that the Ravisseur took read its captor's
+   * name off every line of the night.
+   */
+  it("keeps the captor faceless to a Jailor held in the cellar", () => {
+    const state = table(["kidnapper", "mafioso", "jailor", "sheriff", "escort"]);
+    const boss = bySlot(state, 1);
+    const jailor = bySlot(state, 3);
+
+    assert.equal(jailTarget(state, boss.playerId, jailor.slot).ok, true);
+    advanceMafia(state, 0, lcg(1));
+    const cell = jailChannel(state.day, boss.playerId);
+    assert.equal(sayInChat(state, boss.playerId, cell, "I am the jailor", 10).ok, true);
+
+    const seen = chatVisibleTo(state, jailor.playerId).filter((message) => message.channel === cell);
+    assert.ok(seen.length > 0, "the captive still hears the question");
+    assert.ok(!seen.some((message) => message.authorName === boss.name));
+  });
 
   it("takes the captive out of the night and shelters it there", () => {
     const state = table([
