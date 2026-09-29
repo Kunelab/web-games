@@ -558,7 +558,8 @@ function sameSide(state: MafiaState, a: string, b: string): boolean {
   const one = state.players[a];
   const two = state.players[b];
   if (!one?.role || !two?.role) return false;
-  if (one.bondPartnerId === two.playerId || two.bondPartnerId === one.playerId) return true;
+  // Lovers, not the Heartbreaker's victims: a charm is a hostage, not a side. See `allies` in bots.ts.
+  if (one.bondKind === 'lover' && (one.bondPartnerId === two.playerId || two.bondPartnerId === one.playerId)) return true;
   return isLodgeMate(one, two);
 }
 

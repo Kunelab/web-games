@@ -3965,6 +3965,10 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
          * same question asked by opposite sides, which is what makes the
          * doorstep between them a real race.
          */
+        // Kept for the will, as an audit keeps it: a Sheriff taken into the lodge
+        // still has a Sheriff's nights to account for. See `MafiaPlayer.roleBefore`.
+        if (target.roleBefore === undefined || target.roleBefore === null)
+          target.roleBefore = target.role;
         target.role = "mason";
         notify(target, NOTE.initiated());
         notify(player, NOTE.initiateDone(target.name));

@@ -2,6 +2,7 @@ import {
   BOARD_MEMO,
   isEvilRole,
   sheriffSuspects,
+  tradeVerdict,
   type Claim,
   type PublicInfo,
   type VoteRecord
@@ -542,6 +543,9 @@ function testamentClaims(state: MafiaState, spoken: Claim[]): Claim[] {
 }
 
 function readTestaments(state: MafiaState): Claim[] {
+  const rolesInPlay = new Set<RoleId>(
+    tableRoleList(state, Object.keys(state.players).length).flatMap((token) => slotPool(token))
+  );
   const filed: Claim[] = [];
   const seen = new Set<string>();
   const file = (claim: Claim): void => {
@@ -605,12 +609,41 @@ function readTestaments(state: MafiaState): Claim[] {
             });
           }
           break;
+        /**
+         * With the house, which is half the finding.
+         *
+         * Filed without `at`, a Lookout's list at the house that died and a
+         * tail that ended at the corpse's door both reached the board as "went
+         * out", and the doorstep rule (the strongest movement evidence there is)
+         * could never fire off a will.
+         */
         case 'visitors':
-          for (const visitor of entry.slots ?? []) file({ ...base, targetSlot: visitor, kind: 'sighting' });
+          for (const visitor of entry.slots ?? []) {
+            file({ ...base, targetSlot: visitor, kind: 'sighting', at: entry.targetSlot });
+          }
           break;
-        case 'tracked':
-          file({ ...base, targetSlot: entry.targetSlot, kind: 'sighting' });
+        case 'tracked': {
+          const where = entry.slots?.[0];
+          file({ ...base, targetSlot: entry.targetSlot, kind: 'sighting', ...(where !== undefined ? { at: where } : {}) });
           break;
+        }
+        /**
+         * And the Investigator's line, which was never read at all.
+         *
+         * "Hades smells of petrol: Arsonist" sat in a dead Investigator's will
+         * beside a living Sheriff's matching check, and the board held neither as
+         * evidence: the town hanged the Sheriff. Graded against the roster the
+         * same way the living Investigator grades it before speaking.
+         */
+        case 'trade': {
+          const verdict = tradeVerdict(entry.value, rolesInPlay);
+          file({
+            ...base,
+            targetSlot: entry.targetSlot,
+            kind: verdict === 'damning' ? 'accuse' : verdict === 'clean' ? 'clear' : 'hint'
+          });
+          break;
+        }
         case 'went':
           file({
             ...base,

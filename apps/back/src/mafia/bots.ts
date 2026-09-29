@@ -5203,7 +5203,8 @@ export class MafiaBotDriver {
         .filter((other) => other.playerId !== self.playerId && isLodgeMate(self, other))
         .map((other) => other.slot)
     );
-    const bonded = self.bondPartnerId ? state.players[self.bondPartnerId] : null;
+    // Lovers only: a charmed seat is never told who charmed it, and does not win with them.
+    const bonded = self.bondPartnerId && self.bondKind === 'lover' ? state.players[self.bondPartnerId] : null;
     if (bonded?.alive) allies.add(bonded.slot);
     const seats = board.aliveSlots
       .filter((slot) => slot !== self.slot)
@@ -5371,7 +5372,8 @@ export class MafiaBotDriver {
      * policy has never once consulted.
      */
     const allies = new Set((me.teammates ?? []).map((mate) => mate.slot));
-    const bonded = self.bondPartnerId ? state.players[self.bondPartnerId] : null;
+    // Lovers only: a charmed seat is never told who charmed it, and does not win with them.
+    const bonded = self.bondPartnerId && self.bondKind === 'lover' ? state.players[self.bondPartnerId] : null;
     if (bonded?.alive) allies.add(bonded.slot);
 
     /**
@@ -6221,11 +6223,31 @@ export class MafiaBotDriver {
     }
     if (voting !== null && !publishes.some((claim) => claim.kind === 'accuse')) {
       const mark = Object.values(state.players).find((player) => player.slot === voting);
+      /**
+       * A vote this seat's own night stands behind is a night's work, and says so.
+       *
+       * The vote's accusation was always filed bare, so a Sheriff saying "Voting
+       * 13, because my night 1 check on them came back Arsonist" put a hunch on
+       * the board: the room weighed it as an opinion, and hanged the Sheriff
+       * instead of the Arsonist.
+       */
+      const grounded = (state.players[botId]?.intel ?? []).find(
+        (entry) =>
+          entry.targetSlot === voting &&
+          ((entry.kind === 'sheriff' && sheriffSuspects(entry.value)) ||
+            (entry.kind === 'role' && entry.value in ROLES && isEvilRole(entry.value as RoleId)) ||
+            (entry.kind === 'trade' && tradeVerdict(entry.value, board.rolesInPlay) === 'damning') ||
+            (entry.kind === 'tracked' &&
+              (entry.slots ?? []).some((house) =>
+                board.deaths.some((death) => death.slot === house && death.phase === 'night' && death.day === entry.night)
+              )))
+      );
       publishes.push({
         kind: 'accuse',
         claimerSlot: me.slot,
         targetSlot: voting,
         day: state.day,
+        ...(grounded ? { worked: true, from: grounded.kind, night: grounded.night } : {}),
         // Ground truth, for the bench's honesty statistics. A live table never
         // reads it; the headless one scores every claim against the deal.
         truthful: !!mark?.role && ROLES[mark.role].faction !== 'town'
@@ -7398,7 +7420,10 @@ export class MafiaBotDriver {
      * argument. `caseFor` still returns three for anything reading the board
      * rather than speaking to it.
      */
+    const speaker = state.players[botId]?.slot;
     const parts = caseFor(targetSlot, board, 3)
+      // Its own accusation is not a second voice: "Bowser has you at the top of their list", said by Bowser.
+      .filter((reason) => !(reason.code === 'accused-by' && reason.slot === speaker))
       .map((reason) => this.fragment(reason, nameOf, seed, board, targetSlot))
       .filter((part): part is Msg => part !== null)
       .slice(0, 2);
@@ -9157,7 +9182,8 @@ export class MafiaBotDriver {
       ? null
       : changed
         ? t(
-            vary('mafia.bot.will.audited', 3, botId + ':will', {
+            // The lodge is not an Auditor: a Sheriff taken in by the Masons says so, not that it was audited.
+            vary(self.role === 'mason' ? 'mafia.bot.will.initiated' : 'mafia.bot.will.audited', 3, botId + ':will', {
               was: ROLE.name(signed),
               now: ROLE.name(self.role)
             })
@@ -9266,7 +9292,15 @@ export class MafiaBotDriver {
 
     /* -------- round one: what you are. Truthfully, or the best lie going. ---- */
     if (round === 1) {
-      const claimed = town ? self.role : this.maskOf(state, botId, mind);
+      /**
+       * The badge its record is made of.
+       *
+       * A Sheriff initiated into the lodge read out two days of checks and then
+       * told the stand "The Mason. I know it proves nothing": two badges in one
+       * trial, and the room hanged it for the contradiction.
+       */
+      const initiated = self.role === 'mason' && self.roleBefore ? self.roleBefore : null;
+      const claimed = town ? (initiated ?? self.role) : this.maskOf(state, botId, mind);
       /**
        * The claim goes on the board, which is the entire point of saying it.
        *
