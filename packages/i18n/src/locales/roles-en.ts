@@ -94,7 +94,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.actress.name': 'Actress',
   'mafia.role.actress.desc': 'Plays somebody else’s part: investigators applaud without understanding.',
   'mafia.role.kidnapper.name': 'Kidnapper',
-  'mafia.role.kidnapper.desc': 'Takes a player for the night — unreachable, harmless, furious — and may execute them in the cellar. Three times.',
+  'mafia.role.kidnapper.desc': 'Takes a player for the night — unreachable, harmless, furious — and may execute them in the cellar. Once.',
   'mafia.role.heartbreaker.name': 'Heartbreaker',
   'mafia.role.heartbreaker.desc': 'Makes a player fall madly in love: if your heart stops, so does theirs.',
 
@@ -120,7 +120,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.deceiver.name': 'Deceiver',
   'mafia.role.deceiver.desc': 'Hides at somebody’s house: whatever was meant for you strikes your host.',
   'mafia.role.interrogator.name': 'Interrogator',
-  'mafia.role.interrogator.desc': 'Takes a player for the night — unreachable, harmless, terrified — and need not let them out. Three times.',
+  'mafia.role.interrogator.desc': 'Takes a player for the night — unreachable, harmless, terrified — and need not let them out. Once.',
   'mafia.role.diva.name': 'Diva',
   'mafia.role.diva.desc': 'Wears somebody else’s face: investigators will never see through it.',
 

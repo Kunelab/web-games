@@ -1,6 +1,7 @@
 import { CORPSE_ONLY, ROLES, roleDef, type RoleId } from '../roles.js';
 import { possibleRoles, roomForAll } from './slots.js';
 import type { Claim, PublicInfo } from './policies.js';
+import type { MafiaPlayer } from '../state.js';
 
 /**
  * What the night did, held against what people said it did.
@@ -39,6 +40,8 @@ export type Deduction =
   | { kind: 'poison-survived'; night: number }
   /** Called on a house whose owner was already in the ground. */
   | { kind: 'visited-a-corpse'; night: number; otherSlot: number }
+  /** Reported seeing somebody call on a house whose owner was already in the ground. */
+  | { kind: 'sighted-at-a-corpse'; night: number; otherSlot: number; seenSlot: number }
   /** Wears a badge that only ever works on a corpse, and called on the living. */
   | { kind: 'visited-the-living'; night: number; otherSlot: number; role: RoleId }
   /** A bodyguard died for them on a night the report records no death. */
@@ -100,6 +103,7 @@ export type Deduction =
  */
 const WORTH: Record<Deduction['kind'], number> = {
   'visited-a-corpse': 2.5,
+  'sighted-at-a-corpse': 2.5,
   'visited-the-living': 2.5,
   'guarded-nobody-died': 2.5,
   'acted-from-the-cell': 2.5,
@@ -242,7 +246,8 @@ const CAUSED_BY: Partial<Record<NonNullable<Claim['ailment']>, RoleId[]>> = {
   poison: ['poisoner'],
   douse: ['arsonist'],
   silenced: ['blackmailer', 'silencer'],
-  jailed: ['jailor'],
+  // Every keeper, because the captive cannot tell whose cell it was in.
+  jailed: ['jailor', 'kidnapper', 'interrogator'],
   guarded: ['bodyguard'],
   healed: ['doctor'],
   blocked: ['escort', 'consort'],
@@ -342,8 +347,32 @@ export { CORPSE_ONLY };
  * is a narrowing and not an impossibility, which is a thing for the suspicion
  * model to weigh, not for the deduction layer to certify.
  */
+/** The cells that are not the Jailor's. See `two-in-one-cell`. */
+const OTHER_KEEPERS: readonly RoleId[] = ['kidnapper', 'interrogator'];
+
 function nobodyCouldVisitTheDead(night: number, info: PublicInfo): boolean {
   return nobodyLeftWith(VISITS_THE_DEAD, night, info);
+}
+
+/**
+ * The findings a keeper knows are wrong, because it held the seat itself.
+ *
+ * The board is public and cached per table, so it cannot know who is reading.
+ * But a keeper's own nights are in its intel, and a seat this keeper locked up
+ * on a night was in a cell that night, whatever the arithmetic says about it.
+ * A real Jailor voted to hang the Bodyguard he had held himself, on the strength
+ * of "two people cannot share the cell", with the answer in his own record.
+ */
+export function asKnownBy(found: Deduction[], slot: number, reader: Pick<MafiaPlayer, 'intel'>): Deduction[] {
+  const held = new Set(
+    reader.intel.filter((entry) => entry.kind === 'jailed' && entry.targetSlot === slot).map((entry) => entry.night)
+  );
+  if (held.size === 0) return found;
+  return found.filter(
+    (entry) =>
+      !(entry.kind === 'two-in-one-cell' && held.has(entry.night)) &&
+      !(entry.kind === 'impossible-ailment' && entry.ailment === 'jailed')
+  );
 }
 
 /**
@@ -398,6 +427,22 @@ export function deductions(slot: number, info: PublicInfo): Deduction[] {
       nobodyCouldVisitTheDead(night, info)
     ) {
       found.push({ kind: 'visited-a-corpse', night, otherSlot: claim.targetSlot });
+    }
+
+    /**
+     * The same impossibility, told about somebody else.
+     *
+     * "Lookout here, I saw Chun-Li visiting Montcul on night 2", with Montcul
+     * buried on night 1. Nothing caught it, because the visit was not the
+     * speaker's own: the lie was in what they said they saw.
+     */
+    if (
+      claim.kind === 'sighting' &&
+      claim.at !== undefined &&
+      buriedBefore(claim.at, night, info) &&
+      nobodyCouldVisitTheDead(night, info)
+    ) {
+      found.push({ kind: 'sighted-at-a-corpse', night, otherSlot: claim.at, seenSlot: claim.targetSlot });
     }
 
     /**
@@ -548,12 +593,22 @@ export function deductions(slot: number, info: PublicInfo): Deduction[] {
     }
 
     if (claim.ailment === 'jailed') {
-      // A cell holds one. Two seats reporting the same night means one of them
-      // is inventing an alibi, and the room cannot yet tell which.
+      /**
+       * A cell holds one. Two seats reporting the same night means one of them
+       * is inventing an alibi, and the room cannot yet tell which.
+       *
+       * But only while the Jailor's is the only cell there could have been. The
+       * Ravisseur and the Interrogateur keep cells of their own that look the
+       * same from inside, so on a table that could hold either, two captives on
+       * one night are two honest seats. A real game hanged a Mason Leader and
+       * then a Bodyguard on this rule, one a day, while the second cell's keeper
+       * sat at the table watching.
+       */
+      const oneCellOnly = roleDef('jailor').unique && nobodyLeftWith(OTHER_KEEPERS, night, info);
       for (const other of info.claims) {
         if (other.kind !== 'ailing' || other.ailment !== 'jailed') continue;
         if (other.claimerSlot === slot || nightOf(other) !== night) continue;
-        if (roleDef('jailor').unique) found.push({ kind: 'two-in-one-cell', night, otherSlot: other.claimerSlot });
+        if (oneCellOnly) found.push({ kind: 'two-in-one-cell', night, otherSlot: other.claimerSlot });
         break;
       }
       // And the cell has no door: a seat that was in it went nowhere.

@@ -214,6 +214,8 @@ export interface Decision {
     worked?: boolean;
     /** And which power produced it, which is what corroborates. See `Claim.from`. */
     from?: Claim['from'];
+    /** A sighting's house: where the seat in `slot` was seen going. See `Claim.at`. */
+    at?: number;
   } | null;
   /**
    * What this turn means, for the mouth to phrase.
@@ -635,6 +637,22 @@ function claimValue(claim: { kind: ClaimKind; ailment?: Claim['ailment'] }): num
 }
 
 const SUBSTANTIAL: ReadonlySet<ClaimKind> = new Set<ClaimKind>(['sighting', 'role-claim', 'accuse', 'clear', 'ailing']);
+
+/**
+ * The town badge a night's record can only have come from.
+ *
+ * Read by `maskOf` for a seat that was converted: its intel still holds the
+ * nights of the badge it had, and that badge is the face it should keep.
+ */
+const FORMER_BADGE: Partial<Record<IntelEntry['kind'], RoleId>> = {
+  sheriff: 'sheriff',
+  trade: 'investigator',
+  visitors: 'lookout',
+  tracked: 'detective',
+  saved: 'doctor',
+  blocked: 'escort',
+  jailed: 'jailor'
+};
 
 /**
  * The weapon a killing badge signs its work with, as the dawn report names it.
@@ -5298,7 +5316,8 @@ export class MafiaBotDriver {
       ...(claim.account ? { account: claim.account } : {}),
       ...(claim.ailment ? { ailment: claim.ailment } : {}),
       ...(claim.worked ? { worked: true } : {}),
-      ...(claim.from ? { from: claim.from } : {})
+      ...(claim.from ? { from: claim.from } : {}),
+      ...(claim.at !== undefined ? { at: claim.at } : {})
     });
   }
 
@@ -5563,7 +5582,10 @@ export class MafiaBotDriver {
         spared.has(decided ?? -1) && elsewhere.length > 0
           ? decideNightTarget(self, mind.brain, board, elsewhere, action.type, allies, me.intel, rng)
           : decided;
-      const slot = heeded && ask ? ask.slot : own;
+      // A house already named to this seat's room tonight is the house it takes. See `BotMind.named`.
+      const promised =
+        mind.named?.night === state.day && targets.includes(mind.named.slot) ? mind.named.slot : null;
+      const slot = heeded && ask ? ask.slot : (promised ?? own);
 
       /**
        * The jailor listens before pulling the lever.
@@ -5707,6 +5729,7 @@ export class MafiaBotDriver {
         const recruit = committed ? (state.players[committed]?.slot ?? null) : null;
         const line = this.lodgeLine(state, botId, view, board, recruit);
         if (!line) return EMPTY;
+        if (recruit !== null) mind.named = { night: state.day, slot: recruit };
         const heard = this.answering(state, botId, channel);
         return {
           ...EMPTY,
@@ -5761,6 +5784,9 @@ export class MafiaBotDriver {
         const job = holdsKnife ? null : ownSlot;
         const shop = this.familyLine(state, botId, view, board, aim, ask, heeded, job, verdict?.reason ?? null);
         if (!shop) return EMPTY;
+        // The knife-holder's own named house, and the job of a seat that has none.
+        const mine = holdsKnife ? knife : own ? ownSlot : null;
+        if (mine !== null) mind.named = { night: state.day, slot: mine };
         const heard = this.answering(state, botId, channel);
         // Under a possible Spy the mouth is not handed a house number to avoid saying; it is handed nothing at all.
         const hushed = spyMayListen(view, board);
@@ -6553,7 +6579,11 @@ export class MafiaBotDriver {
               slot: consistent.targetSlot,
               role: consistent.claimedRole ?? null,
               ...(consistent.account ? { account: consistent.account } : {}),
-              ...(consistent.ailment ? { ailment: consistent.ailment } : {})
+              ...(consistent.ailment ? { ailment: consistent.ailment } : {}),
+              // A night's work stays one on the board, house and all.
+              ...(consistent.worked ? { worked: true } : {}),
+              ...(consistent.from ? { from: consistent.from } : {}),
+              ...(consistent.at !== undefined ? { at: consistent.at } : {})
             }
           : null,
       jailSlot: day.jailSlot,
@@ -6831,8 +6861,17 @@ export class MafiaBotDriver {
         return claim.account === 'home' ? line('stayedHome', 9) : line('visited', 9, { who: who(claim.targetSlot) });
       case 'question':
         return line('question', 9, { who: who(claim.targetSlot) });
+      /**
+       * The seat that was seen going out, and where it went when that is known.
+       *
+       * `targetSlot` is the visitor everywhere a sighting is filed, and the
+       * phrasebook read it as the house: "Somebody visited 14" was a Detective
+       * reporting that 14, the Godfather, had walked into the house that died.
+       */
       case 'sighting':
-        return line('sighting', 9, { who: who(claim.targetSlot) });
+        return claim.at !== undefined && claim.at !== claim.targetSlot
+          ? line('sightingAt', 6, { who: who(claim.targetSlot), where: who(claim.at) })
+          : line('sighting', 9, { who: who(claim.targetSlot) });
       case 'taunt':
         return line('taunt', 9, { who: who(claim.targetSlot) });
       case 'hint':
@@ -7002,6 +7041,12 @@ export class MafiaBotDriver {
         return vary('mafia.bot.why.poisonSurvived', 3, seed, { night: found.night });
       case 'visited-a-corpse':
         return vary('mafia.bot.why.visitedCorpse', 3, seed, { night: found.night, who: nameOf(found.otherSlot) });
+      case 'sighted-at-a-corpse':
+        return vary('mafia.bot.why.sawCorpseVisited', 3, seed, {
+          night: found.night,
+          who: nameOf(found.otherSlot),
+          seen: nameOf(found.seenSlot)
+        });
       // The badge is half the sentence here: the visit is only damning because
       // of what they said they were when they made it.
       case 'visited-the-living':
@@ -8039,10 +8084,13 @@ export class MafiaBotDriver {
     }
 
     // A claim on day D is followed by night D; a corpse from that night is the join.
+    // Last night's only: it is news the morning after, and on days 6 and 8 of a
+    // real game two seats announced a day 4 death as if it had just happened.
     const silencedClaim = board.claims.find(
       (claim) =>
         claim.kind === 'role-claim' &&
         claim.claimedRole &&
+        claim.day === board.day - 1 &&
         board.deaths.some(
           (death) => death.slot === claim.claimerSlot && death.phase === 'night' && death.day === claim.day
         )
@@ -8906,7 +8954,36 @@ export class MafiaBotDriver {
      */
     const reported = new Set(written.filter((row) => row.entry.kind !== 'went').map((row) => row.entry.night));
     const kept = written.filter((row) => row.entry.kind !== 'went' || !reported.has(row.entry.night));
-    const nights = kept.map((row) => row.line);
+
+    /**
+     * And the nights somebody else spent for this seat: a cell, or a blocker.
+     *
+     * Copied off `disturbedNight` while it still says so, because the engine
+     * overwrites it the next time. An honest seat writes it down, since it is
+     * the one fact that explains a night with no result, and a record missing it
+     * is how a jailed seat ended up quoted as having visited somebody that night.
+     */
+    if (self.disturbedNight && (self.disturbedBy === 'jail' || self.disturbedBy === 'block')) {
+      const held = (mind.heldIn ??= []);
+      if (!held.some((entry) => entry.night === self.disturbedNight)) {
+        held.push({ night: self.disturbedNight, by: self.disturbedBy });
+      }
+    }
+    const heldRows = !honest
+      ? []
+      : (mind.heldIn ?? [])
+          .filter((entry) => !reported.has(entry.night))
+          .map((entry) => ({
+            night: entry.night,
+            line: t(
+              vary(entry.by === 'jail' ? 'mafia.bot.dump.inCell' : 'mafia.bot.dump.keptHome', 3, botId + ':held:' + entry.night, {
+                night: entry.night
+              })
+            )
+          }));
+    const nights = [...kept.map((row) => ({ night: row.entry.night, line: row.line })), ...heldRows]
+      .sort((left, right) => left.night - right.night)
+      .map((row) => row.line);
 
     /**
      * Which nights the record has now answered for, so the plan can stop.
@@ -8928,7 +9005,8 @@ export class MafiaBotDriver {
      * cannot remember what it has already said, and it spends the will's budget
      * twice over on the same nights, pushing the notes off the bottom.
      */
-    const recorded = new Set(kept.map((row) => row.entry.night));
+    // A night in a cell or held at home answers for itself: the plan never happened.
+    const recorded = new Set([...kept.map((row) => row.entry.night), ...heldRows.map((row) => row.night)]);
 
     /**
      * Where this seat is about to go, written down before it goes.
@@ -8986,10 +9064,22 @@ export class MafiaBotDriver {
             .sort((left, right) => left.night - right.night)
             .map((trip) =>
               t(
-                vary('mafia.bot.dump.going', 3, botId + ':going:' + trip.night, {
-                  night: trip.night,
-                  who: nameOf(trip.slot)
-                })
+                /**
+                 * "Tonight" only while it is that night.
+                 *
+                 * A night with no record of its own (a blocked Detective, a
+                 * Mason Leader whose knock came to nothing) kept its plan line
+                 * for the rest of the game: "Tonight I am going to Gollum" was
+                 * still in a will six nights later, and a Mason Leader on trial
+                 * on day 4 read "Tonight, Doc Brown" off his, about night 2,
+                 * which the room took as a visit on the night he was in a cell.
+                 */
+                vary(
+                  trip.night === state.day && state.phase === 'night' ? 'mafia.bot.dump.going' : 'mafia.bot.dump.meant',
+                  3,
+                  botId + ':going:' + trip.night,
+                  { night: trip.night, who: nameOf(trip.slot) }
+                )
               )
             );
 
@@ -9617,10 +9707,22 @@ export class MafiaBotDriver {
         return t(vary(key, 3, salt, { night: entry.night, who, slots: callers.map(nameOf).join(', ') }));
       }
       case 'tracked': {
-        const house = (entry.slots ?? []).find(fell);
-        return house !== undefined
-          ? t(vary('mafia.bot.dump.trackedDead', 3, salt, { night: entry.night, who, house: nameOf(house) }))
-          : t(vary('mafia.bot.dump.tracked', 3, salt, { night: entry.night, who }));
+        /**
+         * Where the tail ended, which is the finding.
+         *
+         * Every tail that did not end at a corpse said "went out, I followed" and
+         * nothing else, including the ones that never went out at all, so a
+         * Detective's will was a list of seats that "left" and the square hanged
+         * an Escort and a Doctor for having left.
+         */
+        const houses = entry.slots ?? [];
+        const house = houses.find(fell);
+        if (house !== undefined) {
+          return t(vary('mafia.bot.dump.trackedDead', 3, salt, { night: entry.night, who, house: nameOf(house) }));
+        }
+        return houses.length === 0
+          ? t(vary('mafia.bot.dump.trackedHome', 3, salt, { night: entry.night, who }))
+          : t(vary('mafia.bot.dump.tracked', 3, salt, { night: entry.night, who, house: nameOf(houses[0]) }));
       }
       case 'saved':
         return t(vary('mafia.bot.dump.saved', 3, salt, { night: entry.night, who }));
@@ -9655,13 +9757,35 @@ export class MafiaBotDriver {
        * the table. A prisoner that reached for something is the evidence an
        * execution is meant to rest on, so it is said apart.
        */
-      case 'jailed':
+      case 'jailed': {
+        /**
+         * And what the prisoner said, which is the half the town can use.
+         *
+         * `quiet` means only that no power was used, and it was written "He sat
+         * quiet" about a Godfather who had answered "The Vigilante" on the very
+         * night the real Vigilante died. The claim was the evidence, and the will
+         * dropped it. A badge named in the cell comes first; then silence; then
+         * whether a power was reached for.
+         */
+        const prisoner = Object.values(state.players).find((player) => player.slot === entry.targetSlot);
+        const cell = jailChannel(entry.night, botId);
+        const said = prisoner
+          ? state.chat.messages.filter((message) => message.channel === cell && message.authorId === prisoner.playerId)
+          : [];
+        const badge = said.map((message) => selfClaim(message.text)).find((role) => role !== null) ?? null;
+        if (badge) {
+          return t(vary('mafia.bot.dump.jailedClaimed', 3, salt, { night: entry.night, who, role: ROLE.name(badge) }));
+        }
+        if (prisoner && said.length === 0) {
+          return t(vary('mafia.bot.dump.jailedSilent', 3, salt, { night: entry.night, who }));
+        }
         return t(
           vary(entry.value === 'tried' ? 'mafia.bot.dump.jailedTried' : 'mafia.bot.dump.jailedQuiet', 3, salt, {
             night: entry.night,
             who
           })
         );
+      }
       /**
        * The Witch's experiment, and its result.
        *
@@ -9912,6 +10036,18 @@ export class MafiaBotDriver {
      * taken it, been buried in it, or been credited with it by the record.
      */
     if (mind.mask && this.faceTaken(board, self, mind.mask)) mind.mask = null;
+    /**
+     * A converted seat already has a face: the badge it held before.
+     *
+     * Its record is full of that badge's nights, and the room may have heard
+     * about them. A Sheriff the cult took had told the square "I checked Casper
+     * and he came back Cult", and then signed its will "The Citizen", which is
+     * the one signature every line it had said already contradicted.
+     */
+    if (!mind.mask) {
+      const before = self.intel.map((entry) => FORMER_BADGE[entry.kind]).find((role) => role !== undefined);
+      if (before && !this.faceTaken(board, self, before)) mind.mask = before;
+    }
     mind.mask ??= this.bluffRole(state, botId);
     return mind.mask;
   }
@@ -10304,10 +10440,13 @@ export class MafiaBotDriver {
       }
       case 'visitors':
         return entry.slots && entry.slots.length > 0
-          ? { kind: 'sighting', slot: entry.slots[0], role: null, worked, from }
+          ? { kind: 'sighting', slot: entry.slots[0], role: null, worked, from, at: entry.targetSlot }
           : { kind: 'account', slot: entry.targetSlot, role: null, account: 'visited', worked, from };
-      case 'tracked':
-        return { kind: 'sighting', slot: entry.targetSlot, role: null, worked, from };
+      case 'tracked': {
+        // Where the tail ended is the finding; "they left" alone is half of it.
+        const where = entry.slots?.[0];
+        return { kind: 'sighting', slot: entry.targetSlot, role: null, worked, from, ...(where !== undefined ? { at: where } : {}) };
+      }
       default:
         return { kind: 'account', slot: entry.targetSlot, role: null, account: 'visited', worked, from };
     }

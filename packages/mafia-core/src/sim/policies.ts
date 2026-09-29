@@ -15,7 +15,7 @@ import {
 } from '../roles.js';
 import type { SlotToken } from '../setups.js';
 import { beliefs, surestSuspect } from './beliefs.js';
-import { deductions, deductionWeight, privateFindings } from './deduce.js';
+import { asKnownBy, deductions, deductionWeight, privateFindings } from './deduce.js';
 import { townClock } from './clock.js';
 import { possibleRoles } from './slots.js';
 export { QUIET_TRADE };
@@ -729,6 +729,11 @@ export function makeBrain(slot: number, personality: Personality): Brain {
  * narrower and fair: when this seat was locked up, did the killing stop, and when
  * it was not, did it carry on.
  */
+/** Did this house die on that night, as the morning report told it? */
+function diedOnNight(slot: number, night: number, info: PublicInfo): boolean {
+  return info.deaths.some((death) => death.slot === slot && death.phase === 'night' && death.day === night);
+}
+
 export function cellProves(brain: Brain, slot: number): number {
   const held = brain.cell.filter((night) => night.slot === slot);
   if (held.length === 0) return 0;
@@ -1621,10 +1626,19 @@ export function contradicted(slot: number, info: PublicInfo): boolean {
    * The reader's sure readings (0.85 and up) and every bot's own line still count.
    */
   if (!standing || (standing.confidence ?? 1) < SURE_READING) return false;
+  /**
+   * The same night, or it is not a contradiction.
+   *
+   * "I was home" about night 7 held against a sighting from night 1 is two
+   * different nights, and it charged a visiting role with lying for being out
+   * on a night it never denied.
+   */
+  const nightOf = (claim: Claim): number => claim.night ?? Math.max(1, claim.day - 1);
   if (standing.account === 'home') {
     return info.claims.some(
       (claim) =>
         claim.kind === 'sighting' &&
+        nightOf(claim) === nightOf(standing) &&
         claim.targetSlot === slot &&
         claim.claimerSlot !== slot &&
         (claim.confidence ?? 1) >= SURE_READING &&
@@ -2890,11 +2904,37 @@ export function suspicionParts(
   const echoed = 2.0 * (accusers.total - accusers.loudest);
   score -= 2.2 * chorus('clear').total;
 
+  /**
+   * The badge this seat stands behind, when it visits for a living.
+   *
+   * An Escort seen going out has told the room nothing it did not already say:
+   * going out is the job. A real table hanged an Escort and then a Doctor for
+   * "Agent Smith watched them go to someone's house", and the Doctor had been at
+   * the Sheriff's door on the night the Sheriff was attacked and lived.
+   */
+  let worn: RoleId | null = null;
+  for (const claim of info.claims) {
+    if (claim.kind === 'role-claim' && claim.claimerSlot === targetSlot && claim.claimedRole) worn = claim.claimedRole;
+  }
+  const visitsForALiving = worn !== null && worn in ROLES && !staysHome(worn);
+  const protector = worn === 'doctor' || worn === 'bodyguard';
+
   for (const claim of info.claims) {
     if (claim.targetSlot !== targetSlot) continue;
     if (claim.claimerSlot === self.slot) continue; // own claims counted via intel below
     const weight = claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1);
     if (claim.kind === 'hint') score += 0.8 * weight;
+    if (claim.kind === 'sighting' && visitsForALiving) {
+      const night = claim.night ?? Math.max(1, claim.day - 1);
+      const atACorpse = claim.at !== undefined && diedOnNight(claim.at, night, info);
+      // A doorstep at the house that died is still a doorstep, whatever the badge.
+      if (atACorpse) score += 0.5 * weight;
+      // A protector at a door on a night the killing stopped is doing its job, visibly.
+      else if (protector && claim.at !== undefined && !info.deaths.some((death) => death.phase === 'night' && death.day === night)) {
+        score -= 0.5 * weight;
+      }
+      continue;
+    }
     /**
      * Being out at night is not a crime — half the town is out at night. Left
      * linear on purpose: two people putting the same house on two different
@@ -2955,7 +2995,7 @@ export function suspicionParts(
    * them, and it is why it belongs in the half of the score a juror can point
    * to rather than the half it has to be talked into.
    */
-  const caught = deductionWeight(deductions(targetSlot, info));
+  const caught = deductionWeight(asKnownBy(deductions(targetSlot, info), targetSlot, self));
   score += caught;
   hard += caught;
 
@@ -3240,6 +3280,25 @@ export function suspicionParts(
     if (entry.kind === 'sheriff') own += sheriffSuspects(entry.value) ? 3 : -4;
     if (entry.kind === 'role') own += isEvilRole(entry.value as RoleId) ? 4 : -4;
     if (entry.kind === 'saved') own -= 2; // an attacked patient is rarely the killer
+    /**
+     * A doorstep this seat saw with its own eyes, at a house that died that night.
+     *
+     * The Detective and the Lookout filed their catch on the board and then voted
+     * by the board, where their own sighting weighs the same as anybody's word.
+     * A real Detective tailed the Godfather to the Mason who died that night,
+     * wrote it in his will, and voted to hang the Doctor.
+     */
+    if (entry.kind === 'tracked' && (entry.slots ?? []).some((house) => diedOnNight(house, entry.night, info))) {
+      own += 3;
+    }
+    score += own;
+    hard += own;
+  }
+  for (const entry of self.intel) {
+    if (entry.kind !== 'visitors' || !diedOnNight(entry.targetSlot, entry.night, info)) continue;
+    if (!(entry.slots ?? []).includes(targetSlot) || targetSlot === self.slot) continue;
+    // Several visitors share the doorstep, so each is less certain than a tail.
+    const own = 2;
     score += own;
     hard += own;
   }
@@ -6937,6 +6996,21 @@ export function decideBallot(
    * answers a case the same way every time and two jurors differ because they
    * are different people. A seat that personally feels the clock leans harder.
    */
+  /**
+   * A seat that put them on the stand does not walk away from its own case.
+   *
+   * The ballot was re-derived from scratch, on reasons that need not be the ones
+   * the accusation gave, so a Marshall named Garuda for opening the wagon on an
+   * innocent, then voted innocent because "nobody has ever reported them
+   * visiting anyone". Another seat voted guilty "because the Marshall named
+   * them". Only a read that has really turned, down to a near-clear, lets the
+   * accuser change its mind on the stand.
+   */
+  const putThemUp =
+    info.votes.get(self.slot) === accusedSlot ||
+    info.voteHistory.some((vote) => vote.day === info.day && vote.voterSlot === self.slot && vote.targetSlot === accusedSlot);
+  if (putThemUp && !(believed && believed.odds <= 0.25)) return 'guilty';
+
   const pressure = Math.max(parityPressure(info), stance.pushHard * 0.6);
   return coverBallot(parts, defenceStrength(accusedSlot, info), pressure, brain.personality);
 }

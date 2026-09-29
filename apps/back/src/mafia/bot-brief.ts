@@ -383,6 +383,8 @@ function caughtBy(finding: Deduction): string {
       return `said poisoned on night ${finding.night} and is still alive`;
     case 'visited-a-corpse':
       return `claims a visit to ${finding.otherSlot} on night ${finding.night}, who was already dead`;
+    case 'sighted-at-a-corpse':
+      return `claims they saw ${finding.seenSlot} visit ${finding.otherSlot} on night ${finding.night}, who was already dead`;
     case 'visited-the-living':
       return `claims to be the ${finding.role}, which only ever acts on a corpse, and claims a visit to ${finding.otherSlot} on night ${finding.night}, who is alive`;
     case 'guarded-nobody-died':

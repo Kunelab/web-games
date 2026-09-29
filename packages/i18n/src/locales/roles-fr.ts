@@ -90,7 +90,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.actress.name': 'Actrice',
   'mafia.role.actress.desc': 'Joue le rôle d’un autre : les enquêteurs applaudissent sans comprendre.',
   'mafia.role.kidnapper.name': 'Ravisseur',
-  'mafia.role.kidnapper.desc': 'Enlève un joueur pour la nuit — injoignable, inoffensif, furieux — et peut l’exécuter dans sa cave. Trois fois.',
+  'mafia.role.kidnapper.desc': 'Enlève un joueur pour la nuit — injoignable, inoffensif, furieux — et peut l’exécuter dans sa cave. Une seule fois.',
   'mafia.role.heartbreaker.name': 'Bourreau des cœurs',
   'mafia.role.heartbreaker.desc': 'Rend un joueur fou d’amour : si votre cœur s’arrête, le sien aussi.',
 
@@ -116,7 +116,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.deceiver.name': 'Trompeur',
   'mafia.role.deceiver.desc': 'Se cache chez quelqu’un : ce qu’on lui destinait frappe son hôte.',
   'mafia.role.interrogator.name': 'Interrogateur',
-  'mafia.role.interrogator.desc': 'Enlève un joueur pour la nuit — injoignable, inoffensif, terrifié — et peut ne pas le relâcher. Trois fois.',
+  'mafia.role.interrogator.desc': 'Enlève un joueur pour la nuit — injoignable, inoffensif, terrifié — et peut ne pas le relâcher. Une seule fois.',
   'mafia.role.diva.name': 'Diva',
   'mafia.role.diva.desc': 'Se pare du visage d’un autre : les enquêteurs n’y verront que du feu.',
 

@@ -307,13 +307,20 @@ export function measureBudget(): BudgetRow[] {
        * test as the others: it is about how to talk and tells the seat nothing
        * about the board. 920, the measured 902 with room for the next sentence.
        *
+       * The fifth move is one line against three faults seen on one real table:
+       * seats calling themselves by their own number ("9 was in the woods"), a
+       * Bodyguard denying the cell he had really been in, and three bots
+       * repeating an invented "three nights of silence". Same test, same answer:
+       * it says how to talk and nothing about the board. 950, the measured 934
+       * with room for the next sentence.
+       *
        * So the number moves and keeps meaning what it meant. It is worth saying
        * what would not be allowed to move it: a board, a roster, a role, or any
        * line that tells the mouth something the seat it speaks for has not been
        * told. If one of those ever makes this fail, the prompt is the thing to
        * change.
        */
-      ceiling: 920,
+      ceiling: 950,
       sections: [{ head: 'rules + intent + four lines', tokens: tokens(mouth), lines: mouth.split('\n').length }]
     },
     {

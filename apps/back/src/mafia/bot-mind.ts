@@ -104,6 +104,23 @@ export interface BotMind {
    */
   stayedIn: number[];
   /**
+   * Nights this seat spent in somebody's cell, or held at home by a blocker.
+   *
+   * The engine keeps only the latest one (`disturbedNight`), so a seat that was
+   * jailed on night 3 and roleblocked on night 5 had forgotten the cell by the
+   * time it needed it. A Mason Leader stood trial for "jailed and visiting on
+   * the same night" with a will that never mentioned the cell at all.
+   */
+  heldIn?: { night: number; by: 'jail' | 'block' }[];
+  /**
+   * The house this seat told its own room it was taking tonight.
+   *
+   * The room line reads the submission, and a later turn of the same night used
+   * to re-draw and overwrite it, so the lodge heard one name and the knock went
+   * to another on three nights running. Once said, it is kept.
+   */
+  named?: { night: number; slot: number };
+  /**
    * The night lines of this seat's own will, as last written.
    *
    * Cached here rather than rebuilt, because the will is rewritten every dawn

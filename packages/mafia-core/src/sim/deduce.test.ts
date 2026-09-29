@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { RoleId } from '../roles.js';
-import { deductions, deductionWeight, privateFindings, type Deduction } from './deduce.js';
+import { asKnownBy, deductions, deductionWeight, privateFindings, type Deduction } from './deduce.js';
 import type { Claim, PublicInfo } from './policies.js';
 
 /**
@@ -221,6 +221,53 @@ describe('reading the night back to people', () => {
       claims: [one, said({ claimerSlot: 5, targetSlot: 5, kind: 'ailing', ailment: 'jailed', day: 4, night: 3 })]
     });
     assert.deepEqual(kinds(deductions(2, differentNights)), [], 'a jailor works every night');
+  });
+
+  /**
+   * Seen on a real table: the Jailor held one seat and the Ravisseur another on
+   * night 3, both said so, and the town hanged them one a day for sharing a cell.
+   */
+  it('lets two seats share a night when there is a second cell to be in', () => {
+    const one = said({ claimerSlot: 2, targetSlot: 2, kind: 'ailing', ailment: 'jailed', day: 3, night: 2 });
+    const other = said({ claimerSlot: 5, targetSlot: 5, kind: 'ailing', ailment: 'jailed', day: 3, night: 2 });
+    const cellar = board({
+      claims: [one, other],
+      rolesInPlay: new Set<RoleId>(['jailor', 'kidnapper', 'mafioso', 'citizen'])
+    });
+    assert.deepEqual(kinds(deductions(2, cellar)), []);
+    assert.deepEqual(kinds(deductions(5, cellar)), []);
+
+    // And with the second keeper buried before that night, one cell again.
+    const buried = board({
+      claims: [one, other],
+      rolesInPlay: new Set<RoleId>(['jailor', 'kidnapper', 'mafioso', 'citizen']),
+      deadRoles: new Map([[4, 'kidnapper' as RoleId]]),
+      deaths: [{ slot: 4, day: 1, phase: 'day', source: null }]
+    });
+    assert.deepEqual(kinds(deductions(2, buried)), ['two-in-one-cell']);
+  });
+
+  it('catches a sighting at a house whose owner was already dead', () => {
+    const seen = said({ claimerSlot: 2, targetSlot: 3, kind: 'sighting', at: 4, day: 3, night: 2 });
+    const buried = board({ claims: [seen], deaths: [{ slot: 4, day: 1, phase: 'night', source: null }] });
+    assert.deepEqual(kinds(deductions(2, buried)), ['sighted-at-a-corpse']);
+    assert.deepEqual(kinds(deductions(3, buried)), [], 'the seat named is not the one lying');
+
+    const alive = board({ claims: [seen] });
+    assert.deepEqual(kinds(deductions(2, alive)), []);
+  });
+
+  it('does not let a keeper doubt the seat it held itself', () => {
+    const one = said({ claimerSlot: 2, targetSlot: 2, kind: 'ailing', ailment: 'jailed', day: 3, night: 2 });
+    const other = said({ claimerSlot: 5, targetSlot: 5, kind: 'ailing', ailment: 'jailed', day: 3, night: 2 });
+    const found = deductions(2, board({ claims: [one, other] }));
+    const jailor = { intel: [{ night: 2, kind: 'jailed' as const, targetSlot: 2, value: 'quiet' }] };
+    assert.deepEqual(kinds(asKnownBy(found, 2, jailor)), [], 'it had this seat in its own cell');
+    assert.deepEqual(
+      kinds(asKnownBy(deductions(5, board({ claims: [one, other] })), 5, jailor)),
+      ['two-in-one-cell'],
+      'and the other claimant is still the one lying'
+    );
   });
 
   it('and knows the cell has no door', () => {

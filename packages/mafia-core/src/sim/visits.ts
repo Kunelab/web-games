@@ -1,4 +1,4 @@
-import { roleDef, ROLES, type RoleId } from '../roles.js';
+import { roleDef, ROLES, staysHome, type RoleId } from '../roles.js';
 import { deductions, deductionWeight } from './deduce.js';
 import { isEvilRole } from './policies.js';
 import type { Claim, PublicInfo } from './policies.js';
@@ -220,6 +220,16 @@ export function visitOdds(info: PublicInfo): Map<number, VisitOdds> {
 
     let seenOutEver = false;
 
+    /**
+     * A seat whose claimed badge visits for a living was out because that is the
+     * job, so "seen out" alone is not a reason to name. See `suspicionParts`.
+     */
+    let worn: RoleId | null = null;
+    for (const claim of info.claims) {
+      if (claim.kind === 'role-claim' && claim.claimerSlot === slot && claim.claimedRole) worn = claim.claimedRole;
+    }
+    const outIsTheJob = worn !== null && worn in ROLES && !staysHome(worn);
+
     for (const claim of info.claims) {
       const night = nightOf(claim);
 
@@ -245,7 +255,7 @@ export function visitOdds(info: PublicInfo): Map<number, VisitOdds> {
             night,
             at: claim.at
           });
-        } else {
+        } else if (!outIsTheJob) {
           add({ code: 'out-that-night', weight: LR.outThatNight * heard, night });
         }
       }
