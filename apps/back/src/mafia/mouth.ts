@@ -469,6 +469,9 @@ export function readLine(
   if (/^\s*[([*]/.test(cleaned)) return intent.fallback;
   if (intent.vote && denies(cleaned)) return intent.fallback;
   if (addressesSelf(cleaned, self)) return intent.fallback;
+  if (speaksOfItself(cleaned, self)) return intent.fallback;
+  // Not on a reply: answering a person names that person, and the house may come back as a number.
+  if (!intent.answering?.length && swapsTheName(cleaned, intent.fallback, seats)) return intent.fallback;
   if (initialForAName(cleaned, seats)) return intent.fallback;
   // A calendar this game does not have, and a night it has not had. See `WEEKDAY`.
   if (WEEKDAY.test(cleaned)) return intent.fallback;
@@ -630,6 +633,54 @@ function addressesSelf(line: string, self: { name: string; slot: number }): bool
     'iu'
   );
   return vocative.test(line);
+}
+
+/**
+ * A seat talking about itself in the third person.
+ *
+ * The rule against it is on the sheet and small models ignore it: one bench of
+ * four games produced "3 was poisoned last night", "7's turn to ask", "5 asks
+ * again", "14 was locked up", "10 to 10: Forrest Gump's outta here". Every one
+ * reads as a broken bot. Only the seat's own number or name as the subject of a
+ * verb, or with a possessive: "I'm 23" and "vote 23 if you like" survive.
+ */
+function speaksOfItself(line: string, self: { name: string; slot: number }): boolean {
+  const name = self.name.replace(/[.*+?^${}()|[\]\\]/g, (char) => `\\${char}`);
+  const subject = new RegExp(
+    `(?:^|[^\\p{L}\\p{N}])(?:${self.slot}|${name})(?:['’]s\\b|\\s+(?:was|is|has|had|saw|asks|says|said|wants|thinks|to\\s+\\d+|était|est|a|avait|demande|veut|pense|dit)\\b)`,
+    'iu'
+  );
+  return subject.test(line);
+}
+
+/**
+ * The line was about one seat and the model made it about another.
+ *
+ * Told to announce "Tonight I initiate Gomez", a model read the room above it,
+ * found last night's "Tonight I initiate Leela", and said Leela: the lodge heard
+ * one name and the knock went to another, three nights running. When the
+ * phrasebook line names somebody, the spoken line has to name at least one of
+ * the same seats, or name nobody at all.
+ */
+function swapsTheName(line: string, fallback: string | null, seats: ReadonlySet<string>): boolean {
+  if (!fallback || seats.size === 0) return false;
+  const named = (text: string): Set<string> => {
+    const lower = text.toLowerCase();
+    const found = new Set<string>();
+    for (const seat of seats) {
+      if (seat.length < 2) continue;
+      const at = lower.indexOf(seat);
+      if (at < 0) continue;
+      const before = at === 0 ? '' : lower[at - 1];
+      const after = lower[at + seat.length] ?? '';
+      if (!/[\p{L}\p{N}]/u.test(before) && !/[\p{L}\p{N}]/u.test(after)) found.add(seat);
+    }
+    return found;
+  };
+  const wanted = named(fallback);
+  if (wanted.size === 0) return false;
+  const said = named(line);
+  return said.size > 0 && ![...wanted].some((seat) => said.has(seat));
 }
 
 /**

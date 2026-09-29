@@ -216,6 +216,8 @@ export interface Decision {
     from?: Claim['from'];
     /** A sighting's house: where the seat in `slot` was seen going. See `Claim.at`. */
     at?: number;
+    /** The night this is about, when it is not last night. See `Claim.night` and `claimFor`. */
+    night?: number;
   } | null;
   /**
    * What this turn means, for the mouth to phrase.
@@ -5317,7 +5319,8 @@ export class MafiaBotDriver {
       ...(claim.ailment ? { ailment: claim.ailment } : {}),
       ...(claim.worked ? { worked: true } : {}),
       ...(claim.from ? { from: claim.from } : {}),
-      ...(claim.at !== undefined ? { at: claim.at } : {})
+      ...(claim.at !== undefined ? { at: claim.at } : {}),
+      ...(claim.night !== undefined ? { night: claim.night } : {})
     });
   }
 
@@ -6583,7 +6586,8 @@ export class MafiaBotDriver {
               // A night's work stays one on the board, house and all.
               ...(consistent.worked ? { worked: true } : {}),
               ...(consistent.from ? { from: consistent.from } : {}),
-              ...(consistent.at !== undefined ? { at: consistent.at } : {})
+              ...(consistent.at !== undefined ? { at: consistent.at } : {}),
+              ...(consistent.night !== undefined ? { night: consistent.night } : {})
             }
           : null,
       jailSlot: day.jailSlot,
@@ -8983,7 +8987,9 @@ export class MafiaBotDriver {
           }));
     const nights = [...kept.map((row) => ({ night: row.entry.night, line: row.line })), ...heldRows]
       .sort((left, right) => left.night - right.night)
-      .map((row) => row.line);
+      .map((row) => row.line)
+      // One night can file the same result twice (a poison purged and a knife stopped on one door), and it is one line.
+      .filter((line, index, all) => all.indexOf(line) === index);
 
     /**
      * Which nights the record has now answered for, so the plan can stop.
@@ -10391,6 +10397,23 @@ export class MafiaBotDriver {
    * four of them.
    */
   private claimFor(
+    entry: IntelEntry,
+    rolesInPlay?: ReadonlySet<RoleId>,
+    quietNights?: ReadonlySet<number>
+  ): Decision['claim'] {
+    /**
+     * Stamped with the night it is about, which is not always last night.
+     *
+     * A record read out on the stand names an old night, and filed without one
+     * it became a claim about the night before the trial. A real Jailor said "I
+     * locked Gizmo on night 3" on day 8 and was hanged for claiming a visit to
+     * Gizmo on night 7, when Gizmo had been dead for four nights.
+     */
+    const claim = this.claimOf(entry, rolesInPlay, quietNights);
+    return claim ? { ...claim, night: entry.night } : null;
+  }
+
+  private claimOf(
     entry: IntelEntry,
     rolesInPlay?: ReadonlySet<RoleId>,
     quietNights?: ReadonlySet<number>

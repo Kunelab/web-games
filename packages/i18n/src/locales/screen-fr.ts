@@ -1071,7 +1071,7 @@ export const screenFr: Catalogue = {
    */
   'mafia.bot.crier.news.contested.1': 'Comptez : {count} d’entre vous annoncent {role}. Au moins un ment.',
   'mafia.bot.crier.news.contested.2': '{count} personnes ici disent être le {role}. Il n’y en a pas {count}.',
-  'mafia.bot.crier.news.toll.1': 'La corde en a pris {count} d’entre nous. {town} étaient de la ville.',
+  'mafia.bot.crier.news.toll.1': 'La corde en a pris {count} d’entre nous. Dont de la ville : {town}.',
   'mafia.bot.crier.news.toll.2': '{count} pendus jusqu’ici, dont {town} des nôtres. Comptez avant de tirer encore.',
   'mafia.bot.crier.news.quiet.1': 'Personne n’est mort cette nuit. Quelqu’un choisit de ne pas frapper.',
   'mafia.bot.crier.news.quiet.2': 'La charrette est vide ce matin. Demandez-vous pourquoi.',

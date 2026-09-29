@@ -611,8 +611,18 @@ export interface Brain {
   personality: Personality;
   /** Slots this investigator already checked, to spread the net. */
   checked: Set<number>;
-  /** Killers only: who I went for last night, for the failed-kill deduction. */
+  /** Killers only: who I went for last night, for the failed-kill deduction. See `kills`. */
   lastKillTarget: number | null;
+  /**
+   * Killers only: the house picked each night, keyed by night.
+   *
+   * `lastKillTarget` was overwritten by tonight's pick, and a live seat decides
+   * several times a night, so from the second turn on tonight's own target
+   * read as last night's miss: a Mafioso turned down its family's request for
+   * the very house it wanted "because we went there last night and they
+   * survived", about a house nobody had touched. See `missedLastNight`.
+   */
+  kills?: { night: number; slot: number }[];
   /**
    * How cornered this seat feels, 0..1, carried between rounds. Starts calm on
    * day zero and is advanced once per day by `feelPressure`.
@@ -714,6 +724,32 @@ export function makeBrain(slot: number, personality: Personality): Brain {
   };
 }
 
+/** Tonight's pick, filed under tonight. See `Brain.kills`. */
+function noteKill(brain: Brain, night: number, slot: number | null): void {
+  brain.lastKillTarget = slot;
+  const kills = (brain.kills ??= []).filter((entry) => entry.night !== night);
+  if (slot !== null) kills.push({ night, slot });
+  brain.kills = kills.slice(-4);
+}
+
+/**
+ * The house this seat went for last night and is still standing, or null.
+ *
+ * Read off the night record when there is one, so tonight's pick never counts
+ * as yesterday's. A brain built by hand without one still has `lastKillTarget`.
+ */
+function missedLastNight(brain: Brain, info: PublicInfo): number | null {
+  const slot = brain.kills
+    ? (brain.kills.find((entry) => entry.night === info.day - 1)?.slot ?? null)
+    : brain.lastKillTarget;
+  return slot !== null && info.aliveSlots.includes(slot) ? slot : null;
+}
+
+/** Did this house die on that night, as the morning report told it? */
+function diedOnNight(slot: number, night: number, info: PublicInfo): boolean {
+  return info.deaths.some((death) => death.slot === slot && death.phase === 'night' && death.day === night);
+}
+
 /**
  * What the cell has proved, if anything.
  *
@@ -729,11 +765,6 @@ export function makeBrain(slot: number, personality: Personality): Brain {
  * narrower and fair: when this seat was locked up, did the killing stop, and when
  * it was not, did it carry on.
  */
-/** Did this house die on that night, as the morning report told it? */
-function diedOnNight(slot: number, night: number, info: PublicInfo): boolean {
-  return info.deaths.some((death) => death.slot === slot && death.phase === 'night' && death.day === night);
-}
-
 export function cellProves(brain: Brain, slot: number): number {
   const held = brain.cell.filter((night) => night.slot === slot);
   if (held.length === 0) return 0;
@@ -4096,13 +4127,12 @@ export function decideDay(
    * investigator that turns on a seat it cleared does not get to call that a
    * report.
    */
-  const fromANight = (targetSlot: number, kind: ClaimKind): IntelEntry['kind'] | null => {
+  const fromANight = (targetSlot: number, kind: ClaimKind): IntelEntry | null => {
     const mine = self.intel.filter(
       (entry) => entry.targetSlot === targetSlot || (entry.slots?.includes(targetSlot) ?? false)
     );
     if (mine.length === 0) return null;
-    const found = (test: (entry: IntelEntry) => boolean): IntelEntry['kind'] | null =>
-      mine.find(test)?.kind ?? null;
+    const found = (test: (entry: IntelEntry) => boolean): IntelEntry | null => mine.find(test) ?? null;
     switch (kind) {
       case 'accuse':
         return found(
@@ -4270,9 +4300,18 @@ export function decideDay(
         claimedRole,
         account,
         ailment,
-        // A night's record, and which instrument made it. See `fromANight`.
+        /**
+         * A night's record, which instrument made it, and which night it was.
+         *
+         * The night above is a guess for a seat speaking its mind. A record read
+         * out is about the night it was made, and stamping it "last night" had a
+         * Sheriff emptying its notebook file two checks for one night, which is
+         * a thing the badge cannot do. See `fromANight`.
+         */
         ...(() => {
-          const instrument = fromANight(targetSlot, kind) ?? dressedUp(targetSlot, kind);
+          const grounded = fromANight(targetSlot, kind);
+          if (grounded) return { worked: true, from: grounded.kind, night: grounded.night };
+          const instrument = dressedUp(targetSlot, kind);
           return instrument ? { worked: true, from: instrument } : {};
         })(),
         ...extra
@@ -7377,12 +7416,11 @@ export function decideNightTarget(
    */
   const dodged = (candidates: number[]): number[] => {
     if (
-      brain.lastKillTarget !== null &&
-      info.aliveSlots.includes(brain.lastKillTarget) &&
+      missedLastNight(brain, info) !== null &&
       candidates.length > 1 &&
       rng() < 0.5
     ) {
-      return candidates.filter((slot) => slot !== brain.lastKillTarget);
+      return candidates.filter((slot) => slot !== missedLastNight(brain, info));
     }
     return candidates;
   };
@@ -7465,7 +7503,7 @@ export function decideNightTarget(
     ranked.push(...trusted);
     const list = [...new Set(ranked)];
     const choice = list.length > 0 ? pickRanked(list, rng, slip) : (pool[Math.floor(rng() * pool.length)] ?? null);
-    brain.lastKillTarget = choice;
+    noteKill(brain, info.day, choice);
     return choice;
   }
 
@@ -7478,7 +7516,7 @@ export function decideNightTarget(
     const loudList = credibleClaimersRanked(info, new Set([self.slot])).filter((slot) => pool.includes(slot));
     const choice =
       loudList.length > 0 && rng() < 0.5 ? pickRanked(loudList, rng) : (pool[Math.floor(rng() * pool.length)] ?? null);
-    brain.lastKillTarget = choice;
+    noteKill(brain, info.day, choice);
     return choice;
   }
 
@@ -8334,7 +8372,7 @@ export function judgeRequest(
   if (options.repeated) return { grant: true, reason: null };
 
   if (friendlySeats(self, info, teammates).has(askedSlot)) return refuse('ami');
-  if (brain.lastKillTarget === askedSlot && info.aliveSlots.includes(askedSlot)) return refuse('rate');
+  if (missedLastNight(brain, info) === askedSlot) return refuse('rate');
   if (roomsRead(askedSlot, info).evidence >= DOOMED_BROTHER) return refuse('pendu');
   return { grant: true, reason: null };
 }

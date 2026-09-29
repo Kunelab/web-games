@@ -364,14 +364,22 @@ function nobodyCouldVisitTheDead(night: number, info: PublicInfo): boolean {
  * of "two people cannot share the cell", with the answer in his own record.
  */
 export function asKnownBy(found: Deduction[], slot: number, reader: Pick<MafiaPlayer, 'intel'>): Deduction[] {
-  const held = new Set(
-    reader.intel.filter((entry) => entry.kind === 'jailed' && entry.targetSlot === slot).map((entry) => entry.night)
-  );
-  if (held.size === 0) return found;
+  const mine = reader.intel.filter((entry) => entry.targetSlot === slot);
+  const held = new Set(mine.filter((entry) => entry.kind === 'jailed').map((entry) => entry.night));
+  /**
+   * And a Doctor knows whose poison it purged.
+   *
+   * The graveyard cannot see a quiet heal, so "poisoned and still alive" is a
+   * lie to everybody else. A real Doctor healed the Auditor the night the poison
+   * would have killed him, wrote it in its will, and voted to hang him for it.
+   */
+  const saved = mine.filter((entry) => entry.kind === 'saved').map((entry) => entry.night);
+  if (held.size === 0 && saved.length === 0) return found;
   return found.filter(
     (entry) =>
       !(entry.kind === 'two-in-one-cell' && held.has(entry.night)) &&
-      !(entry.kind === 'impossible-ailment' && entry.ailment === 'jailed')
+      !(entry.kind === 'impossible-ailment' && entry.ailment === 'jailed' && held.size > 0) &&
+      !(entry.kind === 'poison-survived' && saved.some((night) => night >= entry.night))
   );
 }
 

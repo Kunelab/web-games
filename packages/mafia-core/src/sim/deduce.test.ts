@@ -257,6 +257,14 @@ describe('reading the night back to people', () => {
     assert.deepEqual(kinds(deductions(2, alive)), []);
   });
 
+  it('does not let a Doctor doubt the poison it purged itself', () => {
+    const poisoned = said({ claimerSlot: 5, targetSlot: 5, kind: 'ailing', ailment: 'poison', day: 2, night: 1 });
+    const found = deductions(5, board({ claims: [poisoned] }));
+    assert.deepEqual(kinds(found), ['poison-survived']);
+    const doctor = { intel: [{ night: 2, kind: 'saved' as const, targetSlot: 5, value: 'saved' }] };
+    assert.deepEqual(kinds(asKnownBy(found, 5, doctor)), []);
+  });
+
   it('does not let a keeper doubt the seat it held itself', () => {
     const one = said({ claimerSlot: 2, targetSlot: 2, kind: 'ailing', ailment: 'jailed', day: 3, night: 2 });
     const other = said({ claimerSlot: 5, targetSlot: 5, kind: 'ailing', ailment: 'jailed', day: 3, night: 2 });

@@ -92,6 +92,34 @@ describe('the shapes the chain asks for', () => {
    * A player who notices it once can read the whole square at a glance, which
    * is a worse tell than anything a bot could say.
    */
+  /** Lines from one bench of four games, each a seat talking about itself. */
+  it('does not let a seat talk about itself in the third person', () => {
+    const intent = { act: 'accuse', mood: 'blunt', fallback: 'FALLBACK' };
+    const self = { name: 'Kratos', slot: 3 };
+    const said = (line: string) => readLine({ line }, intent, self);
+
+    assert.equal(said('3 was poisoned last night, heal me or I am dead by dawn'), 'FALLBACK');
+    assert.equal(said('3’s turn to ask: anything new?'), 'FALLBACK');
+    assert.equal(said('3 to 3: Forrest Gump is out of here'), 'FALLBACK');
+    assert.equal(said('Kratos says vote 7'), 'FALLBACK');
+    assert.equal(said('I am 3 and I was poisoned last night'), 'I am 3 and I was poisoned last night');
+    assert.equal(said('Vote 7, not 3'), 'Vote 7, not 3');
+  });
+
+  /** Told to announce Gomez, a model repeated last night's "Leela" from the room. */
+  it('keeps the seat the line was about', () => {
+    const intent = { act: 'lodge', mood: 'blunt', fallback: 'Tonight I initiate Gomez. Treat them as one of ours.' };
+    const self = { name: 'RoboCop', slot: 15 };
+    const seats = new Set(['gomez', 'leela', 'robocop']);
+    const said = (line: string, answering = false) =>
+      readLine({ line }, answering ? { ...intent, answering: [{ who: 'Leela', text: 'who?' }] } : intent, self, seats);
+
+    assert.equal(said('Leela joins tonight. Treat her as one of ours.'), intent.fallback);
+    assert.equal(said('Gomez is ours from tonight.'), 'Gomez is ours from tonight.');
+    assert.equal(said('New brother tonight, be kind.'), 'New brother tonight, be kind.');
+    assert.equal(said('Leela, it is Gomez tonight', true), 'Leela, it is Gomez tonight');
+  });
+
   it('types its line rather than typesetting it', () => {
     const intent = { act: 'accuse', mood: 'blunt', fallback: 'FALLBACK' };
     const self = { name: 'Totoro', slot: 14 };
@@ -270,7 +298,7 @@ describe('a line that opens with the speaker’s own number', () => {
 
   it('trims the letterhead', () => {
     assert.equal(said('3, je suis le vétéran'), 'je suis le vétéran');
-    assert.equal(said('3 Arwen is the culprit'), 'Arwen is the culprit');
+    assert.equal(said('3 Casper is the culprit'), 'Casper is the culprit');
   });
 
   /**
@@ -283,7 +311,8 @@ describe('a line that opens with the speaker’s own number', () => {
       said('3 n’a pas voté hier, donc je vote en aveugle'),
       '3 n’a pas voté hier, donc je vote en aveugle'
     );
-    assert.equal(said('3 est resté muet toute la journée'), '3 est resté muet toute la journée');
+    // But a seat describing itself in the third person is a broken line, and the phrasebook has a better one.
+    assert.equal(said('3 est resté muet toute la journée'), 'FALLBACK');
   });
 });
 

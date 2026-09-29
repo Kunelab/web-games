@@ -232,6 +232,19 @@ describe('a teammate asking for a house', () => {
     });
   });
 
+  /**
+   * A live seat decides more than once a night, and tonight's own pick used to
+   * read as last night's miss: a Mafioso refused its family's request for the
+   * very house it wanted, "because we went there last night and they survived".
+   */
+  it('does not mistake tonight\'s own pick for last night\'s miss', () => {
+    const brain = makeBrain(1, DEFAULT_PROFILE);
+    brain.kills = [{ night: board.day, slot: 4 }];
+    assert.deepEqual(judgeRequest(holder, brain, board, 4, [3, 4, 5, 6], new Set([2])), { grant: true, reason: null });
+    brain.kills = [{ night: board.day - 1, slot: 4 }];
+    assert.deepEqual(judgeRequest(holder, brain, board, 4, [3, 4, 5, 6], new Set([2])), { grant: false, reason: 'rate' });
+  });
+
   it('gives way on a judgement call when the teammate insists', () => {
     const brain = makeBrain(1, DEFAULT_PROFILE);
     brain.lastKillTarget = 4;

@@ -1173,7 +1173,7 @@ export const screenEn: Catalogue = {
    */
   'mafia.bot.crier.news.contested.1': 'Count them: {count} of you are claiming {role}. At least one is lying.',
   'mafia.bot.crier.news.contested.2': '{count} people here say they are the {role}. There are not {count}.',
-  'mafia.bot.crier.news.toll.1': 'The rope has taken {count} of us. {town} were town.',
+  'mafia.bot.crier.news.toll.1': 'The rope has taken {count} of us. Town among them: {town}.',
   'mafia.bot.crier.news.toll.2': '{count} hanged so far, {town} of them ours. Count before you pull it again.',
   'mafia.bot.crier.news.quiet.1': 'Nobody died last night. Somebody is choosing not to swing.',
   'mafia.bot.crier.news.quiet.2': 'An empty cart this morning. Ask yourselves why.',
