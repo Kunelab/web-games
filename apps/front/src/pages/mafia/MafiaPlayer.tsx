@@ -355,6 +355,21 @@ export default function MafiaPlayer() {
   // Dawn, nightfall, a rope and a body. Above the early returns: a hook is a hook.
   useMafiaSound(view);
 
+  /**
+   * A short red flash the moment this seat dies: a body at dawn or a rope that
+   * afternoon, which are the only two ways out. Read off the seat going from
+   * alive to dead rather than off the phase, so it fires once whichever it was,
+   * and never on arrival: a phone rejoining as a corpse has already been told.
+   * The counter is the overlay's key, so each death replays the animation.
+   */
+  const myAlive = view?.me?.alive ?? null;
+  const [seenAlive, setSeenAlive] = useState(myAlive);
+  const [hurt, setHurt] = useState(0);
+  if (myAlive !== seenAlive) {
+    setSeenAlive(myAlive);
+    if (seenAlive === true && myAlive === false) setHurt((count) => count + 1);
+  }
+
   function join(event: FormEvent) {
     event.preventDefault();
     if (!socket || !name.trim()) return;
@@ -876,6 +891,7 @@ export default function MafiaPlayer() {
 
   return (
     <div className={cx('mz-screen', isNight && 'mz-screen--night')}>
+      {hurt > 0 && <div key={hurt} className="mz-hurt" aria-hidden="true" />}
       {/*
         The pause sits over everything. Every action the server exposes already
         refuses while the table is stopped, so this is not the guard — it is the

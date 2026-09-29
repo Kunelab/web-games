@@ -944,6 +944,57 @@
   cursor: default;
 }
 
+/**
+ * This seat just died: at dawn, or on the rope.
+ *
+ * Two quick red pulses from the edges and gone in under a second. A vignette
+ * rather than a fill, so the board stays readable through it, and it never takes
+ * a tap. Reduced motion gets a single soft fade instead of the double beat.
+ */
+.mz-hurt {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgb(196 40 30 / 0) 45%, rgb(196 40 30 / 0.45) 100%);
+  opacity: 0;
+  animation: mz-hurt 850ms ease-out forwards;
+}
+
+@keyframes mz-hurt {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  32% {
+    opacity: 0.15;
+  }
+  48% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes mz-hurt-soft {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.6;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mz-hurt {
+    animation: mz-hurt-soft 900ms ease-out forwards;
+  }
+}
+
 .mz-fountain-basin {
   fill: var(--town-stone);
 }
