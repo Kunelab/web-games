@@ -53,10 +53,10 @@ export const rolesEn: Catalogue = {
   'mafia.role.jailor.name': 'Jailor',
   'mafia.role.jailor.desc': 'By day, picks a prisoner; by night, questions them in the cell and may execute them.',
   'mafia.role.mayor.name': 'Mayor',
-  'mafia.role.mayor.desc': 'Can reveal in broad daylight: their vote then counts triple.',
+  'mafia.role.mayor.desc': 'Can reveal in broad daylight: their vote then counts triple, and no doctor can heal them any more.',
   'mafia.role.marshall.name': 'Marshall',
   'mafia.role.marshall.desc':
-    'Can reveal in broad daylight: that day the town judges without a defence, and hangs in bulk.',
+    'Can reveal in broad daylight: that day the town judges without a defence, and hangs in bulk. Once revealed, no doctor can heal them.',
   'mafia.role.crier.name': 'Town Crier',
   'mafia.role.crier.desc': 'Their voice carries even at night — anonymously, across the village square.',
   'mafia.role.mason.name': 'Mason',

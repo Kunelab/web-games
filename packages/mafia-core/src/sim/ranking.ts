@@ -1,6 +1,6 @@
 import type { RoleId } from '../roles.js';
 import { deductions, strongest, type Deduction } from './deduce.js';
-import { claimerWeight, isEvilRole, trustOf, uncontestedBadge, type PublicInfo } from './policies.js';
+import { claimerWeight, confirmedCall, isEvilRole, trustOf, uncontestedBadge, type PublicInfo } from './policies.js';
 import { tempoReads, type TempoCode } from './tempo.js';
 import { visitOdds, type VisitReason } from './visits.js';
 
@@ -347,8 +347,22 @@ export function rank(info: PublicInfo): Suspect[] {
         reasons.push({ code: 'confessed', weight: SAID.confessed, role: confession.claimedRole });
       }
 
+      /**
+       * Unchallenged, and untested: once the graveyard has answered the badge it is neither.
+       *
+       * The rule measures a claim nobody has checked yet, because the real
+       * holder is sitting quiet. A badge whose call put a revealed killer in the
+       * ground has been checked, by the rope, which is the one witness no
+       * family can bribe. On a real table the Sheriff called the Mass Murderer
+       * on night two, the town hanged him on day four and read "Mass Murderer"
+       * off the body, and the Sheriff was dragged to the stand on days five and
+       * six anyway, both times on "nobody has ever disputed your Sheriff claim,
+       * which is what a fake one does".
+       */
       const badge = uncontestedBadge(slot, info);
-      if (badge !== null) reasons.push({ code: 'badge-unchallenged', weight: SAID.badge, role: badge });
+      if (badge !== null && !confirmedCall(slot, info)) {
+        reasons.push({ code: 'badge-unchallenged', weight: SAID.badge, role: badge });
+      }
 
       /**
        * A role the record signed for, and only when the record signed for a

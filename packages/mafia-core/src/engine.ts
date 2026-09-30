@@ -1366,6 +1366,27 @@ export function legalNightAction(
         ? { type: def.nightAction, targets: slots(dead), charges: uses }
         : null;
     }
+    case "heal":
+      /**
+       * A sash that has been shown cannot be healed.
+       *
+       * The Mayor and the Marshall buy their power by standing up in daylight,
+       * and the price is that no doctor can keep them alive afterwards. Left
+       * off the list rather than failing at dawn, so a person is never offered
+       * a heal that does nothing, and a bot never spends its night on one: a
+       * revealed Mayor on a real table was the Godfather's target two nights
+       * running and walked away from both.
+       */
+      return {
+        type: "heal",
+        targets: slots(
+          others.filter(
+            (other) =>
+              !(other.revealed && (other.role === "mayor" || other.role === "marshall")),
+          ),
+        ),
+        charges: null,
+      };
     default:
       return { type: def.nightAction, targets: slots(others), charges: null };
   }

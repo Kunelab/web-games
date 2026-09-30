@@ -460,7 +460,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     nightAction: null,
     unique: true,
     keepsRole: true,
-    description: 'Peut se révéler en plein jour : son vote compte alors triple.',
+    description: 'Peut se révéler en plein jour : son vote compte alors triple, et plus aucun docteur ne peut le soigner.',
     investigated: L.hands
   }),
   marshall: def({
@@ -469,7 +469,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     faction: 'town',
     nightAction: null,
     unique: true,
-    description: 'Peut se révéler en plein jour : ce jour-là, la ville juge sans défense et pend à la chaîne.',
+    description: 'Peut se révéler en plein jour : ce jour-là, la ville juge sans défense et pend à la chaîne. Une fois révélé, aucun docteur ne peut le soigner.',
     investigated: L.hands
   }),
   crier: def({

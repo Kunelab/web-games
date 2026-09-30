@@ -3188,6 +3188,29 @@ describe("the cellar is a cell", () => {
   });
 
   /**
+   * A shown sash is past saving: a revealed Mayor was healed out of the
+   * Godfather's knife two nights running on a real table.
+   */
+  it("does not let a doctor heal a revealed Mayor or Marshall", () => {
+    const state = table(["mayor", "marshall", "doctor", "citizen", "mafioso"]);
+    const mayor = bySlot(state, 1);
+    const marshall = bySlot(state, 2);
+    const doctor = bySlot(state, 3);
+    mayor.revealed = true;
+    state.phase = "night";
+    state.stage = null;
+
+    const before = legalNightAction(state, doctor.playerId)?.targets ?? [];
+    assert.ok(!before.includes(mayor.slot), "the revealed Mayor is off the list");
+    assert.ok(before.includes(marshall.slot), "an unrevealed Marshall is still a patient");
+
+    marshall.revealed = true;
+    const after = legalNightAction(state, doctor.playerId)?.targets ?? [];
+    assert.ok(!after.includes(marshall.slot), "and so is a revealed Marshall");
+    assert.equal(setNightAction(state, doctor.playerId, mayor.slot).ok, false);
+  });
+
+  /**
    * The lever, which is the half the families did not have and the town did.
    * One charge rather than the Jailor's three: see `optionalCharges`.
    */

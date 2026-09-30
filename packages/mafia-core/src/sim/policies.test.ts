@@ -283,6 +283,49 @@ describe("the claims board", () => {
     );
   });
 
+  /**
+   * A watch is an account. On a real table the Detective put the Lookout at the
+   * dead man's door, the Lookout answered with that door and the two callers it
+   * saw there, and eleven jurors hanged it for the visit its report explained.
+   */
+  it("a Lookout's own watch owns the doorstep it was seen on", () => {
+    const state = table(["citizen", "lookout", "detective", "mafioso"]);
+    const board = (claims: Claim[]): PublicInfo =>
+      toPublicInfo(state, claims, []);
+
+    const seenAtOne = claim({
+      claimerSlot: 3,
+      targetSlot: 2,
+      kind: "sighting",
+      at: 1,
+      night: 1,
+      day: 2,
+      worked: true,
+      from: "tracked",
+    });
+    const watchedOne = claim({
+      claimerSlot: 2,
+      targetSlot: 4,
+      kind: "sighting",
+      at: 1,
+      night: 1,
+      day: 2,
+      worked: true,
+      from: "visitors",
+    });
+
+    assert.equal(
+      ownsUpTo(2, seenAtOne, board([seenAtOne, watchedOne])),
+      "matches",
+      "a watch on house 1 is the watcher saying it stood at house 1",
+    );
+    assert.equal(
+      ownsUpTo(2, seenAtOne, board([seenAtOne, claim({ ...watchedOne, at: 3 })])),
+      null,
+      "a watch on another house explains nothing",
+    );
+  });
+
   it("and the score stops charging him for a doorstep he named himself", () => {
     const state = table(["citizen", "lookout", "doctor", "mafioso"]);
     const judge = playerBySlot(state, 1)!;

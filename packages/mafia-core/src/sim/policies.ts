@@ -954,6 +954,25 @@ export function couldStillAct(action: NightActionType, info: PublicInfo): boolea
 const MERCY = 1.5;
 
 /**
+ * The share of that price charged when the killer spared works alone.
+ *
+ * Mercy is the loudest tell because of who it helps: a mafioso on the stand has
+ * brothers in the room, and a hand raised to save him is the one thing a
+ * brother cannot help doing. A Poisoner or a Serial Killer has nobody. No seat
+ * at the table gains from keeping one alive, the families least of all, since
+ * the blade is aimed at them too. So an innocent ballot on a lone killer is a
+ * seat that read the case wrong, not a seat that showed its side.
+ *
+ * Measured on a real table: two humans were the only innocent ballots on a
+ * Poisoner's rope, the Godfather opened the next morning with "they voted
+ * innocent on people who turned out to be killers", and the town hanged its
+ * own Investigator on it, whose claim had the Godfather's name in it. Still
+ * charged, because being wrong about a killer is being wrong, just not the
+ * same wrong.
+ */
+const LONE_MERCY = 0.3;
+
+/**
  * How damning one innocent vote was, 0 (forgivable) to 1 (the full price).
  *
  * Two halves, weighted the same, and both are read off the board as it stood
@@ -1104,7 +1123,8 @@ export function trustOf(slot: number, info: PublicInfo, through: Temperament = E
        * earns the credit a guilty ballot earns, or sitting out would have been
        * the safest way to look trustworthy in the game.
        */
-      if (innocent || abstained) trust -= MERCY * (0.25 + 0.75 * mercyCost(trial, info)) * heard * share;
+      const alone = familyOf(revealed) === null ? LONE_MERCY : 1;
+      if (innocent || abstained) trust -= MERCY * alone * (0.25 + 0.75 * mercyCost(trial, info)) * heard * share;
     } else if (roleDef(revealed).faction === 'town') {
       /**
        * A follower's ballot on a bad rope, which is a much smaller thing than
@@ -1741,15 +1761,16 @@ export function ownsUpTo(slot: number, sighting: Claim, info: PublicInfo): 'volu
   const night = sighting.night ?? Math.max(1, sighting.day - 1);
   const accounts = info.claims.filter(
     (claim) =>
-      claim.kind === 'account' &&
       claim.claimerSlot === slot &&
-      (claim.night ?? Math.max(1, claim.day - 1)) === night
+      (claim.night ?? Math.max(1, claim.day - 1)) === night &&
+      (claim.kind === 'account' || stoodAt(claim, info) !== null)
   );
 
   // The newest account wins outright, for the reason `contradicted` gives.
   const standing = accounts[accounts.length - 1];
-  if (!standing || standing.account !== 'visited') return null;
-  if (sighting.at !== undefined && standing.targetSlot !== sighting.at) return null;
+  const went = standing ? wentTo(standing, info) : null;
+  if (went === null) return null;
+  if (sighting.at !== undefined && went !== sighting.at) return null;
 
   /**
    * Said first, rather than merely said early and then revised.
@@ -1762,9 +1783,43 @@ export function ownsUpTo(slot: number, sighting: Claim, info: PublicInfo): 'volu
    * is standing on now, which also keeps the credit for the honest seat that
    * simply repeats itself under pressure.
    */
-  return accounts.some((claim) => claim.day < sighting.day && claim.targetSlot === standing.targetSlot)
+  return accounts.some((claim) => claim.day < sighting.day && wentTo(claim, info) === went)
     ? 'volunteered'
     : 'matches';
+}
+
+/** The house an account or a report of one's own night puts the speaker at, or null. */
+function wentTo(claim: Claim, info: PublicInfo): number | null {
+  if (claim.kind === 'account') return claim.account === 'visited' ? claim.targetSlot : null;
+  return stoodAt(claim, info);
+}
+
+/**
+ * Where a seat's own report of its night puts it, which is an account in all but name.
+ *
+ * A Lookout who says "night 1 I watched 11, and Yoda and Harley Quinn came" has
+ * told the room it stood at 11 as plainly as "I went to 11" would, and so has a
+ * Detective who says where it followed somebody from. Only `account` claims
+ * counted here, so on a real table the Detective put the Lookout on the dead
+ * man's doorstep, the Lookout answered with exactly that doorstep and the two
+ * seats it saw there, and eleven jurors hanged it for the visit its own report
+ * explained: "Smaug saw them visiting a house on night 1". The mafioso it named
+ * voted innocent.
+ *
+ * Read off the instrument the claim came from, or, for a person who has no
+ * instrument on the record, off the badge they wear: a sighting with a doorstep
+ * from a claimed Lookout is a watch.
+ */
+function stoodAt(claim: Claim, info: PublicInfo): number | null {
+  if (claim.kind !== 'sighting') return null;
+  if (claim.from === 'visitors') return claim.at ?? null;
+  if (claim.from === 'tracked') return claim.targetSlot;
+  if (claim.from !== undefined || claim.at === undefined) return null;
+  let worn: RoleId | undefined;
+  for (const other of info.claims) {
+    if (other.kind === 'role-claim' && other.claimerSlot === claim.claimerSlot && other.claimedRole) worn = other.claimedRole;
+  }
+  return worn === 'lookout' ? claim.at : null;
 }
 
 /**
@@ -1904,6 +1959,28 @@ export function uncontestedBadge(slot: number, info: PublicInfo): RoleId | null 
 }
 
 /**
+ * A seat the record itself vouches for: proven town, or a badge whose own check the graveyard confirmed.
+ *
+ * The second half is narrower than `provenRoles` on purpose. It asks only
+ * whether a night's work of this seat named somebody who was then buried as a
+ * killer, which is the one thing a claim cannot manufacture after the fact.
+ */
+export function recordVouches(slot: number, info: PublicInfo): boolean {
+  const proven = info.provenRoles.get(slot);
+  if (proven !== undefined && roleDef(proven).faction === 'town') return true;
+  return uncontestedBadge(slot, info) !== null && confirmedCall(slot, info);
+}
+
+/** One of this seat's own night's-work accusations landed on a revealed killer. */
+export function confirmedCall(slot: number, info: PublicInfo): boolean {
+  return info.claims.some((claim) => {
+    if (claim.claimerSlot !== slot || claim.kind !== 'accuse' || claim.worked !== true) return false;
+    const buried = info.deadRoles.get(claim.targetSlot);
+    return buried !== undefined && isEvilRole(buried);
+  });
+}
+
+/**
  * Every seat's badge, worked out once per board.
  *
  * `claimerWeight` asks about a badge for every claim it weighs, and it is
@@ -1996,8 +2073,17 @@ export function settledCredit(claimerSlot: number, info: PublicInfo): number {
     // Accusing a jester or a scumbag is an honest mistake — the sheriff's
     // needle genuinely points at them, so it costs nothing either way.
     const honestMiss = deadRole === 'jester' || harmlessSuspect(deadRole);
+    /**
+     * And a neutral that is nobody's townsperson is not a false witness either.
+     *
+     * Only a town corpse makes an accusation wrong. An Executioner hanged on
+     * a Sheriff's word cost the town nothing, and on a real table it was
+     * billed like a mislynch, which pulled the Sheriff's record under water on
+     * the same afternoon the rope had just confirmed its Mass Murderer call.
+     */
+    const wronged = roleDef(deadRole).faction === 'town';
     const fade = 1 / (1 + Math.max(0, info.day - claim.day) * 0.2);
-    if (claim.kind === 'accuse') credit += (wasEvil ? 1 : honestMiss ? 0 : -1.1) * fade;
+    if (claim.kind === 'accuse') credit += (wasEvil ? 1 : honestMiss || !wronged ? 0 : -1.1) * fade;
     else if (claim.kind === 'clear') credit += (wasEvil ? -1.6 : 0.6) * fade;
   }
   return credit;
@@ -4740,8 +4826,29 @@ export function decideDay(
         (entry) =>
           entry.kind === 'visitors' && entry.night === info.day - 1 && info.lastNightDeathSlots.has(entry.targetSlot)
       );
+      /**
+       * And by the quietest too, once somebody has put this watcher on that doorstep.
+       *
+       * The watch is then the watcher's own alibi as well as the town's lead:
+       * it is what `ownsUpTo` reads to see that the visit was a Lookout at its
+       * post. A quiet Lookout on a real table was named at the dead house at
+       * dawn, answered "Yoda. Nothing hard, just a read" while holding a
+       * sighting of Yoda at that house, and gave the watch only from the stand,
+       * where the badge came too late to turn eleven ballots.
+       */
+      const doorstepped = info.claims.some(
+        (claim) =>
+          claim.kind === 'sighting' &&
+          claim.targetSlot === self.slot &&
+          claim.claimerSlot !== self.slot &&
+          (claim.night ?? Math.max(1, claim.day - 1)) === info.day - 1
+      );
+      const cornered = endangered || doorstepped;
+      if (watch && cornered && !alreadyClaimed(info, self.slot, self.slot, 'role-claim')) {
+        publish(self.slot, 'role-claim', role);
+      }
       // Said by every watcher but the very quietest: a doorstep at the house that died is worth most the morning after.
-      if (watch && brain.personality.claimRate >= QUIET_SEAT) {
+      if (watch && (brain.personality.claimRate >= QUIET_SEAT || cornered)) {
         for (const visitor of watch.slots ?? []) {
           if (!info.aliveSlots.includes(visitor)) continue;
           // Three things, and they do different work: the accusation points,
@@ -5722,7 +5829,19 @@ export function decideDay(
      * The Jailor's version of this rule is that it cannot jail itself, which
      * `jailTarget` enforces for all three.
      */
-    const cellPool = info.aliveSlots.filter((slot) => slot !== self.slot && !teammates.has(slot));
+    /**
+     * And never the seat on the stand.
+     *
+     * A cell is only worth anything if its prisoner is alive at dusk, and the
+     * seat the town is judging right now is the one most likely not to be. The
+     * Jailor on a real table jailed the leading suspect three days running and
+     * watched each of them hanged that same afternoon, so three nights of cell
+     * went to three corpses. The driver asks again when a trial opens on a
+     * prisoner; this is what makes the second answer a different house.
+     */
+    const cellPool = info.aliveSlots.filter(
+      (slot) => slot !== self.slot && !teammates.has(slot) && slot !== info.trialSlot
+    );
 
     /**
      * Last night's answer, which only this morning can give.
@@ -7561,6 +7680,18 @@ export function decideNightTarget(
   /* -------------------------- guns, keys and vests ------------------------ */
 
   if (role === 'vigilante') {
+    /**
+     * Never a seat the record vouches for, whichever path below chose it.
+     *
+     * The spared-at-trial path reads "the town let them off" as "evil ballots
+     * saved them", and a seat the town keeps sparing is also exactly what a
+     * proven Sheriff looks like to a room with a loud minority against it. On a
+     * real table the Sheriff who had caught the Mass Murderer was tried and
+     * spared three days running, and the Vigilante shot it that night for
+     * having been spared.
+     */
+    legalTargets = legalTargets.filter((slot) => !recordVouches(slot, info));
+    if (legalTargets.length === 0) return null;
     /**
      * A name he is sure of, before anything the room thinks.
      *

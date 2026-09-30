@@ -128,6 +128,18 @@ describe('the trust meter', () => {
     assert.ok(trustOf(4, hangedAnEvil) > 0, 'and voting guilty on one earns trust');
   });
 
+  /** Nobody has a reason to save a killer who works alone, so sparing one is a misread, not a side. */
+  it('charges far less for sparing a lone killer than a mafioso', () => {
+    const sparedALoner = board({
+      deadRoles: new Map([[2, 'poisoner']]),
+      trials: [{ day: 2, accusedSlot: 2, lynched: false, guiltySlots: [], innocentSlots: [4], abstainSlots: [] }]
+    });
+    const loner = trustOf(4, sparedALoner);
+    const mafioso = trustOf(4, sparedAnEvil);
+    assert.ok(loner < 0, 'still a mistake');
+    assert.ok(loner > mafioso / 2, `a fraction of the mafioso price, got ${loner} against ${mafioso}`);
+  });
+
   /**
    * The coefficient: the record is public and fixed, how far it moves you is
    * not. A suspicious reader swings on one ballot; a trusting one shrugs.

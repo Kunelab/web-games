@@ -778,7 +778,23 @@ function provenRoles(state: MafiaState, claims: Claim[], deaths: PublicInfo['dea
       .map((other) => deadRoleOf(other.targetSlot))
       .filter((role): role is RoleId => role !== null);
     const hangedEvil = outcomes.some((role) => isEvilRole(role));
-    const hangedTown = outcomes.some((role) => roleDef(role).faction === 'town');
+    /**
+     * Unproven by the badge's own work, not by a ballot it joined.
+     *
+     * A bot's accusation carries `worked` when it reads out a night, and only
+     * that is the badge speaking. The rest is a seat following a wagon like
+     * anybody else, and `accuserLedger` already bills that. On a real table
+     * the Sheriff's check put the Mass Murderer in the ground, then two days
+     * later it seconded the room's case against the Doctor ("Smaug watched them
+     * go to someone's house. Enough for me"), lost the proof with it, and was
+     * shot that night by the Vigilante. A person's accusations have no such
+     * flag, so every one of them still counts.
+     */
+    const hangedTown = (accusationsBy.get(claim.claimerSlot) ?? []).some((other) => {
+      const role = deadRoleOf(other.targetSlot);
+      if (role === null || roleDef(role).faction !== 'town') return false;
+      return other.worked === true || bySlot.get(claim.claimerSlot)?.isBot !== true;
+    });
     if (hangedEvil && !hangedTown) proven.set(claim.claimerSlot, claim.claimedRole);
   }
 

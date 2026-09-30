@@ -48,10 +48,10 @@ export const rolesFr: Catalogue = {
   'mafia.role.jailor.name': 'Geôlier',
   'mafia.role.jailor.desc': 'Le jour, choisit un prisonnier ; la nuit, l’interroge en cellule et peut l’exécuter.',
   'mafia.role.mayor.name': 'Maire',
-  'mafia.role.mayor.desc': 'Peut se révéler en plein jour : son vote compte alors triple.',
+  'mafia.role.mayor.desc': 'Peut se révéler en plein jour : son vote compte alors triple, et plus aucun docteur ne peut le soigner.',
   'mafia.role.marshall.name': 'Prévôt',
   'mafia.role.marshall.desc':
-    'Peut se révéler en plein jour : ce jour-là, la ville juge sans défense et pend à la chaîne.',
+    'Peut se révéler en plein jour : ce jour-là, la ville juge sans défense et pend à la chaîne. Une fois révélé, aucun docteur ne peut le soigner.',
   'mafia.role.crier.name': 'Crieur public',
   'mafia.role.crier.desc': 'Sa voix porte même la nuit — anonyme, sur la place du village.',
   'mafia.role.mason.name': 'Franc-maçon',

@@ -388,6 +388,31 @@ export class MafiaManager {
     // Two deliveries: the words to the pair, the gesture to the whole square.
     this.messageListener?.(state, result.message);
     this.messageListener?.(state, result.gossip);
+
+    // On the record like any other line, or "what did they whisper?" has no answer.
+    const speaker = state.players[playerId];
+    trace('mafia', code).event('chat', {
+      slot: speaker?.slot,
+      name: speaker?.name,
+      bot: speaker?.isBot,
+      channel: result.message.channel,
+      to: targetSlot,
+      text,
+      day: state.day,
+      phase: state.phase,
+      stage: state.stage
+    });
+
+    /**
+     * And the seat it was whispered to hears it.
+     *
+     * `playerChat` wakes the bots and this did not, so a person leaning in to a
+     * bot was talking to a wall: nothing filed the claim, nothing answered, and
+     * the words only ever surfaced as a line of transcript in that bot's next
+     * prompt, if it happened to speak again before the day turned. Four whispers
+     * from people to a revealed Marshall on a real table, not one of them read.
+     */
+    if (!mafiaPaused(state)) this.bots.onChat(state, result.message);
     this.persistSoon(state);
     return { ok: true };
   }

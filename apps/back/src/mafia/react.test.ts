@@ -11,6 +11,7 @@ import {
   joinMafia,
   sayInChat,
   startMafia,
+  whisperTo,
   type MafiaState
 } from 'mafia-core';
 import type { ChatMessage } from 'chat-core';
@@ -138,6 +139,28 @@ describe('a person says something in a private room', () => {
       fixture.driver.stop();
     });
   }
+
+  /**
+   * A whisper got nothing back: `sayChannelFor` had no route for a `pm:`
+   * thread, so even a woken bot drafted its reply and dropped it.
+   */
+  it('gets an answer to a whisper, in the whisper', async () => {
+    const fixture = table();
+    const bot = Object.values(fixture.state.players).find((player) => player.isBot && player.alive);
+    assert.ok(bot);
+    fixture.state.phaseEndsAt = Date.now() + 90_000;
+
+    const result = whisperTo(fixture.state, fixture.human, bot.slot, 'who do you trust?', Date.now());
+    assert.ok(result.ok, `the engine refused the whisper: ${JSON.stringify(result)}`);
+    fixture.driver.onChat(fixture.state, result.message);
+
+    await new Promise((resolve) => setTimeout(resolve, 4000));
+    assert.ok(
+      fixture.said.some((line) => line.botId === bot.playerId && line.channel === result.message.channel),
+      `no reply in the whisper: ${JSON.stringify(fixture.said)}`
+    );
+    fixture.driver.stop();
+  });
 });
 
 describe('a person says something', () => {

@@ -2503,6 +2503,20 @@ export class MafiaBotDriver {
     if (state.stage === 'defense') {
       const accusedId = state.trial?.accusedId;
       const accused = accusedId ? state.players[accusedId] : null;
+      /**
+       * A keeper whose prisoner has just been dragged to the stand picks again.
+       *
+       * The cell is chosen during the discussion and the leading suspect is
+       * the natural pick, which is also the seat the rope is about to take. A
+       * `react` turn re-runs the day's decision with the trial on the board,
+       * and the policy keeps the accused out of the pool; it cannot speak or
+       * vote from here, so the new cell is the only thing it changes.
+       */
+      for (const [keeperId, heldId] of Object.entries(state.captives ?? {})) {
+        const keeper = state.players[keeperId];
+        if (heldId !== accusedId || !keeper?.isBot || !keeper.alive) continue;
+        this.later(code, 800 + Math.random() * 1500, () => this.decide(code, keeperId, 'react'));
+      }
       if (accused?.isBot && accused.alive) {
         /**
          * Three turns, not one, because the stand is where everything comes out.
@@ -3728,6 +3742,8 @@ export class MafiaBotDriver {
      */
     if (channel === 'mafia' || channel === 'triad' || channel === 'cult' || channel === 'mason') return channel;
     if (channel.startsWith('jail:')) return channel;
+    // A whisper thread: daylight only, and `answerPrivately` is the one turn held in it.
+    if (channel.startsWith('pm:')) return channel;
     // The crier's voice is the one that carries into the square at night.
     if (channel === 'day' && state.players[botId]?.role === 'crier') return 'day';
     return null;
@@ -5468,6 +5484,33 @@ export class MafiaBotDriver {
         };
       }
 
+      /**
+       * A whisper, answered by the one seat it was whispered to.
+       *
+       * Held as a private turn like the cell, though it happens by day: the
+       * rules only open a whisper thread in daylight, and the seat's own night
+       * turn is scheduled on the square, so nothing here can be mistaken for
+       * the night's power. Only when somebody is actually waiting on a reply;
+       * the phrasebook line is the floor, and the mouth is told to answer what
+       * was said.
+       */
+      if (channel.startsWith('pm:')) {
+        const heard = this.answering(state, botId, channel);
+        if (heard.length === 0) return EMPTY;
+        const t = say(spokenLocale(state));
+        const line = t(vary('mafia.bot.whisper.heard', 4, botId + ':heard:' + heard[heard.length - 1].text));
+        return {
+          ...EMPTY,
+          say: line,
+          intent: {
+            act: 'answer the person who just whispered to you, privately, where only the two of you can hear',
+            mood: moodOf(mind.brain.personality),
+            fallback: line,
+            answering: heard
+          }
+        };
+      }
+
       if (!action || me.jailed) return EMPTY;
       /**
        * A power used at home is still a decision.
@@ -6993,8 +7036,20 @@ export class MafiaBotDriver {
           : `admit you went to ${who(claim.targetSlot)} last night`;
       case 'question':
         return `ask ${who(claim.targetSlot)} where they were last night`;
-      case 'sighting':
-        return `say you saw somebody go into ${who(claim.targetSlot)}'s house last night`;
+      case 'sighting': {
+        /**
+         * The seat on the claim is the one who was out, and `at` is where.
+         *
+         * This read the other way round, "somebody go into X's house", so a
+         * Detective whose phrasebook line said "Donald Duck was on 11's doorstep"
+         * was asked by its own intent to say that somebody had visited Donald
+         * Duck, which is a different accusation about a different house.
+         */
+        const night = claim.night ?? Math.max(1, claim.day - 1);
+        return claim.at !== undefined
+          ? `say you saw ${who(claim.targetSlot)} at ${who(claim.at)}'s house on night ${night}`
+          : `say you saw ${who(claim.targetSlot)} out of their house on night ${night}`;
+      }
       case 'taunt':
         return `needle ${who(claim.targetSlot)} about how quiet they have been`;
       case 'hint':
@@ -10174,10 +10229,15 @@ export class MafiaBotDriver {
      *
      * Each power leaves a different kind of trace, so the mask decides the
      * shape of every page: a Sheriff's verdict, a Lookout's list of callers, a
-     * Detective's tail, an Escort's "I held them at home", and a plain journey
-     * for the roles whose night is simply a visit — a Doctor, a Bodyguard, a
-     * Bus Driver. A Doctor claiming a Lookout's list would be caught by the
-     * first person who read it.
+     * Detective's tail, an Escort's "I held them at home", a Bus Driver's two
+     * houses, and a plain journey for the roles whose night is simply a visit,
+     * a Doctor or a Bodyguard. A Doctor claiming a Lookout's list would be
+     * caught by the first person who read it.
+     *
+     * The Bus Driver was on the plain-journey list, so an Executioner wearing
+     * its badge on a real table told the stand "Night 1: I was at Yennefer.
+     * Night 2: I was at Killua", one house a night, for a role whose every
+     * night is a pair of houses swapped. The real one writes `swapped`.
      */
     const traces: Partial<Record<string, IntelEntry['kind']>> = {
       investigate: 'sheriff',
@@ -10202,7 +10262,8 @@ export class MafiaBotDriver {
        *
        * A corpse-only badge gets a corpse-only notebook. See the `role` case.
        */
-      autopsy: 'role'
+      autopsy: 'role',
+      swap: 'swapped'
     };
     const kind = traces[def.nightAction] ?? 'went';
 
@@ -10298,6 +10359,12 @@ export class MafiaBotDriver {
           entries.push({ night, kind: 'visitors', targetSlot: told, value: 'visitors', slots: callers });
         } else if (kind === 'tracked') {
           entries.push({ night, kind: 'tracked', targetSlot: told, value: 'tracked', slots: died });
+        } else if (kind === 'swapped') {
+          // The house it named, and a second one to have swapped it with.
+          const partner = pick(living([...mates, ...strangers]).filter((slot) => slot !== told && !died.includes(slot)), 'pair:' + night);
+          if (partner !== undefined) {
+            entries.push({ night, kind: 'swapped', targetSlot: told, value: `${told},${partner}`, slots: [told, partner] });
+          }
         } else {
           entries.push({ night, kind, targetSlot: told, value: kind });
         }
@@ -10413,6 +10480,16 @@ export class MafiaBotDriver {
           );
           const named = open[hashCode(botId + ':slab-role:' + night) % Math.max(1, open.length)];
           if (named) entries.push({ night, kind: 'role', targetSlot: body, value: named });
+          break;
+        }
+        case 'swapped': {
+          // Two living houses, neither of them this seat's: a swap nobody can check against a corpse.
+          const pair = living([...mates, ...strangers]).filter((slot) => !died.includes(slot));
+          const first = pick(pair, 'swap:' + night);
+          const second = pick(pair.filter((slot) => slot !== first), 'swap-with:' + night);
+          if (first !== undefined && second !== undefined) {
+            entries.push({ night, kind: 'swapped', targetSlot: first, value: `${first},${second}`, slots: [first, second] });
+          }
           break;
         }
         default: {

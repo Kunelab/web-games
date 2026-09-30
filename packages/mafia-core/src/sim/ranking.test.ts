@@ -203,6 +203,26 @@ describe('a badge is only unchallenged once it has had time to be challenged', (
       'the rule the bench fitted is still the rule, one day later'
     );
   });
+
+  /**
+   * The Sheriff called the Mass Murderer, the rope confirmed it, and the badge
+   * kept firing: tried on days four, five and six, then shot by the Vigilante.
+   */
+  it('stops once the graveyard has confirmed one of its checks', () => {
+    const confirmed = board({
+      day: 5,
+      aliveSlots: [1, 2, 3, 4],
+      deadRoles: new Map([[5, 'mass-murderer']]),
+      claims: [
+        said({ claimerSlot: 1, targetSlot: 1, kind: 'role-claim', claimedRole: 'sheriff', day: 3 }),
+        said({ claimerSlot: 1, targetSlot: 5, kind: 'accuse', day: 4, worked: true, from: 'sheriff' })
+      ]
+    });
+    assert.ok(
+      !codes(caseFor(1, confirmed)).includes('badge-unchallenged'),
+      'a badge the rope has answered is no longer untested'
+    );
+  });
 });
 
 /**
