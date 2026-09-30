@@ -34,7 +34,7 @@ export const notesEn: Catalogue = {
   'mafia.note.remembered': 'It all comes back to you: you are the {role}.',
   'mafia.note.promoted': 'Somebody has to hold the knife now. You are the {role}.',
   'mafia.note.kidnapDone': 'You had {name} in a sack all night. They did nothing, and nobody could reach them.',
-  'mafia.note.audited': 'A relentless audit — your papers, your tools, your former life, seized. You are the {role}.',
+  'mafia.note.audited': 'A relentless audit: your papers, your tools, your former life, seized. You are the {role}.',
 
   /* --------------------------- what you did tonight ------------------------- */
   'mafia.note.onAlert': 'You spend the night on alert, rifle across your knees.',

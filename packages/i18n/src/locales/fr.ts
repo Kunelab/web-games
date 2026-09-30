@@ -30,15 +30,15 @@ export const fr: Catalogue = {
   ...siteFr,
 
   /* ------------------------------- the clock ------------------------------- */
-  'mafia.day.header': '— Jour {day} —',
-  'mafia.game.start': 'La partie commence. Bienvenue en ville — apprenez à vous connaître, la nuit tombe vite.',
+  'mafia.day.header': 'Jour {day}',
+  'mafia.game.start': 'La partie commence. Bienvenue en ville : apprenez à vous connaître, la nuit tombe vite.',
   'mafia.night.fall': 'La nuit {day} tombe sur la ville. Fermez vos portes.',
-  'mafia.night.quiet': 'Personne n’est mort cette nuit. La ville respire — pour l’instant.',
+  'mafia.night.quiet': 'Personne n’est mort cette nuit. La ville respire, pour l’instant.',
 
   /* -------------------------------- the day ------------------------------- */
   'mafia.mayor.reveal': '{name} sort son écharpe : c’est le Maire ! Son vote compte triple.',
   'mafia.marshall.reveal':
-    '{name} sort son insigne : c’est le Prévôt ! Aujourd’hui, la ville juge sans défense — et à la chaîne.',
+    '{name} sort son insigne : c’est le Prévôt ! Aujourd’hui, la ville juge sans défense, et à la chaîne.',
   'mafia.whisper.seen': '{from} murmure à l’oreille de {to}…',
 
   /* ------------------------------- the trial ------------------------------ */
@@ -63,7 +63,7 @@ export const fr: Catalogue = {
 
   /* -------------------------------- deaths -------------------------------- */
   'mafia.death.hanged': '{name} se balance au bout de la corde. {body}',
-  'mafia.death.found': '{name} a été retrouvé mort — {cause}. {body}',
+  'mafia.death.found': '{name} a été retrouvé mort : {cause}. {body}',
   'mafia.death.grief': '{name} s’est éteint de chagrin. {body}',
   'mafia.seat.left': '{name} a quitté la table. Personne ne l’a tué. {body}',
   'mafia.death.will': 'Dernières volontés de {name} : « {will} »',
@@ -131,7 +131,7 @@ export const fr: Catalogue = {
   'mafia.win.hollow':
     'Les tueurs ont emporté la ville avec eux. Il ne reste personne à sauver, et personne pour la sauver.',
   'mafia.end.unmasked': 'Les masques tombent :',
-  'mafia.end.unmaskedRow': '{slot}. {name} — {role}'
+  'mafia.end.unmaskedRow': '{slot}. {name} : {role}'
 };
 
 export default fr;

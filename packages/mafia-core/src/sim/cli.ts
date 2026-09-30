@@ -118,7 +118,7 @@ const setupName = arg('setup', 'auto');
 const special = setupName === 'auto' || setupName === 'chaos' || setupName === 'census';
 const preset = !special ? setupById(setupName) : undefined;
 if (!special && !preset) {
-  console.error(`setup inconnu: ${setupName} — disponibles: ${SETUPS.map((s) => s.id).join(', ')}, chaos, census`);
+  console.error(`setup inconnu: ${setupName}. Disponibles: ${SETUPS.map((s) => s.id).join(', ')}, chaos, census`);
   process.exit(1);
 }
 const setupConfig =

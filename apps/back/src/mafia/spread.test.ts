@@ -118,7 +118,7 @@ describe('spreading the work across the free tiers', () => {
     assert.equal(
       idle.length,
       0,
-      `these were never asked anything: ${idle.map((row) => row.model).join(', ')} — board ${board.map((row) => `${row.model}=${String(row.ok)}`).join(' ')}`
+      `these were never asked anything: ${idle.map((row) => row.model).join(', ')}: board ${board.map((row) => `${row.model}=${String(row.ok)}`).join(' ')}`
     );
 
     /**

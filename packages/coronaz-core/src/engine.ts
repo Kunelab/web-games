@@ -1127,7 +1127,7 @@ function rollEvent(state: CzState): void {
   const rolled = CZ_EVENTS[randInt(state.rng, CZ_EVENTS.length)];
   if (!rolled) return;
   state.event = rolled.id;
-  log(state, `${rolled.emoji} ${rolled.name} — ${rolled.blurb}`);
+  log(state, `${rolled.emoji} ${rolled.name}: ${rolled.blurb}`);
 
   /**
    * The two that change the board rather than a rule.

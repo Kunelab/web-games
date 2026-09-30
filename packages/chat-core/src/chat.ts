@@ -149,7 +149,7 @@ export function post(state: ChatState, input: PostInput): PostResult {
   const recent = state.messages.filter(
     (message) => message.authorId === input.authorId && message.at >= windowStart
   ).length;
-  if (recent >= limits.burst) return { ok: false, error: 'Doucement — trop de messages', reason: 'flood' };
+  if (recent >= limits.burst) return { ok: false, error: 'Doucement: trop de messages', reason: 'flood' };
 
   const message: ChatMessage = {
     id: state.nextId++,

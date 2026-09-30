@@ -26,7 +26,7 @@ export const notesFr: Catalogue = {
   'mafia.note.kidnapDone':
     'Vous avez gardé {name} dans un sac toute la nuit. Il n’a rien fait, et personne n’a pu l’atteindre.',
   'mafia.note.audited':
-    'Un contrôle implacable : vos papiers, vos outils, votre vie d’avant — saisis. Vous êtes {role}.',
+    'Un contrôle implacable : vos papiers, vos outils, votre vie d’avant, saisis. Vous êtes {role}.',
 
   /* -------------------------- ce que vous avez fait ------------------------- */
   'mafia.note.onAlert': 'Vous passez la nuit en alerte, fusil sur les genoux.',

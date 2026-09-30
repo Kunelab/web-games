@@ -48,10 +48,10 @@ export const shopEn: Catalogue = {
   'shop.backToMenu': 'Back to the menu',
   'locker.seeShop': 'See the shop',
   'shop.alreadyYours': 'Already yours',
-  'shop.buy': 'Buy — {price} {emoji}',
+  'shop.buy': 'Buy: {price} {emoji}',
   'locker.wear': 'Wear',
   'locker.takeOff': 'Take off',
-  'locker.worn': '— worn',
+  'locker.worn': '(worn)',
   'locker.slot.avatar': 'Look',
   'shop.failed': 'That did not work.',
   'shop.back': '← Back to the {game} menu'

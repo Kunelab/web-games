@@ -234,7 +234,7 @@ export function resolveHeroAttack(state: CzState, hero: HeroState, target: Zombi
     state,
     hits === 0
       ? `${hero.name} n'atteint pas ${targetName}`
-      : `${hero.name} touche ${hits} fois ${targetName}${killed.length > 0 ? ` — ${killed.length} victime${killed.length > 1 ? 's' : ''}` : ''}`
+      : `${hero.name} touche ${hits} fois ${targetName}${killed.length > 0 ? `: ${killed.length} victime${killed.length > 1 ? 's' : ''}` : ''}`
   );
 
   return { ok: true, hits, killed, loot: dropped ?? undefined };

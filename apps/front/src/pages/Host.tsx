@@ -761,7 +761,7 @@ export default function Host() {
                   >
                     {/* A genre this screen does not know still shows, as it is. */}
                     {round.category && !listedGenre && <option value={round.category}>{currentGenreName}</option>}
-                    {!round.category && <option value="">—</option>}
+                    {!round.category && <option value="">-</option>}
                     {genreGroups.map((group) => (
                       <optgroup key={group.section.id} label={group.section.label}>
                         {group.genres.map((candidate) => (

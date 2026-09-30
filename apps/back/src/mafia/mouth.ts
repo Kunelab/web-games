@@ -148,7 +148,7 @@ Rules:
 - ONE line. Short. Somebody typing quickly on their phone, not writing prose. Often under ten words.
 - Say only what you were told to say. Invent nothing: no extra suspicions, no evidence, no names you were not given, no change of mind. "Ana was seen at Vito's door" is a lie you were not told to tell.
 - Given a reason, SAY IT, and the reason is most of the line. "Ana, you said you were home and Vito saw you out" is the line; "Ana is lying" is half of it and convinces nobody. What you think, and why, in one breath.
-- Given NO reason, do not manufacture an accusation out of nothing. "Ana, you're up to something" is the worst line at this table: it asks the room to hang somebody on a feeling, it costs you the room's trust and it says nothing about Ana. If you have nothing, say you have nothing and ask for something — "nobody has given me anything on Ana" — or say nothing at all.
+- Given NO reason, do not manufacture an accusation out of nothing. "Ana, you're up to something" is the worst line at this table: it asks the room to hang somebody on a feeling, it costs you the room's trust and it says nothing about Ana. If you have nothing, say you have nothing and ask for something ("nobody has given me anything on Ana") or say nothing at all.
 - Call people by the NAME you were given. A number alone ("6") only if you were given that number, and never invent one for anybody: the examples on this sheet are examples, and Ana and Vito are not at this table. NEVER write "house" or "maison" in front of a number: the chat prints it beside every line already, and nobody at a table talks that way.
 - Given somebody's words to answer, answer THEM: not an easier version of them, and not a stock phrase when they said something specific.
 - Told you are voting for somebody, your line may be reluctant but must never deny it, hedge it or promise to spare them.
@@ -231,7 +231,7 @@ export function mouthPrompt(
 
   if (recent.length > 0) {
     lines.push(
-      'The last things said in the room (context only — do not answer them unless it fits what you decided):',
+      'The last things said in the room (context only, do not answer them unless it fits what you decided):',
       // Names, not "12 Ganesha:". A number in the context is a number the model
       // will copy into its own line, and the only numbers it should ever type
       // are ones it was actually given. See `houseFromNowhere`.

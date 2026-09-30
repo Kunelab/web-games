@@ -72,7 +72,7 @@ async function main(): Promise<number> {
 
     console.log(`${login}: ${user.role ?? 'member'} -> ${role}`);
     if (signedOut > 0) {
-      console.log(`Signed out of ${signedOut} session(s) — sign in again for it to take effect.`);
+      console.log(`Signed out of ${signedOut} session(s): sign in again for it to take effect.`);
     }
     return 0;
   }

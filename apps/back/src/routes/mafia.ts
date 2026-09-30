@@ -124,7 +124,7 @@ const mafiaRoutes: FastifyPluginAsyncZod = async (app) => {
       const rows = await db.select().from(mafiaTemplates).where(eq(mafiaTemplates.user_id, request.currentUser.id));
       const exists = rows.some((row) => row.name === name);
       if (!exists && rows.length >= MAX_TEMPLATES) {
-        throw app.httpErrors.badRequest(`Maximum ${MAX_TEMPLATES} modèles — supprimez-en un d'abord`);
+        throw app.httpErrors.badRequest(`Maximum ${MAX_TEMPLATES} modèles : supprimez-en un d'abord`);
       }
       await db
         .insert(mafiaTemplates)

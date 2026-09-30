@@ -28,13 +28,13 @@ export const quizFr: Catalogue = {
     'Un panel à mémoriser pendant quelques secondes, puis à réciter. Chaque case est une course indépendante.',
 
   /* ---------------------------------- le guide ------------------------------ */
-  'quiz.guide.title': 'Quiz — règles et types de questions',
+  'quiz.guide.title': 'Quiz : règles et types de questions',
   'quiz.guide.lede': 'Cinq façons de faire deviner quelque chose, un seul système de points.',
   'quiz.guide.flow': 'Le déroulé',
   'quiz.guide.flow.1':
     'Un quiz est une suite de questions. Sur une partie organisée, quelqu’un ouvre un salon, choisit le quiz et ouvre l’écran de jeu ; les autres rejoignent avec un code ou un QR. Sur une **partie rapide**, il n’y a pas d’organisateur : le quiz est tiré au sort, la table vote pour le changer, et chaque téléphone est à la fois la scène et le buzzer.',
   'quiz.guide.flow.2':
-    'Un quiz marqué **public** par son auteur peut être joué par n’importe qui — c’est aussi la réserve dans laquelle les parties rapides piochent.',
+    'Un quiz marqué **public** par son auteur peut être joué par n’importe qui : c’est aussi la réserve dans laquelle les parties rapides piochent.',
   'quiz.guide.scoring': 'Comment se calcule le score',
   'quiz.guide.scoring.1':
     'Chaque réponse est une course à part. Trois choses entrent dans le calcul : **la place obtenue** sur cette réponse, qui compte le plus ; **le temps restant** au chrono ; et **votre temps par rapport aux autres** qui ont trouvé, ce qui récompense celui qui savait quand la question était difficile pour tout le monde.',
@@ -51,7 +51,7 @@ export const quizFr: Catalogue = {
   /* ------------------------------ ouvrir un salon --------------------------- */
   'quiz.create.title': 'Créer un salon',
   'quiz.create.lede':
-    'Choisissez le quiz à jouer. L’écran suivant règle la partie — ordre, chrono, points — et décide si le salon est public ou privé.',
+    'Choisissez le quiz à jouer. L’écran suivant règle la partie (ordre, chrono, points) et décide si le salon est public ou privé.',
   'quiz.create.mine': 'Mes quiz',
   'quiz.create.generated': 'Sans rien préparer',
   'quiz.create.generatedHint':
@@ -66,12 +66,12 @@ export const quizFr: Catalogue = {
   'quiz.create.publicBadge': 'Public',
 
   /* ------------------------------- le guide Mafia --------------------------- */
-  'mafia.guide.title': 'Mafia — rôles et règles',
+  'mafia.guide.title': 'Mafia : rôles et règles',
   'mafia.guide.lede':
     'Une ville s’endort chaque nuit et se réveille avec un mort de moins. Quelqu’un autour de la table sait pourquoi.',
   'mafia.guide.idea': 'Le principe',
   'mafia.guide.idea.1':
-    'La ville est majoritaire mais aveugle : elle ne sait pas qui est qui. La mafia est minoritaire mais voit clair — ses membres se connaissent, et tuent une fois par nuit. La ville gagne en pendant les derniers coupables ; la mafia gagne le jour où elle égale la ville.',
+    'La ville est majoritaire mais aveugle : elle ne sait pas qui est qui. La mafia est minoritaire mais voit clair : ses membres se connaissent, et tuent une fois par nuit. La ville gagne en pendant les derniers coupables ; la mafia gagne le jour où elle égale la ville.',
   'mafia.guide.idea.2':
     'Entre les deux vivent les **neutres**, qui ont chacun leur propre condition de victoire et n’aident personne gratuitement.',
   'mafia.guide.cycle': 'Un jour, une nuit',
@@ -80,7 +80,7 @@ export const quizFr: Catalogue = {
   'mafia.guide.cycle.night':
     '**La nuit**, chaque rôle agit en silence : la mafia choisit sa victime, le docteur choisit qui protéger, le shérif sonde quelqu’un. Tout se résout d’un coup, et au matin la ville découvre le résultat sans savoir ce qui l’a produit.',
   'mafia.guide.cycle.reveal':
-    'Ce qu’un cadavre révèle — son rôle complet, son camp seulement, ou rien du tout — est un réglage de la table. Le réglage intermédiaire est le plus intéressant : il garde la forme du jeu tout en donnant du travail au légiste.',
+    'Ce qu’un cadavre révèle (son rôle complet, son camp seulement, ou rien du tout) est un réglage de la table. Le réglage intermédiaire est le plus intéressant : il garde la forme du jeu tout en donnant du travail au légiste.',
   'mafia.guide.roleCount': '{count} rôles',
   'mafia.guide.unique': 'Un seul par table.',
   'mafia.guide.will': 'Écrire un testament que la ville peut lire',
@@ -98,7 +98,7 @@ export const quizFr: Catalogue = {
   'mafia.guide.will.where': 'Où vous étiez compte aussi, et vous protège d’être pendu pour votre silence :',
   'mafia.guide.will.where.eg': 'Nuit 3 : j’étais chez 9.\nNuit 4 : je suis resté chez moi.\nNuit 2 : j’ai vu 12 aller chez 9.',
   'mafia.guide.will.dont':
-    'Ce qui ne passe pas : deux trouvailles entassées dans une phrase, un verdict sans maison à côté, et l’ironie. Écrivez un procès-verbal, pas un plaidoyer — le plaidoyer, c’est la place publique qui est faite pour ça.',
+    'Ce qui ne passe pas : deux trouvailles entassées dans une phrase, un verdict sans maison à côté, et l’ironie. Écrivez un procès-verbal, pas un plaidoyer : le plaidoyer, c’est la place publique qui est faite pour ça.',
   'mafia.guide.back': '← Retour au menu Mafia'
 };
 

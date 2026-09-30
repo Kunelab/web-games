@@ -47,10 +47,10 @@ export const shopFr: Catalogue = {
   'shop.backToMenu': 'Retour au menu',
   'locker.seeShop': 'Voir la boutique',
   'shop.alreadyYours': 'Déjà à vous',
-  'shop.buy': 'Acheter — {price} {emoji}',
+  'shop.buy': 'Acheter : {price} {emoji}',
   'locker.wear': 'Porter',
   'locker.takeOff': 'Retirer',
-  'locker.worn': '— porté',
+  'locker.worn': '(porté)',
   'locker.slot.avatar': 'Apparence',
   'shop.failed': 'L’opération a échoué.',
   'shop.back': '← Retour au menu {game}'

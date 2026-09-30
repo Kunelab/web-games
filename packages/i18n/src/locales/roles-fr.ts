@@ -30,7 +30,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.lookout.desc': 'Chaque nuit, surveille une maison et voit qui la visite.',
   'mafia.role.spy.name': 'Espion',
   'mafia.role.spy.desc':
-    'Écoute les conciliabules des familles la nuit — sans jamais voir les visages — et apprend qui elles ont visé.',
+    'Écoute les conciliabules des familles la nuit, sans jamais voir les visages, et apprend qui elles ont visé.',
   'mafia.role.coroner.name': 'Légiste',
   'mafia.role.coroner.desc': 'Chaque nuit, autopsie un cadavre et découvre son vrai rôle, maquillé ou non.',
   'mafia.role.doctor.name': 'Médecin',
@@ -53,7 +53,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.marshall.desc':
     'Peut se révéler en plein jour : ce jour-là, la ville juge sans défense et pend à la chaîne. Une fois révélé, aucun docteur ne peut le soigner.',
   'mafia.role.crier.name': 'Crieur public',
-  'mafia.role.crier.desc': 'Sa voix porte même la nuit — anonyme, sur la place du village.',
+  'mafia.role.crier.desc': 'Sa voix porte même la nuit, anonyme, sur la place du village.',
   'mafia.role.mason.name': 'Franc-maçon',
   'mafia.role.mason.desc': 'Membre de la loge : les frères se connaissent et se parlent la nuit.',
   'mafia.role.mason-leader.name': 'Maître de loge',
@@ -80,7 +80,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.blackmailer.desc': 'Chaque nuit, bâillonne un joueur : demain, il votera mais ne dira pas un mot.',
   'mafia.role.janitor.name': 'Nettoyeur',
   'mafia.role.janitor.desc':
-    'Fait disparaître l’identité du cadavre — la ville enterre un inconnu, la famille apprend son rôle.',
+    'Fait disparaître l’identité du cadavre : la ville enterre un inconnu, la famille apprend son rôle.',
   'mafia.role.agent.name': 'Agent',
   'mafia.role.agent.desc': 'Chaque nuit, piste un joueur : qui l’a visité, et chez qui il est allé.',
   'mafia.role.beguiler.name': 'Enjôleur',
@@ -90,7 +90,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.actress.name': 'Actrice',
   'mafia.role.actress.desc': 'Joue le rôle d’un autre : les enquêteurs applaudissent sans comprendre.',
   'mafia.role.kidnapper.name': 'Ravisseur',
-  'mafia.role.kidnapper.desc': 'Enlève un joueur pour la nuit — injoignable, inoffensif, furieux — et peut l’exécuter dans sa cave. Une seule fois.',
+  'mafia.role.kidnapper.desc': 'Enlève un joueur pour la nuit (injoignable, inoffensif, furieux) et peut l’exécuter dans sa cave. Une seule fois.',
   'mafia.role.heartbreaker.name': 'Bourreau des cœurs',
   'mafia.role.heartbreaker.desc': 'Rend un joueur fou d’amour : si votre cœur s’arrête, le sien aussi.',
 
@@ -116,7 +116,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.deceiver.name': 'Trompeur',
   'mafia.role.deceiver.desc': 'Se cache chez quelqu’un : ce qu’on lui destinait frappe son hôte.',
   'mafia.role.interrogator.name': 'Interrogateur',
-  'mafia.role.interrogator.desc': 'Enlève un joueur pour la nuit — injoignable, inoffensif, terrifié — et peut ne pas le relâcher. Une seule fois.',
+  'mafia.role.interrogator.desc': 'Enlève un joueur pour la nuit (injoignable, inoffensif, terrifié) et peut ne pas le relâcher. Une seule fois.',
   'mafia.role.diva.name': 'Diva',
   'mafia.role.diva.desc': 'Se pare du visage d’un autre : les enquêteurs n’y verront que du feu.',
 
@@ -131,7 +131,7 @@ export const rolesFr: Catalogue = {
   'mafia.role.amnesiac.name': 'Amnésique',
   'mafia.role.amnesiac.desc': 'Ne se souvient plus qui il est. Une nuit, au cimetière, ça lui reviendra.',
   'mafia.role.scumbag.name': 'Crapule',
-  'mafia.role.scumbag.desc': 'Une sale réputation et aucun pouvoir. Gagne si la ville perd — et qu’il respire encore.',
+  'mafia.role.scumbag.desc': 'Une sale réputation et aucun pouvoir. Gagne si la ville perd, et qu’il respire encore.',
   'mafia.role.judge.name': 'Juge',
   'mafia.role.judge.desc':
     'Peut convoquer un tribunal d’exception : jugement immédiat, sans défense, et sa voix compte triple. Gagne si la ville perd.',
@@ -139,10 +139,10 @@ export const rolesFr: Catalogue = {
   'mafia.role.auditor.desc': 'Réduit un joueur à néant administratif : son rôle est dissous. Gagne si la ville perd.',
   'mafia.role.witch.name': 'Sorcière',
   'mafia.role.witch.desc':
-    'Chaque nuit, envoûte un joueur et détourne son geste vers une autre maison. Gagne si la Ville ne gagne pas — et qu’elle respire encore.',
+    'Chaque nuit, envoûte un joueur et détourne son geste vers une autre maison. Gagne si la Ville ne gagne pas, et qu’elle respire encore.',
   'mafia.role.lover.name': 'Amoureux',
   'mafia.role.lover.desc':
-    'Choisit l’élu de son cœur. Ils gagnent ensemble s’ils survivent ensemble — et meurent ensemble.',
+    'Choisit l’élu de son cœur. Ils gagnent ensemble s’ils survivent ensemble, et meurent ensemble.',
   'mafia.role.cultist.name': 'Sectateur',
   'mafia.role.cultist.desc':
     'Une nuit sur deux, convertit une âme de la ville. La secte gagne quand elle est majoritaire.',
@@ -155,12 +155,12 @@ export const rolesFr: Catalogue = {
   'mafia.role.mass-murderer.desc': 'Une nuit sur deux, massacre une maison et tous ceux qui s’y trouvent. Gagne seul.',
   'mafia.role.arsonist.name': 'Incendiaire',
   'mafia.role.arsonist.desc':
-    'Arrose une maison d’essence chaque nuit — ou craque l’allumette chez lui et tout ce qui est imbibé s’embrase. Rien n’arrête le feu. Gagne seul.',
+    'Arrose une maison d’essence chaque nuit, ou craque l’allumette chez lui et tout ce qui est imbibé s’embrase. Rien n’arrête le feu. Gagne seul.',
   'mafia.role.poisoner.name': 'Empoisonneur',
   'mafia.role.poisoner.desc':
     'Un poison lent : la victime s’éteint la nuit suivante, sauf si un médecin la purge à temps. Gagne seul.',
   'mafia.role.electromaniac.name': 'Électromane',
-  'mafia.role.electromaniac.desc': 'Électrise les maisons en silence — puis, chez lui, abaisse la manette. Gagne seul.',
+  'mafia.role.electromaniac.desc': 'Électrise les maisons en silence, puis, chez lui, abaisse la manette. Gagne seul.',
 
   /* --------------------------- le verbe sur le bouton ----------------------- */
   'mafia.action.kill': 'Tuer',
@@ -199,15 +199,15 @@ export const rolesFr: Catalogue = {
   'mafia.action.charge.self': 'Envoyer le courant',
 
   /* ---------------------------- la liste des rôles -------------------------- */
-  'mafia.slot.town-core': 'Ville — Noyau',
-  'mafia.slot.town-investigative': 'Ville — Enquête',
-  'mafia.slot.town-protective': 'Ville — Protection',
-  'mafia.slot.town-killing': 'Ville — Force',
-  'mafia.slot.town-power': 'Ville — Pouvoir',
-  'mafia.slot.town-support': 'Ville — Soutien',
+  'mafia.slot.town-core': 'Ville : Noyau',
+  'mafia.slot.town-investigative': 'Ville : Enquête',
+  'mafia.slot.town-protective': 'Ville : Protection',
+  'mafia.slot.town-killing': 'Ville : Force',
+  'mafia.slot.town-power': 'Ville : Pouvoir',
+  'mafia.slot.town-support': 'Ville : Soutien',
   'mafia.slot.town-random': 'Ville aléatoire',
-  'mafia.slot.mafia-support': 'Mafia — Soutien',
-  'mafia.slot.mafia-deception': 'Mafia — Duperie',
+  'mafia.slot.mafia-support': 'Mafia : Soutien',
+  'mafia.slot.mafia-deception': 'Mafia : Duperie',
   'mafia.slot.mafia-random': 'Mafia aléatoire',
   'mafia.slot.triad-random': 'Triade aléatoire',
   'mafia.slot.neutral-benign': 'Neutre bénin',

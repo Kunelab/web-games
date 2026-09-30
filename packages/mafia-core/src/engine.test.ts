@@ -1249,7 +1249,7 @@ describe("mafia engine", () => {
     }
     assert.ok(
       lynches > 20,
-      `twenty games produced only ${String(lynches)} hangings — the ballot is blocked`,
+      `twenty games produced only ${String(lynches)} hangings: the ballot is blocked`,
     );
     assert.ok(
       evilLynches > 0,

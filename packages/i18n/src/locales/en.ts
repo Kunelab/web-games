@@ -34,15 +34,15 @@ export const en: Catalogue = {
   ...siteEn,
 
   /* ------------------------------- the clock ------------------------------- */
-  'mafia.day.header': '— Day {day} —',
-  'mafia.game.start': 'The game begins. Welcome to town — get to know each other, night falls quickly.',
+  'mafia.day.header': 'Day {day}',
+  'mafia.game.start': 'The game begins. Welcome to town: get to know each other, night falls quickly.',
   'mafia.night.fall': 'Night {day} falls on the town. Lock your doors.',
-  'mafia.night.quiet': 'Nobody died last night. The town breathes — for now.',
+  'mafia.night.quiet': 'Nobody died last night. The town breathes, for now.',
 
   /* -------------------------------- the day ------------------------------- */
   'mafia.mayor.reveal': '{name} produces a sash: the Mayor! Their vote counts triple.',
   'mafia.marshall.reveal':
-    '{name} produces a badge: the Marshall! Today the town judges without a defence — and in bulk.',
+    '{name} produces a badge: the Marshall! Today the town judges without a defence, and in bulk.',
   'mafia.whisper.seen': '{from} leans in and whispers to {to}…',
 
   /* ------------------------------- the trial ------------------------------ */
@@ -67,7 +67,7 @@ export const en: Catalogue = {
 
   /* -------------------------------- deaths -------------------------------- */
   'mafia.death.hanged': '{name} swings from the rope. {body}',
-  'mafia.death.found': '{name} was found dead — {cause}. {body}',
+  'mafia.death.found': '{name} was found dead: {cause}. {body}',
   'mafia.death.grief': '{name} died of a broken heart. {body}',
   'mafia.death.will': 'Last will of {name}: “{will}”',
   'mafia.seat.left': '{name} has left the table. Nobody killed them. {body}',
@@ -144,7 +144,7 @@ export const en: Catalogue = {
   'mafia.win.hollow':
     'The killers took the town down with them. There is nobody left to save, and nobody to save them.',
   'mafia.end.unmasked': 'The masks come off:',
-  'mafia.end.unmaskedRow': '{slot}. {name} — {role}'
+  'mafia.end.unmaskedRow': '{slot}. {name}: {role}'
 };
 
 export default en;

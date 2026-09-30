@@ -72,7 +72,7 @@ export default function Locker({ game, mode }: LockerPageProps) {
         </span>
         <div>
           <h1 className="menu-title">
-            {t(msg(selling ? 'shop.title' : 'locker.title'))} — {entry.name}
+            {t(msg(selling ? 'shop.title' : 'locker.title'))} · {entry.name}
           </h1>
           <p className="menu-lede">
             {selling

@@ -104,7 +104,7 @@ describe('a room runs dry', () => {
     assert.equal(hero.freeSearchUsed, false);
   });
 
-  it('Chuck finds one more thing than the room has left — exactly one', () => {
+  it('Chuck finds one more thing than the room has left, exactly one', () => {
     const { state, hero } = game('chuck');
     const room = state.board.rooms.find((candidate) => candidate.id === hero.roomId);
     assert.ok(room);

@@ -285,7 +285,7 @@ export default function CoronaZSetup() {
                             setGmPerks((current) => validGmLoadout(gmClass.id, current));
                           }}
                         >
-                          {gmClass.emoji} {t(msg(gmClass.name))} — {t(msg(gmClass.blurb))}
+                          {gmClass.emoji} {t(msg(gmClass.name))} · {t(msg(gmClass.blurb))}
                         </Button>
                       );
                     }
@@ -302,7 +302,7 @@ export default function CoronaZSetup() {
                             .catch(() => undefined);
                         }}
                       >
-                        🔒 {gmClass.emoji} {t(msg(gmClass.name))} — {t(msg(gmClass.blurb))} ({gmClass.cost} 🥫)
+                        🔒 {gmClass.emoji} {t(msg(gmClass.name))} · {t(msg(gmClass.blurb))} ({gmClass.cost} 🥫)
                       </Button>
                     );
                   })}

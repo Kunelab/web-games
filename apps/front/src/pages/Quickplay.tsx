@@ -298,6 +298,6 @@ function choiceLabel(
   t: (message: ReturnType<typeof msg>) => string
 ): string {
   const choice = choices.find((candidate) => candidate.value === value);
-  if (!choice) return '—';
+  if (!choice) return '-';
   return choice.text ?? t(msg(choice.label));
 }

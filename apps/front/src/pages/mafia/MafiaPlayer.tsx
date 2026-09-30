@@ -712,7 +712,7 @@ export default function MafiaPlayer() {
     if (inDefense) {
       return view.trial?.slot === me.slot
         ? tk('mafia.ui.prompt.yourDefense')
-        : tk('mafia.ui.prompt.defense', { name: view.trial?.name ?? '—' });
+        : tk('mafia.ui.prompt.defense', { name: view.trial?.name ?? '-' });
     }
     if (inJudgement) {
       return view.trial?.slot === me.slot ? tk('mafia.ui.prompt.yourJudgement') : tk('mafia.ui.prompt.judgement');
@@ -1188,7 +1188,7 @@ export default function MafiaPlayer() {
                       {row.isBot ? ' 🤖' : ''}
                     </td>
                     <td>{t(row.roleName)}</td>
-                    <td>{row.winner ? `🏆 ${row.winReason ? t(row.winReason) : ''}` : '—'}</td>
+                    <td>{row.winner ? `🏆 ${row.winReason ? t(row.winReason) : ''}` : '-'}</td>
                     <td className="mz-num">+{row.points}</td>
                   </tr>
                 ))}

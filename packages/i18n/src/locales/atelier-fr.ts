@@ -119,7 +119,7 @@ export const atelierFr: Catalogue = {
   "field.piece": "Œuvre",
   "field.difficulty": "Difficult\u00e9",
   "field.difficultyHelp":
-    "De 0, que tout le monde trouve, \u00e0 100, que seul un passionn\u00e9 trouvera. Renseign\u00e9e par le tirage pour une manche g\u00e9n\u00e9r\u00e9e, et corrigeable ensuite \u2014 y compris pendant la partie, depuis l\u2019\u00e9cran de l\u2019animateur. Vide : personne ne s\u2019est prononc\u00e9.",
+    "De 0, que tout le monde trouve, \u00e0 100, que seul un passionn\u00e9 trouvera. Renseign\u00e9e par le tirage pour une manche g\u00e9n\u00e9r\u00e9e, et corrigeable ensuite, y compris pendant la partie, depuis l\u2019\u00e9cran de l\u2019animateur. Vide : personne ne s\u2019est prononc\u00e9.",
   "field.volume": "Volume",
   "field.volumeHelp":
     "Pour aligner cet extrait sur le reste de la playlist. 100 = plein volume, à baisser seulement pour un extrait masterisé plus fort que ses voisins.",
@@ -230,7 +230,7 @@ export const atelierFr: Catalogue = {
   "pl.namePlaceholder": "Soirée du samedi",
   "pl.deleteTitle": "Supprimer cette playlist ?",
   "pl.deleteDesc":
-    "{name} — les médias qu’elle contient ne sont pas supprimés.",
+    "{name} : les médias qu’elle contient ne sont pas supprimés.",
   "pl.delete": "Supprimer",
   "pl.untitled": "Sans nom",
   "pl.duplicate": "Dupliquer {name}",
@@ -350,7 +350,7 @@ export const atelierFr: Catalogue = {
   "launch.readyPhones":
     "Les joueurs scannent, puis vous lancez le premier tour.",
   "launch.skipped": "Médias écartés",
-  "launch.missing": "— il manque {fields}",
+  "launch.missing": "(il manque {fields})",
   "launch.openScreen": "Ouvrir l’écran de jeu",
   "launch.solo": "Jouer en solo sur cet appareil",
   "launch.options": "Options de la partie",
@@ -366,7 +366,7 @@ export const atelierFr: Catalogue = {
     "Sinon, vous avancez manuellement après chaque révélation.",
   "launch.stage": "Où passe le média",
   "launch.stage.everyone": "Sur l’appareil de chacun",
-  "launch.stage.tv": "Sur la télévision seulement — vidéo et images",
+  "launch.stage.tv": "Sur la télévision seulement : vidéo et images",
   "launch.stage.everyone.hint":
     "Chaque téléphone reçoit l’extrait, l’image et le son, cet écran aussi. Rien à brancher.",
   "launch.stage.tv.hint":

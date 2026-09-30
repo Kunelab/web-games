@@ -41,7 +41,7 @@ export const siteFr: Catalogue = {
 
   /* ------------------------------ ce qu’est un jeu -------------------------- */
   "site.game.quiz.tagline":
-    "Blind test, questions, estimations, panels — à faire deviner entre amis.",
+    "Blind test, questions, estimations, panels : à faire deviner entre amis.",
   "site.game.coronaz.tagline":
     "Survie coopérative contre la horde, façon jeu de plateau.",
   "site.game.mafia.tagline":
@@ -49,11 +49,11 @@ export const siteFr: Catalogue = {
 
   /* ------------------------------ le menu d’un jeu -------------------------- */
   "site.menu.aria": "Menu {game}",
-  "site.menu.needsAccount": "Il faut un compte — se connecter",
+  "site.menu.needsAccount": "Il faut un compte : se connecter",
   "site.menu.back": "← Retour au menu principal",
 
   "site.menu.quiz.lede":
-    "Un extrait, une image, une question — sur la télé ou sur votre téléphone. Le score récompense celui qui répond le premier, pas celui qui a la meilleure connexion.",
+    "Un extrait, une image, une question : sur la télé ou sur votre téléphone. Le score récompense celui qui répond le premier, pas celui qui a la meilleure connexion.",
   "site.menu.coronaz.lede":
     "Survie coopérative façon jeu de plateau : la carte sur la télé, votre survivant en main. Trois à cinq joueurs, une heure, et rarement tout le monde à la sortie.",
   "site.menu.mafia.lede":
@@ -73,7 +73,7 @@ export const siteFr: Catalogue = {
     "Des extraits trouvés au fil de la partie, par genre. Rien à préparer.",
   "site.tile.createRoom": "Créer un salon",
   "site.tile.createRoom.hint":
-    "Choisissez un quiz — le vôtre ou un quiz public — et ouvrez la partie.",
+    "Choisissez un quiz, le vôtre ou un quiz public, et ouvrez la partie.",
   "site.tile.createRaid": "Créer un raid",
   "site.tile.createRaid.hint":
     "Scénario, carte, difficulté, et la horde tenue par la machine ou par vous.",

@@ -140,7 +140,7 @@ export const atelierEn: Catalogue = {
     "0 if everyone at a party would name it, 100 if only an enthusiast would. Filled in by the draw on a generated round, and correctable afterwards - including mid-game, from the host screen. Empty means nobody has said.",
   "field.volume": "Volume",
   "field.volumeHelp":
-    "Levels this clip against the rest of the playlist. 100 is full — turn it down only for a clip mastered louder than everything around it.",
+    "Levels this clip against the rest of the playlist. 100 is full: turn it down only for a clip mastered louder than everything around it.",
 
   /* ----------- what an item is still missing before it can be played -------- */
   "miss.youtube": "the YouTube video",
@@ -202,7 +202,7 @@ export const atelierEn: Catalogue = {
   "ans.remove": "Remove {what}",
   "ans.thisAnswer": "this answer",
   "ans.exact":
-    "Must be written exactly — case, accents and punctuation included.",
+    "Must be written exactly: case, accents and punctuation included.",
   "ans.numbersExact": "Numbers stay exact. Everything else is very forgiving.",
   "ans.veryLoose":
     "Very forgiving: several mistakes, phonetic spelling, swapped letters.",
@@ -245,7 +245,7 @@ export const atelierEn: Catalogue = {
   "pl.name": "Name",
   "pl.namePlaceholder": "Saturday night",
   "pl.deleteTitle": "Delete this playlist?",
-  "pl.deleteDesc": "{name} — the media it holds are not deleted.",
+  "pl.deleteDesc": "{name}: the media it holds are not deleted.",
   "pl.delete": "Delete",
   "pl.untitled": "Untitled",
   "pl.duplicate": "Duplicate {name}",
@@ -365,7 +365,7 @@ export const atelierEn: Catalogue = {
     "Open the game screen on the TV and start the first round.",
   "launch.readyPhones": "The players scan, then you start the first round.",
   "launch.skipped": "Media left out",
-  "launch.missing": "— missing {fields}",
+  "launch.missing": "(missing {fields})",
   "launch.openScreen": "Open the game screen",
   "launch.solo": "Play solo on this device",
   "launch.options": "Game options",
@@ -381,7 +381,7 @@ export const atelierEn: Catalogue = {
     "Otherwise you move on by hand after every reveal.",
   "launch.stage": "Where the media plays",
   "launch.stage.everyone": "On everybody’s device",
-  "launch.stage.tv": "On the television only — video and images",
+  "launch.stage.tv": "On the television only: video and images",
   "launch.stage.everyone.hint":
     "Every phone gets the clip, the picture and the sound, and so does this screen. Nothing to plug in.",
   "launch.stage.tv.hint":

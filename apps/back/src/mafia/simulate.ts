@@ -139,7 +139,7 @@ manager.addBots(state.code, bots);
 manager.start(state.code);
 
 console.log(BANNER);
-console.log(`table ${state.code} — ${Object.keys(state.players).length} bots, c'est parti\n`);
+console.log(`table ${state.code}: ${Object.keys(state.players).length} bots, c'est parti\n`);
 
 const startedAt = Date.now();
 /** Messages already printed, so the live feed does not repeat itself. */
@@ -207,7 +207,7 @@ function printLedger(code: string): void {
   const byKind = new Map<string, number>();
   for (const claim of ledger) byKind.set(claim.kind, (byKind.get(claim.kind) ?? 0) + 1);
   const breakdown = [...byKind].map(([kind, n]) => `${kind} ${n}`).join(', ');
-  console.log(`\nregistre des bots : ${ledger.length} affirmation(s)${breakdown ? ` — ${breakdown}` : ' (vide)'}`);
+  console.log(`\nregistre des bots : ${ledger.length} affirmation(s)${breakdown ? `: ${breakdown}` : ' (vide)'}`);
   if (ledger.length === 0 && provider !== 'scripted') {
     console.log('⚠ aucune affirmation enregistrée : les bots parlent sans rien déclarer (champ claim laissé null)');
   }
@@ -245,7 +245,7 @@ async function report(final: NonNullable<ReturnType<typeof manager.get>>): Promi
    */
   if (provider !== 'scripted' && spoken < Object.keys(final.players).length) {
     console.log(
-      '\n⚠ très peu de paroles pour un tempo LLM — le modèle était probablement injoignable\n' +
+      '\n⚠ très peu de paroles pour un tempo LLM : le modèle était probablement injoignable\n' +
         `  vérifie : curl ${env.OLLAMA_URL}/api/tags`
     );
   }

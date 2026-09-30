@@ -48,7 +48,7 @@ describe('the catalogues', () => {
 
 describe('rendering', () => {
   it('substitutes named parameters', () => {
-    assert.equal(interpolate('{name} was found dead — {cause}.', { name: 'Alice', cause: 'poison' }), 'Alice was found dead — poison.');
+    assert.equal(interpolate('{name} was found dead: {cause}.', { name: 'Alice', cause: 'poison' }), 'Alice was found dead: poison.');
   });
 
   it('leaves an unknown placeholder visibly alone', () => {
@@ -66,7 +66,7 @@ describe('rendering', () => {
 
   it('binds a reader once and renders many', () => {
     const t = translator(fr, en);
-    assert.equal(t(msg('mafia.day.header', { day: 3 })), '— Jour 3 —');
+    assert.equal(t(msg('mafia.day.header', { day: 3 })), 'Jour 3');
     assert.equal(t(msg('mafia.trial.nobody')), 'personne');
   });
 });

@@ -48,7 +48,7 @@ import { say } from './say.js';
 
 const WIN_LINE: Partial<Record<RoleId, string>> = {
   survivor:
-    'YOU WIN WITH ANYBODY, as long as you are alive at the end — town, mafia, a lone killer, it does not matter. ' +
+    'YOU WIN WITH ANYBODY, as long as you are alive at the end: town, mafia, a lone killer, it does not matter. ' +
     'That makes claiming Survivor a real choice with a cost on both sides: it tells the room you are no threat, which ' +
     'buys you safety, and it also makes you a free vote nobody will ever protect. Never be the most suspicious seat, ' +
     'and never be the most useful one either.',
@@ -72,7 +72,7 @@ const WIN_LINE: Partial<Record<RoleId, string>> = {
     'On alert you kill EVERY visitor, including the doctor trying to save you and the sheriff checking you. It is a ' +
     'trap, not armour: the town loses people on your porch.',
   vigilante:
-    'You have a few bullets. Shooting a townie is worse than not shooting at all — it is a kill the mafia did not ' +
+    'You have a few bullets. Shooting a townie is worse than not shooting at all: it is a kill the mafia did not ' +
     'have to make.',
   crier:
     'You speak into the night ANONYMOUSLY, and the room never learns which seat it was. That is also your proof: if ' +
@@ -86,7 +86,7 @@ const WIN_LINE: Partial<Record<RoleId, string>> = {
     'alive at night matters as much as pushing them by day.',
   witch: 'You win whenever the town loses, whoever beats them. You need not kill anybody: you need the town to fail.',
   scumbag: 'You win whenever the town loses. Survive, and help the wrong side quietly.',
-  judge: 'You win whenever the town loses. Your court is one use of enormous force — spend it where it does damage.',
+  judge: 'You win whenever the town loses. Your court is one use of enormous force: spend it where it does damage.',
   auditor:
     'You win whenever the town loses. Blend in; you are not trying to win the day, you are trying to lose it for them.'
 };
@@ -153,7 +153,7 @@ export function stanceLine(mind: BotMind, view: MafiaView): string {
   } else
     switch (mind.agenda) {
     case 'town':
-      orders.push('Your side wins when the killers hang. Truth serves you — not to the point of dying for it.');
+      orders.push('Your side wins when the killers hang. Truth serves you, not to the point of dying for it.');
       break;
     case 'family':
       orders.push(
@@ -184,7 +184,7 @@ export function stanceLine(mind: BotMind, view: MafiaView): string {
     orders.push('ASK somebody what they did last night, and remember the answer.');
   }
   if (s.answerHonestly < 0.4) {
-    orders.push('If asked about your night, LIE or dodge — say you never left home.');
+    orders.push('If asked about your night, LIE or dodge: say you never left home.');
   }
   if (strong(s.falseAccuse, 0.45)) {
     orders.push('Accuse somebody even without proof, preferably where suspicion already points.');
@@ -193,13 +193,13 @@ export function stanceLine(mind: BotMind, view: MafiaView): string {
     orders.push('You may claim a role that is not yours in order to protect yourself.');
   }
   if (strong(s.jesterGambit, 0.35) && mind.agenda !== 'jester') {
-    orders.push('Last resort: claim to be the JESTER — nobody dares hang a jester.');
+    orders.push('Last resort: claim to be the JESTER, nobody dares hang a jester.');
   }
   if (strong(s.sacrificeAlly, 0.4)) {
     orders.push('One of your own is in danger: do not defend them. Dropping them buys you the room’s trust.');
   }
   if (strong(s.troll, 0.5)) {
-    orders.push('You may needle, provoke, show off — one line, not a routine.');
+    orders.push('You may needle, provoke, show off: one line, not a routine.');
   }
   if (strong(s.buildTrust, 0.5)) {
     orders.push('Vote with the room when you agree: you are building a reputation for later.');
@@ -259,7 +259,7 @@ function pressure(view: MafiaView, board: PublicInfo): string[] {
    */
   lines.push(
     leader && leader.votesAgainst > 0
-      ? `It takes ${needed} votes to start a trial. ${leader.slot}. ${leader.name} has ${leader.votesAgainst} — ${needed - leader.votesAgainst} more and they are on trial.`
+      ? `It takes ${needed} votes to start a trial. ${leader.slot}. ${leader.name} has ${leader.votesAgainst}: ${needed - leader.votesAgainst} more and they are on trial.`
       : `It takes ${needed} votes to put somebody on the stand, where they defend themselves and the room votes guilty or innocent. Nobody is targeted yet.`
   );
 
@@ -279,7 +279,7 @@ function pressure(view: MafiaView, board: PublicInfo): string[] {
       .map((player) => (player ? `${player.slot}. ${player.name}` : ''))
       .filter(Boolean)
       .join(', ');
-    lines.push(`CAUGHT IN A LIE: ${names}. Say so and VOTE — set targetSlot to their house number.`);
+    lines.push(`CAUGHT IN A LIE: ${names}. Say so and VOTE: set targetSlot to their house number.`);
   } else if (view.day >= 3 && (!leader || leader.votesAgainst === 0)) {
     lines.push(
       'Three days and nobody has been put on trial. A town that never hangs anybody loses. Pick your best suspect and vote (targetSlot).'
@@ -366,7 +366,7 @@ function heatmap(view: MafiaView, board: PublicInfo, limit: number): string[] {
 
   return rows.map((row) => {
     const lead = flagged.has(row.slot) ? ' [WORTH A LOOK]' : '';
-    return `${row.slot}. ${row.name}${lead} — ${row.notes.join(', ')}`;
+    return `${row.slot}. ${row.name}${lead}: ${row.notes.join(', ')}`;
   });
 }
 
@@ -602,7 +602,7 @@ export function brief(
    * every player's screen, top right; this is the same list.
    */
   const dealt = rolesInPlay(view, locale);
-  if (dealt) lines.push(`Roles dealt in this game — nothing else exists here: ${dealt}`);
+  if (dealt) lines.push(`Roles dealt in this game. Nothing else exists here: ${dealt}`);
   /**
    * How much room the transcript gets, and why it is not a constant.
    *
@@ -705,7 +705,7 @@ function legalMoves(view: MafiaView): string {
   const me = view.me;
   if (!me?.alive) return 'You are dead. You may only talk in the graveyard; the living cannot hear you.';
 
-  const lines: string[] = ['WHAT YOU MAY DO RIGHT NOW — these are the only legal moves; anything else is refused:'];
+  const lines: string[] = ['WHAT YOU MAY DO RIGHT NOW: these are the only legal moves; anything else is refused:'];
 
   if (view.phase === 'night') {
     if (me.jailed) {
@@ -755,7 +755,7 @@ function legalMoves(view: MafiaView): string {
   if (view.voteOpensAt !== null && Date.now() < view.voteOpensAt) {
     const wait = Math.ceil((view.voteOpensAt - Date.now()) / 1000);
     lines.push(
-      `- The ballot is not open yet — about ${wait}s of talking left. You cannot accuse or skip until it opens.`
+      `- The ballot is not open yet: about ${wait}s of talking left. You cannot accuse or skip until it opens.`
     );
   } else {
     lines.push(
@@ -919,7 +919,7 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
     if (channel.startsWith('jail:')) return ' (in the cell, private)';
     if (channel === 'dead') return ' (graveyard, the living cannot hear this)';
     if (channel.startsWith('pm:')) return ' (whispered to you)';
-    return ' (YOUR SECRET CHANNEL — the town cannot see this, and must never learn what is in it)';
+    return ' (YOUR SECRET CHANNEL: the town cannot see this, and must never learn what is in it)';
   };
 
   /**
@@ -1015,7 +1015,7 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
      * has already said what day it is, and stamping "now" on every line of an
      * active afternoon is the one place the per-line cost buys nothing at all.
      */
-    const age = message.at < startedAt ? ` [${stamp}, earlier — context, do not reply]` : '';
+    const age = message.at < startedAt ? ` [${stamp}, earlier: context, do not reply]` : '';
     const line = `${who}${person}${room(message.channel)}${age}: ${said}`;
     if (line.length > left && rendered.length > 0) break;
     left -= line.length;
@@ -1042,10 +1042,10 @@ function transcript(view: MafiaView, window: number, humansPresent: boolean): st
    * reasoning as the per-line stamp immediately above, applied one level up.
    */
   const nowLabel = `${view.phase === 'night' ? 'N' : 'D'}${view.day}`;
-  const stamped = rendered.some((line) => line.includes(', earlier — context'));
+  const stamped = rendered.some((line) => line.includes(', earlier: context'));
   const legend = stamped ? ` (unmarked = now (${nowLabel}); D2 = day 2, N2 = night 2)` : '';
   const header = humansPresent
-    ? `WHAT WAS ACTUALLY SAID${legend} — read it properly. Claims, accusations and defences matter more than the numbers above, especially from human players:`
+    ? `WHAT WAS ACTUALLY SAID${legend}: read it properly. Claims, accusations and defences matter more than the numbers above, especially from human players:`
     : `Recent lines${legend}:`;
   return `${header}\n${rendered.join('\n')}`;
 }
@@ -1070,7 +1070,7 @@ export function dossier(
 ): string {
   const me = view.me!;
   const lines: string[] = [];
-  lines.push(`— Thinking round ${round}/${rounds} —`);
+  lines.push(`Thinking round ${round}/${rounds}`);
   lines.push(`Day ${view.day}, phase ${view.phase}${view.stage ? ` (${view.stage})` : ''}.`);
   if (me.role) {
     lines.push(
@@ -1127,7 +1127,7 @@ export function dossier(
       `Past trials: ${board.trials
         .map(
           (trial) =>
-            `D${trial.day} ${trial.accusedSlot} ${trial.lynched ? 'hanged' : 'spared'} (guilty: ${trial.guiltySlots.join('/') || '—'})`
+            `D${trial.day} ${trial.accusedSlot} ${trial.lynched ? 'hanged' : 'spared'} (guilty: ${trial.guiltySlots.join('/') || '-'})`
         )
         .join(' ; ')}`
     );
@@ -1160,7 +1160,7 @@ export function dossier(
     );
   if (chat.length > 0) {
     lines.push(
-      `THE CONVERSATION — the most reliable source on this sheet. Weigh claims, accusations and defences against what was actually said:\n${chat.join('\n')}`
+      `THE CONVERSATION: the most reliable source on this sheet. Weigh claims, accusations and defences against what was actually said:\n${chat.join('\n')}`
     );
   }
   lines.push(...pressure(view, board));

@@ -88,7 +88,7 @@ export async function buildApp(): Promise<FastifyInstance> {
    */
   if (env.PASSWORD_RESET_ECHO) {
     app.log.warn(
-      'PASSWORD_RESET_ECHO is on: reset links are returned to the caller. Development only — turn it off on anything reachable.'
+      'PASSWORD_RESET_ECHO is on: reset links are returned to the caller. Development only: turn it off on anything reachable.'
     );
   }
 

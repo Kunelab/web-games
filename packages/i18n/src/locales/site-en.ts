@@ -45,7 +45,7 @@ export const siteEn: Catalogue = {
 
   /* ------------------------------- what a game is --------------------------- */
   "site.game.quiz.tagline":
-    "Blind test, questions, estimates, panels — for guessing at, among friends.",
+    "Blind test, questions, estimates, panels: for guessing at, among friends.",
   "site.game.coronaz.tagline":
     "Co-operative survival against the horde, board-game style.",
   "site.game.mafia.tagline":
@@ -53,11 +53,11 @@ export const siteEn: Catalogue = {
 
   /* ------------------------------- a game's menu ---------------------------- */
   "site.menu.aria": "{game} menu",
-  "site.menu.needsAccount": "An account is needed — sign in",
+  "site.menu.needsAccount": "An account is needed: sign in",
   "site.menu.back": "← Back to the main menu",
 
   "site.menu.quiz.lede":
-    "A clip, a picture, a question — on the TV or on your phone. The score rewards whoever answers first, not whoever has the best connection.",
+    "A clip, a picture, a question: on the TV or on your phone. The score rewards whoever answers first, not whoever has the best connection.",
   "site.menu.coronaz.lede":
     "Co-operative survival, board-game style: the map on the TV, your survivor in your hand. Three to five players, an hour, and rarely everybody at the exit.",
   "site.menu.mafia.lede":
@@ -76,7 +76,7 @@ export const siteEn: Catalogue = {
     "Clips found as you play, by genre. Nothing to prepare.",
   "site.tile.createRoom": "Open a room",
   "site.tile.createRoom.hint":
-    "Pick a quiz — yours or a public one — and open the game.",
+    "Pick a quiz, yours or a public one, and open the game.",
   "site.tile.createRaid": "Start a raid",
   "site.tile.createRaid.hint":
     "Scenario, map, difficulty, and the horde run by the machine or by you.",

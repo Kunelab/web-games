@@ -26,7 +26,7 @@ export default function CzGuide() {
           {entry.emoji}
         </span>
         <div>
-          <h1 className="guide-title">CoronaZ — le quartier</h1>
+          <h1 className="guide-title">CoronaZ : le quartier</h1>
           <p className="guide-lede">
             Ce qui est arrivé au quartier, ce qui y vit maintenant, et par où l’on peut encore en sortir.
           </p>
@@ -89,7 +89,7 @@ export default function CzGuide() {
               <div>
                 <div className="guide-card-name">
                   {zombie.name}
-                  {zombie.boss && ' — boss'}
+                  {zombie.boss && ' (boss)'}
                 </div>
                 <p className="guide-stats">
                   <span>{zombie.hp} PV</span>

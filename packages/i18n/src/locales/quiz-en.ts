@@ -28,13 +28,13 @@ export const quizEn: Catalogue = {
     'A panel to memorise for a few seconds, then to recite. Each cell is a race of its own.',
 
   /* --------------------------------- the guide ------------------------------ */
-  'quiz.guide.title': 'Quiz — rules and question types',
+  'quiz.guide.title': 'Quiz: rules and question types',
   'quiz.guide.lede': 'Five ways to make somebody guess something, one scoring system.',
   'quiz.guide.flow': 'How it goes',
   'quiz.guide.flow.1':
     'A quiz is a run of questions. In an organised game somebody opens a room, picks the quiz and opens the game screen; the others join with a code or a QR. In a **quick match** there is no organiser: the quiz is rolled, the table votes to change it, and every phone is both the stage and the buzzer.',
   'quiz.guide.flow.2':
-    'A quiz its author marked **public** can be played by anyone — it is also the pool quick matches draw from.',
+    'A quiz its author marked **public** can be played by anyone: it is also the pool quick matches draw from.',
   'quiz.guide.scoring': 'How the score works',
   'quiz.guide.scoring.1':
     'Every answer is its own race. Three things go into the total: **the place you took** on that answer, which counts for most; **the time left** on the clock; and **your time against everyone else who got it**, which rewards whoever knew when the question was hard for the whole room.',
@@ -51,7 +51,7 @@ export const quizEn: Catalogue = {
   /* ----------------------------- opening a room ----------------------------- */
   'quiz.create.title': 'Open a room',
   'quiz.create.lede':
-    'Pick the quiz to play. The next screen sets the game up — order, clock, points — and decides whether the room is public or private.',
+    'Pick the quiz to play. The next screen sets the game up (order, clock, points) and decides whether the room is public or private.',
   'quiz.create.mine': 'My quizzes',
   'quiz.create.generated': 'Without preparing anything',
   'quiz.create.generatedHint':
@@ -66,12 +66,12 @@ export const quizEn: Catalogue = {
   'quiz.create.publicBadge': 'Public',
 
   /* ------------------------------- the Mafia guide -------------------------- */
-  'mafia.guide.title': 'Mafia — roles and rules',
+  'mafia.guide.title': 'Mafia: roles and rules',
   'mafia.guide.lede':
     'A town falls asleep every night and wakes up one body short. Somebody around the table knows why.',
   'mafia.guide.idea': 'The idea',
   'mafia.guide.idea.1':
-    'The town is the majority and blind: it does not know who is who. The mafia is the minority and can see — its members know each other, and kill once a night. The town wins by hanging the last of the guilty; the mafia wins the day it equals the town.',
+    'The town is the majority and blind: it does not know who is who. The mafia is the minority and can see: its members know each other, and kill once a night. The town wins by hanging the last of the guilty; the mafia wins the day it equals the town.',
   'mafia.guide.idea.2':
     'Between the two live the **neutrals**, who each have their own victory condition and help nobody for free.',
   'mafia.guide.cycle': 'A day, a night',
@@ -80,25 +80,25 @@ export const quizEn: Catalogue = {
   'mafia.guide.cycle.night':
     '**By night**, every role acts in silence: the mafia picks its victim, the doctor picks who to protect, the sheriff probes somebody. It all resolves at once, and in the morning the town sees the result without knowing what produced it.',
   'mafia.guide.cycle.reveal':
-    'What a body gives away — its whole role, its camp only, or nothing at all — is a table setting. The middle one is the interesting one: it keeps the shape of the game while giving the Coroner something to do.',
+    'What a body gives away (its whole role, its camp only, or nothing at all) is a table setting. The middle one is the interesting one: it keeps the shape of the game while giving the Coroner something to do.',
   'mafia.guide.roleCount': '{count} roles',
   'mafia.guide.unique': 'One per table at most.',
   'mafia.guide.will': 'Writing a will the town can read',
   'mafia.guide.will.why':
     'Your will is read out **the moment you die**, and for an investigator it is the most valuable thing on the table: a corpse has nothing left to gain by lying about a check. But it is read by a machine as well as by people, and a finding it cannot parse is a finding the room never hears.',
   'mafia.guide.will.how':
-    'The rule is **one finding per line**, and each line names a house, a night, and what you found. Use the number or the name — both work — and keep the verdict to a plain word.',
+    'The rule is **one finding per line**, and each line names a house, a night, and what you found. Use the number or the name, both work, and keep the verdict to a plain word.',
   'mafia.guide.will.claim': 'Say what you are, once, on its own line:',
   'mafia.guide.will.claim.eg': 'I am the Sheriff.',
   'mafia.guide.will.checks': 'Then your nights, one to a line. All of these are read:',
   'mafia.guide.will.checks.eg':
     'Night 1, 12: clean.\nNight 2, Demogorgon: cult.\n9 is mafia.\nOptimus came back clean on night 3.',
   'mafia.guide.will.words':
-    'Clean, clear, innocent, town and trusted all clear a house. Sus, mafia, triad, cult, scum, liar and guilty all condemn one. **Name the camp if you know it** — "came back cult" says far more than "suspicious".',
+    'Clean, clear, innocent, town and trusted all clear a house. Sus, mafia, triad, cult, scum, liar and guilty all condemn one. **Name the camp if you know it**: "came back cult" says far more than "suspicious".',
   'mafia.guide.will.where': 'Where you were counts too, and protects you from being hanged for silence:',
   'mafia.guide.will.where.eg': 'Night 3: I was at 9.\nNight 4: I stayed home.\nNight 2: I saw 12 go to 9.',
   'mafia.guide.will.dont':
-    'What does not survive: two findings crammed into one sentence, a verdict with no house beside it, and sarcasm. Write it as a record, not as an argument — the argument is what the square is for.',
+    'What does not survive: two findings crammed into one sentence, a verdict with no house beside it, and sarcasm. Write it as a record, not as an argument: the argument is what the square is for.',
   'mafia.guide.back': '← Back to the Mafia menu'
 };
 

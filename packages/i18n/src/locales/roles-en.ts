@@ -35,7 +35,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.lookout.desc': 'Each night, watch a house and see who visits it.',
   'mafia.role.spy.name': 'Spy',
   'mafia.role.spy.desc':
-    'Overhears the families conspiring at night — never seeing a face — and learns who they aimed at.',
+    'Overhears the families conspiring at night, never seeing a face, and learns who they aimed at.',
   'mafia.role.coroner.name': 'Coroner',
   'mafia.role.coroner.desc': 'Each night, autopsy a body and learn its true role, cleaned or not.',
   'mafia.role.doctor.name': 'Doctor',
@@ -58,7 +58,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.marshall.desc':
     'Can reveal in broad daylight: that day the town judges without a defence, and hangs in bulk. Once revealed, no doctor can heal them.',
   'mafia.role.crier.name': 'Town Crier',
-  'mafia.role.crier.desc': 'Their voice carries even at night — anonymously, across the village square.',
+  'mafia.role.crier.desc': 'Their voice carries even at night, anonymously, across the village square.',
   'mafia.role.mason.name': 'Mason',
   'mafia.role.mason.desc': 'A member of the lodge: the brothers know each other and talk at night.',
   'mafia.role.mason-leader.name': 'Mason Leader',
@@ -84,7 +84,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.blackmailer.name': 'Blackmailer',
   'mafia.role.blackmailer.desc': 'Each night, gags a player: tomorrow they vote, but say nothing.',
   'mafia.role.janitor.name': 'Janitor',
-  'mafia.role.janitor.desc': 'Wipes the body’s identity away — the town buries a stranger, the family learns the role.',
+  'mafia.role.janitor.desc': 'Wipes the body’s identity away: the town buries a stranger, the family learns the role.',
   'mafia.role.agent.name': 'Agent',
   'mafia.role.agent.desc': 'Each night, tails a player: who visited them, and whose house they went to.',
   'mafia.role.beguiler.name': 'Beguiler',
@@ -94,7 +94,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.actress.name': 'Actress',
   'mafia.role.actress.desc': 'Plays somebody else’s part: investigators applaud without understanding.',
   'mafia.role.kidnapper.name': 'Kidnapper',
-  'mafia.role.kidnapper.desc': 'Takes a player for the night — unreachable, harmless, furious — and may execute them in the cellar. Once.',
+  'mafia.role.kidnapper.desc': 'Takes a player for the night (unreachable, harmless, furious) and may execute them in the cellar. Once.',
   'mafia.role.heartbreaker.name': 'Heartbreaker',
   'mafia.role.heartbreaker.desc': 'Makes a player fall madly in love: if your heart stops, so does theirs.',
 
@@ -120,7 +120,7 @@ export const rolesEn: Catalogue = {
   'mafia.role.deceiver.name': 'Deceiver',
   'mafia.role.deceiver.desc': 'Hides at somebody’s house: whatever was meant for you strikes your host.',
   'mafia.role.interrogator.name': 'Interrogator',
-  'mafia.role.interrogator.desc': 'Takes a player for the night — unreachable, harmless, terrified — and need not let them out. Once.',
+  'mafia.role.interrogator.desc': 'Takes a player for the night (unreachable, harmless, terrified) and need not let them out. Once.',
   'mafia.role.diva.name': 'Diva',
   'mafia.role.diva.desc': 'Wears somebody else’s face: investigators will never see through it.',
 
@@ -137,7 +137,7 @@ export const rolesEn: Catalogue = {
     'No longer remembers who they are. One night, at the graveyard, it will come back to them.',
   'mafia.role.scumbag.name': 'Scumbag',
   'mafia.role.scumbag.desc':
-    'A filthy reputation and no power at all. Wins if the town loses — and they are still breathing.',
+    'A filthy reputation and no power at all. Wins if the town loses, and they are still breathing.',
   'mafia.role.judge.name': 'Judge',
   'mafia.role.judge.desc':
     'Can call an exceptional court: immediate judgement, no defence, and their voice counts triple. Wins if the town loses.',
@@ -146,10 +146,10 @@ export const rolesEn: Catalogue = {
     'Reduces a player to administrative nothing: their role is dissolved. Wins if the town loses.',
   'mafia.role.witch.name': 'Witch',
   'mafia.role.witch.desc':
-    'Each night, bewitches a player and diverts their deed to another house. Wins if the Town does not — and she is still breathing.',
+    'Each night, bewitches a player and diverts their deed to another house. Wins if the Town does not, and she is still breathing.',
   'mafia.role.lover.name': 'Lover',
   'mafia.role.lover.desc':
-    'Chooses the one their heart wants. They win together if they survive together — and die together.',
+    'Chooses the one their heart wants. They win together if they survive together, and die together.',
   'mafia.role.cultist.name': 'Cultist',
   'mafia.role.cultist.desc':
     'Every other night, converts a soul of the town. The Cult wins once it holds the majority.',
@@ -162,12 +162,12 @@ export const rolesEn: Catalogue = {
   'mafia.role.mass-murderer.desc': 'Every other night, butchers a house and everyone inside it. Wins alone.',
   'mafia.role.arsonist.name': 'Arsonist',
   'mafia.role.arsonist.desc':
-    'Douses a house in petrol every night — or strikes the match at home, and everything soaked goes up. Nothing stops fire. Wins alone.',
+    'Douses a house in petrol every night, or strikes the match at home, and everything soaked goes up. Nothing stops fire. Wins alone.',
   'mafia.role.poisoner.name': 'Poisoner',
   'mafia.role.poisoner.desc':
     'A slow poison: the victim goes out the following night, unless a doctor purges them in time. Wins alone.',
   'mafia.role.electromaniac.name': 'Electromaniac',
-  'mafia.role.electromaniac.desc': 'Electrifies houses in silence — then, at home, pulls the lever. Wins alone.',
+  'mafia.role.electromaniac.desc': 'Electrifies houses in silence, then, at home, pulls the lever. Wins alone.',
 
   /* -------------------------- the verb on the button ------------------------ */
   'mafia.action.kill': 'Kill',

@@ -54,7 +54,7 @@ function ms(value: number): string {
 
 /** The middle and the bad end of a set of measurements. */
 function spread(values: number[]): string {
-  if (values.length === 0) return '—';
+  if (values.length === 0) return '-';
   const sorted = [...values].sort((left, right) => left - right);
   const at = (share: number): number => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * share))];
   return `${ms(at(0.5))} median, ${ms(at(0.9))} p90, ${ms(sorted[sorted.length - 1])} worst`;
@@ -269,7 +269,7 @@ function talk(lines: Line[]): void {
   for (const line of lines) {
     const at = `${DIM}${(line.t / 1000).toFixed(1).padStart(7)}s${OFF}`;
     if (line.ev === 'phase') {
-      console.log(`${at} ${BOLD}— ${text(line.phase)} ${text(line.day)}${line.stage ? ` (${text(line.stage)})` : ''}, ${text(line.alive)} alive —${OFF}`);
+      console.log(`${at} ${BOLD}: ${text(line.phase)} ${text(line.day)}${line.stage ? ` (${text(line.stage)})` : ''}, ${text(line.alive)} alive: ${OFF}`);
     } else if (line.ev === 'chat') {
       const who = `${text(line.slot)} ${text(line.name, "")}`.padEnd(18);
       const room = line.channel === 'day' ? '' : `${DIM}[${text(line.channel)}]${OFF} `;
@@ -279,7 +279,7 @@ function talk(lines: Line[]): void {
     } else if (line.ev === 'ear') {
       console.log(`${at} ${DIM}   ear: ${JSON.stringify(line.filed)}${OFF}`);
     } else if (line.ev === 'death') {
-      console.log(`${at} ${BOLD}☠ ${text(line.slot)} ${text(line.name)} (${text(line.role)}) — ${text(line.source)}${OFF}`);
+      console.log(`${at} ${BOLD}☠ ${text(line.slot)} ${text(line.name)} (${text(line.role)}): ${text(line.source)}${OFF}`);
     }
   }
 }

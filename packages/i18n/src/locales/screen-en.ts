@@ -19,7 +19,7 @@ export const screenEn: Catalogue = {
   'mafia.refuse.deadNoVote': 'The dead do not vote',
   'mafia.refuse.notNow': 'Not now',
   'mafia.refuse.firstDay': 'No vote on the first day',
-  'mafia.refuse.stillTalking': 'Too early — the town is still talking',
+  'mafia.refuse.stillTalking': 'Too early: the town is still talking',
   'mafia.refuse.badTarget': 'Invalid target',
   'mafia.refuse.needsSecondTarget': 'Name a second house too',
   'mafia.refuse.sameTwice': 'The same house twice',

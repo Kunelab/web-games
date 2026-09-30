@@ -113,7 +113,7 @@ function scan(families: string[], banned: Record<string, RegExp[]>): string[] {
     for (const [key, value] of Object.entries(catalogue)) {
       if (!families.some((family) => key.startsWith(family))) continue;
       for (const pattern of banned[locale] ?? []) {
-        if (pattern.test(value)) caught.push(`${locale}: ${key} — ${value}`);
+        if (pattern.test(value)) caught.push(`${locale}: ${key}: ${value}`);
       }
     }
   }
@@ -165,7 +165,7 @@ describe('what a bot is allowed to assert', () => {
         const at = value.indexOf('{why}');
         if (at < 0) continue;
         const before = value.slice(0, at).trimEnd();
-        if (before === '' || /[.!?]$/.test(before)) bad.push(`${locale}: ${key} — ${value}`);
+        if (before === '' || /[.!?]$/.test(before)) bad.push(`${locale}: ${key}: ${value}`);
       }
     }
     assert.deepEqual(bad, []);

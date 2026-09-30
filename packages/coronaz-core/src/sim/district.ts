@@ -283,7 +283,7 @@ console.log(
   `  dont portes         ${mean(shapes.flatMap((s) => s.doorDegrees)).toFixed(2)}` +
     `   arches ${mean(shapes.flatMap((s) => s.archDegrees)).toFixed(2)}  (rue = espace ouvert)`
 );
-console.log(`boucles (E-P+1)       ${mean(shapes.map((s) => s.loops)).toFixed(1)}   ` + `— 0 = labyrinthe parfait`);
+console.log(`boucles (E-P+1)       ${mean(shapes.map((s) => s.loops)).toFixed(1)}   ` + `(0 = labyrinthe parfait)`);
 console.log(`boucles par pièce     ${(mean(shapes.map((s) => s.loops)) / mean(shapes.map((s) => s.rooms))).toFixed(3)}`);
 console.log(`sortie à              ${mean(shapes.map((s) => s.exitDistance)).toFixed(1)} pièces du départ`);
 console.log('');

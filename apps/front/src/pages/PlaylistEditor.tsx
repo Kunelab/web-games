@@ -145,7 +145,7 @@ export default function PlaylistEditor() {
           </div>
         </div>
         <p className="field-hint">
-          {t(msg('ple.readOnlyHint', { owner: playlist.data.owner?.login ?? '—' }))}
+          {t(msg('ple.readOnlyHint', { owner: playlist.data.owner?.login ?? '-' }))}
         </p>
         <PlaylistPreview playlist={playlist.data} />
       </>
@@ -802,7 +802,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
             {dupInfo.partners.map((partner) => (
               <li key={partner.id}>
                 <span className="pl-dup-partner">{byId.get(partner.id)?.title ?? `#${partner.id}`}</span>
-                <span className="pl-dup-reason"> — {t(msg(duplicateReasonKey(partner.reason)))}</span>
+                <span className="pl-dup-reason"> · {t(msg(duplicateReasonKey(partner.reason)))}</span>
               </li>
             ))}
           </ul>

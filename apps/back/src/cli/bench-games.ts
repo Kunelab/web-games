@@ -282,7 +282,7 @@ async function main(): Promise<void> {
     const row = await play(manager, state.code, template, startedAt, watchdogMs);
     rows.push(row);
 
-    const how = row.ended ? `${row.winner} on day ${row.days}` : `STUCK — ${row.note ?? 'no reason given'}`;
+    const how = row.ended ? `${row.winner} on day ${row.days}` : `STUCK: ${row.note ?? 'no reason given'}`;
     const noisy = row.warns + row.errors > 0 ? `  (${row.warns} warn, ${row.errors} err)` : '';
     console.log(`${head} ${`${row.wallSeconds}s`.padStart(6)}  ${how}${noisy}`);
 
@@ -369,7 +369,7 @@ function shape(
     template: template.name,
     code,
     seats: template.seats,
-    winner: crowned.length > 0 ? [...new Set(crowned)].join('+') : state?.phase === 'ended' ? 'draw' : '—',
+    winner: crowned.length > 0 ? [...new Set(crowned)].join('+') : state?.phase === 'ended' ? 'draw' : '-',
     days: state?.day ?? 0,
     ended: state?.phase === 'ended',
     wallSeconds,
@@ -415,10 +415,10 @@ function summarise(rows: Row[]): void {
     console.log(`  ⚠ ${stuck.length} never finished: ${stuck.map((row) => row.template).join(', ')}`);
   }
   if (mute.length > 0) {
-    console.log(`  ⚠ ${mute.length} said less than one line per seat — the chain was probably unreachable`);
+    console.log(`  ⚠ ${mute.length} said less than one line per seat: the chain was probably unreachable`);
   }
   if (silent.length > 0) {
-    console.log(`  ⚠ ${silent.length} filed no claims at all — models writing prose, claim field left null`);
+    console.log(`  ⚠ ${silent.length} filed no claims at all: models writing prose, claim field left null`);
   }
   if (stuck.length + mute.length + silent.length === 0) {
     console.log('  every game finished, all of them talking and filing.');

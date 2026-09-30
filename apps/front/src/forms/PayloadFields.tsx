@@ -791,7 +791,7 @@ function PanelInput({ cells, binding, ...aria }: PanelInputProps) {
               ) : (
                 <img src={cell} alt="" loading="lazy" onError={() => setBroken((current) => [...current, cell])} />
               )}
-              <span className="panel-cell-label">{binding.labels[index] ?? '—'}</span>
+              <span className="panel-cell-label">{binding.labels[index] ?? '-'}</span>
               <IconButton
                 icon={<CrossIcon />}
                 label={`Retirer ${binding.labels[index] ?? `l’élément ${index + 1}`}`}

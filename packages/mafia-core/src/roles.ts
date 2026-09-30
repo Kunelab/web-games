@@ -380,7 +380,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     faction: 'town',
     nightAction: null,
     description:
-      'Écoute les conciliabules des familles la nuit — sans jamais voir les visages — et apprend qui elles ont visé.',
+      'Écoute les conciliabules des familles la nuit, sans jamais voir les visages, et apprend qui elles ont visé.',
     investigated: L.watcher
   }),
   coroner: def({
@@ -477,7 +477,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     name: 'Crieur public',
     faction: 'town',
     nightAction: null,
-    description: 'Sa voix porte même la nuit — anonyme, sur la place du village.',
+    description: 'Sa voix porte même la nuit, anonyme, sur la place du village.',
     investigated: L.hands
   }),
   mason: def({
@@ -585,7 +585,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     faction: 'mafia',
     nightAction: 'clean',
     charges: 3,
-    description: 'Fait disparaître l’identité du cadavre — la ville enterre un inconnu, la famille apprend son rôle.',
+    description: 'Fait disparaître l’identité du cadavre : la ville enterre un inconnu, la famille apprend son rôle.',
     investigated: L.chalk
   }),
   agent: def({
@@ -815,7 +815,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     faction: 'neutral',
     nightAction: null,
     suspicious: true,
-    description: 'Une sale réputation et aucun pouvoir. Gagne si la ville perd — et qu’il respire encore.',
+    description: 'Une sale réputation et aucun pouvoir. Gagne si la ville perd, et qu’il respire encore.',
     investigated: L.blade
   }),
   judge: def({
@@ -858,7 +858,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
      */
     suspicious: true,
     description:
-      'Chaque nuit, envoûte un joueur et détourne son geste vers une autre maison. Gagne si la Ville ne gagne pas — et qu’elle respire encore.',
+      'Chaque nuit, envoûte un joueur et détourne son geste vers une autre maison. Gagne si la Ville ne gagne pas, et qu’elle respire encore.',
     investigated: L.herbs
   }),
   lover: def({
@@ -867,7 +867,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     faction: 'neutral',
     nightAction: 'bond',
     charges: 1,
-    description: 'Choisit l’élu de son cœur. Ils gagnent ensemble s’ils survivent ensemble — et meurent ensemble.',
+    description: 'Choisit l’élu de son cœur. Ils gagnent ensemble s’ils survivent ensemble, et meurent ensemble.',
     investigated: L.charm
   }),
   cultist: def({
@@ -925,7 +925,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     unique: true,
     soloKiller: true,
     description:
-      'Arrose une maison d’essence chaque nuit — ou craque l’allumette chez lui et tout ce qui est imbibé s’embrase. Rien n’arrête le feu. Gagne seul.',
+      'Arrose une maison d’essence chaque nuit, ou craque l’allumette chez lui et tout ce qui est imbibé s’embrase. Rien n’arrête le feu. Gagne seul.',
     investigated: L.gas
   }),
   poisoner: def({
@@ -950,7 +950,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     suspicious: true,
     unique: true,
     soloKiller: true,
-    description: 'Électrise les maisons en silence — puis, chez lui, abaisse la manette. Gagne seul.',
+    description: 'Électrise les maisons en silence, puis, chez lui, abaisse la manette. Gagne seul.',
     investigated: L.wires
   })
 };
