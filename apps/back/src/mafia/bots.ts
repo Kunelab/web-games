@@ -674,9 +674,9 @@ const FORMER_BADGE: Partial<Record<IntelEntry['kind'], RoleId>> = {
 const REFUSAL_WHY: Record<RequestRefusal, string> = {
   pris: 'that house is out of the knife’s reach tonight: one of us is already holding or silencing it',
   blinde: 'our knife already bounced off that door',
-  veteran: 'the record says a Veteran lives there, and whoever walks in dies',
+  veteran: 'the record says a Veteran lives there, and that door is not worth the risk',
   ami: 'that seat has been doing our work for us in the square',
-  rate: 'we went there last night and they survived, so somebody is protecting them',
+  rate: 'we went there last night and they survived',
   pendu: 'the town is about to hang them anyway, so the knife is worth more elsewhere',
   desavoue: 'their last tips in here cost us'
 };
@@ -4418,7 +4418,15 @@ export class MafiaBotDriver {
     // is recalling, a seat naming a number nobody was ever dealt is inventing.
     const houses = new Set(Object.values(state.players).map((player) => player.slot));
     const spoken = answer
-      ? readLine(answer, intent, { name: self.name, slot: self.slot }, seats, state.day, houses)
+      ? readLine(
+          answer,
+          intent,
+          { name: self.name, slot: self.slot },
+          seats,
+          state.day,
+          houses,
+          new Map(Object.values(state.players).map((player) => [player.slot, player.name]))
+        )
       : intent.fallback;
     // In a hushed family room the phrasebook line is the ceiling as well as the floor. See `Intent.hushed`.
     const hushedLeak = intent.hushed === true && spoken !== null && leaks(spoken, state);
@@ -7221,7 +7229,15 @@ export class MafiaBotDriver {
       )
       .map((claim) => claim.claimerSlot);
     if (accusers.length > 0) {
-      parts.push(`pushing this: ${[...new Set(accusers)].map((who) => `${who} (${nameOf(who)})`).join(', ')}`);
+      /**
+       * By name, never "17 (Lucario)".
+       *
+       * A number in the prompt is a number the model will copy into its line,
+       * the rule `mouthPrompt` states for the room's chatter. A Mafioso on the
+       * stand read "pushing this: 17 (Lucario), 9 (Rafiki)" and said "On night
+       * 1, I visited house 17", a visit to the first number in the list.
+       */
+      parts.push(`pushing this: ${[...new Set(accusers)].map(nameOf).join(', ')}`);
     }
 
     /** What this seat can actually offer back, in the order it is worth saying. */

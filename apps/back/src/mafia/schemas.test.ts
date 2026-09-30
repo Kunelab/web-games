@@ -192,6 +192,41 @@ describe('the shapes the chain asks for', () => {
   });
 
   /**
+   * A night on the stand the seat's own record does not hold.
+   *
+   * From a real table: a Mafioso bluffing Vigilante, whose record held no nights,
+   * said "On night 1, I visited house 17" with 17 copied from the prompt's list
+   * of accusers, while the Lookout had seen it at 11.
+   */
+  it('refuses a visit on the stand that is not in the record', () => {
+    const intent = {
+      act: 'defend',
+      mood: 'blunt',
+      fallback: 'FALLBACK',
+      record: ['I was the Vigilante.', 'Night 2: I went to Yennefer.', 'Day 2: I think Donald Duck is guilty.']
+    };
+    const self = { name: 'Yoda', slot: 12 };
+    const houses = new Set([7, 11, 12, 14, 17]);
+    const names = new Map([
+      [7, 'Yennefer'],
+      [11, 'Sardine'],
+      [12, 'Yoda'],
+      [14, 'Donald Duck'],
+      [17, 'Lucario']
+    ]);
+    const seats = new Set([...names.values()].map((name) => name.toLowerCase()));
+    const said = (line: string) => readLine({ line }, intent, self, seats, 5, houses, names);
+
+    assert.equal(said('On night 1, I visited house 17 as vigilante.'), 'FALLBACK', 'the line that started this');
+    assert.equal(said('I went to Lucario on night 2.'), 'FALLBACK', 'by name as well as by number');
+    // The record's own nights, by name or by the number on that door.
+    assert.equal(said('Night 2 I went to Yennefer, as I said.'), 'Night 2 I went to Yennefer, as I said.');
+    assert.equal(said('I was at 7 on night 2.'), 'I was at 7 on night 2.');
+    // Naming a house without claiming a visit is not this rule's business.
+    assert.equal(said('Donald Duck got it wrong about me.'), 'Donald Duck got it wrong about me.');
+  });
+
+  /**
    * And a line that names a door other than the one the ballot went to.
    *
    * The engine votes from `decision.voteSlot` and the mouth only phrases it, so

@@ -440,6 +440,63 @@ function repairHouses(line: string, wrong: readonly number[], meant: number): st
   return line.replace(once, String(meant));
 }
 
+/**
+ * A first-person visit, in either language: "I visited", "I went to", "I was at", "je suis allé chez".
+ *
+ * Deliberately only the verbs of going somewhere. "I think 7 is lying" names a
+ * house without claiming a night, and that is the ballot check's business.
+ */
+const OWN_VISIT =
+  /\b(?:i|we)\s+(?:visited|went\s+(?:to|over\s+to)|was\s+at|were\s+at|called\s+on|stopped\s+(?:at|by)|parked\s+at|dropped\s+by)\b|\b(?:je\s+suis\s+(?:all[ée]e?|pass[ée]e?)|j['’]ai\s+(?:visit[ée]|rendu\s+visite))/i;
+
+/** A letter or a digit, the two things that make a word boundary in any language. */
+const WORDISH = /[\p{L}\d]/u;
+
+/** Whether `word` stands on its own somewhere in `text`, not as part of a longer word or number. */
+function standsIn(text: string, word: string): boolean {
+  for (let at = text.indexOf(word); at >= 0; at = text.indexOf(word, at + 1)) {
+    const before = at > 0 ? text[at - 1] : '';
+    const after = text[at + word.length] ?? '';
+    if (!WORDISH.test(before) && !WORDISH.test(after)) return true;
+  }
+  return false;
+}
+
+/**
+ * A night on the stand that the record in front of the model does not hold.
+ *
+ * The record is handed over so the seat tells one story, and the sheet binds
+ * the line to it: "do not add one that is not here". Nothing checked that it
+ * did. On a real table a Mafioso wearing the Vigilante's badge, with a record
+ * holding no nights at all, said "On night 1, I visited house 17 as
+ * vigilante, Donald Duck saw me" while the Lookout had seen it at 11. The 17
+ * was copied from the prompt's own list of accusers, and it passed every
+ * guard because 17 is a real house.
+ *
+ * So a line that says where this seat went may only name doors the record or
+ * the phrasebook line already names, by number or by name. Anything else is a
+ * new night, and the phrasebook line goes out instead.
+ */
+function visitFromNowhere(
+  line: string,
+  intent: Intent,
+  seats: ReadonlySet<string>,
+  names: ReadonlyMap<number, string>
+): boolean {
+  if (!intent.record?.length || !OWN_VISIT.test(line)) return false;
+  const known = [...intent.record, intent.fallback ?? ''].join(' ').toLowerCase();
+  const lower = line.toLowerCase();
+  for (const found of lower.replace(NOT_A_HOUSE, ' ').matchAll(/(?<![\p{L}\d])(\d{1,3})(?![\p{L}\d])/gu)) {
+    const slot = Number(found[1]);
+    const name = names.get(slot)?.toLowerCase();
+    if (!standsIn(known, String(slot)) && !(name && standsIn(known, name))) return true;
+  }
+  for (const seat of seats) {
+    if (seat.length > 1 && standsIn(lower, seat) && !standsIn(known, seat)) return true;
+  }
+  return false;
+}
+
 export const SAY_CHARS = 140;
 
 export function readLine(
@@ -451,7 +508,9 @@ export function readLine(
   /** Which day it is, so a night that has not happened can be spotted. */
   day = Number.POSITIVE_INFINITY,
   /** The doors that exist, so one that does not can be spotted. Empty = do not check. */
-  houses: ReadonlySet<number> = new Set()
+  houses: ReadonlySet<number> = new Set(),
+  /** Who lives behind each door, so a number and a name can be matched against the record. */
+  names: ReadonlyMap<number, string> = new Map()
 ): string | null {
   // A missing field is a malformed answer; a present but empty one is a choice.
   if (!('line' in raw)) return intent.fallback;
@@ -476,6 +535,8 @@ export function readLine(
   // A calendar this game does not have, and a night it has not had. See `WEEKDAY`.
   if (WEEKDAY.test(cleaned)) return intent.fallback;
   if (nightFromNowhere(cleaned, day)) return intent.fallback;
+  // A visit the seat's own written record does not hold. See `visitFromNowhere`.
+  if (visitFromNowhere(cleaned, intent, seats, names)) return intent.fallback;
 
   /**
    * A door that is not on the board, and the door this seat is actually at.
