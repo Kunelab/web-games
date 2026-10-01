@@ -214,6 +214,7 @@ export {
   steadyVote,
   suspicion,
   suspicionParts,
+  stolenBadge,
   trustOf,
   uncontestedBadge,
   type Brain,

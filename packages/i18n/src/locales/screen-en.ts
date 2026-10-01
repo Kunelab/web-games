@@ -380,6 +380,42 @@ export const screenEn: Catalogue = {
   'mafia.bot.roleClaim.5': 'I am the {role}. If anyone else claims it, say so now.',
   'mafia.bot.roleClaim.6': 'Fine: I am the {role}.',
   /**
+   * The badge contested, by the seat whose badge it is. Always names the
+   * speaker's own role as well: the counter-claim is filed with the speaker's
+   * role claim beside it, so the line says both.
+   */
+  'mafia.bot.counterClaim.1': '{who} is not the {role}. I am.',
+  'mafia.bot.counterClaim.2': 'I am the {role}, not {who}. One of us is lying, and it is not me.',
+  'mafia.bot.counterClaim.3': '{who} is wearing my badge. I am the {role}.',
+  'mafia.bot.counterClaim.4': 'There is one {role} at this table, and it is me, not {who}.',
+  /** And by a bystander counting the claims: two seats, one badge. */
+  'mafia.bot.counterClaimSeen.1': '{who} is not the {role}: somebody else already claimed it, and there is only one.',
+  'mafia.bot.counterClaimSeen.2': 'Two {role} claims and one badge. {who}, I do not buy yours.',
+  'mafia.bot.counterClaimSeen.3': '{who}, somebody else already said {role}. One of you is lying.',
+  /** A seat with a vote on it asking its accuser to show what it has. */
+  'mafia.bot.demand.1': '{who}, you put my name up. On what?',
+  'mafia.bot.demand.2': '{who}, you are voting me. Say what I did.',
+  'mafia.bot.demand.3': 'What have you got on me, {who}?',
+  /** The clock, not a person. */
+  'mafia.bot.urgeVote.1': 'We have to hang somebody today.',
+  'mafia.bot.urgeVote.2': 'No skipping today. We vote.',
+  'mafia.bot.urgeVote.3': 'Skipping only helps the killers. Vote.',
+  'mafia.bot.urgeSkip.1': 'Nothing here is worth a rope today.',
+  'mafia.bot.urgeSkip.2': 'I would rather skip than hang on this.',
+  'mafia.bot.urgeSkip.3': 'Not enough on anybody. Skip.',
+  /** A bet the next dawn settles, or one settled on the spot. */
+  'mafia.bot.promiseNight.1': 'Leave me alive tonight and tomorrow’s report will back me.',
+  'mafia.bot.promiseNight.2': 'Hang me tomorrow if my night does not check out.',
+  'mafia.bot.promiseNight.3': 'Give me one night. The morning will settle it.',
+  'mafia.bot.promiseNow.1': 'Do not hang me. I can prove it right now.',
+  'mafia.bot.promiseNow.2': 'Wait. I can settle this on the spot.',
+  /** Somebody else's finding, said again and credited. */
+  'mafia.bot.relayAccuse.1': '{from} has {who} as a suspect, and I would listen.',
+  'mafia.bot.relayAccuse.2': 'Remember what {from} said about {who}.',
+  'mafia.bot.relayAccuse.3': '{from} named {who}. Worth hearing again.',
+  'mafia.bot.relayClear.1': '{from} vouched for {who}.',
+  'mafia.bot.relayClear.2': '{from} has {who} as clean.',
+  /**
    * The account. This one *is* an assertion and is meant to be: the caller has
    * decided the seat claims it stayed in, truthfully or not, and files that on
    * the board for a lookout to catch tomorrow. No variant adds a second fact on
@@ -544,11 +580,13 @@ export const screenEn: Catalogue = {
   'mafia.bot.case.accuserSilenced.1': 'you were accused by {other}, and {other} was dead by morning',
   'mafia.bot.case.accuserSilenced.2': '{other} pointed at you and did not live to say it twice',
   'mafia.bot.case.ledTownWagon.1': 'you started the wagon on {at} on day {day}, and {at} was town',
-  'mafia.bot.case.ledTownWagon.2': 'the case against {at} was yours, on day {day}, and we hanged a townsperson for it',
+  'mafia.bot.case.ledTownWagon.2': 'the case against {at} was yours, on day {day}, and {at} turned out to be town',
   'mafia.bot.for.ledKillerWagon.1': 'they were the first name on {at}, back on day {day}, and they were right',
   'mafia.bot.for.ledKillerWagon.2': 'they opened the case on {at} while the rest of us were still guessing',
   'mafia.bot.for.neverOut.1': 'nobody has ever reported them visiting anyone',
   'mafia.bot.for.neverOut.2': 'no watcher has ever named them on any night',
+  'mafia.bot.for.lodge.1': 'they are in the lodge with me, so I know they are town',
+  'mafia.bot.for.lodge.2': 'they are a Mason, one of my brothers, and I can vouch for them',
   'mafia.bot.for.vouched.1': '{other} says they are innocent',
   'mafia.bot.for.vouched.2': '{other} has already cleared them',
   'mafia.bot.for.hangedKillers.1': 'they voted guilty on people who turned out to be killers',
@@ -605,7 +643,7 @@ export const screenEn: Catalogue = {
   'mafia.bot.whisper.heard.3': 'Understood.',
   'mafia.bot.whisper.heard.4': 'Got it.',
   'mafia.bot.why.ledTownWagon.1': 'they opened the wagon on {at} back on day {day}, and {at} was town',
-  'mafia.bot.why.ledTownWagon.2': 'the case against {at} on day {day} was theirs, and we hanged a townsperson for it',
+  'mafia.bot.why.ledTownWagon.2': 'the case against {at} on day {day} was theirs, and {at} turned out to be town',
   'mafia.bot.why.ledTownWagon.3': 'they were the first name on {at} on day {day}, and {at} was innocent',
   'mafia.bot.why.accuserSilenced.1': '{other} accused them and was dead by morning',
   'mafia.bot.why.accuserSilenced.2': 'the seat that pointed at them, {other}, did not live to say it twice',

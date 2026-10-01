@@ -2344,3 +2344,98 @@ describe("the triad is a family like the other one", () => {
     assert.equal(sameCause('godfather', 'dragon-head'), false);
   });
 });
+
+describe("what the real holder of a badge knows", () => {
+  const seeded = (seed: number) => {
+    let s = seed;
+    return () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  };
+
+  /**
+   * A fake Jailor's word about somebody else, as the real Jailor hears it.
+   *
+   * A real table: the mafioso claiming Jailor said a human Mason "was kept in
+   * on night 9", and the real Jailor, who knew the claim was a lie, voted the
+   * Mason onto the rope on the strength of it.
+   */
+  it("counts nothing a seat wearing its own badge says about others", () => {
+    const state = table(["jailor", "mafioso", "mason", "citizen", "citizen", "citizen"], 10);
+    const quietNight: Claim = claim({
+      claimerSlot: 2,
+      targetSlot: 3,
+      kind: "accuse",
+      worked: true,
+      from: "blocked",
+      night: 9,
+      day: 10,
+    });
+    const board = toPublicInfo(
+      state,
+      [claim({ claimerSlot: 2, targetSlot: 2, kind: "role-claim", claimedRole: "jailor", day: 10 }), quietNight],
+      [],
+    );
+    const jailor = playerBySlot(state, 1)!;
+    const citizen = playerBySlot(state, 4)!;
+    const heard = suspicionParts(3, citizen, board, seeded(3));
+    const known = suspicionParts(3, jailor, board, seeded(3));
+    assert.ok(heard.hard > 0, "a bystander weighs the report as a report");
+    assert.equal(known.hard, 0, "the real Jailor weighs it as nothing");
+    assert.ok(known.evidence < heard.evidence, "and suspects the Mason less for it");
+    assert.ok(
+      suspicionParts(2, jailor, board, seeded(3)).hard >= 4,
+      "while the impostor itself is priced as the liar it is",
+    );
+  });
+
+  /**
+   * The Mason Leader's knock.
+   *
+   * A real lodge spent a night initiating a man already sitting in it, and
+   * another knocking on the seat the square knew was the Jailor.
+   */
+  it("never knocks on a brother or a door that cannot open", () => {
+    const state = table(["mason-leader", "mason", "jailor", "citizen", "citizen", "mafioso"], 4);
+    const leader = playerBySlot(state, 1)!;
+    const board = toPublicInfo(
+      state,
+      [claim({ claimerSlot: 3, targetSlot: 3, kind: "role-claim", claimedRole: "jailor", day: 4 })],
+      [],
+    );
+    for (let seed = 1; seed < 40; seed++) {
+      const pick = decideNightTarget(
+        leader,
+        makeBrain(1, DEFAULT_PROFILE),
+        board,
+        [2, 3, 4, 5, 6],
+        "recruit",
+        new Set([2]),
+        [],
+        seeded(seed),
+      );
+      assert.notEqual(pick, 2, "a brother is already in the lodge");
+      assert.notEqual(pick, 3, "a claimed Jailor never opens the door");
+    }
+  });
+
+  /**
+   * A Consort with nobody loud to hold at home held her own Soldato.
+   */
+  it("keeps a family blocker off its own brothers", () => {
+    const state = table(["consort", "mafioso", "citizen", "citizen", "citizen"], 2);
+    const consort = playerBySlot(state, 1)!;
+    const board = toPublicInfo(state, [], []);
+    for (let seed = 1; seed < 40; seed++) {
+      const pick = decideNightTarget(
+        consort,
+        makeBrain(1, DEFAULT_PROFILE),
+        board,
+        [2, 3, 4, 5],
+        "block",
+        new Set([2]),
+        [],
+        seeded(seed),
+      );
+      assert.notEqual(pick, 2, "the family's own knife is not the night's target");
+    }
+  });
+});

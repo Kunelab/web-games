@@ -13,7 +13,7 @@ import {
   twinMasks,
   tradeSuspects
 } from '../roles.js';
-import type { SlotToken } from '../setups.js';
+import { slotPool, type SlotToken } from '../setups.js';
 import { beliefs, surestSuspect } from './beliefs.js';
 import { asKnownBy, deductions, deductionWeight, privateFindings } from './deduce.js';
 import { townClock } from './clock.js';
@@ -2886,6 +2886,26 @@ function leadership(claimer: number, self: MafiaPlayer, info: PublicInfo, allies
   return Math.min(1, 1 + 0.6 * Math.tanh(settledCredit(claimer, info) * 0.7));
 }
 
+/**
+ * The badge `slot` is wearing, when it is this seat's own and the table holds one.
+ *
+ * The one lie a seat can see through with no help from the record: it is the
+ * Jailor, so the other Jailor is lying. Town seats only, whose card is the
+ * truth; a family seat's own "badge" is a mask and proves nothing about the
+ * next seat to reach for it. See the pricing in `suspicionParts`.
+ */
+/** The town's powers: the badges a Mason Leader's knock can never turn. See `convertible` in the engine. */
+const TOWN_POWER_ROLES: ReadonlySet<RoleId> = new Set(slotPool('town-power'));
+
+export function stolenBadge(slot: number, self: MafiaPlayer, info: PublicInfo): RoleId | null {
+  if (!self.role || slot === self.slot) return null;
+  if (roleDef(self.role).faction !== 'town' || copiesOf(info, self.role) > 1) return null;
+  const worn = [...info.claims]
+    .reverse()
+    .find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === slot && claim.claimedRole);
+  return worn?.claimedRole === self.role ? self.role : null;
+}
+
 export function suspicionParts(
   targetSlot: number,
   self: MafiaPlayer,
@@ -2894,6 +2914,19 @@ export function suspicionParts(
   allies: ReadonlySet<number> = EMPTY_ALLIES
 ): SuspicionParts {
   let score = 0;
+
+  /**
+   * A voice this seat knows is lying, which is worth nothing to this seat.
+   *
+   * The impostor's badge is priced against the impostor below. Its *words* were
+   * still priced like anybody's: a real Jailor, holding a seat that had claimed
+   * Jailor to its face in the cell, voted to hang a Mason "because Arceus named
+   * them today and I think Arceus is right", on a quiet-night block the fake
+   * Jailor had invented. Whatever a known liar says about somebody else is
+   * noise to the one seat that knows, so none of it counts here: accusations,
+   * clearings, hints, sightings, reports.
+   */
+  const liar = (claimerSlot: number): boolean => stolenBadge(claimerSlot, self, info) !== null;
 
   /**
    * The crowd, counted once and then discounted.
@@ -2935,7 +2968,10 @@ export function suspicionParts(
      * as well. See `dodgedTheQuestion`.
      */
     const firsthand = info.claims
-      .filter((claim) => claim.kind === kind && claim.targetSlot === targetSlot && claim.claimerSlot !== self.slot)
+      .filter(
+        (claim) =>
+          claim.kind === kind && claim.targetSlot === targetSlot && claim.claimerSlot !== self.slot && !liar(claim.claimerSlot)
+      )
       .map((claim) => {
         const heard = claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1);
         const dodged = kind === 'accuse' && dodgedTheQuestion(claim.claimerSlot, targetSlot, info) ? 0.5 : 1;
@@ -2956,6 +2992,8 @@ export function suspicionParts(
           claim.targetSlot === targetSlot &&
           claim.claimerSlot !== self.slot &&
           claim.relayedFrom !== undefined &&
+          !liar(claim.claimerSlot) &&
+          !liar(claim.relayedFrom) &&
           info.claims.some(
             (source) =>
               source.claimerSlot === claim.relayedFrom && source.kind === kind && source.targetSlot === targetSlot
@@ -3039,6 +3077,7 @@ export function suspicionParts(
   for (const claim of info.claims) {
     if (claim.targetSlot !== targetSlot) continue;
     if (claim.claimerSlot === self.slot) continue; // own claims counted via intel below
+    if (liar(claim.claimerSlot)) continue;
     const weight = claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1);
     if (claim.kind === 'hint') score += 0.8 * weight;
     if (claim.kind === 'sighting' && visitsForALiving) {
@@ -3135,7 +3174,7 @@ export function suspicionParts(
    */
   for (const claim of info.claims) {
     if (claim.kind !== 'accuse' || claim.targetSlot !== targetSlot || claim.worked !== true) continue;
-    if (claim.claimerSlot === self.slot) continue;
+    if (claim.claimerSlot === self.slot || liar(claim.claimerSlot)) continue;
     const voice = claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1);
     if (voice >= CREDIBLE) {
       hard += 0.8 * voice;
@@ -3155,7 +3194,7 @@ export function suspicionParts(
    */
   for (const claim of info.claims) {
     if (claim.kind !== 'accuse' || claim.targetSlot !== targetSlot || claim.worked === true) continue;
-    if (claim.claimerSlot === self.slot || claim.day < info.day - 1) continue;
+    if (claim.claimerSlot === self.slot || claim.day < info.day - 1 || liar(claim.claimerSlot)) continue;
     const lead = leadership(claim.claimerSlot, self, info, allies);
     if (lead > 0) {
       const called = 0.8 * claimerWeight(claim.claimerSlot, info) * (claim.confidence ?? 1) * lead;
@@ -3379,13 +3418,31 @@ export function suspicionParts(
    * better voted innocent one time in eight. Priced like this seat's own evil
    * role result, which is the only other thing it knows this surely.
    */
-  if (self.role && roleDef(self.role).faction === 'town' && copiesOf(info, self.role) <= 1) {
-    const worn = [...info.claims]
-      .reverse()
-      .find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === targetSlot && claim.claimedRole);
-    if (worn?.claimedRole === self.role) {
-      score += 4;
-      hard += 4;
+  if (stolenBadge(targetSlot, self, info) !== null) {
+    score += 4;
+    hard += 4;
+  }
+
+  /**
+   * A door that would not open to the lodge.
+   *
+   * A Mason Leader's refused knock means the seat is not a plain townsperson:
+   * evil, or one of the town's powers, or already a brother. Brothers are known
+   * and a power that has said so out loud is excused; what is left leans evil,
+   * though not as surely as a check, because a Jailor who has kept quiet
+   * refuses exactly the same way. The Cultist's refusals prove nothing of the
+   * kind and are not read here.
+   */
+  if (self.role === 'mason-leader' && (self.refused ?? []).includes(targetSlot)) {
+    const badge =
+      info.provenRoles.get(targetSlot) ??
+      [...info.claims]
+        .reverse()
+        .find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === targetSlot && claim.claimedRole)
+        ?.claimedRole;
+    if (!(badge && (TOWN_POWER_ROLES.has(badge) || badge === 'mason' || badge === 'mason-leader'))) {
+      score += 1.5;
+      hard += 1.5;
     }
   }
 
@@ -4374,7 +4431,9 @@ export function decideDay(
     ailment?: Claim['ailment'],
     extra?: Extra
   ) => {
-    if (!alreadyClaimed(info, self.slot, targetSlot, kind)) {
+    // Once per turn as well as once per board: two paths reaching the same claim is one claim.
+    const queued = decision.publishes.some((claim) => claim.kind === kind && claim.targetSlot === targetSlot);
+    if (!queued && !alreadyClaimed(info, self.slot, targetSlot, kind)) {
       decision.publishes.push({
         day: info.day,
         // Said today, so it is last night it is talking about. See `Claim.night`.
@@ -5757,8 +5816,18 @@ export function decideDay(
      * safer tomorrow. Past that, the family actively hands him over — which buys
      * more trust than any claim in this model can.
      */
+    /**
+     * The lodge at the first vote, the family at the second.
+     *
+     * A family weighs whether a brother is worth the exposure, so it waits to
+     * see a wagon. A Mason's vouch is simply true and costs nothing, and a real
+     * table went from nothing to a trial on a human Mason in five seconds: two
+     * votes was already too late for any of his three brothers to say a word.
+     */
+    const lodge = familyOf(role) === null;
     const brotherInDanger = [...teammates].find(
-      (slot) => info.aliveSlots.includes(slot) && (votesAgainst(slot, info) >= 2 || info.trialSlot === slot)
+      (slot) =>
+        info.aliveSlots.includes(slot) && (votesAgainst(slot, info) >= (lodge ? 1 : 2) || info.trialSlot === slot)
     );
     /**
      * Decided by how the case looks to the room, not by a coin.
@@ -8003,7 +8072,13 @@ export function decideNightTarget(
       // Keep the sheriff busy, gagged, or in a cellar: a loud claimer.
       const loudList = credibleClaimersRanked(info, teammates).filter((slot) => legalTargets.includes(slot));
       if (loudList.length > 0) return pickRanked(loudList, rng);
-      return random();
+      /**
+       * Anybody but a brother. The draw included the family, and a real Consort
+       * spent night one holding her own Soldato at home, who then told the
+       * square he had been roleblocked.
+       */
+      const strangers = legalTargets.filter((slot) => !teammates.has(slot));
+      return strangers[Math.floor(rng() * strangers.length)] ?? null;
     }
     /**
      * The town's escort trips the likeliest killer — and, far more often, tripped one of her own.
@@ -8283,6 +8358,46 @@ export function decideNightTarget(
     if (open.length > 0 && open.length < legalTargets.length) {
       return decideNightTarget(self, brain, info, open, actionType, teammates, familyIntel, rng);
     }
+  }
+
+  /**
+   * The Mason Leader's knock, which is also a question.
+   *
+   * It drew from every living seat, brothers included, so a real lodge spent a
+   * night initiating a man who was already sitting in it, and another knocking
+   * on a seat the square already knew was the Jailor, a door that never opens.
+   * The person at that table had the better plan: knock on the seat you doubt,
+   * because a door that will not open is not a plain townsperson.
+   *
+   * So the brothers and the seats already known to hold a badge the lodge
+   * cannot take come out first. Then a real suspect is tested, and failing one
+   * the seat the lodge would most like to have, the one the room trusts most.
+   * A shut door still falls through to the full list when nothing else is left.
+   */
+  if (actionType === 'recruit') {
+    const shut = new Set(self.refused ?? []);
+    const power = TOWN_POWER_ROLES;
+    const known = (slot: number): RoleId | undefined =>
+      info.provenRoles.get(slot) ??
+      [...info.claims]
+        .reverse()
+        .find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === slot && claim.claimedRole)?.claimedRole;
+    const open = legalTargets.filter((slot) => {
+      if (shut.has(slot) || teammates.has(slot) || slot === self.slot) return false;
+      const badge = known(slot);
+      return !(badge && (power.has(badge) || badge === 'mason' || badge === 'mason-leader'));
+    });
+    if (open.length === 0) {
+      const any = legalTargets.filter((slot) => !teammates.has(slot) && slot !== self.slot);
+      return any[Math.floor(rng() * any.length)] ?? random();
+    }
+    const scored = open
+      .map((slot) => ({ slot, doubt: suspicion(slot, self, info, rng) }))
+      .sort((left, right) => right.doubt - left.doubt);
+    const best = scored[0];
+    if (best && best.doubt >= 1) return best.slot;
+    const warmest = [...open].sort((left, right) => trustOf(right, info) - trustOf(left, info))[0];
+    return warmest ?? null;
   }
 
   if (actionType === 'convert' || actionType === 'recruit') {

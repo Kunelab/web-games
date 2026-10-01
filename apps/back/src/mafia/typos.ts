@@ -66,7 +66,6 @@ const SWAPS: Record<Locale, readonly (readonly [string, string])[]> = {
     ['then', 'than'],
     ['than', 'then'],
     ['lose', 'loose'],
-    ['were', 'we’re'],
     ['whose', 'who’s'],
     ['who’s', 'whose']
   ],

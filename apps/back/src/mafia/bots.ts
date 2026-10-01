@@ -49,6 +49,7 @@ import {
   suspicion,
   buddyRead,
   suspicionParts,
+  stolenBadge,
   tableRoleList,
   toMafiaView,
   trustOf,
@@ -218,6 +219,15 @@ export interface Decision {
     at?: number;
     /** The night this is about, when it is not last night. See `Claim.night` and `claimFor`. */
     night?: number;
+    /**
+     * The fields the room-talk kinds are made of. See `saidFields`: a
+     * counter-claim without the badge it denies, or an urge without its
+     * direction, reaches the board hollow and nothing downstream can read it.
+     */
+    deniedRole?: RoleId;
+    urge?: 'vote' | 'skip';
+    promise?: 'night' | 'now';
+    relayedFrom?: number;
   } | null;
   /**
    * What this turn means, for the mouth to phrase.
@@ -638,7 +648,16 @@ function claimValue(claim: { kind: ClaimKind; ailment?: Claim['ailment'] }): num
   return claim.ailment ? (AILMENT_VALUE[claim.ailment] ?? CLAIM_VALUE.ailing) : CLAIM_VALUE.ailing;
 }
 
-const SUBSTANTIAL: ReadonlySet<ClaimKind> = new Set<ClaimKind>(['sighting', 'role-claim', 'accuse', 'clear', 'ailing']);
+const SUBSTANTIAL: ReadonlySet<ClaimKind> = new Set<ClaimKind>([
+  'sighting',
+  'role-claim',
+  'accuse',
+  'clear',
+  'ailing',
+  // A badge contested and a bet on tomorrow are evidence the room can check, not filler.
+  'counter-claim',
+  'promise'
+]);
 
 /**
  * The town badge a night's record can only have come from.
@@ -5326,6 +5345,9 @@ export class MafiaBotDriver {
     const aboutMe =
       claim.kind === 'role-claim' ||
       claim.kind === 'ailing' ||
+      // Filed against the speaker by the policy: the clock and a bet on tomorrow name nobody else.
+      claim.kind === 'urge' ||
+      claim.kind === 'promise' ||
       (claim.kind === 'account' && (claim.account === 'home' || claim.slot === null));
     const slot = aboutMe ? self.slot : claim.slot;
     if (slot === null || slot === undefined) return;
@@ -5345,8 +5367,70 @@ export class MafiaBotDriver {
       ...(claim.worked ? { worked: true } : {}),
       ...(claim.from ? { from: claim.from } : {}),
       ...(claim.at !== undefined ? { at: claim.at } : {}),
-      ...(claim.night !== undefined ? { night: claim.night } : {})
+      ...(claim.night !== undefined ? { night: claim.night } : {}),
+      ...(claim.deniedRole ? { deniedRole: claim.deniedRole } : {}),
+      ...(claim.urge ? { urge: claim.urge } : {}),
+      ...(claim.promise ? { promise: claim.promise } : {}),
+      ...(claim.relayedFrom !== undefined ? { relayedFrom: claim.relayedFrom } : {})
     });
+
+    /**
+     * "He is not the Jailor. I am." is two claims in one sentence.
+     *
+     * The line names the speaker's own badge out loud, so the board holds it
+     * too: otherwise the room heard a Jailor stand up and every rule that asks
+     * who claims what still saw one Jailor, the impostor.
+     */
+    if (claim.kind === 'counter-claim' && claim.deniedRole && this.wearsBadge(state, botId, claim.deniedRole)) {
+      this.minds.record(state, botId, 'role-claim', self.slot, { claimedRole: claim.deniedRole });
+    }
+  }
+
+  /**
+   * Whether this seat holds, or has already claimed, the badge in question.
+   *
+   * The two counter-claims are different sentences: the holder says "I am the
+   * Jailor, not him", a bystander counting claims says "two of you said it".
+   */
+  private wearsBadge(state: MafiaState, botId: string, role: RoleId): boolean {
+    const self = state.players[botId];
+    if (!self) return false;
+    if (self.role === role) return true;
+    const face = [...this.minds.ledger(state.code)]
+      .reverse()
+      .find((claim) => claim.kind === 'role-claim' && claim.claimerSlot === self.slot && claim.claimedRole);
+    return face?.claimedRole === role;
+  }
+
+  /**
+   * The badge `slot` has claimed, when it is this seat's own and the table holds one.
+   *
+   * The lie a seat sees through with no help from the record, the same test
+   * `suspicionParts` prices. Town seats only: a family seat whose cover was
+   * taken has no business contesting it in the booth.
+   */
+  private badgeThief(state: MafiaState, botId: string, board: PublicInfo, slot: number): RoleId | null {
+    const self = state.players[botId];
+    return self ? stolenBadge(slot, self, board) : null;
+  }
+
+  /**
+   * The finding a relay repeats, when its source really said it.
+   *
+   * A relay of something nobody said is the lie `deductions` catches, and the
+   * phrasebook has no business voicing it for a claim whose source is missing.
+   */
+  private relayed(state: MafiaState, claim: Claim): 'accuse' | 'clear' | null {
+    if (claim.relayedFrom === undefined) return null;
+    const source = [...this.minds.ledger(state.code)]
+      .reverse()
+      .find(
+        (said) =>
+          said.claimerSlot === claim.relayedFrom &&
+          said.targetSlot === claim.targetSlot &&
+          (said.kind === 'accuse' || said.kind === 'clear')
+      );
+    return source ? (source.kind as 'accuse' | 'clear') : null;
   }
 
   /* ---------------------------- the played brain --------------------------- */
@@ -5617,12 +5701,11 @@ export class MafiaBotDriver {
               repeated: this.askedAgain(state, mind, playerFamily(self), ask.slot),
               credit: mind.privateTrust.get(ask.fromSlot) ?? 0
             });
-      const heeded =
+      const granted =
         ask !== null &&
         !!verdict?.grant &&
         (ask.human ||
           willHeed(mind, ask.fromSlot, (hashCode(botId + ':ask:' + state.day + ':' + ask.slot) % 1000) / 1000, false));
-      if (ask !== null && verdict !== null && !verdict.grant) this.noteRefusal(state, mind, playerFamily(self), ask.slot);
 
       /**
        * And the other half of a request, which is the houses not to touch.
@@ -5641,6 +5724,16 @@ export class MafiaBotDriver {
       // A house already named to this seat's room tonight is the house it takes. See `BotMind.named`.
       const promised =
         mind.named?.night === state.day && targets.includes(mind.named.slot) ? mind.named.slot : null;
+      /**
+       * Asked for the house this seat was taking anyway, which is not a request to refuse.
+       *
+       * The willingness roll ran on every ask, so a real Soldato answered "they want
+       * 11 dead tonight" with a refusal and a reason, and then knifed 11.
+       */
+      const heeded = granted || (ask !== null && ask.slot === (promised ?? own));
+      if (ask !== null && verdict !== null && !verdict.grant && !heeded) {
+        this.noteRefusal(state, mind, playerFamily(self), ask.slot);
+      }
       const slot = heeded && ask ? ask.slot : (promised ?? own);
 
       /**
@@ -5716,6 +5809,25 @@ export class MafiaBotDriver {
          */
         const proven = prisoner ? cellProves(mind.brain, prisoner.slot) : 0;
         const weight = suspected + proven;
+
+        /**
+         * "I am the Jailor", said to the Jailor.
+         *
+         * The one plea in this room that is a confession with certainty, and
+         * `disputed` could not see it: it looks for a *rival* claim on the
+         * board, and the rival here is the hand on the lever, which has not
+         * claimed anything out loud. A real table heard a mafioso tell its real
+         * Jailor exactly this on two nights running and walk out both mornings.
+         * The same holds when the prisoner has worn this badge in the square.
+         */
+        const mine = self.role;
+        const wearsMine =
+          !!prisoner &&
+          !!mine &&
+          ROLES[mine].unique === true &&
+          ((told !== null && told.fromSlot === prisoner.slot && told.role === mine) ||
+            stolenBadge(prisoner.slot, self, board) !== null);
+        if (wearsMine) return { ...EMPTY, targetSlot: slot };
 
         if (told && disputed && rng() < 0.9) return { ...EMPTY, targetSlot: slot };
         if (proven >= 1.8 && rng() < 0.85) return { ...EMPTY, targetSlot: slot };
@@ -5977,6 +6089,45 @@ export class MafiaBotDriver {
        * many of them speak, as it does everywhere else: a jury is two or three
        * voices and a nod, not twelve people each reading out the same fact.
        */
+      /**
+       * The accused is wearing this juror's own badge.
+       *
+       * The one thing in the booth this seat knows for certain, and the booth is
+       * the first moment it can say it: a claim made on the stand arrives while
+       * only the accused may speak. A real table had its Jailor vote guilty on a
+       * fake Jailor "because Jon Snow is pushing them", the line was dropped by
+       * the floor, and the town spared the liar 8 to 4. So the ballot is guilty
+       * whatever the jury reader thinks, and the sentence is the counter-claim,
+       * filed as one, which also takes it out of the filler budget.
+       */
+      const stolen = this.badgeThief(state, botId, board, accused);
+      if (stolen) {
+        const denial: Claim = {
+          kind: 'counter-claim',
+          claimerSlot: me.slot,
+          targetSlot: accused,
+          deniedRole: stolen,
+          day: state.day,
+          truthful: true
+        };
+        const spokenDenial = this.sentence(state, botId, denial);
+        if (spokenDenial) {
+          return {
+            ...EMPTY,
+            verdict: 'guilty',
+            say: spokenDenial,
+            urgent: true,
+            claim: { kind: 'counter-claim', slot: accused, role: null, deniedRole: stolen },
+            intent: {
+              act: this.actOf(state, denial) + `, and that you are voting GUILTY`,
+              mood: moodOf(mind.brain.personality),
+              fallback: spokenDenial,
+              vote: { slot: accused, label: Object.values(state.players).find((p) => p.slot === accused)?.name ?? '' }
+            }
+          };
+        }
+      }
+
       const line = this.verdictLine(state, view, board, botId, accused, cast);
       if (!line) return { ...EMPTY, verdict: cast };
 
@@ -6305,12 +6456,34 @@ export class MafiaBotDriver {
       });
     }
 
+    /**
+     * Only a claim that can be said competes for the turn.
+     *
+     * The ranking below puts a promise and a counter-claim above everything, so
+     * one of them missing the field its sentence is made of used to win the
+     * turn and then produce no line, and the seat's role claim and accusation
+     * behind it were never heard either. And the clock is one sentence per
+     * afternoon, not one per seat: the second "we have to vote" is a chorus.
+     */
+    const sayable = publishes.filter((claim) => {
+      if (claim.kind === 'counter-claim') return claim.deniedRole !== undefined;
+      if (claim.kind === 'promise') return claim.promise !== undefined;
+      if (claim.kind === 'relay') return this.relayed(state, claim) !== null;
+      if (claim.kind === 'urge') {
+        return (
+          claim.urge !== undefined &&
+          !board.claims.some((said) => said.kind === 'urge' && said.day === state.day && said.claimerSlot !== me.slot)
+        );
+      }
+      return true;
+    });
+
     // A reaction explains the vote before anything else it might have to say.
     const spoken =
       (task === 'react'
-        ? publishes.find((claim) => claim.kind === 'accuse' && claim.targetSlot === voting)
+        ? sayable.find((claim) => claim.kind === 'accuse' && claim.targetSlot === voting)
         : undefined) ??
-      publishes.sort((left, right) => claimValue(right) - claimValue(left))[0] ??
+      sayable.sort((left, right) => claimValue(right) - claimValue(left))[0] ??
       null;
 
     /**
@@ -6660,7 +6833,11 @@ export class MafiaBotDriver {
               ...(consistent.worked ? { worked: true } : {}),
               ...(consistent.from ? { from: consistent.from } : {}),
               ...(consistent.at !== undefined ? { at: consistent.at } : {}),
-              ...(consistent.night !== undefined ? { night: consistent.night } : {})
+              ...(consistent.night !== undefined ? { night: consistent.night } : {}),
+              ...(consistent.deniedRole ? { deniedRole: consistent.deniedRole } : {}),
+              ...(consistent.urge ? { urge: consistent.urge } : {}),
+              ...(consistent.promise ? { promise: consistent.promise } : {}),
+              ...(consistent.relayedFrom !== undefined ? { relayedFrom: consistent.relayedFrom } : {})
             }
           : null,
       jailSlot: day.jailSlot,
@@ -6954,18 +7131,41 @@ export class MafiaBotDriver {
       case 'hint':
         return line('hint', 6, { who: who(claim.targetSlot) });
       /**
-       * Heard, not yet spoken.
+       * The five kinds that talk about the room rather than the night.
        *
-       * These five exist so the board can hold what people say; no bot produces
-       * one, so there is no phrasing to pick and null is the honest answer. A
-       * placeholder here would be a sentence said out loud in a real square.
+       * These returned null for as long as the policy did not produce them, and
+       * kept returning null once it did. That was worse than silence about one
+       * claim: the pick in `decide` ranks a counter-claim above a role claim and
+       * a promise above everything, so a seat holding "I am the Jailor, not him"
+       * picked the counter-claim, got no sentence, and said nothing at all. A
+       * real table watched a fake Jailor go uncontested for two days that way,
+       * with the real one drafting the answer every turn.
+       *
+       * Null now only means the claim is missing the one field it is made of.
        */
-      case 'urge':
+      case 'counter-claim': {
+        if (!claim.deniedRole) return null;
+        const role = ROLE.name(claim.deniedRole);
+        return this.wearsBadge(state, botId, claim.deniedRole)
+          ? line('counterClaim', 4, { who: who(claim.targetSlot), role })
+          : line('counterClaimSeen', 3, { who: who(claim.targetSlot), role });
+      }
       case 'demand':
-      case 'counter-claim':
-      case 'promise':
-      case 'relay':
+        return line('demand', 3, { who: who(claim.targetSlot) });
+      case 'urge':
+        if (claim.urge === 'vote') return line('urgeVote', 3);
+        if (claim.urge === 'skip') return line('urgeSkip', 3);
         return null;
+      case 'promise':
+        if (claim.promise === 'night') return line('promiseNight', 3);
+        if (claim.promise === 'now') return line('promiseNow', 2);
+        return null;
+      case 'relay': {
+        const was = this.relayed(state, claim);
+        if (was === null || claim.relayedFrom === undefined) return null;
+        const params = { who: who(claim.targetSlot), from: who(claim.relayedFrom) };
+        return was === 'accuse' ? line('relayAccuse', 3, params) : line('relayClear', 2, params);
+      }
       case 'ailing':
         /**
          * Five different reports with five different jobs: one asks for a
@@ -7028,11 +7228,33 @@ export class MafiaBotDriver {
      */
     const who = (slot: number): string =>
       Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
+    /**
+     * What a night's work is called out loud, so the mouth cannot lose it.
+     *
+     * "accuse Arceus and vote for them, because my night 8 check came back
+     * Mafia" came back as "Arceus, your night 8 was a lie": the model kept the
+     * night, dropped the check, and the town heard a hunch where a Sheriff had
+     * a result. The act now says it is a report, and of what.
+     */
+    const INSTRUMENT: Partial<Record<string, string>> = {
+      sheriff: 'Sheriff check',
+      role: 'check of their role',
+      trade: 'investigation',
+      tracked: 'tail',
+      visitors: 'watch',
+      spied: 'night of listening',
+      blocked: 'block'
+    };
+    const instrument = claim.worked && claim.from ? INSTRUMENT[claim.from] : undefined;
     switch (claim.kind) {
       case 'accuse':
-        return `accuse ${who(claim.targetSlot)} and vote for them`;
+        return instrument
+          ? `report the result of your own ${instrument} on ${who(claim.targetSlot)} plainly, naming the night and what it found, and vote for them`
+          : `accuse ${who(claim.targetSlot)} and vote for them`;
       case 'clear':
-        return `say ${who(claim.targetSlot)} is not the one, and take the heat off them`;
+        return instrument
+          ? `report the result of your own ${instrument} on ${who(claim.targetSlot)} plainly, naming the night and what it found, and take the heat off them`
+          : `say ${who(claim.targetSlot)} is not the one, and take the heat off them`;
       case 'kill-claim':
         // The night is not decoration: it is the half the dawn report settles.
         return `tell the town you killed ${who(claim.targetSlot)} on night ${claim.night ?? Math.max(1, claim.day - 1)}, as the ${claim.claimedRole ?? 'role you hold'}, and that the morning report backs you`;
@@ -7062,13 +7284,30 @@ export class MafiaBotDriver {
         return `needle ${who(claim.targetSlot)} about how quiet they have been`;
       case 'hint':
         return `say you are not sure about ${who(claim.targetSlot)} yet`;
-      // No bot decides on one of these yet; see `sentence`.
-      case 'urge':
+      case 'counter-claim': {
+        const role = claim.deniedRole ? say('en')(ROLE.name(claim.deniedRole)) : 'that role';
+        const speaker = Object.values(state.players).find((player) => player.slot === claim.claimerSlot)?.playerId;
+        return claim.deniedRole && speaker && this.wearsBadge(state, speaker, claim.deniedRole)
+          ? `say ${who(claim.targetSlot)} is not the ${role}, because you are the ${role}, and one of you is lying`
+          : `say ${who(claim.targetSlot)} is not the ${role}: somebody else already claimed it and there is only one`;
+      }
       case 'demand':
-      case 'counter-claim':
+        return `ask ${who(claim.targetSlot)}, who is voting for you, what they actually have on you`;
+      case 'urge':
+        return claim.urge === 'skip'
+          ? 'tell the room nothing on the board today is worth hanging somebody for'
+          : 'tell the room it has to hang somebody today rather than skip';
       case 'promise':
-      case 'relay':
-        return 'say nothing';
+        return claim.promise === 'now'
+          ? 'ask the room not to hang you, because you can prove what you are right now'
+          : 'ask the room to leave you alive tonight, because tomorrow morning will prove you';
+      case 'relay': {
+        const was = this.relayed(state, claim);
+        const from = claim.relayedFrom !== undefined ? who(claim.relayedFrom) : 'somebody';
+        return was === 'clear'
+          ? `remind the room that ${from} vouched for ${who(claim.targetSlot)}`
+          : `remind the room that ${from} named ${who(claim.targetSlot)} as a suspect`;
+      }
       case 'ailing':
         switch (claim.ailment) {
           case 'douse':
@@ -7545,12 +7784,28 @@ export class MafiaBotDriver {
     const who = nameOf(targetSlot);
     const seed = botId + ':for:' + String(targetSlot);
     const speaker = state.players[botId]?.slot;
-    const parts = defenceFor(targetSlot, board, 3)
-      // Its own clear is not a second voice: "Zorro has already cleared them", said by Zorro.
-      .filter((reason) => !(reason.code === 'vouched-for' && reason.slot === speaker))
-      .map((reason) => this.forFragment(reason, nameOf, seed))
-      .filter((part): part is Msg => part !== null)
-      .slice(0, 2);
+    /**
+     * A brother, which is the one defence this seat knows is true.
+     *
+     * The lodge knows its own for certain and was defending them with whatever
+     * the board happened to hold: a real table heard the Mason Leader acquit a
+     * human Mason with "Sardine says they are innocent", while the room hanged
+     * him three minutes later for want of anybody saying he was a brother.
+     */
+    const self = state.players[botId];
+    const target = Object.values(state.players).find((player) => player.slot === targetSlot);
+    const brother =
+      self && target && playerFamily(self) === null && isLodgeMate(self, target)
+        ? vary('mafia.bot.for.lodge', 2, seed)
+        : null;
+    const parts = [
+      ...(brother ? [brother] : []),
+      ...defenceFor(targetSlot, board, 3)
+        // Its own clear is not a second voice: "Zorro has already cleared them", said by Zorro.
+        .filter((reason) => !(reason.code === 'vouched-for' && reason.slot === speaker))
+        .map((reason) => this.forFragment(reason, nameOf, seed))
+        .filter((part): part is Msg => part !== null)
+    ].slice(0, 2);
     if (parts.length === 0) return null;
 
     const locale = spokenLocale(state);

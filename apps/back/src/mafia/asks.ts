@@ -119,8 +119,22 @@ function refuses(run: string): boolean {
   if (!last) return false;
 
   const after = run.slice(last.index + last[0].length);
+  /**
+   * "No, go to Jon Snow" is an answer and then an order.
+   *
+   * A bare "no" (or "non") straight into a verb in the imperative is somebody
+   * disagreeing with what came before and saying what to do instead. "Don't go
+   * to 5" negates the verb; "no go to 5" does not, and a real Mason typed
+   * exactly that to his Leader and had it filed as a reprieve for the seat he
+   * was asking to be visited.
+   */
+  if (/^(?:no|nope|non)$/i.test(last[0]) && INTERJECTED_ORDER.test(after)) return false;
   return after.length <= NEGATED_MAX && NEGATED_RUN.test(after);
 }
+
+/** The verb that makes a leading "no" an interjection rather than a negation. See `refuses`. */
+const INTERJECTED_ORDER =
+  /^[\s,.!]*(?:go|take|kill|hit|visit|check|vote|shoot|target|aim|try|do|pick|see|initiate|recruit|va|allez|prends|prenez|tue|tuez|vise|visez|vote[zr]?|visite[zr]?)\b/i;
 
 /**
  * A gap that carries the last instruction across to the next house.
