@@ -5,6 +5,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { env, traceDir } from '../env.js';
+import { CodeRegistry } from '../tables/codes.js';
 import { foldTrace, renderStats, emptyStats, type TraceLine } from './table-stats.js';
 import { MafiaManager } from './manager.js';
 import { say } from './say.js';
@@ -132,8 +133,8 @@ const BANNER = `
          MAFIA_BOT_PROVIDER=ollama|anthropic|scripted
 `;
 
-const manager = new MafiaManager(log);
-const state = manager.create({ hostUserId: null, config: { ...clocks, locale, setup }, takenCodes: new Set() });
+const manager = new MafiaManager(log, { codes: new CodeRegistry() });
+const state = manager.create({ hostUserId: null, config: { ...clocks, locale, setup } });
 
 manager.addBots(state.code, bots);
 manager.start(state.code);
@@ -154,7 +155,7 @@ let printed = 0;
 let lastLedger: ReturnType<typeof manager.botLedger> = [];
 
 const watcher = setInterval(() => {
-  const current = manager.get(state.code);
+  const current = manager.tables.get(state.code);
   if (!current) return exit(1, 'la table a disparu');
 
   /**
@@ -214,7 +215,7 @@ function printLedger(code: string): void {
 }
 
 /** What happened, and what the bots thought was happening. */
-async function report(final: NonNullable<ReturnType<typeof manager.get>>): Promise<void> {
+async function report(final: NonNullable<ReturnType<typeof manager.tables.get>>): Promise<void> {
   const seconds = Math.round((Date.now() - startedAt) / 1000);
   console.log(`\n${'─'.repeat(66)}`);
   console.log(`terminé au jour ${final.day} en ${seconds}s (${tempo}/${provider})`);
@@ -283,7 +284,7 @@ function exit(code: number, reason?: string): void {
   if (reason) console.error(reason);
   clearInterval(watcher);
   manager.stopSweeping();
-  void manager.destroy(state.code).finally(() => process.exit(code));
+  void manager.tables.destroy(state.code).finally(() => process.exit(code));
 }
 
 /**

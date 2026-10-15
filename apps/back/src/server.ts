@@ -1,9 +1,9 @@
 import { buildApp } from './app.js';
 import { closeDb } from './db/index.js';
 import { env } from './env.js';
-import { GENRES, catalogAvailable } from './services/blindtest-catalog.js';
+import { catalogAvailable } from './services/blindtest-catalog.js';
 import { schedulePrefill } from './services/blindtest-prefill.js';
-import { warmSeeds } from './services/blindtest-seeds.js';
+import { catalogue } from './services/catalogue-service.js';
 
 const app = await buildApp();
 
@@ -49,7 +49,7 @@ try {
  * Wikidata before anybody opens the setup screen, rather than a first round
  * that waits for them. Skipped where the blind test cannot run.
  */
-if (catalogAvailable()) warmSeeds(GENRES);
+if (catalogAvailable()) catalogue.warmSeeds();
 
 // And the day's unused searches spent on the catalogue before they lapse.
 schedulePrefill(app.log);

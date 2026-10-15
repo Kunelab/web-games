@@ -1,4 +1,4 @@
-import { msg, type Msg } from 'i18n';
+import { msg, type Msg, type MsgKey } from 'i18n';
 import { ANSWER_TOLERANCE, maxFieldPoints, toleranceName, type AnswerField, type AnswerToleranceName } from 'game-core';
 import { useState } from 'react';
 
@@ -112,7 +112,7 @@ interface AnswerCardProps {
  * every language. A list of keys is still the right shape — one place names the
  * three settings — but naming them is not the same as saying them.
  */
-const TOLERANCE_OPTIONS: Array<{ value: AnswerToleranceName; key: string }> = [
+const TOLERANCE_OPTIONS: Array<{ value: AnswerToleranceName; key: MsgKey }> = [
   { value: 'exact', key: 'ans.tolerance.exact' },
   { value: 'normal', key: 'ans.tolerance.normal' },
   { value: 'loose', key: 'ans.tolerance.loose' }

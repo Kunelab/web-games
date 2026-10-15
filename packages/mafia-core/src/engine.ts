@@ -6,7 +6,7 @@ import {
   type ChatMessage,
   type PostRefusal,
 } from "chat-core";
-import type { Msg } from "i18n";
+import { msg, type Msg } from "i18n";
 import {
   castKickBallot,
   isPaused,
@@ -15,13 +15,12 @@ import {
   missing,
   noteBeat,
   openKickVote,
-  parkDeadline,
   resetPresence,
   presenceView,
-  restoreDeadline,
-  tickPresence,
+  tickPresenceAndClock,
   type KickRefusal,
   type PresenceTick,
+  type PresenceView,
 } from "presence-core";
 
 import {
@@ -56,6 +55,7 @@ import {
   DEFAULT_CONFIG,
   alivePlayers,
   assignRoles,
+  changeRole,
   chatRules,
   isMason,
   jailChannel,
@@ -83,6 +83,16 @@ import {
   type PointEntry,
 } from "./state.js";
 import { slotPool } from "./setups.js";
+import { bodyCleaned, publicIdentity } from "./identity.js";
+import {
+  ARMOUR,
+  effectiveStrikeOf,
+  HOMEBOUND,
+  piercesArmour,
+  SAVEABLE_STRIKE,
+  STRIKE,
+  weaponOf,
+} from "./powers.js";
 
 /**
  * All mutation of a Mafia table. Every function validates against the state it
@@ -1216,8 +1226,62 @@ export interface LegalAction {
   charges: number | null;
 }
 
+/**
+ * What a seat may do in daylight, for its own screen to offer.
+ *
+ * The same rules `castVote` and `jailTarget` enforce, said up front so a phone
+ * offers exactly the moves the engine will take: a vote only in the discussion
+ * and never on the first day, never on yourself or a corpse; a cell only for a
+ * keeper, only by day, and never one another keeper has already filled. A test
+ * holds the two together seat by seat (every offer accepted, nothing else).
+ */
+export interface DayMoves {
+  /** Null while this seat has no ballot: dead, the first day, outside the discussion, a paused table. */
+  vote: {
+    targets: number[];
+    canSkip: boolean;
+    /** The ballot lock: nothing but a withdrawal is taken before this. */
+    opensAt: number | null;
+  } | null;
+  /** Null for a seat holding no keys, or outside the day. */
+  jail: { targets: number[] } | null;
+}
+
+export function legalDayMoves(state: MafiaState, playerId: string): DayMoves {
+  const self = state.players[playerId];
+  if (!self?.alive || mafiaPaused(state) || state.phase !== "day") {
+    return { vote: null, jail: null };
+  }
+  const others = alivePlayers(state).filter(
+    (player) => player.playerId !== playerId,
+  );
+  const vote =
+    state.stage === "discussion" && state.day > 1
+      ? {
+          targets: others.map((player) => player.slot),
+          canSkip: true,
+          opensAt: state.voteOpensAt ?? null,
+        }
+      : null;
+  const held = new Set(
+    Object.entries(state.captives ?? {})
+      .filter(([keeperId]) => keeperId !== playerId)
+      .map(([, heldId]) => heldId),
+  );
+  const jail = isKeeper(self)
+    ? {
+        targets: others
+          .filter((player) => !held.has(player.playerId))
+          .map((player) => player.slot),
+      }
+    : null;
+  return { vote, jail };
+}
+
 /** The powers that are only half an order until a second house is named. */
-export function needsSecondTarget(type: NightActionType): boolean {
+export function needsSecondTarget(
+  type: NightActionType,
+): type is "control" | "swap" {
   return type === "control" || type === "swap";
 }
 
@@ -1443,20 +1507,6 @@ export function setNightAction(
     if (destination.slot === targetSlot)
       return { ok: false, error: NO.sameTwice() };
     secondTargetId = destination.playerId;
-  } else if (legal.type === "kidnap" && secondTargetSlot != null) {
-    /**
-     * The cellar's second tap, and the only shape it is allowed to have.
-     *
-     * Naming the captive again means "and do not let him out". Naming anybody
-     * else is not a second half of this order, it is a misunderstanding of it,
-     * and it is refused rather than dropped — silently ignoring the slot is how
-     * a player ends up believing they pulled a lever they never pulled.
-     */
-    if (secondTargetSlot !== targetSlot)
-      return { ok: false, error: NO.badTarget() };
-    if (!(legal.secondTargets ?? []).includes(secondTargetSlot))
-      return { ok: false, error: NO.noAction() };
-    secondTargetId = targetId;
   }
 
   state.nightActions[playerId] = { type: legal.type, targetId, secondTargetId };
@@ -1596,10 +1646,11 @@ export function restoreMafiaTable(state: MafiaState, now: number): void {
 /**
  * Advances the pause model, and stops or starts the phase clock with it.
  *
- * The clock is parked rather than left running: a paused table sends
- * `phaseEndsAt: null`, so no phone counts down a night that is not passing, and
- * what was left of the phase comes back untouched on resume. That is the whole
- * reason a pause is safe to use in a game whose every phase is on a timer.
+ * `tickPresenceAndClock` parks the clock: a paused table sends
+ * `phaseEndsAt: null`, so no phone counts down a night that is not passing,
+ * and what was left of the phase comes back untouched on resume. That is the
+ * whole reason a pause is safe to use in a game whose every phase is on a
+ * timer.
  *
  * Called from the server ticker, from every heartbeat and from every phase
  * change; it is idempotent, so calling it more often only makes it more prompt.
@@ -1610,11 +1661,9 @@ export function tickMafiaPresence(
 ): PresenceTick {
   const presence = tablePresence(state);
   const waiting = waitedOnSeats(state);
-  const tick = tickPresence(presence, waiting, now);
+  const tick = tickPresenceAndClock(presence, waiting, now, state);
 
   if (tick.paused) {
-    presence.parkedMs = parkDeadline(state.phaseEndsAt, now);
-    state.phaseEndsAt = null;
     // The square is told, because the square has to be able to resolve it: a
     // frozen clock with no explanation reads as the server having died.
     announce(
@@ -1624,8 +1673,6 @@ export function tickMafiaPresence(
     );
   }
   if (tick.resumed) {
-    state.phaseEndsAt = restoreDeadline(presence.parkedMs, now);
-    presence.parkedMs = null;
     if (tick.abandoned.length === 0) announce(state, M.resumed(), now);
   }
   if (tick.voteClosed && tick.voteTargetId !== null) {
@@ -1719,64 +1766,19 @@ export function mafiaPresenceView(
   now: number,
   viewerId: string | null,
 ): MafiaPresenceView {
-  const presence = tablePresence(state);
-  const view = presenceView(presence, waitedOnSeats(state), now, viewerId);
-  const slotOf = (id: string): number => state.players[id]?.slot ?? 0;
-  const nameOf = (id: string): string => state.players[id]?.name ?? "?";
-
-  return {
-    paused: view.paused,
-    waitingFor: view.waitingFor.map((seat) => ({
-      slot: slotOf(seat.seatId),
-      name: nameOf(seat.seatId),
-      awayMs: seat.awayMs,
-    })),
-    recovering: view.recovering.map((seat) => ({
-      slot: slotOf(seat.seatId),
-      name: nameOf(seat.seatId),
-    })),
-    pauseExpiresAt: view.pauseExpiresAt,
-    resumesAt: view.resumesAt,
-    kickableSlots: view.kickableSeatIds.map(slotOf),
-    vote: view.vote
-      ? {
-          slot: slotOf(view.vote.targetId),
-          name: nameOf(view.vote.targetId),
-          closesAt: view.vote.closesAt,
-          yes: view.vote.yes,
-          no: view.vote.no,
-          needed: view.vote.needed,
-          mine: view.vote.mine,
-        }
-      : null,
-  };
+  return presenceView(tablePresence(state), waitedOnSeats(state), now, viewerId, (id) => {
+    const slot = state.players[id]?.slot ?? 0;
+    return { ref: slot, label: msg("mafia.ui.seatLabel", { name: state.players[id]?.name ?? "?", slot }) };
+  });
 }
 
-/** What a phone is told about the pause. Slots, never ids — see `mafiaPresenceView`. */
-export interface MafiaPresenceView {
-  paused: boolean;
-  waitingFor: { slot: number; name: string; awayMs: number }[];
-  /**
-   * Quiet, but still inside the resync window, so nothing has stopped.
-   *
-   * Rendered as a mark against one name rather than a screen over the game: most
-   * silences end here without ever becoming a pause, and interrupting the whole
-   * table for each of them would make the pause itself unreadable.
-   */
-  recovering: { slot: number; name: string }[];
-  pauseExpiresAt: number | null;
-  resumesAt: number | null;
-  kickableSlots: number[];
-  vote: {
-    slot: number;
-    name: string;
-    closesAt: number;
-    yes: number;
-    no: number;
-    needed: number;
-    mine: boolean | null;
-  } | null;
-}
+/**
+ * What a phone is told about the pause: seats by slot, never by id, each
+ * named the way the room names it. Quiet seats still inside the resync window
+ * are `recovering`, rendered as a mark against one name rather than a screen
+ * over the game.
+ */
+export type MafiaPresenceView = PresenceView<number, Msg>;
 
 /* ------------------------------ transitions ----------------------------- */
 
@@ -1843,9 +1845,7 @@ function promoteCarriers(state: MafiaState): void {
           member.role === "consigliere" || member.role === "administrator",
       ) ?? pool[0];
     if (!heir) continue;
-    if (isKeeper(heir) && state.captives) delete state.captives[heir.playerId];
-    heir.role = knife;
-    heir.charges = roleDef(knife).charges ?? 0;
+    changeRole(state, heir, knife, "promoted");
     notify(heir, NOTE.promoted(knife));
   }
 
@@ -1887,8 +1887,7 @@ function promoteCarriers(state: MafiaState): void {
     !lodge.some((brother) => brother.role === "mason-leader")
   ) {
     const master = lodge.sort((left, right) => left.slot - right.slot)[0];
-    master.role = "mason-leader";
-    master.charges = roleDef("mason-leader").charges ?? 0;
+    changeRole(state, master, "mason-leader", "promoted");
     notify(master, NOTE.promoted("mason-leader"));
   }
 
@@ -1900,8 +1899,7 @@ function promoteCarriers(state: MafiaState): void {
   );
   if (flock.length > 0 && !flock.some((member) => member.role === "cultist")) {
     const heir = flock[0];
-    heir.role = "cultist";
-    heir.charges = roleDef("cultist").charges ?? 0;
+    changeRole(state, heir, "cultist", "promoted");
     notify(heir, NOTE.promoted("cultist"));
   }
 }
@@ -2233,14 +2231,6 @@ function evilRole(role: RoleId): boolean {
 }
 
 /**
- * What the town is told a body was, under the table's `revealOnDeath` policy.
- *
- * The announcements and the projected view have to agree exactly — a corpse whose
- * role is withheld from the roster but named in the square is withheld from
- * nobody. Reads the true `role` on purpose: a borrowed face is an examiner's
- * problem, and a role that was genuinely changed reveals what it became.
- */
-/**
  * A seat nothing may turn into something else — once it has said what it is.
  *
  * `keepsRole` is written on the Mayor, and the reason it is written there is a
@@ -2368,17 +2358,19 @@ function keepsItsRole(player: MafiaPlayer): boolean {
   );
 }
 
+/**
+ * What the town is told a body was.
+ *
+ * The announcements and the projected view have to agree exactly, a corpse whose
+ * role is withheld from the roster but named in the square is withheld from
+ * nobody, so both read `publicIdentity`.
+ */
 function bodyReads(state: MafiaState, player: MafiaPlayer): Msg {
-  const role = player.role;
-  if (!role) return BODY.unknown();
-  switch (state.config.revealOnDeath ?? "role") {
-    case "none":
-      return BODY.none();
-    case "faction":
-      return BODY.faction(roleDef(role).faction);
-    default:
-      return BODY.role(role);
-  }
+  if (!player.role) return BODY.unknown();
+  const told = publicIdentity(state, player);
+  if (told.role) return BODY.role(told.role);
+  if (told.faction) return BODY.faction(told.faction);
+  return bodyCleaned(state, player) ? BODY.cleaned() : BODY.none();
 }
 
 function lynch(
@@ -2958,8 +2950,8 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     if (!player.alive || blocked.has(player.playerId)) continue;
     const action = actionOf(player);
     if (!action?.targetId || !INVESTIGATIVE.includes(action.type)) continue;
-    // An autopsy is performed on a slab, not on a doorstep: nobody goes out.
-    if (action.type === "autopsy") continue;
+    // An autopsy is performed on a slab, not on a doorstep: see `HOMEBOUND`.
+    if (HOMEBOUND.has(action.type)) continue;
     if (!state.players[action.targetId]) continue;
     visit(player.playerId, action.targetId);
   }
@@ -3002,6 +2994,26 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
 
   // Attacks.
   const attacks: Attack[] = [];
+  /**
+   * A killer's own blow at one house: the weapon its role swings, by
+   * `weaponOf`, at that weapon's strength.
+   *
+   * The endgame weighs every role by that same answer (see `effectiveStrikeOf`), so what
+   * a killer puts through a door at night and what the arithmetic expects of it
+   * cannot drift apart. The strikes that belong to a mechanic rather than to
+   * the role behind them (the poison running its course, the family's kill,
+   * the porch on alert) name their weapon where they are pushed.
+   */
+  const swing = (attacker: MafiaPlayer, targetId: string): void => {
+    const weapon = attacker.role === null ? null : weaponOf(attacker.role);
+    if (weapon === null) return;
+    attacks.push({
+      attackerId: attacker.playerId,
+      targetId,
+      power: STRIKE[weapon],
+      source: weapon,
+    });
+  };
 
   // Yesterday's poison runs its course tonight — unless a doctor purges it.
   for (const player of players) {
@@ -3013,7 +3025,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       attacks.push({
         attackerId: poisoner?.playerId ?? player.playerId,
         targetId: player.playerId,
-        power: 2,
+        power: STRIKE.poison,
         source: "poison",
       });
     }
@@ -3037,12 +3049,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         soaked.doused &&
         soaked.playerId !== player.playerId
       ) {
-        attacks.push({
-          attackerId: player.playerId,
-          targetId: soaked.playerId,
-          power: 3,
-          source: "arsonist",
-        });
+        swing(player, soaked.playerId);
       }
     }
   }
@@ -3073,12 +3080,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       continue;
     for (const wired of players) {
       if (wired.alive && wired.charged && wired.playerId !== player.playerId) {
-        attacks.push({
-          attackerId: player.playerId,
-          targetId: wired.playerId,
-          power: 3,
-          source: "electromaniac",
-        });
+        swing(player, wired.playerId);
       }
     }
   }
@@ -3113,7 +3115,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       attacks.push({
         attackerId: carrier.playerId,
         targetId: target.playerId,
-        power: 1,
+        power: STRIKE[familyId],
         source: familyId,
       });
       visit(carrier.playerId, target.playerId);
@@ -3122,7 +3124,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
   }
 
   // Lone guns, lone blades, and one massacre.
-  const rampages: { attackerId: string; houseId: string }[] = [];
+  const rampages: { attacker: MafiaPlayer; houseId: string }[] = [];
   for (const player of players) {
     if (!player.alive || blocked.has(player.playerId)) continue;
     const action = actionOf(player);
@@ -3134,12 +3136,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       if (player.role === "vigilante") {
         if (player.charges <= 0) continue;
         player.charges -= 1;
-        attacks.push({
-          attackerId: player.playerId,
-          targetId: target.playerId,
-          power: 1,
-          source: "vigilante",
-        });
+        swing(player, target.playerId);
         visit(player.playerId, target.playerId);
       }
       if (player.role === "serial-killer") {
@@ -3160,12 +3157,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
          * armour it cannot beat is the armour somebody had to spend something to
          * have — a charge, a role, a night of not doing anything else.
          */
-        attacks.push({
-          attackerId: player.playerId,
-          targetId: target.playerId,
-          power: 1,
-          source: "serialKiller",
-        });
+        swing(player, target.playerId);
         visit(player.playerId, target.playerId);
       }
     }
@@ -3176,7 +3168,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       // The knife for the owner is not swung here: whether he is behind the
       // door is not known until every journey has been declared. See below.
       visit(player.playerId, target.playerId);
-      rampages.push({ attackerId: player.playerId, houseId: target.playerId });
+      rampages.push({ attacker: player, houseId: target.playerId });
     }
   }
 
@@ -3188,12 +3180,12 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
    * whether a killer or a family carrier died in someone else's massacre came
    * down to seat order, and no investigator was ever caught at all.
    */
-  for (const { attackerId, houseId } of rampages) {
+  for (const { attacker, houseId } of rampages) {
     const caught = new Set(
       visits
         .filter(
           (entry) =>
-            entry.targetId === houseId && entry.visitorId !== attackerId,
+            entry.targetId === houseId && entry.visitorId !== attacker.playerId,
         )
         .map((entry) => entry.visitorId),
     );
@@ -3215,14 +3207,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
      */
     const wentOut = visits.some((entry) => entry.visitorId === houseId);
     if (!wentOut) caught.add(houseId);
-    for (const visitorId of caught) {
-      attacks.push({
-        attackerId,
-        targetId: visitorId,
-        power: 1,
-        source: "massMurderer",
-      });
-    }
+    for (const visitorId of caught) swing(attacker, visitorId);
   }
 
   /**
@@ -3253,12 +3238,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     }
     keeper.charges -= 1;
     notify(keeper, NOTE.cellarKill(captive.name));
-    attacks.push({
-      attackerId: keeper.playerId,
-      targetId: captive.playerId,
-      power: 3,
-      source: keeper.role === "jailor" ? "jailor" : "kidnapper",
-    });
+    swing(keeper, captive.playerId);
   }
 
   // The veteran shoots everything that moves on his porch.
@@ -3267,7 +3247,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       attacks.push({
         attackerId: targetId,
         targetId: visitorId,
-        power: 2,
+        power: STRIKE.veteran,
         source: "veteran",
       });
     }
@@ -3440,10 +3420,10 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
 
     let defense = 0;
     if (target.role && roleDef(target.role).nightImmune)
-      defense = Math.max(defense, 1);
-    if (vested.has(target.playerId)) defense = Math.max(defense, 1);
-    if (alerted.has(target.playerId)) defense = Math.max(defense, 2);
-    if (isPoison) defense = 0; // the poison is already inside; armour is irrelevant
+      defense = Math.max(defense, ARMOUR.immune);
+    if (vested.has(target.playerId)) defense = Math.max(defense, ARMOUR.vest);
+    if (alerted.has(target.playerId)) defense = Math.max(defense, ARMOUR.alert);
+    if (piercesArmour(attack.source)) defense = 0;
 
     if (attack.power <= defense) {
       /**
@@ -3505,7 +3485,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     const guardList = (guards.get(target.playerId) ?? [])
       .map((id) => state.players[id])
       .filter((g) => g?.alive);
-    if (!fromKeeper && !isPoison && attack.power <= 2 && guardList.length > 0) {
+    if (!fromKeeper && !isPoison && attack.power <= SAVEABLE_STRIKE && guardList.length > 0) {
       const guard = guardList[0];
       if (guard) {
         diedTonight.add(guard.playerId);
@@ -3532,7 +3512,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
     const healerList = (healers.get(target.playerId) ?? [])
       .map((id) => state.players[id])
       .filter((h) => h?.alive);
-    if (!fromKeeper && attack.power <= 2 && healerList.length > 0) {
+    if (!fromKeeper && attack.power <= SAVEABLE_STRIKE && healerList.length > 0) {
       if (isPoison) {
         target.poisonedNight = null;
         notify(target, NOTE.purged());
@@ -3682,11 +3662,12 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       const record = state.deaths.find(
         (death) => death.playerId === player.playerId,
       );
-      const roleLine = record?.hidden
-        ? BODY.cleaned()
-        : bodyReads(state, player);
       announcements.push({
-        line: M.found(player.name, record?.cause ?? CAUSE.unknown(), roleLine),
+        line: M.found(
+          player.name,
+          record?.cause ?? CAUSE.unknown(),
+          bodyReads(state, player),
+        ),
         reveals: true,
       });
       if (player.lastWill && !record?.hidden) {
@@ -3710,7 +3691,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       player.obsessionId &&
       !state.players[player.obsessionId]?.alive
     ) {
-      player.role = "jester";
+      changeRole(state, player, "jester", "despaired");
       player.obsessionId = null;
       notify(player, NOTE.griefMad());
     }
@@ -3986,11 +3967,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
          * same question asked by opposite sides, which is what makes the
          * doorstep between them a real race.
          */
-        // Kept for the will, as an audit keeps it: a Sheriff taken into the lodge
-        // still has a Sheriff's nights to account for. See `MafiaPlayer.roleBefore`.
-        if (target.roleBefore === undefined || target.roleBefore === null)
-          target.roleBefore = target.role;
-        target.role = "mason";
+        changeRole(state, target, "mason", "initiated");
         notify(target, NOTE.initiated());
         notify(player, NOTE.initiateDone(target.name));
       } else {
@@ -4018,8 +3995,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       } else if (convertible(target)) {
         const converted: RoleId =
           target.role === "doctor" ? "witch-doctor" : "cultist";
-        target.role = converted;
-        target.charges = roleDef(converted).charges ?? 0;
+        changeRole(state, target, converted, "converted");
         player.cooldownUntilDay = state.day + 2;
         /**
          * And the newest member does not get to recruit on their first night.
@@ -4047,8 +4023,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       target.role
     ) {
       const remembered = target.role;
-      player.role = remembered;
-      player.charges = roleDef(remembered).charges ?? 0;
+      changeRole(state, player, remembered, "remembered");
       notify(player, NOTE.remembered(remembered));
       announcements.push({
         line: M.amnesiacRemembered(remembered, target.name),
@@ -4085,13 +4060,7 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
         audited = "scumbag";
       if (audited && audited !== target.role) {
         player.charges -= 1;
-        // Kept so the will can say what happened rather than sign a badge its
-        // own contents contradict. See `MafiaPlayer.roleBefore`. Only the first
-        // audit writes it: a seat audited twice was still dealt one role.
-        if (target.roleBefore === undefined || target.roleBefore === null)
-          target.roleBefore = target.role;
-        target.role = audited;
-        target.charges = roleDef(audited).charges ?? 0;
+        changeRole(state, target, audited, "audited");
         notify(target, NOTE.audited(audited));
         notify(player, NOTE.auditDone(target.name));
       } else {
@@ -4237,23 +4206,6 @@ function endGame(
 }
 
 /**
- * What a killer's worst night can put through a door.
- *
- * Read off the attacks `resolveNight` actually pushes, because the whole value of this table is that it matches
- * them: a fire is power 3 and a massacre is power 1, and a rule that guessed "a killer kills" would hand the
- * arsonist's win to the mass murderer standing in front of a night-immune seat he can never touch. Poison is the odd
- * one — `resolveNight` zeroes the target's armour before it lands — so it is written as 3 here, which is the same
- * thing said in the only language this function speaks.
- */
-const BLADE: Partial<Record<RoleId, number>> = {
-  "serial-killer": 1,
-  "mass-murderer": 1,
-  arsonist: 3,
-  poisoner: 3,
-  electromaniac: 3,
-};
-
-/**
  * Powers that can still change a night, whoever holds them.
  *
  * Not "powers that are useful" — powers that make tonight something other than a foregone conclusion. A roleblock, a
@@ -4265,7 +4217,6 @@ const INTERFERES: ReadonlySet<NightActionType> = new Set<NightActionType>([
   "block",
   "control",
   "swap",
-  "kidnap",
   "jail-execute",
   "heal",
   "guard",
@@ -4316,9 +4267,10 @@ function beyondSaving(
     rest.reduce((sum, player) => sum + voteWeight(player), 0) + standing;
   if (theirs >= Math.floor(table / 2) + 1) return false;
 
+  // Read off the same table the night strikes with: see `effectiveStrikeOf`.
   const blade = Math.max(
     0,
-    ...killers.map((player) => BLADE[player.role!] ?? 1),
+    ...killers.map((player) => effectiveStrikeOf(player.role!)),
   );
   const killerIds = new Set(killers.map((player) => player.playerId));
 
@@ -4326,7 +4278,7 @@ function beyondSaving(
     const def = roleDef(player.role!);
 
     // A door the blade does not open. Only the massacre is blunt enough to care.
-    if (def.nightImmune && blade <= 1) return false;
+    if (def.nightImmune && blade <= ARMOUR.immune) return false;
 
     /**
      * An unspent charge, weighed against what it is unspent on.
@@ -4338,7 +4290,11 @@ function beyondSaving(
      * actually be shot.
      */
     if (player.charges > 0 && def.nightAction === "alert") return false;
-    if (player.charges > 0 && def.nightAction === "vest" && blade <= 1)
+    if (
+      player.charges > 0 &&
+      def.nightAction === "vest" &&
+      blade <= ARMOUR.vest
+    )
       return false;
     if (player.charges > 0 && def.nightAction === "jail-execute") return false;
     if (
@@ -4403,7 +4359,9 @@ function canRemove(
 
   const armour = Math.max(
     0,
-    ...targets.map((player) => (roleDef(player.role!).nightImmune ? 1 : 0)),
+    ...targets.map((player) =>
+      roleDef(player.role!).nightImmune ? ARMOUR.immune : 0,
+    ),
   );
   return side.some((player) => {
     const def = roleDef(player.role!);
@@ -4416,16 +4374,7 @@ function canRemove(
       familyOf(player.role!) === null &&
       !isSoloKiller(player.role!);
     if (spent) return false;
-    const blade =
-      BLADE[player.role!] ??
-      (def.nightAction === "jail-execute"
-        ? 3
-        : def.nightAction === "alert"
-          ? 2
-          : def.nightAction === "kill"
-            ? 1
-            : 0);
-    return blade > armour;
+    return effectiveStrikeOf(player.role!) > armour;
   });
 }
 

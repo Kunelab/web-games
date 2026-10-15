@@ -1,3 +1,5 @@
+import type { MsgKey } from 'i18n';
+
 import type { GearStats, ItemDef, WeaponStats } from '../data.js';
 import type { ItemRole, ZombieArchetype } from './roles.js';
 import { archetypeDef, roleDef } from './roles.js';
@@ -25,7 +27,7 @@ import { archetypeDef, roleDef } from './roles.js';
 export interface BiomeItem {
   /** Globally unique across every biome: it is the id that ends up in a save file. */
   id: string;
-  name: string;
+  name: MsgKey;
   emoji: string;
   /** Weapons only. Must respect the role's power budget. */
   weapon?: WeaponStats;
@@ -37,15 +39,15 @@ export interface BiomeItem {
 export interface BiomeZombie {
   /** Globally unique across every biome. */
   id: string;
-  name: string;
+  name: MsgKey;
   emoji: string;
 }
 
 export interface BiomeDef {
   id: string;
-  name: string;
+  name: MsgKey;
   /** One line for the setup screen. */
-  blurb: string;
+  blurb: MsgKey;
   /** Every item role, filled. */
   items: Record<ItemRole, BiomeItem>;
   /** Every creature archetype, filled. */

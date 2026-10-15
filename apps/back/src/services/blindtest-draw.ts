@@ -22,19 +22,9 @@ import { blindtest, mediaReadiness, resolveTiming, type AnswerField } from 'game
 
 import type { MediaView } from './media-service.js';
 import { clipWindow } from './chorus-service.js';
-import {
-  cachedPool,
-  enrich,
-  extendPool,
-  genreById,
-  poolFor,
-  warmPool,
-  profileFor,
-  sourceGenreFor,
-  type Genre,
-  type PoolEntry
-} from './blindtest-catalog.js';
+import { genreById, profileFor, sourceGenreFor, type Genre, type PoolEntry } from './blindtest-catalog.js';
 import { catalogueKeys } from './blindtest-library.js';
+import { catalogue } from './catalogue-service.js';
 import { playableIn } from './youtube-service.js';
 
 export interface DrawSettings {
@@ -182,10 +172,10 @@ export function countAvailable(
     const genre = genreById.get(genreId);
     if (!genre) continue;
 
-    const pool = cachedPool(genreId);
+    const pool = catalogue.cachedPool(genreId);
     if (pool === null) {
       // Not here yet. Ask for it, report it as unknown, and let the screen say so.
-      warmPool(genreId);
+      catalogue.warm(genreId);
       perGenre.push({ genreId, available: null });
       pending += 1;
       continue;
@@ -396,10 +386,10 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
   for (const genreId of settings.genreIds) {
     const genre = genreById.get(genreId);
     if (!genre) continue;
-    const entries = cachedPool(genreId);
+    const entries = catalogue.cachedPool(genreId);
     if (entries === null) {
       cold.push(genre);
-      warmPool(genreId);
+      catalogue.warm(genreId);
       continue;
     }
     buckets.push({ genre, entries });
@@ -407,7 +397,7 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
 
   if (buckets.length === 0) {
     for (const genre of cold) {
-      const entries = await poolFor(genre.id).catch(() => [] as PoolEntry[]);
+      const entries = await catalogue.poolFor(genre.id).catch(() => [] as PoolEntry[]);
       if (entries.length > 0) {
         buckets.push({ genre, entries });
         break;
@@ -453,12 +443,12 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
      * day, and a room that played through it had nothing new until tomorrow.
      * The extension searches a few more seeds in the background and grows the
      * pool in place, so a later round finds them. Asked on the first round of a
-     * draw only; `extendPool` keeps its own pace besides.
+     * draw only; `catalogue.extend` keeps its own pace besides.
      */
     if (round === 0) {
       for (const bucket of remaining) {
         if (bucket.entries.length < EXTEND_BELOW) {
-          extendPool(bucket.genre.id, { min: settings.difficultyMin, max: settings.difficultyMax });
+          catalogue.extend(bucket.genre.id, { min: settings.difficultyMin, max: settings.difficultyMax });
         }
       }
     }
@@ -478,7 +468,7 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
      * during a round that is already playing. A chorus lookup is about 300ms, so
      * even a top-up of three costs under a second of a thirty second window.
      */
-    await enrich([entry]);
+    await catalogue.enrich([entry]);
 
     history.playedTracks.add(entry.trackKey);
     if (entry.artist) history.recentArtists.push(entry.artist.toLowerCase());
@@ -497,7 +487,7 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
  * the entry's own difficulty, there being no room to have asked for another.
  */
 export async function catalogueRound(entry: PoolEntry): Promise<MediaView> {
-  await enrich([entry]);
+  await catalogue.enrich([entry]);
   return toMediaView(entry, entry.difficulty);
 }
 

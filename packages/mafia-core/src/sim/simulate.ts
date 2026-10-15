@@ -6,7 +6,6 @@ import {
   castVote,
   jailTarget,
   legalNightAction,
-  needsSecondTarget,
   revealMayor,
   setNightAction,
   startMafia
@@ -15,7 +14,6 @@ import { ROLES, roleDef, type RoleId } from '../roles.js';
 import type { DeathSource } from '../messages.js';
 import {
   createMafiaGame,
-  isLodgeMate,
   playerBySlot,
   playerFamily,
   type MafiaConfig,
@@ -23,18 +21,8 @@ import {
   type MafiaState
 } from '../state.js';
 import {
-  bindPersonalities,
-  decideBallot,
-  decideDay,
-  feelPressure,
-  makeBrain,
-  decideNightTarget,
-  unclashedTargets,
-  decideSecondTarget,
-  executesCaptive,
   isEvilRole,
   makePersonality,
-  sheriffSuspects,
   suspicionParts,
   parityPressure,
   DEFAULT_PROFILE,
@@ -44,11 +32,12 @@ import {
   type Personality,
   type PublicInfo
 } from './policies.js';
-import { closingAccusations, toPublicInfo } from '../observe.js';
 import { deductions } from './deduce.js';
 import { rank } from './ranking.js';
 import { Probe, type ProbeChoice } from './probe.js';
 import { Scenarios } from './scenarios.js';
+import { BotTable, type NightAim } from './table.js';
+import { testimonyOf } from './testimony.js';
 import type { Tally } from './report.js';
 
 /**
@@ -433,63 +422,29 @@ export function simulateGame(options: SimOptions): SimResult {
     if (seat) seat.isBot = false;
   }
 
-  const brains = new Map<string, Brain>(
-    players.map((player) => [
-      player.playerId,
-      makeBrain(player.slot, makePersonality(player.isBot ? profile : humanProfile, rng))
-    ])
-  );
-  bindPersonalities([...brains.values()]);
+  /**
+   * The table's bots, drawn in seating order so the personalities are part of
+   * the seed. The same object the live driver drives: see `BotTable`.
+   */
+  const table = new BotTable(state, (player) => makePersonality(player.isBot ? profile : humanProfile, rng));
 
   for (const player of players) {
     player.obsessionSlotHint = player.obsessionId ? (state.players[player.obsessionId]?.slot ?? null) : null;
   }
-  // Computed live: conversions, recruitments and remembered roles reshuffle
-  // who knows whom mid-game.
-  const teammatesOf = (playerId: string): Set<number> => {
-    const self = state.players[playerId];
-    if (!self) return new Set();
-    return new Set(players.filter((other) => other !== self && isLodgeMate(self, other)).map((other) => other.slot));
-  };
-  const knownEvilFor = (playerId: string): Set<number> => {
-    const self = state.players[playerId];
-    const family = self ? playerFamily(self) : null;
-    if (!family) return new Set();
-    return new Set(players.filter((other) => playerFamily(other) === family).map((other) => other.slot));
+  const brainOf = (slot: number): Brain | undefined => {
+    const seat = playerBySlot(state, slot);
+    return (seat && table.brain(seat.playerId)) ?? undefined;
   };
 
-  const brainOf = (slot: number): Brain | undefined => [...brains.values()].find((brain) => brain.slot === slot);
-
-  const claims: Claim[] = [];
-  /** Final accusations of past days, for the town's pattern-readers. */
-  const voteHistory: { day: number; voterSlot: number; targetSlot: number }[] = [];
   /** Seats whose last will has already been read out. */
   const willsRead = new Set<string>();
   let lastOpenedDay = 0;
-  /** The last day whose closing accusations were filed. See `recordVotes`. */
-  let lastRecordedDay = 0;
   let guard = 0;
   /** The trial on the stand, read before its defence. See `TrialAutopsy`. */
   let pending: Omit<TrialAutopsy, 'hanged'> | null = null;
 
-  const stampAndPush = (claim: Claim): void => {
-    const target = playerBySlot(state, claim.targetSlot);
-    const targetEvil = target ? isEvilRole(target.role!) : false;
-    claim.truthful =
-      claim.kind === 'clear'
-        ? !targetEvil
-        : claim.kind === 'role-claim'
-          ? target?.role === claim.claimedRole
-          : claim.kind === 'account'
-            ? // An account is honest when it matches where the seat actually went.
-              claim.account === 'home'
-              ? (brainOf(claim.claimerSlot)?.wentTo ?? null) === null
-              : (brainOf(claim.claimerSlot)?.wentTo ?? null) === claim.targetSlot
-            : claim.kind === 'question' || claim.kind === 'taunt'
-              ? true // neither states a fact, so neither can be a lie
-              : targetEvil;
-    claims.push(claim);
-  };
+  /** Ground truth is stamped by the table, where the full state is known. */
+  const stampAndPush = (claim: Omit<Claim, 'truthful'>): void => table.hear(claim);
 
   /**
    * The day's final accusations go on the record before night falls.
@@ -500,10 +455,8 @@ export function simulateGame(options: SimOptions): SimResult {
    * `closingAccusations`.
    */
   const recordVotes = (): void => {
-    if (lastRecordedDay === state.day) return;
-    lastRecordedDay = state.day;
-    const closing = closingAccusations(state, state.day);
-    for (const record of closing) voteHistory.push(record);
+    const closing = table.fileClosingVotes();
+    if (closing === null) return;
     scenarios?.dayOver(state.day, closing);
     probe?.dusk(publicInfo());
   };
@@ -520,69 +473,24 @@ export function simulateGame(options: SimOptions): SimResult {
    *    wills: invented accusations. A revealed liar's will is kindling, but
    *    a janitor-cleaned liar keeps his voice…
    */
-  const wasNightDeathAt = (slot: number, night: number): boolean =>
-    state.deaths.some(
-      (death) => death.phase === 'night' && death.day === night && state.players[death.playerId]?.slot === slot
-    );
-
   const readWills = (): void => {
     for (const player of players) {
       if (player.alive || willsRead.has(player.playerId)) continue;
       willsRead.add(player.playerId);
       const role = player.role!;
 
-      if (role === 'sheriff' || role === 'investigator') {
+      /**
+       * The town's notebooks, read the way the board reads a will: every night
+       * the seat recorded, said by `testimonyOf`, and nothing from a corpse the
+       * janitor cleaned, whose will the table never saw. The bench used to read
+       * three roles its own way (a Lookout's visitors as accusations, and only at
+       * houses that died), so a will meant one thing here and another live.
+       */
+      const cleaned = state.deaths.some((death) => death.playerId === player.playerId && death.hidden);
+      if (roleDef(role).faction === 'town' && !cleaned) {
+        const rolesInPlay = table.board().rolesInPlay;
         for (const entry of player.intel) {
-          if (entry.kind !== 'sheriff') continue;
-          /**
-           * A will's pages are nights the seat worked, and filed as such, the way
-           * the live driver's `dawnWills` files them. Unmarked, a dead Sheriff's
-           * check read as a hunch here and as a check on a real table.
-           */
-          stampAndPush({
-            day: state.day,
-            night: entry.night,
-            claimerSlot: player.slot,
-            targetSlot: entry.targetSlot,
-            kind: sheriffSuspects(entry.value) ? 'accuse' : 'clear',
-            truthful: false,
-            worked: true,
-            from: 'sheriff'
-          });
-        }
-      }
-      if (role === 'detective') {
-        for (const entry of player.intel) {
-          if (entry.kind !== 'tracked') continue;
-          if ((entry.slots ?? []).some((slot) => wasNightDeathAt(slot, entry.night))) {
-            stampAndPush({
-              day: state.day,
-              night: entry.night,
-              claimerSlot: player.slot,
-              targetSlot: entry.targetSlot,
-              kind: 'accuse',
-              truthful: false,
-              worked: true,
-              from: 'tracked'
-            });
-          }
-        }
-      }
-      if (role === 'lookout') {
-        for (const entry of player.intel) {
-          if (entry.kind !== 'visitors' || !wasNightDeathAt(entry.targetSlot, entry.night)) continue;
-          for (const visitor of entry.slots ?? []) {
-            stampAndPush({
-              day: state.day,
-              night: entry.night,
-              claimerSlot: player.slot,
-              targetSlot: visitor,
-              kind: 'accuse',
-              truthful: false,
-              worked: true,
-              from: 'visitors'
-            });
-          }
+          for (const claim of testimonyOf(entry, player.slot, rolesInPlay)) stampAndPush(claim);
         }
       }
 
@@ -598,8 +506,7 @@ export function simulateGame(options: SimOptions): SimResult {
             day: state.day,
             claimerSlot: player.slot,
             targetSlot: mark.slot,
-            kind: 'accuse',
-            truthful: false
+            kind: 'accuse'
           });
         }
       }
@@ -611,22 +518,13 @@ export function simulateGame(options: SimOptions): SimResult {
    * server uses to brief its LLM bots, so the bench and the real table never
    * disagree about what a seat can see.
    */
-  const publicInfo = (): PublicInfo => toPublicInfo(state, claims, voteHistory);
+  const publicInfo = (): PublicInfo => table.board();
   const forced = options.scenarios ?? [];
   const probe =
     options.report || forced.length > 0
       ? new Probe(state, publicInfo, (slot) => brainOf(slot)?.personality)
       : null;
   probe?.start();
-
-  const familyIntelFor = (playerId: string) => {
-    const self = state.players[playerId];
-    const family = self ? playerFamily(self) : null;
-    if (!family) return [];
-    return players
-      .filter((player) => playerFamily(player) === family && player.alive)
-      .flatMap((player) => player.intel);
-  };
 
   const scenarios =
     forced.length > 0 && probe
@@ -637,9 +535,8 @@ export function simulateGame(options: SimOptions): SimResult {
           tally: probe.tally,
           board: publicInfo,
           push: stampAndPush,
-          brainOf: (playerId) => brains.get(playerId),
-          teammatesOf,
-          familyIntelFor,
+          brainOf: (playerId) => table.brain(playerId) ?? undefined,
+          teammatesOf: (playerId) => table.allies(playerId),
           reveal: (playerId) => {
             const seat = state.players[playerId];
             if (!seat || seat.revealed) return;
@@ -725,11 +622,8 @@ export function simulateGame(options: SimOptions): SimResult {
          * have it compound four times a day and everybody would be frantic by
          * Tuesday.
          */
+        table.settleMorningMoods();
         const dawn = publicInfo();
-        for (const player of players) {
-          if (!player.alive) continue;
-          feelPressure(player, brains.get(player.playerId)!, dawn, teammatesOf(player.playerId));
-        }
         scenarios?.dawn(state.day);
 
         /**
@@ -757,15 +651,10 @@ export function simulateGame(options: SimOptions): SimResult {
           }
         }
         for (const player of shuffledAlive()) {
-          const board = publicInfo();
-          const decision = decideDay(
-            player,
-            brains.get(player.playerId)!,
-            board,
-            teammatesOf(player.playerId),
-            knownEvilFor(player.playerId),
-            rng
-          );
+          const move = table.day(player.playerId, rng);
+          if (!move) continue;
+          const decision = move.decision;
+          const board = table.board(player.playerId);
           probe?.spoke(player, decision, board);
           // Ground truth is stamped at push time, where the full state is
           // known — the brains themselves never see other players' roles.
@@ -789,24 +678,22 @@ export function simulateGame(options: SimOptions): SimResult {
         for (let pass = 0; pass < 3 && state.stage === 'discussion'; pass++) {
           for (const player of shuffledAlive()) {
             if (state.stage !== 'discussion') break;
-            const board = publicInfo();
-            const decision = decideDay(
-              player,
-              brains.get(player.playerId)!,
-              board,
-              teammatesOf(player.playerId),
-              knownEvilFor(player.playerId),
-              rng
-            );
+            const move = table.day(player.playerId, rng);
+            if (!move) continue;
+            const { decision, ballot } = move;
+            const board = table.board(player.playerId);
             if (options.talk) {
               probe?.spoke(player, decision, board);
               for (const claim of scenarios ? scenarios.humanSpeech(player, decision.publishes) : decision.publishes) {
                 stampAndPush(claim);
               }
             }
-            if (decision.voteSlot !== null) {
-              castVote(state, player.playerId, decision.voteSlot, now);
-              probe?.voted(player, decision.voteSlot, board);
+            // The live table's ballot layer: hold, move, or vote to hang nobody.
+            if (ballot.slot !== null) {
+              castVote(state, player.playerId, ballot.slot, now);
+              probe?.voted(player, ballot.slot, board);
+            } else if (ballot.skip) {
+              castVote(state, player.playerId, 'skip', now);
             }
             if (decision.revealMayor && !player.revealed) {
               revealMayor(state, player.playerId, now);
@@ -848,19 +735,18 @@ export function simulateGame(options: SimOptions): SimResult {
        * `defenceStrength` only rewards one that survives both.
        */
       if (accused?.role) {
-        const brain = brains.get(accused.playerId);
+        const brain = table.brain(accused.playerId);
         const info = publicInfo();
         const forcedClaim = scenarios?.standClaim(accused, info);
         const claimed =
           forcedClaim ?? (roleDef(accused.role).faction === 'town' ? accused.role : bluffFor(accused, info, rng));
         if (claimed && (forcedClaim !== undefined || (brain?.personality.claimRate ?? 0) > 0.25)) {
-          claims.push({
+          table.hear({
             day: state.day,
             claimerSlot: accused.slot,
             targetSlot: accused.slot,
             kind: 'role-claim',
-            claimedRole: claimed,
-            truthful: claimed === accused.role
+            claimedRole: claimed
           });
         }
       }
@@ -876,14 +762,8 @@ export function simulateGame(options: SimOptions): SimResult {
       if (accusedSlot !== null) {
         for (const player of shuffledAlive()) {
           if (player.slot === accusedSlot) continue;
-          const verdict = decideBallot(
-            player,
-            brains.get(player.playerId)!,
-            info,
-            accusedSlot,
-            teammatesOf(player.playerId),
-            rng
-          );
+          const verdict = table.ballot(player.playerId, rng);
+          if (verdict === null) continue;
           probe?.ballot(player, verdict);
           scenarios?.ballot(player, verdict);
           castBallot(state, player.playerId, verdict);
@@ -924,40 +804,16 @@ export function simulateGame(options: SimOptions): SimResult {
       for (const player of shuffledAlive()) {
         const legal = legalNightAction(state, player.playerId);
         if (!legal) continue;
-        // The orders already in tonight decide what is left worth aiming at:
-        // the family's own knife and its own cellar must not meet. See
-        // `unclashedTargets`.
-        const aimable = unclashedTargets(state, player.playerId, legal.type, legal.targets);
-        const chosen = decideNightTarget(
-          player,
-          brains.get(player.playerId)!,
-          info,
-          aimable,
-          legal.type,
-          teammatesOf(player.playerId),
-          familyIntelFor(player.playerId),
-          rng
-        );
-        const target =
+        // The family's own knife and cellar must not meet, a two-house power is
+        // submitted whole or not at all, and a forced scenario may steer the
+        // knife: all of it is the table's order. See `BotTable.night`.
+        const steer =
           scenarios && legal.type === 'kill' && playerFamily(player) !== null
-            ? scenarios.knife(player, aimable, chosen, info)
-            : chosen;
-        // A two-house power is submitted whole or not at all: the engine refuses a
-        // control or a swap that names only one doorstep. The cellar's second
-        // slot is optional and is the captive named again; see `executesCaptive`.
-        const second =
-          target === null
-            ? null
-            : needsSecondTarget(legal.type)
-              ? decideSecondTarget(player, info, legal.type, target, legal.secondTargets ?? [], rng)
-              : legal.type === 'kidnap' && (legal.secondTargets ?? []).includes(target)
-                ? executesCaptive(player, brains.get(player.playerId)!, info, target, player.charges, rng)
-                  ? target
-                  : null
-                : null;
-        if (target !== null && (!needsSecondTarget(legal.type) || second !== null)) {
-          setNightAction(state, player.playerId, target, second);
-        }
+            ? (aim: NightAim) => scenarios.knife(player, aim.aimable, aim.chosen, aim.board)
+            : undefined;
+        const order = table.night(player.playerId, rng, steer);
+        const target = order?.targetSlot ?? null;
+        if (order && target !== null) setNightAction(state, player.playerId, target, order.secondTargetSlot);
         if (player.role) {
           choices.push({ slot: player.slot, role: player.role, action: legal.type, targetSlot: target, legal: legal.targets });
         }
@@ -975,8 +831,7 @@ export function simulateGame(options: SimOptions): SimResult {
         }
         // What this seat will be able to say tomorrow if asked — and what the
         // record can catch it out on if it says otherwise.
-        const brain = brains.get(player.playerId)!;
-        brain.wentTo = target !== null && target !== player.slot && legal.targets.length > 0 ? target : null;
+        table.recordVisit(player.playerId, target);
       }
       // What everybody submitted, read before the engine clears it at dawn.
       const orders = new Map<number, { type: string; target: number | null }>();
@@ -1041,6 +896,8 @@ export function simulateGame(options: SimOptions): SimResult {
     };
   }
 
+  const claims = [...table.claims()];
+  const voteHistory = [...table.closings()];
   probe?.end(claims, voteHistory);
   const result = tally(state, options, claims, voteHistory, strikes);
   return probe ? { ...result, report: probe.tally } : result;

@@ -44,7 +44,7 @@ function roleLine(tally: Tally, role: RoleId): string[] {
   }
   const action = roleDef(role).nightAction;
   if (action === 'heal' || action === 'guard') out.push(`sauvetages ${r('saves')} (${per(r('saves'), seats)} par siège)`);
-  if (action === 'block' || action === 'kidnap' || action === 'silence') {
+  if (action === 'block' || action === 'silence') {
     out.push(
       `sur un tueur ${pct(r('blockedKiller'), aimed).trim()}, sur un pouvoir de la ville ${pct(r('blockedTownPower'), aimed).trim()}`
     );

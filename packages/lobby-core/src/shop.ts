@@ -1,3 +1,5 @@
+import type { MsgKey } from 'i18n';
+
 import { LOBBY_GAMES, type LobbyGame } from './state.js';
 
 /**
@@ -16,12 +18,35 @@ import { LOBBY_GAMES, type LobbyGame } from './state.js';
 
 export type ShopKind = 'skin';
 
+/**
+ * Every item there is, by id.
+ *
+ * Spelt out rather than left as `string` because the catalogue keys are derived
+ * from it (`shop.item.<id>` and `shop.item.<id>.desc`): typed, the locker's
+ * `shop.item.${item.id}` is checked against the catalogue, so an item added here
+ * without its two lines does not build. `ITEMS` below is typed against it in the
+ * other direction.
+ */
+export type ShopItemId =
+  | 'quiz-vinyle'
+  | 'quiz-neon'
+  | 'quiz-couronne'
+  | 'cz-pompier'
+  | 'cz-hazmat'
+  | 'cz-milice'
+  | 'mafia-fedora'
+  | 'mafia-loup'
+  | 'mafia-veuve';
+
+/** The locker's slots, for the same reason: each one is named by `locker.slot.<slot>`. */
+export type ShopSlot = 'avatar';
+
 export interface ShopItem {
   /**
    * Globally unique across games, so an id alone identifies a purchase — and,
    * since the catalogue keys are derived from it, so is the item's name.
    */
-  id: string;
+  id: ShopItemId;
   game: LobbyGame;
   kind: ShopKind;
   /** In that game's own currency. Charged server-side; the client only displays it. */
@@ -33,7 +58,7 @@ export interface ShopItem {
    * field exists so the day a hat and a weapon finish are two different things,
    * they are two slots rather than a rewrite.
    */
-  slot: string;
+  slot: ShopSlot;
   emoji: string;
 }
 
@@ -46,10 +71,10 @@ export interface ShopItem {
  */
 export interface Currency {
   /** Catalogue key. Plural, lowercase: it is read inside a sentence. */
-  name: string;
+  name: MsgKey;
   emoji: string;
   /** Catalogue key: how it is earned, for the shop's one line of explanation. */
-  earnedBy: string;
+  earnedBy: MsgKey;
 }
 
 export const CURRENCIES: Record<LobbyGame, Currency> = {
@@ -149,7 +174,7 @@ export function shopItem(id: string): ShopItem | undefined {
 }
 
 /** The slots a game's locker has, in display order. */
-export function shopSlots(game: LobbyGame): string[] {
+export function shopSlots(game: LobbyGame): ShopSlot[] {
   return [...new Set(shopFor(game).map((item) => item.slot))];
 }
 

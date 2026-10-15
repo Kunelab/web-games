@@ -4,7 +4,8 @@ import { z } from 'zod';
 
 import type { Scenario } from './config.js';
 import type { Rarity } from './data.js';
-import { finalScores, gmIncome, type FinalScore } from './engine.js';
+import { handReach } from './combat.js';
+import { creatureReach, finalScores, gmIncome, moveReach, type FinalScore } from './engine.js';
 import { czPresenceView, type CzPresenceView } from './presence.js';
 import { mutationEffects } from './mutations.js';
 import type { CzEventId } from './events.js';
@@ -124,6 +125,13 @@ export interface CzMeView {
   gear: (ItemInstance | null)[];
   bag: ItemInstance[];
   freeSearchAvailable: boolean;
+  /**
+   * Where this survivor may go and what each hand may hit from where it stands,
+   * as the engine will take it. Offer these and nothing else: a room in
+   * `moves` is a move the engine accepts, and a creature standing in a room in
+   * `attack[hand]` is one that hand can hit. See `moveReach` and `handReach`.
+   */
+  reach: { moves: string[]; attack: [string[], string[]] };
 }
 
 export interface CzAwardView {
@@ -217,6 +225,8 @@ export interface CzView {
     income: number;
     rushUsed: boolean;
     perks: string[];
+    /** Where each creature may walk this turn, by creature id. See `creatureReach`. */
+    reach: Record<string, string[]>;
   };
   /** Present once the game has ended. */
   scores?: FinalScore[];
@@ -429,7 +439,8 @@ export function toView(state: CzState, role: CzRole, now = Date.now()): CzView {
           bag: me.bag,
           // The gear flag, not an item id: a biome that calls its torch something
           // else must still light the button. See hasTorch.
-          freeSearchAvailable: !me.freeSearchUsed && hasTorch(me)
+          freeSearchAvailable: !me.freeSearchUsed && hasTorch(me),
+          reach: { moves: moveReach(state, me), attack: [handReach(state, me, 0), handReach(state, me, 1)] }
         }
       : undefined,
     gmBudget: role.kind === 'gm' ? state.gmBudget : undefined,
@@ -439,7 +450,11 @@ export function toView(state: CzState, role: CzRole, now = Date.now()): CzView {
             upgrades: { ...state.gmUpgrades },
             income: gmIncome(state),
             rushUsed: state.gmRush,
-            perks: state.gmPerks
+            perks: state.gmPerks,
+            reach:
+              state.phase === 'enemy'
+                ? Object.fromEntries(Object.values(state.zombies).map((zombie) => [zombie.id, creatureReach(state, zombie)]))
+                : {}
           }
         : undefined,
     scores: ended ? finalScores(state) : undefined,

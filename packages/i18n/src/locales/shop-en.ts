@@ -7,7 +7,7 @@ import type { Catalogue } from '../index.js';
  * strings are pure flavour, which is exactly the sort that reads worst left in a
  * language the reader does not have.
  */
-export const shopEn: Catalogue = {
+export const shopEn = {
   /* -------------------------------- the wallets ----------------------------- */
   'shop.currency.quiz': 'tokens',
   'shop.currency.quiz.earned': 'One token per point scored, at the end of every game.',
@@ -55,6 +55,6 @@ export const shopEn: Catalogue = {
   'locker.slot.avatar': 'Look',
   'shop.failed': 'That did not work.',
   'shop.back': '← Back to the {game} menu'
-};
+} satisfies Catalogue;
 
 export default shopEn;

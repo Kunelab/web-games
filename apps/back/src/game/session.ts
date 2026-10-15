@@ -4,7 +4,6 @@ import {
   buildLeaderboard,
   buzzerScoringConfig,
   clampAnswerTime,
-  generateJoinCode,
   getMediaKind,
   matchAnswer,
   matchAnyField,
@@ -363,18 +362,8 @@ export interface CreateSessionOptions {
   hostUserId: number | null;
   items: MediaView[];
   config: SessionConfig;
-  existingCodes: ReadonlySet<string>;
-}
-
-/** Codes are short enough to collide, so generation retries against those in use. */
-export function newJoinCode(existing: ReadonlySet<string>): string {
-  for (let attempt = 0; attempt < 200; attempt++) {
-    const code = generateJoinCode((maxExclusive) => randomInt(maxExclusive));
-    if (!existing.has(code)) {
-      return code;
-    }
-  }
-  throw new Error('could not allocate an unused join code');
+  /** A code already allocated for this session, by the house's registry. */
+  code: string;
 }
 
 export function createSession(options: CreateSessionOptions): SessionState {
@@ -392,7 +381,7 @@ export function createSession(options: CreateSessionOptions): SessionState {
   const now = Date.now();
 
   return {
-    code: newJoinCode(options.existingCodes),
+    code: options.code,
     hostToken: randomUUID(),
     hostUserId: options.hostUserId,
     playlistId: options.playlistId,

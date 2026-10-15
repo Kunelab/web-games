@@ -1,4 +1,4 @@
-import { msg } from 'i18n';
+import { msg, type MsgKey } from 'i18n';
 import { isLobbyGame, type LobbyGame } from 'lobby-core';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
@@ -293,7 +293,7 @@ export default function Quickplay() {
 
 /** The winning choice, in words: player-written text if it has any, else its key. */
 function choiceLabel(
-  choices: { value: string; label: string; text?: string }[],
+  choices: { value: string; label: MsgKey; text?: string }[],
   value: string,
   t: (message: ReturnType<typeof msg>) => string
 ): string {

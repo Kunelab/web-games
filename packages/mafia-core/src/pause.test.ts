@@ -81,7 +81,7 @@ describe('the pause', () => {
     assert.equal(view.presence.paused, false);
     assert.deepEqual(view.presence.waitingFor, []);
     assert.deepEqual(
-      view.presence.recovering.map((seat) => seat.slot),
+      view.presence.recovering.map((seat) => seat.ref),
       [2]
     );
   });
@@ -166,7 +166,7 @@ describe('the pause', () => {
     // The delay is the point: for the first half-minute there is nothing to press.
     const early = proposeMafiaKick(state, a.playerId, 4, DEFAULT_RULES.kickAfterMs - 1);
     assert.deepEqual(early, { ok: false, reason: 'too-soon' });
-    assert.deepEqual(toMafiaView(state, { kind: 'host' }, GRACE).presence.kickableSlots, []);
+    assert.deepEqual(toMafiaView(state, { kind: 'host' }, GRACE).presence.kickable.map((seat) => seat.ref), []);
 
     const at = DEFAULT_RULES.kickAfterMs;
     assert.deepEqual(proposeMafiaKick(state, a.playerId, 4, at), { ok: true });

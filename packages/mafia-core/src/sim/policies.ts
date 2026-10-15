@@ -9,15 +9,16 @@ import {
   QUIET_TRADE,
   roleDef,
   ROLES,
-  staysHome,
   twinMasks,
   tradeSuspects
 } from '../roles.js';
+import { staysHome } from '../powers.js';
 import { slotPool, type SlotToken } from '../setups.js';
 import { beliefs, surestSuspect } from './beliefs.js';
 import { asKnownBy, deductions, deductionWeight, privateFindings } from './deduce.js';
 import { townClock } from './clock.js';
 import { possibleRoles } from './slots.js';
+import { testimonyOf } from './testimony.js';
 export { QUIET_TRADE };
 import {
   advanceDesperation,
@@ -604,6 +605,19 @@ export interface PublicInfo {
    * the room.
    */
   provenRoles: Map<number, RoleId>;
+  /**
+   * How each seat this table plays reads a board: its herd instinct, its
+   * temperament and its quirks, by slot.
+   *
+   * Not public, and not part of the record: it is the reading seat's own
+   * character, and `suspicionParts` and `steadyVote` ask it about the seat doing
+   * the reading. Carried on the board its table builds (see `BotTable`) so that
+   * two tables in one process can never read each other's seats, which is what
+   * the process-wide maps this replaced were always one rebind away from. A
+   * seat with none reads at the defaults, which is what a bare board in a test
+   * should do.
+   */
+  personalities?: ReadonlyMap<number, Personality>;
 }
 
 export interface Brain {
@@ -3223,7 +3237,7 @@ export function suspicionParts(
    * the Serial Killer. Voting to save a hanged killer, on the other hand, is a
    * thing almost nobody does by accident, so it keeps its full weight.
    */
-  score -= Math.min(trustOf(targetSlot, info, temperamentOf(self.slot)), 1.2) * 0.6;
+  score -= Math.min(trustOf(targetSlot, info, temperamentOf(self.slot, info)), 1.2) * 0.6;
 
   // Tunnel vision smells like an obsession.
   score += monomaniacScore(targetSlot, info);
@@ -3554,7 +3568,7 @@ export function suspicionParts(
   const agreed = hard > 0 ? said : Math.min(said, HEARSAY_CAP);
   score += agreed;
 
-  return { evidence: score + rng() * 0.3, wagon: wagon * 0.5 * brainHerd(self), hard, firm: hard - soft, chorus: agreed };
+  return { evidence: score + rng() * 0.3, wagon: wagon * 0.5 * brainHerd(self, info), hard, firm: hard - soft, chorus: agreed };
 }
 
 /**
@@ -3835,7 +3849,7 @@ export function steadyVote(
    * argument, and move on much less than this. Read off the seat rather than
    * passed in, the same way `temperamentOf` is, so no caller has to care.
    */
-  const margin = SWITCH_MARGIN * (1 - quirksOf(self.slot).lateSwitch);
+  const margin = SWITCH_MARGIN * (1 - quirksOf(self.slot, info).lateSwitch);
   return scoreOf(proposed) - scoreOf(standing) >= margin
     ? { slot: proposed, skip: false }
     : { slot: null, skip: false };
@@ -3847,36 +3861,18 @@ export function suspicion(targetSlot: number, self: MafiaPlayer, info: PublicInf
   return parts.evidence + parts.wagon;
 }
 
-/** The herd factor lives on the personality; this indirection keeps call sites short. */
-let herdBySlot: Map<number, number> = new Map();
-/**
- * And the meter coefficients, by seat, for the same reason.
- *
- * `suspicionParts` is handed a `MafiaPlayer` rather than a `Brain` — it is
- * asked "how suspicious is that one, to this one", and the answer depends on
- * who is reading. Rather than thread a brain through every caller, the binding
- * that already exists for `herd` carries this too. An unbound seat reads at the
- * even temperament, which is what a bare board in a test should do.
- */
-let temperamentBySlot: Map<number, Temperament> = new Map();
-let quirksBySlot: Map<number, Quirks> = new Map();
-
-export function temperamentOf(slot: number): Temperament {
-  return temperamentBySlot.get(slot) ?? EVEN_TEMPERAMENT;
+/** This seat's meter coefficients, off the board its table built. See `PublicInfo.personalities`. */
+export function temperamentOf(slot: number, info: PublicInfo): Temperament {
+  return info.personalities?.get(slot)?.temperament ?? EVEN_TEMPERAMENT;
 }
 
-/** This seat's people-shaped habits. An unbound seat has none. See `Quirks`. */
-export function quirksOf(slot: number): Quirks {
-  return quirksBySlot.get(slot) ?? NO_QUIRKS;
+/** This seat's people-shaped habits. A seat with no personality has none. See `Quirks`. */
+export function quirksOf(slot: number, info: PublicInfo): Quirks {
+  return info.personalities?.get(slot)?.quirks ?? NO_QUIRKS;
 }
 
-export function bindPersonalities(brains: Brain[]): void {
-  herdBySlot = new Map(brains.map((brain) => [brain.slot, brain.personality.herd]));
-  temperamentBySlot = new Map(brains.map((brain) => [brain.slot, brain.personality.temperament]));
-  quirksBySlot = new Map(brains.map((brain) => [brain.slot, brain.personality.quirks ?? NO_QUIRKS]));
-}
-function brainHerd(self: MafiaPlayer): number {
-  return herdBySlot.get(self.slot) ?? 0.5;
+function brainHerd(self: MafiaPlayer, info: PublicInfo): number {
+  return info.personalities?.get(self.slot)?.herd ?? 0.5;
 }
 
 function votesAgainst(slot: number, info: PublicInfo): number {
@@ -4695,23 +4691,21 @@ export function decideDay(
     if (!alreadyClaimed(info, self.slot, self.slot, 'role-claim')) publish(self.slot, 'role-claim', role);
     if (disturbed && !saidBefore(disturbed)) publish(self.slot, 'ailing', undefined, undefined, disturbed);
     for (const entry of self.intel.filter((found) => found.night === info.day - 1)) {
-      if (entry.kind === 'sheriff') publish(entry.targetSlot, sheriffSuspects(entry.value) ? 'accuse' : 'clear');
-      else if (entry.kind === 'trade') {
-        const verdict = tradeVerdict(entry.value, info.rolesInPlay);
-        publish(entry.targetSlot, verdict === 'damning' ? 'accuse' : verdict === 'clean' ? 'clear' : 'hint');
-      } else if (entry.kind === 'visitors') {
-        const visitors = (entry.slots ?? []).filter((slot) => slot !== self.slot);
-        for (const visitor of visitors) {
-          publish(visitor, 'sighting', undefined, undefined, undefined, { at: entry.targetSlot });
-        }
-        if (visitors.length === 0) publish(entry.targetSlot, 'hint');
-      } else if (entry.kind === 'tracked') {
-        const where = (entry.slots ?? [])[0];
-        if (where === undefined) publish(entry.targetSlot, 'hint');
-        else publish(entry.targetSlot, 'sighting', undefined, undefined, undefined, { at: where });
-      } else if (entry.kind === 'jailed' || entry.kind === 'blocked') {
-        publish(entry.targetSlot, 'hint');
+      const findings = testimonyOf(entry, self.slot, info.rolesInPlay);
+      for (const finding of findings) {
+        const at = finding.at !== undefined ? { at: finding.at } : undefined;
+        publish(finding.targetSlot, finding.kind, undefined, finding.account, undefined, at);
       }
+      /**
+       * And the excuse, when the night found nothing.
+       *
+       * `testimonyOf` says nothing of an empty watch, a tail that went nowhere,
+       * a block or a cell, because none of them names anybody. A seat that
+       * promised a result still owes the room something about that night, and
+       * `deductions` holds it to the promise: it says which house it meant.
+       */
+      const empty = ['visitors', 'tracked', 'jailed', 'blocked'].includes(entry.kind);
+      if (findings.length === 0 && empty) publish(entry.targetSlot, 'hint');
     }
   }
 
@@ -7394,7 +7388,6 @@ function vestTonight(self: MafiaPlayer, info: PublicInfo, brain: Brain, rng: () 
  */
 export const FAMILY_AIM: Partial<Record<NightActionType, 'follow' | 'avoid'>> = {
   clean: 'follow',
-  kidnap: 'avoid',
   silence: 'avoid',
   block: 'avoid',
   frame: 'avoid',
@@ -8067,7 +8060,7 @@ export function decideNightTarget(
 
   /* ----------------------------- interference ----------------------------- */
 
-  if (actionType === 'block' || actionType === 'kidnap' || actionType === 'silence') {
+  if (actionType === 'block' || actionType === 'silence') {
     if (familyOf(role) !== null) {
       // Keep the sheriff busy, gagged, or in a cellar: a loud claimer.
       const loudList = credibleClaimersRanked(info, teammates).filter((slot) => legalTargets.includes(slot));
@@ -8430,53 +8423,6 @@ export function decideNightTarget(
  * Returns null only when there is genuinely nowhere to point, in which case the
  * caller drops the whole order: half of one of these is worse than none of it.
  */
-/**
- * Does the captive come back out at dawn?
- *
- * Almost never, and that is the design rather than an oversight. The cellar
- * holds three executions for a whole game and the abduction is worthless on its
- * own — a blocked seat for one night, against a family that already has a
- * knife — so a Kidnapper hoarding charges is a Kidnapper playing as a slightly
- * worse Consort. The charges are there to make it a resource, not a decision to
- * agonise over: take somebody worth taking, and end them.
- *
- * Two brakes, and only two, because every one of them is a night the role did
- * nothing.
- *
- * The first is the seat the town is already hanging. A captive scoring above
- * the square's own conviction line is somebody the room will do for free
- * tomorrow, and spending an irreplaceable charge on them buys a corpse the
- * family was getting anyway — worse, it buys it *quietly*, so the room never
- * sees the confirmation it was heading towards and starts again from nothing.
- *
- * The second is the last charge against a seat nobody has any reason to care
- * about. Two spent on the loud ones and the third held for whoever turns out to
- * matter is better than three spent on the first three houses in seat order.
- *
- * Everything else dies. A quiet unclaimed townsman is the best possible use of
- * the cellar: unprotectable, unprovable, and gone.
- */
-export function executesCaptive(
-  self: MafiaPlayer,
-  brain: Brain,
-  info: PublicInfo,
-  captiveSlot: number,
-  charges: number,
-  rng: () => number
-): boolean {
-  if (charges <= 0) return false;
-  const score = suspicion(captiveSlot, self, info, rng);
-
-  // The room is already walking this one to the rope. Let it.
-  if (score >= 2.6 && rng() < 0.75) return false;
-
-  // The last one is worth keeping for somebody who matters.
-  const nobody = score < 0.6 && !info.claims.some((claim) => claim.claimerSlot === captiveSlot);
-  if (charges === 1 && nobody && rng() < 0.6) return false;
-
-  return rng() < 0.92;
-}
-
 export function decideSecondTarget(
   self: MafiaPlayer,
   info: PublicInfo,

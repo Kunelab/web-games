@@ -27,12 +27,7 @@ const mafiaRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: { body: z.object({ config: mafiaConfigSchema.optional() }) }
     },
     async (request, reply) => {
-      const taken = new Set<string>([...app.games.activeCodes(), ...app.cz.activeCodes()]);
-      const state = app.mafia.create({
-        hostUserId: request.currentUser.id,
-        config: request.body.config,
-        takenCodes: taken
-      });
+      const state = app.mafia.create({ hostUserId: request.currentUser.id, config: request.body.config });
       return reply.code(201).send({ code: state.code, hostToken: state.hostToken });
     }
   );
@@ -42,7 +37,7 @@ const mafiaRoutes: FastifyPluginAsyncZod = async (app) => {
     '/mafia/sessions/:code',
     { schema: { params: z.object({ code: z.string().min(1).max(16) }) } },
     async (request) => {
-      const state = app.mafia.get(request.params.code.trim().toUpperCase());
+      const state = app.mafia.tables.get(request.params.code.trim().toUpperCase());
       if (!state) {
         throw app.httpErrors.notFound('Aucune partie avec ce code');
       }
@@ -62,14 +57,14 @@ const mafiaRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: { params: z.object({ code: z.string().min(1).max(16) }) }
     },
     async (request, reply) => {
-      const state = app.mafia.get(request.params.code.trim().toUpperCase());
+      const state = app.mafia.tables.get(request.params.code.trim().toUpperCase());
       if (!state) {
         throw app.httpErrors.notFound('Aucune partie avec ce code');
       }
       if (state.hostUserId !== request.currentUser.id) {
         throw app.httpErrors.forbidden("Cette partie n'est pas la vôtre");
       }
-      await app.mafia.destroy(state.code);
+      await app.mafia.tables.destroy(state.code);
       return reply.code(204).send();
     }
   );
@@ -85,8 +80,8 @@ const mafiaRoutes: FastifyPluginAsyncZod = async (app) => {
    */
   app.get('/mafia/mine', { preHandler: app.requireAuth }, async (request) => {
     const mine: { code: string; hostToken: string; phase: string; players: number }[] = [];
-    for (const code of app.mafia.activeCodes()) {
-      const state = app.mafia.get(code);
+    for (const code of app.mafia.tables.codes()) {
+      const state = app.mafia.tables.get(code);
       if (state?.phase === 'ended') continue;
       if (state?.hostUserId === request.currentUser.id) {
         mine.push({

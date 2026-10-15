@@ -42,7 +42,7 @@ export function Ceremony({
               <span className="podium-name">{player.name}</span>
               {player.title && (
                 <span className="podium-title">
-                  {badgeMeta(player.title).emoji} {t(msg(badgeMeta(player.title).titleKey))}
+                  {badgeMeta(player.title).emoji} {t(badgeMeta(player.title).title)}
                 </span>
               )}
               <span className="podium-score tabular">{t(msg('play.points', { points: player.score }))}</span>
@@ -63,7 +63,7 @@ export function Ceremony({
                 <span className="award-emoji" aria-hidden="true">
                   {meta.emoji}
                 </span>
-                <span className="award-title">{t(msg(meta.titleKey))}</span>
+                <span className="award-title">{t(meta.title)}</span>
                 <span className="award-holder">{award.playerName}</span>
                 <span className="award-value">{award.value}</span>
               </li>

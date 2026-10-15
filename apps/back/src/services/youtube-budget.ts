@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 
-import { db } from '../db/index.js';
-import { env } from '../env.js';
+import { systemClock, type Clock } from '../clock.js';
+import type { Db } from '../db/open.js';
 
 /**
  * The day's allowance of YouTube searches, spent one at a time.
@@ -15,7 +15,8 @@ import { env } from '../env.js';
  * the budget does rather than when Google starts answering 403.
  *
  * Kept in the database rather than in memory because the box restarts, and a
- * counter that resets on boot is a counter that can spend the day twice.
+ * counter that resets on boot is a counter that can spend the day twice. Which
+ * database, and what time it is, are the caller's: the catalogue's own.
  */
 
 /**
@@ -29,8 +30,8 @@ const PACIFIC_DAY = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit'
 });
 
-export function quotaDay(now = new Date()): string {
-  return PACIFIC_DAY.format(now);
+export function quotaDay(clock: Pick<Clock, 'now'> = systemClock): string {
+  return PACIFIC_DAY.format(clock.now());
 }
 
 /**
@@ -40,9 +41,9 @@ export function quotaDay(now = new Date()): string {
  * the conditional upsert only increments while the count is under the budget,
  * and `changes` says whether it did.
  */
-export function spendSearch(budget = env.BLINDTEST_SEARCH_BUDGET): boolean {
+export function spendSearch(db: Db, budget: number, clock: Pick<Clock, 'now'>): boolean {
   if (budget <= 0) return false;
-  const day = quotaDay();
+  const day = quotaDay(clock);
   const result = db.run(sql`
     INSERT INTO "BlindtestSearchLedger" ("day", "searches") VALUES (${day}, 1)
     ON CONFLICT ("day") DO UPDATE SET "searches" = "searches" + 1
@@ -51,11 +52,10 @@ export function spendSearch(budget = env.BLINDTEST_SEARCH_BUDGET): boolean {
   return result.changes > 0;
 }
 
-/** Today's spending, for the diagnostics endpoint. */
-export function searchesToday(): { day: string; used: number; budget: number } {
-  const day = quotaDay();
+/** A day's spending so far. */
+export function searchesOn(db: Db, day: string): number {
   const row = db.get<{ searches: number } | undefined>(
     sql`SELECT "searches" FROM "BlindtestSearchLedger" WHERE "day" = ${day}`
   );
-  return { day, used: row?.searches ?? 0, budget: env.BLINDTEST_SEARCH_BUDGET };
+  return row?.searches ?? 0;
 }

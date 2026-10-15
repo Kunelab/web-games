@@ -1,4 +1,4 @@
-import { msg } from 'i18n';
+import { msg, type MsgKey } from 'i18n';
 import { Fragment, type ReactNode } from 'react';
 
 import { useT } from '../i18n/locale-context';
@@ -16,7 +16,7 @@ import { useT } from '../i18n/locale-context';
  * business rendering arbitrary markup, and a parser that only knows one rule
  * cannot be surprised by a stray underscore in a French sentence.
  */
-export function Prose({ k, className }: { k: string; className?: string }) {
+export function Prose({ k, className }: { k: MsgKey; className?: string }) {
   const t = useT();
   return <p className={className}>{emphasise(t(msg(k)))}</p>;
 }

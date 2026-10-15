@@ -1,8 +1,10 @@
 import type { ClientToServerEvents, ClockEstimate, ServerToClientEvents, SessionView } from 'game-core';
+import { msg, type Msg } from 'i18n';
 import { useEffect, useState } from 'react';
-import { io, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
-import { apiOrigin } from '../tools/api-url';
+import { openSocket } from '../seat/browser';
+import { said } from '../seat/seat';
 import { useClockUpkeep, useServerClock } from './useServerClock';
 
 export type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -11,7 +13,8 @@ export interface GameConnection {
   socket: GameSocket | null;
   connected: boolean;
   session: SessionView | null;
-  error: string | null;
+  /** A key, like everything else the server says; the screen renders it. */
+  error: Msg | null;
   /** Offset and round trip measured against the server clock. */
   clock: ClockEstimate;
   /** Current time on the server's clock, for rendering countdowns. */
@@ -19,7 +22,8 @@ export interface GameConnection {
 }
 
 /**
- * Opens the game socket and keeps the clock synchronised.
+ * Opens the game socket and keeps the clock synchronised, for the host screen.
+ * A phone holding a seat uses `useSeat` instead.
  *
  * The clock is the point, and it lives in `useServerClock` because all three
  * games need exactly this: every countdown and every reveal animation is derived
@@ -33,11 +37,11 @@ export function useGameSocket(): GameConnection {
   const [socket, setSocket] = useState<GameSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const [session, setSession] = useState<SessionView | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Msg | null>(null);
   const { estimate, serverNow, synchronise } = useServerClock();
 
   useEffect(() => {
-    const current: GameSocket = io(apiOrigin, { transports: ['websocket', 'polling'] });
+    const current: GameSocket = openSocket();
     // Publishing the socket is the whole purpose of this effect: it is an external
     // resource whose lifetime is the component's, which is what effects are for.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -50,9 +54,9 @@ export function useGameSocket(): GameConnection {
     });
 
     current.on('disconnect', () => setConnected(false));
-    current.on('connect_error', () => setError('Connexion au serveur impossible.'));
+    current.on('connect_error', () => setError(msg('net.unreachable')));
     current.on('session:state', (view) => setSession(view));
-    current.on('session:error', (payload) => setError(payload.message));
+    current.on('session:error', (payload) => setError(said(payload.message) ?? null));
 
     // The server probes latency by asking us to acknowledge; nothing to send back.
     current.on('clock:sync', (_payload, ack) => {

@@ -1,5 +1,5 @@
-import { SETUPS, SLOT_TOKENS, ROLES } from 'mafia-core';
-import { msg } from 'i18n';
+import { isSlotToken, SETUPS, SLOT, SLOT_TOKENS } from 'mafia-core';
+import { msg, msgOf, type Msg, type MsgKey } from 'i18n';
 import { useState } from 'react';
 import QRCode from 'react-qr-code';
 import { useNavigate } from 'react-router';
@@ -21,19 +21,21 @@ import './mafia.css';
  * pockets the host token and sends the browser straight to a seat.
  */
 
+type OptionKeys = { value: string; key: MsgKey }[];
+
 /**
  * The clock and reveal options, as value/key pairs.
  *
  * Keys rather than words: a `<Select>` wants strings, so the words are resolved
  * at render against the reader's own catalogue rather than baked in here.
  */
-const DAY_CHOICES = [
+const DAY_CHOICES: OptionKeys = [
   { value: '90000', key: 'mafia.setup.day90' },
   { value: '120000', key: 'mafia.setup.day120' },
   { value: '180000', key: 'mafia.setup.day180' }
 ];
 
-const NIGHT_CHOICES = [
+const NIGHT_CHOICES: OptionKeys = [
   { value: '30000', key: 'mafia.setup.night30' },
   { value: '45000', key: 'mafia.setup.night45' },
   { value: '60000', key: 'mafia.setup.night60' }
@@ -43,7 +45,7 @@ const NIGHT_CHOICES = [
  * What a corpse gives away. The middle setting is the interesting one: naming the
  * camp keeps the game's shape while making a Coroner worth a seat.
  */
-const REVEAL_CHOICES = [
+const REVEAL_CHOICES: OptionKeys = [
   { value: 'role', key: 'mafia.setup.reveal.role' },
   { value: 'faction', key: 'mafia.setup.reveal.faction' },
   { value: 'none', key: 'mafia.setup.reveal.none' }
@@ -52,32 +54,35 @@ const REVEAL_CHOICES = [
 type SetupChoice =
   | { mode: 'auto' }
   | { mode: 'chaos' }
-  | { mode: 'preset'; presetId: string }
+  | { mode: 'preset'; presetId: (typeof SETUPS)[number]['id'] }
   | { mode: 'custom'; slots: string[] };
 
 /**
- * The catalogue key that names a slot: the role, or the category.
+ * What names a slot: the role, or the category.
  *
  * This used to be a second, French-only table of category names living beside
  * the one in `roles.ts` — two lists of the same thing, drifting apart, neither
  * translated. Both are keys now, and the seat screen's role list renders the
- * identical ones.
+ * identical ones: `SLOT` is the engine's own.
+ *
+ * A token comes back from a saved template as a plain string, so it is checked
+ * first. One that is not a token at all keeps rendering as the raw key it always
+ * rendered as, through `msgOf`.
  */
-function tokenKey(token: string): string {
-  return token in ROLES ? `mafia.role.${token}.name` : `mafia.slot.${token}`;
+function tokenName(token: string): Msg {
+  return isSlotToken(token) ? SLOT(token) : msgOf(`mafia.slot.${token}`);
 }
 
 /** `<Select>` wants words; the tables above hold keys. */
-function useOptionLabels(t: (key: string) => string) {
-  return (choices: { value: string; key: string }[]) =>
-    choices.map((choice) => ({ value: choice.value, label: t(choice.key) }));
+function useOptionLabels(t: (key: MsgKey) => string) {
+  return (choices: OptionKeys) => choices.map((choice) => ({ value: choice.value, label: t(choice.key) }));
 }
 
 export default function MafiaSetup() {
   const navigate = useNavigate();
   const t = useT();
-  const tk = (key: string, params?: Record<string, string | number>) => t(msg(key, params));
-  const tokenLabel = (token: string) => tk(tokenKey(token));
+  const tk = (key: MsgKey, params?: Record<string, string | number>) => t(msg(key, params));
+  const tokenLabel = (token: string) => t(tokenName(token));
   const labelled = useOptionLabels(tk);
   const [dayMs, setDayMs] = useState('120000');
   const [nightMs, setNightMs] = useState('45000');

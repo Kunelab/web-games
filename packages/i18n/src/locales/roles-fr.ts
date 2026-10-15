@@ -1,4 +1,5 @@
-import type { Catalogue } from '../index.js';
+import type { TranslationOf } from '../index.js';
+import type { rolesEn } from './roles-en.js';
 
 /**
  * Le casting, en français : les camps, les soixante-trois rôles, le verbe que
@@ -9,7 +10,7 @@ import type { Catalogue } from '../index.js';
  * `mafia-core/roles.ts`, qui garde sa table française pour les deux lecteurs qui
  * ne sont pas des gens : les prompts des bots et la transcription du simulateur.
  */
-export const rolesFr: Catalogue = {
+export const rolesFr: TranslationOf<typeof rolesEn> = {
   /* -------------------------------- les camps ------------------------------- */
   'mafia.faction.town': 'Ville',
   'mafia.faction.mafia': 'Mafia',
@@ -181,7 +182,6 @@ export const rolesFr: Catalogue = {
   'mafia.action.silence': 'Faire taire',
   'mafia.action.clean': 'Nettoyer',
   'mafia.action.swap': 'Échanger',
-  'mafia.action.kidnap': 'Enlever',
   'mafia.action.recruit': 'Initier',
   'mafia.action.convert': 'Convertir',
   'mafia.action.remember': 'Se souvenir',

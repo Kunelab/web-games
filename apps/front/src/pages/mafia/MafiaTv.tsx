@@ -183,26 +183,7 @@ export default function MafiaTv() {
       */}
       {pause.paused && (
         <PauseOverlay
-          waitingFor={pause.waitingFor.map((seat) => ({
-            label: t(msg('mafia.ui.seatLabel', { name: seat.name, slot: seat.slot })),
-            id: seat.slot,
-            awayMs: seat.awayMs
-          }))}
-          expiresAt={pause.pauseExpiresAt}
-          resumesAt={pause.resumesAt}
-          kickable={[]}
-          vote={
-            pause.vote
-              ? {
-                  label: t(msg('mafia.ui.seatLabel', { name: pause.vote.name, slot: pause.vote.slot })),
-                  closesAt: pause.vote.closesAt,
-                  yes: pause.vote.yes,
-                  no: pause.vote.no,
-                  needed: pause.vote.needed,
-                  mine: null
-                }
-              : null
-          }
+          pause={pause}
           serverNow={serverNow}
           onPropose={null}
           onVote={null}

@@ -12,7 +12,7 @@ import type { Catalogue } from "../index.js";
  * proper nouns: the same word in every catalogue, so they stay in `games.ts`
  * where the accent colour and the emoji already live.
  */
-export const siteEn: Catalogue = {
+export const siteEn = {
   /* -------------------------------- the bar --------------------------------- */
   "site.nav.main": "Main navigation",
   "site.foot.label": "Legal links and contact",
@@ -146,6 +146,6 @@ export const siteEn: Catalogue = {
   "site.notFound.title": "Page not found",
   "site.notFound.lede":
     "This link leads nowhere. The menu at the top gets you back to familiar ground.",
-};
+} satisfies Catalogue;
 
 export default siteEn;

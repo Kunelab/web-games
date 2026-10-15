@@ -1,11 +1,12 @@
 import type { FastifyBaseLogger } from 'fastify';
 
 import { apiSlots, env } from '../env.js';
-import { GENRES, catalogAvailable, searchForCatalogue } from './blindtest-catalog.js';
+import { GENRES, catalogAvailable } from './blindtest-catalog.js';
 import { catalogueRound } from './blindtest-draw.js';
 import { indexCatalogueEntry } from './blindtest-duplicates.js';
 import { countLibrary, libraryVideoCodes, rememberPlayedRound } from './blindtest-library.js';
-import { quotaDay, searchesToday } from './youtube-budget.js';
+import { catalogue } from './catalogue-service.js';
+import { quotaDay } from './youtube-budget.js';
 import { playableIn } from './youtube-service.js';
 
 /**
@@ -141,12 +142,12 @@ export async function prefillCatalogue(log?: FastifyBaseLogger): Promise<Prefill
           report.stopped = 'the quota day ended';
           break rounds;
         }
-        if (searchesToday().used >= budget) {
+        if (catalogue.searchesToday().used >= budget) {
           report.stopped = 'the budget is spent';
           break rounds;
         }
 
-        const result = await searchForCatalogue(genre, budget);
+        const result = await catalogue.searchForCatalogue(genre.id, budget);
         if (!result) {
           spent.add(genre.id);
           continue;

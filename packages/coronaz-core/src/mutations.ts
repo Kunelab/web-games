@@ -11,12 +11,14 @@
  * breath as the cost so a table can weigh it in one read.
  */
 
+import type { MsgKey } from 'i18n';
+
 export interface MutationDef {
   id: string;
-  name: string;
+  name: MsgKey;
   emoji: string;
   /** What it does to the horde, in one line. */
-  blurb: string;
+  blurb: MsgKey;
   /** Extra hit points on every creature. */
   hp?: number;
   /** Extra damage on every creature. */

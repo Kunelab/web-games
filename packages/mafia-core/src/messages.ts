@@ -1,7 +1,8 @@
-import { msg, type Msg } from 'i18n';
+import { msg, type Msg, type MsgKey } from 'i18n';
 
-import { ROLES, type Faction, type NightActionType, type RoleId } from './roles.js';
+import { ROLES, type Faction, type NightActionType, type RoleId, type TradeId } from './roles.js';
 import type { SlotToken } from './setups.js';
+import type { SheriffVerdict, WinKind } from './state.js';
 
 /**
  * Every sentence this game says, as a typed factory.
@@ -46,9 +47,16 @@ export const FACTION = (faction: Faction): Msg => msg(`mafia.faction.${faction}`
  *
  * `self` is not decoration: pointing the match at your own house is a different
  * sentence from pointing it at somebody else's, and only two powers have one.
+ *
+ * Those two are named here rather than looked up in `SELF_FIRES`, because the
+ * compiler can only check `mafia.action.${action}.self` against the catalogue
+ * when `action` is narrowed to them; any other power asked for its self line
+ * gets its ordinary verb instead of a raw key.
  */
 export const ACTION = (action: NightActionType, self = false): Msg =>
-  msg(self ? `mafia.action.${action}.self` : `mafia.action.${action}`);
+  self && (action === 'douse' || action === 'charge')
+    ? msg(`mafia.action.${action}.self`)
+    : msg(`mafia.action.${action}`);
 
 /**
  * One line of the published role list.
@@ -57,8 +65,12 @@ export const ACTION = (action: NightActionType, self = false): Msg =>
  * category that will roll one of a pool at the start, which reads as the
  * category. Both are `SlotToken`s, so the caller never has to know which it holds.
  */
-export const SLOT = (token: SlotToken): Msg =>
-  token in ROLES ? ROLE.name(token as RoleId) : msg(`mafia.slot.${token}`);
+export const SLOT = (token: SlotToken): Msg => (isRole(token) ? ROLE.name(token) : msg(`mafia.slot.${token}`));
+
+/** `in` checks the key and narrows nothing, so the category branch needs telling. */
+function isRole(token: SlotToken): token is RoleId {
+  return token in ROLES;
+}
 
 /**
  * What the table says when it says no.
@@ -246,7 +258,7 @@ export const NOTE = {
    * SERIAL KILLER" where it used to say "is SUSPICIOUS" — the difference
    * between a lead and a fact.
    */
-  sheriff: (name: string, verdict: string): Msg =>
+  sheriff: (name: string, verdict: SheriffVerdict): Msg =>
     msg(verdict === 'clear' ? 'mafia.note.sheriffClear' : `mafia.note.sheriff.${verdict}`, { name }),
   exactRole: (name: string, role: RoleId): Msg => msg('mafia.note.exactRole', { name, role: ROLE.name(role) }),
   /**
@@ -266,7 +278,7 @@ export const NOTE = {
    * Empty for the quiet line, which is the absence of a finding rather than a
    * finding with no suspects, so it keeps the shorter sentence.
    */
-  tradeLine: (name: string, trade: string, suspects: readonly RoleId[] = []): Msg =>
+  tradeLine: (name: string, trade: TradeId, suspects: readonly RoleId[] = []): Msg =>
     suspects.length > 0
       ? msg('mafia.note.tradeLineRoles', {
           name,
@@ -365,7 +377,7 @@ export const M = {
   winFamily: (family: 'mafia' | 'triad' | 'cult'): Msg =>
     msg(family === 'mafia' ? 'mafia.win.mafia' : family === 'triad' ? 'mafia.win.triad' : 'mafia.win.cult'),
   winJester: (): Msg => msg('mafia.win.jester'),
-  winSolo: (role: RoleId): Msg => msg(SOLO_WIN_KEY[role] ?? 'mafia.win.serialKiller'),
+  winSolo: (role: RoleId): Msg => msg(isSoloWinner(role) ? SOLO_WIN_KEY[role] : 'mafia.win.serialKiller'),
   /**
    * Said on the last quiet day, before the standing order takes the game.
    *
@@ -404,16 +416,28 @@ export const M = {
    * matched substrings against, which is how a Lover pair once scored a
    * survivor win.
    */
-  winReason: (kind: string): Msg => msg(`mafia.win.reason.${kind}`)
+  winReason: (kind: WinReason): Msg => msg(`mafia.win.reason.${kind}`)
 };
 
-const SOLO_WIN_KEY: Partial<Record<RoleId, string>> = {
+/**
+ * What the podium line is keyed by: a `WinKind`, except that the solo killers
+ * each have their own line where the ledger has one `solo-killer` for all five.
+ */
+type WinReason = Exclude<WinKind, 'solo-killer'> | SoloWinner;
+
+type SoloWinner = keyof typeof SOLO_WIN_KEY;
+
+function isSoloWinner(role: RoleId): role is SoloWinner {
+  return role in SOLO_WIN_KEY;
+}
+
+const SOLO_WIN_KEY = {
   'serial-killer': 'mafia.win.serialKiller',
   arsonist: 'mafia.win.arsonist',
   'mass-murderer': 'mafia.win.massMurderer',
   poisoner: 'mafia.win.poisoner',
   electromaniac: 'mafia.win.electromaniac'
-};
+} as const satisfies Partial<Record<RoleId, MsgKey>>;
 
 /**
  * What a corpse says, as a nested fragment.

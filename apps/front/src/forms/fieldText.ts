@@ -1,4 +1,4 @@
-import { msg, type Msg } from 'i18n';
+import { msgOf, type Msg } from 'i18n';
 
 /**
  * Prefixes that mark a string as one of ours rather than one of theirs.
@@ -27,8 +27,12 @@ const KEY_PREFIXES = ['field.', 'ans.', 'miss.'];
  *
  * In its own file rather than beside the form that uses it: a module that
  * exports both components and helpers loses fast refresh for the whole file.
+ *
+ * `msgOf`, because the value is data and the compiler never sees it. What keeps
+ * these keys honest is `label-keys.test.ts` on the server side, which reads every
+ * `field.`, `ans.` and `miss.` key out of the source and checks it against `en`.
  */
 export function fieldText(t: (message: Msg) => string, value: string | undefined): string {
   if (!value) return '';
-  return KEY_PREFIXES.some((prefix) => value.startsWith(prefix)) ? t(msg(value)) : value;
+  return KEY_PREFIXES.some((prefix) => value.startsWith(prefix)) ? t(msgOf(value)) : value;
 }

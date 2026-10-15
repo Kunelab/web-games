@@ -1,3 +1,4 @@
+import type { MsgKey } from 'i18n';
 import { z } from 'zod';
 
 /**
@@ -224,7 +225,7 @@ export const DIFFICULTY_PRESETS: Record<string, Partial<GameConfig>> = {
  * Read by the setup screen, the television, the join board and the guide, in
  * two languages between them, so the words cannot live here.
  */
-export const SCENARIO_LABELS: Record<Scenario, { name: string; goal: string }> = {
+export const SCENARIO_LABELS: Record<Scenario, { name: MsgKey; goal: MsgKey }> = {
   escape: { name: 'coronaz.scenario.escape.name', goal: 'coronaz.scenario.escape.goal' },
   purge: { name: 'coronaz.scenario.purge.name', goal: 'coronaz.scenario.purge.goal' },
   survival: { name: 'coronaz.scenario.survival.name', goal: 'coronaz.scenario.survival.goal' },

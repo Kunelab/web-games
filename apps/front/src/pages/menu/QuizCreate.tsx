@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 
 import { api, type Playlist } from '../../api/client';
 import { gameEntry } from '../../app/games';
-import { kindColor, kindKey } from '../../app/kinds';
+import { kindColor, kindName } from '../../app/kinds';
 import { useAuth } from '../../hooks/useAuth';
 import { useAsync } from '../../hooks/useAsync';
 import { useT } from '../../i18n/locale-context';
@@ -120,7 +120,7 @@ function Shelf({
                 <span className="qp-choices">
                   {Object.entries(playlist.kindCounts).map(([kind, count]) => (
                     <span key={kind} className="guide-stats" style={{ color: kindColor(kind) }}>
-                      {t(msg(kindKey(kind)))} × {count}
+                      {t(kindName(kind))} × {count}
                     </span>
                   ))}
                 </span>

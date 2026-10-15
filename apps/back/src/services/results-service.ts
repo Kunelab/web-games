@@ -1,5 +1,6 @@
 import { desc } from 'drizzle-orm';
 import { buildLeaderboard, type BadgeProgressView, type FinalAward, type GameReward } from 'game-core';
+import type { MsgKey } from 'i18n';
 
 import { db } from '../db/index.js';
 import { gameResults } from '../db/schema.js';
@@ -72,14 +73,14 @@ interface BadgeDef {
    * two agree by construction for every badge below, and a test walks a career from
    * nothing to well past every threshold to make sure they never come apart.
    */
-  progress: (career: PlayerCareer) => { current: number; target: number; unit: string };
+  progress: (career: PlayerCareer) => { current: number; target: number; unit: MsgKey };
 }
 
 /** The common shape: a tally that climbs to a threshold. */
 function count(
   of: (career: PlayerCareer) => number,
   target: number,
-  unit: string
+  unit: MsgKey
 ): Pick<BadgeDef, 'earned' | 'progress'> {
   return {
     earned: (career) => of(career) >= target,

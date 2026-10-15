@@ -53,7 +53,7 @@ export function CzRewards({ rewards, meId }: { rewards: CzRaidReward[]; meId: st
                 const meta = czTrophyMeta(key);
                 return (
                   <li key={key}>
-                    <span aria-hidden="true">{meta.emoji}</span> <strong>{t(msg(meta.titleKey))}</strong>
+                    <span aria-hidden="true">{meta.emoji}</span> <strong>{t(meta.title)}</strong>
                   </li>
                 );
               })}
@@ -66,7 +66,7 @@ export function CzRewards({ rewards, meId }: { rewards: CzRaidReward[]; meId: st
                 const meta = czPerkMeta(perk);
                 return (
                   <li key={perk}>
-                    <span aria-hidden="true">{meta.emoji}</span> {t(msg(meta.labelKey))}
+                    <span aria-hidden="true">{meta.emoji}</span> {t(meta.label)}
                   </li>
                 );
               })}
@@ -98,10 +98,8 @@ export function CzRewards({ rewards, meId }: { rewards: CzRaidReward[]; meId: st
                 return (
                   <li key={next.key} className={next.moved ? 'moved' : ''}>
                     <span className="cz-next-label">
-                      <span aria-hidden="true">{meta.emoji}</span> {t(msg(meta.titleKey))}
-                      {next.perk && (
-                        <span className="cz-next-perk"> → {t(msg(czPerkMeta(next.perk).labelKey))}</span>
-                      )}
+                      <span aria-hidden="true">{meta.emoji}</span> {t(meta.title)}
+                      {next.perk && <span className="cz-next-perk"> → {t(czPerkMeta(next.perk).label)}</span>}
                     </span>
                     <span className="cz-next-bar" aria-hidden="true">
                       <span className="cz-next-fill" style={{ width: `${pct.toFixed(1)}%` }} />

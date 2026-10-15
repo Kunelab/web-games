@@ -59,7 +59,7 @@ There is no safe default in that table. Asking bare is not one either — Groq's
 `gpt-oss-20b` and `qwen3.6-27b` both answered `json_validate_failed` with no
 reasoning setting and answered correctly with one.
 
-So the client does not guess. `QUIET_FORMS` in `bots.ts` lists the dialects, and
+So the client does not guess. `QUIET_FORMS` in `transport.ts` lists the dialects, and
 every form an endpoint does not understand comes back 400 — which makes walking
 forward on a 400 the entire search. It runs once per slot, costs at most three
 wasted requests, and the answer is remembered for the life of the process. The

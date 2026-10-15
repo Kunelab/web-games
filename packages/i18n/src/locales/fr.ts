@@ -1,4 +1,5 @@
-import type { Catalogue } from '../index.js';
+import type { TranslationOf } from '../index.js';
+import type { en } from './en.js';
 import { rolesFr } from './roles-fr.js';
 import { atelierFr } from './atelier-fr.js';
 import { coronazFr } from './coronaz-fr.js';
@@ -15,9 +16,12 @@ import { siteFr } from './site-fr.js';
  * rather than translations — which is why a few of them are better than their
  * English counterparts and not the other way round.
  *
- * Kept key-for-key with `en`; the catalogue test fails on any drift.
+ * Kept key-for-key with `en`, and the compiler holds it there: a key `en` has and
+ * this does not is a missing property, a key this has and `en` does not is an
+ * excess one. Each French sub-catalogue is typed against its English twin the
+ * same way, which also keeps a key from wandering into the wrong file.
  */
-export const fr: Catalogue = {
+export const fr: TranslationOf<typeof en> = {
   ...rolesFr,
   ...atelierFr,
   ...coronazFr,

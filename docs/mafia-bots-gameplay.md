@@ -35,7 +35,7 @@ Two words are used throughout in the game's own sense:
 - Whether it was healed, guarded, blocked, controlled, jailed, bussed, poisoned or doused last night, and who its Executioner target is.
 - Where it actually went last night, so that it can answer "where were you?" honestly, or not.
 - A Jailor's cell log: who was in the cell on which night and whether that night was quiet. The room is never told who was in the cell.
-- In the headless benchmark, a Mafia, Triad or Cult seat also sees the pooled night results of every living member of its family. On a live table the knife holder is handed only its own night record; family knowledge travels through the family chat as requests (see section 7).
+- A Mafia, Triad or Cult seat is handed only its own night record, on the bench and on a live table alike. Family knowledge travels through the family chat as requests (see section 7).
 
 ### What persists from one day to the next
 
@@ -47,7 +47,7 @@ Only a short list: the seats it has already checked, its last kill target, how c
 - Anything said in a room it could not read.
 - Any memory of a night result it did not personally receive (with the family pooling exception above).
 
-*Where in the code:* `sim/policies.ts` (`PublicInfo`, `Claim`, `Brain`, `makeBrain`), `observe.ts` (`toPublicInfo`), `sim/simulate.ts` (`familyIntelFor`), `apps/back/src/mafia/bot-mind.ts` (`BotMinds.board`).
+*Where in the code:* `sim/policies.ts` (`PublicInfo`, `Claim`, `Brain`, `makeBrain`), `observe.ts` (`toPublicInfo`), `sim/table.ts` (`BotTable`: the ledger, the board, the brains and the order a seat decides in, driven by both the benchmark and the live table), `apps/back/src/mafia/bot-mind.ts` (`BotMinds`: the live table's own memory on top).
 
 ---
 
@@ -170,7 +170,7 @@ When a unique role has two or more living claimants and this seat is not one of 
 
 Day 3. Seat 2 and seat 3 have both claimed Jailor. Seat 1, a Sheriff, has not been asked anything. Because Jailor is unique, seat 1 weighs each claimant at plus 1.5 (two claimants, one copy), plus the pigeonhole charge if the list has only one slot that could be a Jailor. Seat 1 also denies the badge of whichever of 2 and 3 has the worse voting record, with probability 0.4. If seat 3 is later hanged and revealed as a Consigliere, seat 2's penalty vanishes and seat 2 gains 2.5 for having won the contest.
 
-*Where in the code:* `sim/policies.ts` (`decideDay`: the investigator block after `speakChance`, the impostor block, `worthWhispering`, the promise and counter-claim blocks, `burnedFaces`, `wornAFaceAlready`; `suspicionParts` role-claim block; `copiesOf`; `uncontestedBadge`; `defenceStrength`), `social.ts` (`MASKS`, `pickMask`), `roles.ts` (`twinMasks`, `staysHome`, `LOW_PRIORITY_MASKS`), `sim/deduce.ts` (`deductions`, `crowdedBadges`, `privateFindings`), `sim/slots.ts` (`possibleRoles`), `sim/simulate.ts` (`bluffFor`), `apps/back/src/mafia/bots.ts` (`defenceLine`, `maskOf`).
+*Where in the code:* `sim/policies.ts` (`decideDay`: the investigator block after `speakChance`, the impostor block, `worthWhispering`, the promise and counter-claim blocks, `burnedFaces`, `wornAFaceAlready`; `suspicionParts` role-claim block; `copiesOf`; `uncontestedBadge`; `defenceStrength`), `social.ts` (`MASKS`, `pickMask`), `roles.ts` (`twinMasks`, `LOW_PRIORITY_MASKS`), `powers.ts` (`staysHome`, `HOMEBOUND`), `sim/deduce.ts` (`deductions`, `crowdedBadges`, `privateFindings`), `sim/slots.ts` (`possibleRoles`), `sim/simulate.ts` (`bluffFor`), `apps/back/src/mafia/seat.ts` (`defenceLine`, `maskOf`).
 
 ---
 
@@ -294,15 +294,13 @@ Talking and voting are separate. The order of what gets said:
 
 There is no separate "start a wagon" decision. A wagon is opened when the routine above lands on a seat nobody is voting yet, which for a town seat requires hard evidence (the 2.2 hearsay floor). Joining happens through the wagon term (0.5 times herd per vote) and, for the family, through the wagon bonuses above. A town seat's vote does not read who opened the wagon; that information is only used in speech ("7 started this").
 
-### Holding, switching and skipping (live table)
+### Holding, switching and skipping
 
-On a live table the routine proposes a target and a second layer decides what to do with the vote already placed:
+The routine proposes a target and a second layer decides what to do with the vote already placed, on a live table and in the benchmark alike:
 
 - Nothing proposed, nothing placed: a town seat votes to skip the day when the strongest hard case against anybody is under 0.5, the town still has two or more mistakes left, and nobody credible has asked for a vote. A family or solo-killer seat, from day three, never helps skip while a wagon on a non-ally is at least halfway to trial.
 - A tie at the top: the bot breaks it toward the tied seat with suspicion of at least 1.6, never toward a brother.
 - A different proposal: it moves only if the new target beats the current one by 0.75 (times 1 minus its late-switch quirk).
-
-In the benchmark this layer is not used: votes are simply re-cast on each of the three rounds, so bench bots switch freely and the late-switch quirk has no effect there.
 
 ### When it is itself on trial
 
@@ -314,7 +312,7 @@ In the benchmark this layer is not used: votes are simply re-cast on each of the
 
 A bot says nothing when: it is day one; it was blackmailed today; it is a Sheriff sitting on a finding it is not yet hasty enough to publish; the room already has enough voices on the wagon it agrees with (live table: one to three voices per wagon per day are allowed, and a seat with no hard evidence past that cap stays silent); or its speech budget for the day is spent (live table: roughly 45 percent of the living for substantive lines and 12 percent for filler after day one).
 
-*Where in the code:* `sim/policies.ts` (`decideDay`, `pickVote`, `steadyVote`, `wagonAlong`, `votesAgainst`, `answered`, `backedUp`, `dodgedTheQuestion`, `tradeVerdict`), `sim/simulate.ts` (day loop, `bluffFor`), `sim/tempo.ts` (`wagonOpener`), `apps/back/src/mafia/bots.ts` (`onChange` scheduling, `scripted`, `defenceLine`, `openFloor`, `reserve`, the echo cap in the day branch).
+*Where in the code:* `sim/policies.ts` (`decideDay`, `pickVote`, `steadyVote`, `wagonAlong`, `votesAgainst`, `answered`, `backedUp`, `dodgedTheQuestion`, `tradeVerdict`), `sim/simulate.ts` (day loop, `bluffFor`), `sim/tempo.ts` (`wagonOpener`), `apps/back/src/mafia/bots.ts` (`onChange` scheduling, `openFloor`, `reserve`), `apps/back/src/mafia/seat.ts` (`play`, `defenceLine`, the echo cap in the day branch).
 
 ---
 
@@ -432,7 +430,7 @@ A Sheriff, Investigator, Detective, Consigliere, Administrator, Agent or Informa
 - **Cultist, Mason Leader**: a random legal house not already refused.
 - **Lover, Beguiler, Deceiver, Disguiser, Actress, Diva, Heartbreaker**: a random house.
 
-*Where in the code:* `sim/policies.ts` (`decideNightTarget`, `decideSecondTarget`, `pickRanked`, `credibleClaimersRanked`, `likelyTargets`, `friendlySeats`, `unclashedTargets`, `familyKnife`, `familySpent`, `FAMILY_AIM`, `alertTonight`, `vestTonight`, `cellProves`, the keeper block of `decideDay`), `sim/beliefs.ts` (`surestSuspect`), `engine.ts` (`legalNightAction`, the family kill resolution), `apps/back/src/mafia/bots.ts` (`familyAsk`, the jail-execute block of `scripted`), `apps/back/src/mafia/bot-mind.ts` (`willHeed`).
+*Where in the code:* `sim/policies.ts` (`decideNightTarget`, `decideSecondTarget`, `pickRanked`, `credibleClaimersRanked`, `likelyTargets`, `friendlySeats`, `unclashedTargets`, `familyKnife`, `familySpent`, `FAMILY_AIM`, `alertTonight`, `vestTonight`, `cellProves`, the keeper block of `decideDay`), `sim/beliefs.ts` (`surestSuspect`), `engine.ts` (`legalNightAction`, the family kill resolution), `apps/back/src/mafia/seat.ts` (`familyAsk`, the jail-execute block of `play`), `apps/back/src/mafia/bot-mind.ts` (`willHeed`).
 
 ---
 
@@ -461,7 +459,7 @@ Examples of what the bot does **not** deduce: "the Doctor was killed but nobody 
 
 **Worked example.** Day 5, roster has one investigative slot and one random town slot, and seat 4 has already died as an Escort (filling the random town slot). Seats 1 and 2 both claim Sheriff. Two Sheriffs cannot fit, and removing either claim makes the rest fit, so each of 1 and 2 is charged 1.2 by every bot at the table. If seat 1 is the real Sheriff and has not yet claimed, seat 1 already knew this the day before: adding its own badge silently made seat 2's claim impossible, so seat 1 claimed Sheriff and accused seat 2 without a roll.
 
-*Where in the code:* `sim/deduce.ts` (`deductions`, `WORTH`, `deductionWeight`, `strongest`, `crowdedBadges`, `privateFindings`, `nobodyCouldHave`), `sim/slots.ts` (`possibleRoles`, `roomForAll`), `sim/policies.ts` (`suspicionParts`, `grounded`), `sim/visits.ts` (`record-broken`), `apps/back/src/mafia/bots.ts` (`why`).
+*Where in the code:* `sim/deduce.ts` (`deductions`, `WORTH`, `deductionWeight`, `strongest`, `crowdedBadges`, `privateFindings`, `nobodyCouldHave`), `sim/slots.ts` (`possibleRoles`, `roomForAll`), `sim/policies.ts` (`suspicionParts`, `grounded`), `sim/visits.ts` (`record-broken`), `apps/back/src/mafia/seat.ts` (`why`).
 
 ---
 
@@ -534,12 +532,12 @@ Spikes: on trial 0.4, the wagon's share of the bar times 0.35, its real role nam
 - It does not reason about **why** a kill failed. "Target still alive" is a coin flip to move on; there is no "a Doctor is on 5" memory, and no Doctor memory of last night's patient either.
 - It never **confesses**: no path produces a claim of an evil role. Confessions are priced (plus 4, and the ranking's heaviest weight) only because humans and models make them.
 - A **town seat never fake-claims** in the deterministic brain.
-- It does not plan the night with its family in words. Coordination is "follow the leader's order" through the engine, and the family's knowledge is pooled only in the benchmark. There is no shared "kill 7 tomorrow" plan.
+- It does not plan the night with its family in words. Coordination is "follow the leader's order" through the engine, and no seat reads another's night record, on the bench or live. There is no shared "kill 7 tomorrow" plan.
 - The **Framer** effectively frames at random; the Bus Driver may swap its own house when the board is empty.
 - **Who opened a wagon** and **who jumped off at the edge** are computed but are not part of the suspicion score; they shape sentences and add a small term (0.383 for leading a rope onto a townsperson, minus 0.45 for leading one onto a killer, zero for jumping off) to the public ranking.
 - The public **ranking of suspects** and the "case for" lines never enter the suspicion score. Their only route into a vote is as the starting odds of the count in section 4, which only decides a vote once a seat reaches 0.8.
 - The **solo endgame** flag ("a lone knife is all that is left") is computed and read only by the LLM briefing, not by the day routine.
-- In the **benchmark**: no vote hysteresis (bots re-cast freely across three rounds, so the late-switch quirk does nothing), a one-line defence, whispers not delivered, no defence-stage reasoning at all, and the routine that would fire while a seat stands accused never runs.
+- In the **benchmark**: a one-line defence, whispers not delivered, no defence-stage reasoning at all, and the routine that would fire while a seat stands accused never runs.
 - **Quirks**, **styles** and **herd** have no effect at night.
 - It cannot read free text. Every human sentence reaches it as a structured claim filed by a pattern reader or by the model ear, with a confidence discount (0.65 or 0.85) that lowers its weight.
 - It has no memory across games and no model of any particular opponent beyond the public record.
@@ -558,7 +556,9 @@ Spikes: on trial 0.4, the wagon's share of the bar times 0.35, its real role nam
 | `packages/mafia-core/src/sim/visits.ts` | Movement evidence from sightings and accounts, with fitted likelihood ratios |
 | `packages/mafia-core/src/sim/tempo.ts` | Reading the order of votes: who opened a wagon, who led a rope onto town or onto a killer |
 | `packages/mafia-core/src/sim/clock.ts` | The town clock: knives, bloc, margin, nightly cost, mistakes and skips left, pressure ladder |
-| `packages/mafia-core/src/sim/simulate.ts` | The headless benchmark loop: personalities, dawn wills, one speaking pass and three voting rounds, defence, judgement, night |
+| `packages/mafia-core/src/sim/testimony.ts` | `testimonyOf`: what one night's record says out loud, the one rule for wills on the board, a seat reading out its night, the benchmark's wills and a promise kept |
+| `packages/mafia-core/src/sim/table.ts` | `BotTable`: one table's bots, what they have heard and the order they decide in, shared by the benchmark and the live driver |
+| `packages/mafia-core/src/sim/simulate.ts` | The headless benchmark loop: personalities, dawn wills, one speaking pass and three voting rounds, defence, judgement, night, all through `BotTable` |
 | `packages/mafia-core/src/social.ts` | Agendas, the desperation meter, the nine daily appetites, the mask lists and the mask picker |
 | `packages/mafia-core/src/roles.ts` | Role definitions, families, trade lines, twin masks, stay-at-home roles, duel arithmetic, the six-seat endgame constant |
 | `packages/mafia-core/src/setups.ts` | Role list slot tokens and their pools |

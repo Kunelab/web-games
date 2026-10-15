@@ -1,4 +1,4 @@
-import { msg } from 'i18n';
+import { msg, type MsgKey } from 'i18n';
 import { CURRENCIES, shopSlots, type LobbyGame, type LockerView, type ShopItem } from 'lobby-core';
 import { useState } from 'react';
 import { Link } from 'react-router';
@@ -197,7 +197,7 @@ function ItemCard({
   );
 }
 
-/** One key per slot; an unknown slot falls through to its own id. */
-function slotKey(slot: string): string {
+/** One key per slot, checked: `ShopItem['slot']` is the closed list lobby-core keeps. */
+function slotKey(slot: ShopItem['slot']): MsgKey {
   return `locker.slot.${slot}`;
 }

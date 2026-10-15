@@ -116,8 +116,17 @@ export function sortRoleList(tokens: SlotToken[]): SlotToken[] {
   });
 }
 
+/**
+ * The proposed templates, by id.
+ *
+ * Spelt out because a screen names each one as `mafia.setup.preset.<id>.name`
+ * and `.desc`: typed, those keys are checked against the catalogue, and a
+ * template added below without its two lines does not build.
+ */
+export type SetupId = 'classique-15' | 'choix-de-raphael-15' | 'deantwo-15' | 'grand-classique-24' | 'nuit-noire-24';
+
 export interface Setup {
-  id: string;
+  id: SetupId;
   name: string;
   /** One token per seat; the list's length is the intended player count. */
   slots: SlotToken[];

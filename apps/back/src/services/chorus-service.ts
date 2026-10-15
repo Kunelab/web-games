@@ -46,12 +46,6 @@
  * Topic upload of a different master is a real thing that would otherwise pass.
  */
 import { normalizeAnswer } from 'game-core';
-import { z } from 'zod';
-
-/** LRCLIB asks callers to identify themselves. */
-const USER_AGENT = 'KuneLabWebGames/0.3 (blind test clip finder; https://github.com/Kunelab)';
-
-const LRCLIB_URL = 'https://lrclib.net/api/get';
 
 /**
  * How far the video and the track may disagree before the lyrics are useless.
@@ -73,12 +67,6 @@ const MIN_LINE_LENGTH = 10;
 
 /** A track with fewer usable lines than this has lyrics too sparse to trust. */
 const MIN_LINES = 8;
-
-const lrclibSchema = z.object({
-  duration: z.number().nullable().optional(),
-  instrumental: z.boolean().optional(),
-  syncedLyrics: z.string().nullable().optional()
-});
 
 export interface ChorusInfo {
   /** Every occurrence of the hook, in seconds, ascending. */
@@ -165,34 +153,22 @@ function findHook(lines: TimedLine[], trackDuration: number | null): ChorusInfo 
   return { hits, line: hook, trackDuration: trackDuration ?? null };
 }
 
+/** One track's lyrics as LRCLIB keeps them: the parts read here. */
+export interface SyncedLyrics {
+  duration?: number | null;
+  instrumental?: boolean;
+  syncedLyrics?: string | null;
+}
+
 /**
- * Looks up one track. Returns null for anything without usable synced lyrics,
- * which includes every instrumental, and which the caller must treat as "use the
- * profile" rather than as an error.
+ * The hook of one track, from its synced lyrics. Null for anything without
+ * usable ones, which includes every instrumental, and which the caller must
+ * treat as "use the profile" rather than as an error.
+ *
+ * The lookup itself is the catalogue's `lyrics` source; see `blindtest-sources`.
  */
-export async function fetchChorus(artist: string, title: string): Promise<ChorusInfo | null> {
-  const url = new URL(LRCLIB_URL);
-  url.searchParams.set('artist_name', artist);
-  url.searchParams.set('track_name', title);
-
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      headers: { 'user-agent': USER_AGENT, accept: 'application/json' },
-      signal: AbortSignal.timeout(8_000)
-    });
-  } catch {
-    // A lyrics source being down must never stop a pool from filling: every caller
-    // has a fallback, and a slightly worse window beats no round at all.
-    return null;
-  }
-
-  if (!response.ok) return null;
-
-  const parsed = lrclibSchema.safeParse(await response.json().catch(() => null));
-  if (!parsed.success) return null;
-
-  const { instrumental, syncedLyrics, duration } = parsed.data;
+export function chorusFromLyrics(lyrics: SyncedLyrics): ChorusInfo | null {
+  const { instrumental, syncedLyrics, duration } = lyrics;
   if (instrumental || !syncedLyrics) return null;
 
   return findHook(parseLrc(syncedLyrics), duration ?? null);

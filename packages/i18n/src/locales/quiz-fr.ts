@@ -1,4 +1,5 @@
-import type { Catalogue } from '../index.js';
+import type { TranslationOf } from '../index.js';
+import type { quizEn } from './quiz-en.js';
 
 /**
  * Les quiz, en français : les cinq types de questions, le calcul des points, et
@@ -8,7 +9,7 @@ import type { Catalogue } from '../index.js';
  * chacun écrive ses questions avec ses mots, et ces mots sont les siens dans
  * toutes les langues.
  */
-export const quizFr: Catalogue = {
+export const quizFr: TranslationOf<typeof quizEn> = {
   /* --------------------------- les cinq types de questions ------------------ */
   'quiz.kind.blindtest': 'Blind test',
   'quiz.kind.quiz': 'Question',

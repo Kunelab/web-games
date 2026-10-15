@@ -1,4 +1,5 @@
-import type { Catalogue } from '../index.js';
+import type { TranslationOf } from '../index.js';
+import type { screenEn } from './screen-en.js';
 
 /**
  * Tout ce que les écrans disent eux-mêmes, en français : les mots sur les
@@ -8,7 +9,7 @@ import type { Catalogue } from '../index.js';
  * Séparé de `fr.ts` pour la même raison que `roles-fr.ts` : ce fichier-là est le
  * *récit* du jeu, écrit pour se lire d’un trait.
  */
-export const screenFr: Catalogue = {
+export const screenFr: TranslationOf<typeof screenEn> = {
   /* ----------------------------- ce que la table refuse --------------------- */
   'mafia.refuse.notSeated': 'Vous n’êtes pas à une table',
   'mafia.refuse.noTable': 'Cette table n’existe plus',
@@ -57,6 +58,8 @@ export const screenFr: Catalogue = {
   'presence.kick.alreadyOpen': 'Un vote est déjà en cours.',
   'presence.kick.alreadyKicked': 'Ce joueur a déjà quitté la table.',
   'presence.kick.self': 'On ne s’exclut pas soi-même.',
+  /** A seat on the pause screen, named and nothing else: a survivor has no house number. */
+  'presence.seat.named': '{name}',
   'presence.kick.noVote': 'Aucun vote en cours.',
   'presence.kick.impossible': 'Impossible.',
 

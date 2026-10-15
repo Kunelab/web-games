@@ -1,3 +1,4 @@
+import type { MsgKey } from 'i18n';
 import type { LobbyGame } from 'lobby-core';
 
 /**
@@ -24,7 +25,7 @@ export interface GameEntry {
    */
   name: string;
   /** Catalogue key for the one line under the name: `site.game.<id>.tagline`. */
-  tagline: string;
+  tagline: MsgKey;
   /** The game's own menu: create, join, learn, leave. */
   path: string;
   /** Where "Créer une partie" goes. */

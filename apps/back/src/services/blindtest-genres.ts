@@ -5,7 +5,7 @@ import { db } from '../db/index.js';
 import { blindtestGenreDismissals, media } from '../db/schema.js';
 import { GENRES, genreById, type AnswerShape } from './blindtest-catalog.js';
 import { listLibrary } from './blindtest-library.js';
-import { seedIndex, type SeedIndex } from './blindtest-seeds.js';
+import type { SeedIndex } from './blindtest-seeds.js';
 import { toMediaView, type MediaView } from './media-service.js';
 
 /**
@@ -160,11 +160,11 @@ export function checkGenres(
   return { flags, legacyLabels };
 }
 
-/** The catalogue's genre flags as they stand. */
-export async function findLibraryGenreFlags(): Promise<GenreCheck> {
+/** The catalogue's genre flags as they stand, against what the seeds know now. */
+export async function findLibraryGenreFlags(seeds: SeedIndex): Promise<GenreCheck> {
   const items = await listLibrary();
   const dismissals = db.select().from(blindtestGenreDismissals).all();
-  return checkGenres(items, GENRES, seedIndex(), new Map(dismissals.map((row) => [row.media_id, row.category])));
+  return checkGenres(items, GENRES, seeds, new Map(dismissals.map((row) => [row.media_id, row.category])));
 }
 
 /** A catalogue row, which is what these writes are allowed to touch: ownerless blind test entries. */

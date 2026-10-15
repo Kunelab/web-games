@@ -33,6 +33,9 @@ const RULES = {
 
 const TABLE = ['a', 'b', 'c', 'd'];
 
+/** Seats named by their own ids, which is all these tests need to read. */
+const bySeat = (seatId: string) => ({ ref: seatId, label: seatId });
+
 function table(): PresenceState {
   return createPresence(RULES);
 }
@@ -48,15 +51,15 @@ describe('presence', () => {
     assert.equal(tickPresence(presence, TABLE, midWindow).paused, false);
     assert.deepEqual(recovering(presence, TABLE, midWindow), ['b']);
 
-    const view = presenceView(presence, TABLE, midWindow, 'a');
+    const view = presenceView(presence, TABLE, midWindow, 'a', bySeat);
     assert.equal(view.paused, false);
     assert.deepEqual(view.waitingFor, []);
     assert.deepEqual(
-      view.recovering.map((seat) => seat.seatId),
+      view.recovering.map((seat) => seat.ref),
       ['b']
     );
     // And no kick is on offer for a seat nobody is even waiting on.
-    assert.deepEqual(view.kickableSeatIds, []);
+    assert.deepEqual(view.kickable.map((seat) => seat.ref), []);
 
     // The overwhelmingly common ending: it comes back, and nothing happened.
     markPresent(presence, 'b');
@@ -88,6 +91,62 @@ describe('presence', () => {
     // the player it exists to handle.
     assert.equal(markAway(presence, 'b', 20_000), false);
     assert.equal(presence.awaySince.b, 1_000);
+  });
+
+  /**
+   * The phase clock stops with the table and comes back with what was left.
+   *
+   * Thirty seconds of night remained when the table paused. Whatever the pause
+   * lasted, the night resumes with thirty seconds on it: not with what the
+   * wall clock says is left, and not with a clock that kept running while
+   * nobody could act.
+   */
+  it('parks the phase clock for the pause and hands back what was left', () => {
+    const presence = table();
+    markAway(presence, 'b', 0);
+    const pausedAt = RULES.graceMs;
+
+    const pausing = tickPresence(presence, TABLE, pausedAt, pausedAt + 30_000);
+    assert.equal(pausing.paused, true);
+    assert.equal(pausing.phaseEndsAt, null, 'no screen counts down a phase that is not passing');
+
+    markPresent(presence, 'b');
+    assert.equal(tickPresence(presence, TABLE, 60_000, pausing.phaseEndsAt).phaseEndsAt, null, 'still paused');
+    const resumedAt = 60_000 + RULES.resumeCountdownMs;
+    const resuming = tickPresence(presence, TABLE, resumedAt, null);
+    assert.equal(resuming.resumed, true);
+    assert.equal(resuming.phaseEndsAt, resumedAt + 30_000);
+  });
+
+  it('leaves a running clock alone', () => {
+    const presence = table();
+    assert.equal(tickPresence(presence, TABLE, 5_000, 42_000).phaseEndsAt, 42_000);
+  });
+
+  /**
+   * The pause, as a screen shows it, in the game's own words.
+   *
+   * Each game names its seats differently (a house number, a survivor) and
+   * votes against them by a different handle (a slot, a player id), so it says
+   * how once and every screen renders the view as it comes: the seats it is
+   * waiting for, the ones a kick may now be proposed against, and the vote.
+   */
+  it('names every seat the way the game describes it', () => {
+    const presence = table();
+    markAway(presence, 'b', 0);
+    const now = RULES.graceMs + RULES.kickAfterMs;
+    tickPresence(presence, TABLE, RULES.graceMs);
+    const describe = (seatId: string) => ({ ref: TABLE.indexOf(seatId) + 1, label: `House ${seatId.toUpperCase()}` });
+
+    const view = presenceView(presence, TABLE, now, 'a', describe);
+    assert.deepEqual(view.waitingFor, [{ ref: 2, label: 'House B', awayMs: now }]);
+    assert.deepEqual(view.kickable, [{ ref: 2, label: 'House B', awayMs: now }]);
+
+    openKickVote(presence, 'a', 'b', TABLE, now);
+    const voting = presenceView(presence, TABLE, now, 'a', describe);
+    assert.equal(voting.vote?.ref, 2);
+    assert.equal(voting.vote?.label, 'House B');
+    assert.deepEqual(voting.kickable, [], 'nothing more to propose while a vote is open');
   });
 
   it('runs a resume countdown, and every screen sees the same instant', () => {
@@ -223,7 +282,7 @@ describe('presence', () => {
     markAway(presence, 'b', 0);
     assert.equal(tickPresence(presence, TABLE, RULES.graceMs).paused, true);
     // The pause forms twenty seconds before the room may do anything about it.
-    assert.deepEqual(presenceView(presence, TABLE, RULES.graceMs, 'a').kickableSeatIds, []);
+    assert.deepEqual(presenceView(presence, TABLE, RULES.graceMs, 'a', bySeat).kickable.map((seat) => seat.ref), []);
 
     // Nothing whatever happens in between: nobody drops, nobody returns.
     assert.equal(tickPresence(presence, TABLE, RULES.kickAfterMs - 1).changed, false);
@@ -235,7 +294,7 @@ describe('presence', () => {
      */
     const offered = tickPresence(presence, TABLE, RULES.kickAfterMs);
     assert.equal(offered.changed, true);
-    assert.deepEqual(presenceView(presence, TABLE, RULES.kickAfterMs, 'a').kickableSeatIds, ['b']);
+    assert.deepEqual(presenceView(presence, TABLE, RULES.kickAfterMs, 'a', bySeat).kickable.map((seat) => seat.ref), ['b']);
 
     // Once, though: a steady wait is not a broadcast every second.
     assert.equal(tickPresence(presence, TABLE, RULES.kickAfterMs + 1).changed, false);
@@ -360,7 +419,7 @@ describe('presence', () => {
     openKickVote(presence, 'a', 'b', TABLE, 60_000);
     castKickBallot(presence, 'c', false, TABLE);
 
-    const view = presenceView(presence, TABLE, 60_000, 'c');
+    const view = presenceView(presence, TABLE, 60_000, 'c', bySeat);
     assert.equal(view.vote?.yes, 1);
     assert.equal(view.vote?.no, 1);
     // Three entitled voters, so two yeses carry it: one more is needed.
@@ -368,7 +427,7 @@ describe('presence', () => {
     assert.equal(view.vote?.mine, false);
     assert.equal(view.paused, true);
     assert.deepEqual(
-      view.waitingFor.map((seat) => seat.seatId),
+      view.waitingFor.map((seat) => seat.ref),
       ['b']
     );
     // Nothing in the projection says who voted which way.
@@ -378,11 +437,11 @@ describe('presence', () => {
   it('offers no kick button while a vote is already running', () => {
     const presence = table();
     markAway(presence, 'b', 0);
-    const before = presenceView(presence, TABLE, 60_000, 'a');
-    assert.deepEqual(before.kickableSeatIds, ['b']);
+    const before = presenceView(presence, TABLE, 60_000, 'a', bySeat);
+    assert.deepEqual(before.kickable.map((seat) => seat.ref), ['b']);
 
     openKickVote(presence, 'a', 'b', TABLE, 60_000);
-    assert.deepEqual(presenceView(presence, TABLE, 60_000, 'a').kickableSeatIds, []);
+    assert.deepEqual(presenceView(presence, TABLE, 60_000, 'a', bySeat).kickable.map((seat) => seat.ref), []);
   });
 
   it('forgets a restart it cannot measure, and remembers who was removed', () => {

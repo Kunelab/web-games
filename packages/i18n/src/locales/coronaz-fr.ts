@@ -1,11 +1,12 @@
-import type { Catalogue } from '../index.js';
+import type { TranslationOf } from '../index.js';
+import type { coronazEn } from './coronaz-en.js';
 
 /**
  * CoronaZ, en français. Les originaux : scénarios, biomes, rôles, bestiaire —
  * tout ce que le jeu nomme lui-même et qui atteint trois écrans plus le tableau
  * des salons.
  */
-export const coronazFr: Catalogue = {
+export const coronazFr: TranslationOf<typeof coronazEn> = {
   /* ------------------------------- les scénarios ---------------------------- */
   'coronaz.scenario.escape.name': 'Évasion',
   'coronaz.scenario.escape.goal': 'Remplissez les objectifs, ramassez les clés, puis rejoignez la sortie.',
@@ -127,6 +128,7 @@ export const coronazFr: Catalogue = {
   'coronaz.rarity.5': 'Légendaire',
   'coronaz.biome.modern.name': 'Moderne',
   'coronaz.biome.modern.blurb': 'Le monde de la semaine dernière : pavillons, bureaux, boîtes de nuit, rues.',
+  'coronaz.thing.fists': 'Poings',
   'coronaz.thing.bat': 'Batte de baseball',
   'coronaz.thing.machete': 'Machette',
   'coronaz.thing.pickaxe': 'Pioche',
@@ -228,6 +230,7 @@ export const coronazFr: Catalogue = {
   'coronaz.goal.boss': 'Abattre un boss',
   'coronaz.upgrade.hide': 'Carapace (+1 PV aux renforts)',
   'coronaz.upgrade.claws': 'Griffes (+1 dégât aux renforts)',
+  'coronaz.order.rush': 'Ruée (+1 PA à toute la horde, ce tour)',
   'coronaz.goal.kills': 'Éliminer {target} zombies',
   'coronaz.goal.searches': 'Récupérer {target} fournitures',
   'coronaz.goal.explore': 'Explorer {target} salles',

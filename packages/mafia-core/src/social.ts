@@ -49,11 +49,6 @@ export function agendaOf(role: RoleId): Agenda {
   return 'passenger';
 }
 
-/** Agendas that would rather the town won, or do not mind if it does. */
-export function ridesWithTown(agenda: Agenda): boolean {
-  return agenda === 'town' || agenda === 'passenger';
-}
-
 /* ------------------------------ desperation ------------------------------ */
 
 /**

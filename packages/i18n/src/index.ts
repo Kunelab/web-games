@@ -23,9 +23,35 @@
  * prints. Both want prose in one language and neither is a person's screen.
  */
 
+import type { en } from './locales/en.js';
+
+/**
+ * Every key the English catalogue has, as a union of string literals.
+ *
+ * This is what makes a misspelt key a compile error instead of a raw
+ * `mafia.deth.found` on somebody's television. A missing key used to be found by
+ * looking at the screen, and only on the path that rendered it; about twelve
+ * hundred call sites each named one by hand, with nothing between the typo and
+ * the player.
+ *
+ * Derived from `en` rather than written out because `en` is the definition: a
+ * key exists when the reference catalogue has it, and not because a second list
+ * says so. A type-only import, so no catalogue is pulled into the runtime of
+ * anything that only builds messages.
+ */
+export type MsgKey = keyof typeof en;
+
 /** A translatable message: a key, and the values its sentence needs. */
 export interface Msg {
-  /** Dotted key, e.g. `mafia.death.found`. Present in `en` or it is a bug. */
+  /**
+   * Dotted key, e.g. `mafia.death.found`. Present in `en` or it is a bug.
+   *
+   * Deliberately `string` and not `MsgKey`. A `Msg` is also *data*: it arrives
+   * over the wire, out of a SQLite snapshot, inside a bot's memory, and none of
+   * that can be proven at compile time — narrowing the field would only move the
+   * question into a cast at every place a message is received. The check lives
+   * where a message is made instead, in `msg()`.
+   */
   k: string;
   /**
    * Interpolation values, referenced as `{name}` in the catalogue.
@@ -56,16 +82,107 @@ export interface Msg {
  */
 export type MsgValue = string | number | Msg | readonly MsgValue[];
 
-/** Sugar for building one at a call site without the object noise. */
-export function msg(k: string, p?: Record<string, MsgValue>): Msg {
+/**
+ * Builds a message at a call site, and checks its key against `en`.
+ *
+ * A key assembled from a template literal is checked too, when what fills the
+ * hole is a union: `mafia.faction.${faction}` compiles exactly when every
+ * `Faction` has its line. So a dynamic key is typed by the real source union it
+ * is built from — a new role without a catalogue entry fails here, not on a
+ * screen — and only a key that genuinely cannot be known goes through `msgOf`.
+ */
+export function msg<K extends MsgKey>(k: K, p?: Record<string, MsgValue>): Msg {
+  return assemble(k, p);
+}
+
+/**
+ * The one shape every builder hands out: a message built without values
+ * carries no `p` at all, rather than `p: undefined`.
+ */
+function assemble(k: string, p: Record<string, MsgValue> | undefined): Msg {
   return p ? { k, p } : { k };
+}
+
+/**
+ * One of a numbered set of phrasings: `prefix.1` through `prefix.count`.
+ *
+ * The bots keep several wordings of almost everything they say (nine ways to
+ * cast a vote, three to read out a night) and pick one per speaker and subject,
+ * so the key is a prefix plus a number nobody knows until the table is running.
+ * That looked like the textbook unknowable key, and it is not: the *set* of keys
+ * is fixed by the prefix and the count. So the count is taken as a literal, the
+ * compiler enumerates `prefix.1 … prefix.count`, and the call does not build
+ * unless every one of them is in `en` — a phrasebook that claims nine variants
+ * and has eight fails here rather than in a bot's mouth, one game in nine.
+ *
+ * `pick` chooses among them (`1 + pick % count`) and must be a non-negative
+ * integer; the callers hand it a hash of whatever should keep the choice stable.
+ */
+export function variant<P extends string, N extends number>(
+  prefix: VariantPrefix<P, N>,
+  count: N,
+  pick: number,
+  p?: Record<string, MsgValue>
+): Msg {
+  // Built directly rather than through `msg`, which cannot see that the number
+  // stays inside the range the signature above has already checked.
+  return assemble(`${prefix}.${1 + (pick % count)}`, p);
+}
+
+/** `prefix`, when every one of its `count` numbered variants is a key; `never` otherwise. */
+export type VariantPrefix<P extends string, N extends number> = `${P}.${OneTo<N>}` extends MsgKey ? P : never;
+
+/**
+ * `1 | 2 | … | N`, for a literal `N`.
+ *
+ * A plain `number` comes out as `number`, which `VariantPrefix` then refuses:
+ * the count has to be something the compiler can count to.
+ */
+type OneTo<N extends number, Seen extends unknown[] = [unknown]> = number extends N
+  ? number
+  : Seen['length'] extends N
+    ? N
+    : Seen['length'] | OneTo<N, [...Seen, unknown]>;
+
+/**
+ * The escape hatch: a message whose key the compiler cannot check.
+ *
+ * For the few places a key is not a literal and not built from a union either —
+ * a key that came from somewhere else as data and is being rewrapped, or a
+ * sentence no catalogue has, which renders as itself because a missing key falls
+ * through to the key (see `render`). Explicit by name so every such site can be
+ * found by searching for it, and so that a cast is never the way round `msg`.
+ *
+ * Keep it rare. Each use is a place where a typo is back to being found on a
+ * screen.
+ */
+export function msgOf(k: string, p?: Record<string, MsgValue>): Msg {
+  return assemble(k, p);
 }
 
 function isMsg(value: MsgValue): value is Msg {
   return typeof value === 'object' && value !== null && !isList(value) && typeof value.k === 'string';
 }
 
+/**
+ * What `render` reads: any key to any pattern.
+ *
+ * A catalogue is *declared* `satisfies Catalogue`, never `: Catalogue`, so its
+ * literal keys survive into its type — that is where `MsgKey` comes from.
+ */
 export type Catalogue = Record<string, string>;
+
+/**
+ * A translation of one English catalogue: its keys exactly, no more and no
+ * fewer.
+ *
+ * Declaring `fr` (and each French sub-catalogue) with this type is what keeps
+ * the languages in step. A key English has and French does not is a missing
+ * property; a key French has and English does not is an excess one, and that is
+ * the worse of the two, because it means a key was renamed and the English
+ * fallback now shows raw dotted text to every reader who is not French.
+ */
+export type TranslationOf<Reference extends Catalogue> = Record<keyof Reference, string>;
 
 /**
  * The languages the product ships. English first because it is the fallback;
@@ -263,24 +380,4 @@ function elides(word: string): boolean {
 export function translator(primary: Catalogue, fallback?: Catalogue, locale?: string): Translate {
   const french = locale === 'fr';
   return (message) => render(message, primary, fallback, french);
-}
-
-/**
- * Every key in `en` that is missing from another catalogue, and every key the
- * other catalogue has that `en` does not.
- *
- * Used by the test that keeps translations honest. A key present only in `fr` is
- * as much of a bug as one missing from it: it means a string was translated and
- * then renamed, and the English fallback now shows a raw key.
- */
-export function catalogueDiff(
-  reference: Catalogue,
-  other: Catalogue
-): { missing: string[]; extra: string[] } {
-  const referenceKeys = Object.keys(reference);
-  const otherKeys = new Set(Object.keys(other));
-  return {
-    missing: referenceKeys.filter((key) => !otherKeys.has(key)),
-    extra: [...otherKeys].filter((key) => !(key in reference))
-  };
 }

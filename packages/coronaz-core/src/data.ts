@@ -27,6 +27,8 @@
  * card every turn, and nothing about them was broken.
  */
 
+import type { MsgKey } from 'i18n';
+
 import { allItems, allZombies, roleOf } from './content/registry.js';
 import { roleDef as itemRoleDef, type ItemRole } from './content/roles.js';
 
@@ -159,7 +161,7 @@ export interface HeroDef {
   /** The three signature perks this character may pick one of. */
   personalPerks: [string, string, string];
   /** One line for the selection screen. */
-  blurb: string;
+  blurb: MsgKey;
   emoji: string;
   /** Rations to unlock; absent or 0 = part of the base roster. */
   cost?: number;
@@ -527,7 +529,7 @@ export const BASE_HEROES = HEROES.filter((hero) => !hero.cost);
  */
 export interface LoadoutPerkDef {
   id: string;
-  label: string;
+  label: MsgKey;
   emoji: string;
 }
 
@@ -661,7 +663,7 @@ export function loadoutPerkDef(id: string): LoadoutPerkDef {
 
 export interface ZombieDef {
   id: string;
-  name: string;
+  name: MsgKey;
   hp: number;
   ap: number;
   damage: number;
@@ -766,7 +768,7 @@ export interface GearStats {
 
 export interface ItemDef {
   id: string;
-  name: string;
+  name: MsgKey;
   kind: ItemKind;
   /**
    * Where the item sits in the loot table: *when* it starts turning up, not how
@@ -783,7 +785,7 @@ export interface ItemDef {
 }
 
 /** The rarity's colour language, Fortnite-style, shared by loot and horde. */
-export const RARITY_META: Record<Rarity, { label: string; color: string }> = {
+export const RARITY_META: Record<Rarity, { label: MsgKey; color: string }> = {
   1: { label: 'coronaz.rarity.1', color: '#9aa0a6' },
   2: { label: 'coronaz.rarity.2', color: '#3fb950' },
   3: { label: 'coronaz.rarity.3', color: '#4f9cf0' },
@@ -947,9 +949,9 @@ export const STARTING_ROLES: readonly ItemRole[] = ['club', 'blade', 'pick', 'cl
  */
 export interface GmClassDef {
   id: string;
-  name: string;
+  name: MsgKey;
   emoji: string;
-  blurb: string;
+  blurb: MsgKey;
   /** The three signature perks this class may pick one of. */
   personalPerks: [string, string, string];
   /** Rations to unlock; absent = base roster. */

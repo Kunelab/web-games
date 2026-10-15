@@ -1,3 +1,5 @@
+import type { MsgKey } from 'i18n';
+
 import type { CzState } from './state.js';
 
 /**
@@ -31,10 +33,10 @@ export type CzEventId = 'siren' | 'drop' | 'swarm' | 'calm' | 'blackout' | 'flar
 
 export interface CzEventDef {
   id: CzEventId;
-  name: string;
+  name: MsgKey;
   emoji: string;
   /** One line, shown on the television and on every phone. */
-  blurb: string;
+  blurb: MsgKey;
   /**
    * Which way it pulls, for the pairing rule above. The set must stay balanced:
    * a test asserts the sum is zero, because "they cancel out" is the entire

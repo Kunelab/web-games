@@ -1,15 +1,5 @@
 import { gameConfigSchema, type GameConfig } from '../config.js';
-import {
-  activateNextZombie,
-  applyGmAction,
-  applyHeroAction,
-  beginEnemyPhase,
-  endEnemyPhase,
-  finalScores,
-  heroPhaseDone,
-  spawnReinforcements,
-  startGame
-} from '../engine.js';
+import { applyGmAction, applyHeroAction, finalScores, heroPhaseDone, startGame, stepHorde } from '../engine.js';
 import {
   createGame,
   objectivesDone,
@@ -184,11 +174,7 @@ export function runGame(options: {
   while ((phase() === 'heroes' || phase() === 'enemy') && state.turn <= cap) {
     playHeroPhase(state, party);
     if (phase() !== 'heroes') break;
-
-    beginEnemyPhase(state, 0);
     playEnemyPhase(state, options.gmMindset);
-    if (phase() !== 'enemy') break;
-    endEnemyPhase(state, 0);
   }
 
   // Ran out the cap without a verdict: the raid rotted, the horde wins.
@@ -244,6 +230,9 @@ function playHeroPhase(state: CzState, party: { mindset: Mindset; skill: SkillPr
 }
 
 function playEnemyPhase(state: CzState, gmMindset?: GmMindset): void {
+  // The horde takes the board: points back, weather rolled, the game master paid.
+  stepHorde(state, 0);
+
   if (gmMindset) {
     let guard = 0;
     while (state.phase === 'enemy' && guard++ < 60) {
@@ -254,14 +243,19 @@ function playEnemyPhase(state: CzState, gmMindset?: GmMindset): void {
     }
   }
 
-  // The shared movement AI walks whatever is on the board, both modes.
+  /**
+   * Then the rest of the turn, exactly as the server runs it, minus the waiting.
+   *
+   * The shared movement AI walks whatever is still on its feet in both modes —
+   * the bot game master hands over what he did not move, the way a human taps
+   * "let them play" — and whether the dens fire after it is the engine's call,
+   * not this loop's. Every step spends a creature's points or moves the turn on,
+   * so the walk always ends; the guard is only there to make a future bug a
+   * stuck game rather than a hung bench.
+   */
   let guard = 0;
-  while (state.phase === 'enemy' && activateNextZombie(state).more && guard++ < 500) {
-    /* one zombie per call */
-  }
-
-  if (state.phase === 'enemy' && !gmMindset) {
-    spawnReinforcements(state);
+  while (stepHorde(state, 0).kind !== 'ended' && guard++ < 5000) {
+    /* one beat per call */
   }
 }
 

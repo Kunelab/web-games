@@ -1,6 +1,5 @@
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 
-import { generateJoinCode } from 'game-core';
 import {
   addMafiaBot,
   DEFAULT_CONFIG,
@@ -32,13 +31,14 @@ import {
   type ActionOutcome,
   type MafiaConfig,
   type MafiaPlayer,
+  type MafiaSetupChoice,
   type MafiaState
 } from 'mafia-core';
 import { presenceIdle, type KickRefusal } from 'presence-core';
 import type { MafiaBusy } from 'mafia-core';
 import type { ChatMessage } from 'chat-core';
-import type { Locale } from 'i18n';
-import { eq, lt } from 'drizzle-orm';
+import { msg, type Locale, type MsgKey } from 'i18n';
+import type { LobbyCard } from 'lobby-core';
 import type { FastifyBaseLogger } from 'fastify';
 
 import { db } from '../db/index.js';
@@ -46,17 +46,19 @@ import { endTrace, forgetTrace, trace } from '../trace.js';
 import { say } from './say.js';
 import { mafiaSessions } from '../db/schema.js';
 import { mafiaCareerService, type MafiaGameReward } from '../services/mafia-career-service.js';
+import { TableHost, tableDeps, type Deadline, type TableOptions } from '../tables/host.js';
+import { snapshotRow, tableStore } from '../tables/store.js';
 import { MafiaBotDriver } from './bots.js';
 
 /**
  * Owns every live Mafia table: state in memory, snapshot to SQLite on every
  * transition, and — crucially for this game — the phase clock. Day, defense,
  * judgement and night all end on a server timer; a phone that never says
- * "time's up" cannot stall the town.
+ * "time's up" cannot stall the town. The machinery for all of that is the
+ * shared `TableHost`; what is here is the town.
  */
 
 const IDLE_TIMEOUT_MS = 6 * 60 * 60 * 1000;
-const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 /**
  * How long a *finished* table is kept before it is let go.
  *
@@ -84,15 +86,14 @@ const FINISHED_GRACE_MS = 20 * 60 * 1000;
  */
 const CHAT_PERSIST_MS = 2000;
 
-/**
- * How often the pause model is re-evaluated.
- *
- * Presence changes on its own schedule rather than on a player's: nobody sends
- * an event when a phone *stops* beating, so somebody has to notice. One second
- * is well inside the resync window, so a genuine drop stops the clock promptly
- * without the tick itself being the thing that costs anything.
- */
-const PRESENCE_TICK_MS = 1000;
+/** Every card line is a key: the board is read by phones in two languages. */
+const SETUP_CARD_KEYS: Record<MafiaSetupChoice['mode'], MsgKey> = {
+  auto: 'lobby.card.setup.auto',
+  chaos: 'lobby.card.setup.chaos',
+  census: 'lobby.card.setup.census',
+  preset: 'lobby.card.setup.preset',
+  custom: 'lobby.card.setup.custom'
+};
 
 /** Every lookup miss says the same thing; it is spelled once. */
 /** The one refusal the manager owns: the table is gone, so nothing else applies. */
@@ -106,10 +107,8 @@ export type MafiaMessageListener = (state: MafiaState, message: ChatMessage) => 
 export type MafiaRewardListener = (state: MafiaState, rewards: MafiaGameReward[]) => void;
 
 export class MafiaManager {
-  private readonly sessions = new Map<string, MafiaState>();
-  private readonly timers = new Map<string, NodeJS.Timeout>();
-  /** Pending chat-only saves, one per table at most. See CHAT_PERSIST_MS. */
-  private readonly chatFlush = new Map<string, NodeJS.Timeout>();
+  /** Every live table, and everything that keeps one alive between moves. */
+  readonly tables: TableHost<MafiaState>;
   /** Tables whose careers are already banked; a table banks exactly once. */
   private readonly banked = new Set<string>();
   /** The last beat written to each table's log, so a phase is recorded once. */
@@ -141,11 +140,56 @@ export class MafiaManager {
   private readonly criedUpTo = new Map<string, number>();
   private messageListener: MafiaMessageListener | null = null;
   private rewardListener: MafiaRewardListener | null = null;
-  private sweepTimer: NodeJS.Timeout | undefined;
-  private presenceTimer: NodeJS.Timeout | undefined;
   private readonly bots: MafiaBotDriver;
 
-  constructor(private readonly log: FastifyBaseLogger) {
+  constructor(
+    private readonly log: FastifyBaseLogger,
+    options: TableOptions
+  ) {
+    this.tables = new TableHost<MafiaState>(
+      {
+        game: 'mafia',
+        idleMs: IDLE_TIMEOUT_MS,
+        revive: (saved, now) => {
+          const state = saved as MafiaState;
+          // A table saved by a build that had fewer settings comes back missing
+          // them, and a missing setting read as a string is a crash somewhere far
+          // from here. Defaults fill the gaps, exactly as they do at creation.
+          state.config = { ...DEFAULT_CONFIG, ...state.config };
+          // Clears the absences nothing can measure any more and hands a phase that
+          // was mid-flight — including one a pause had parked — a fresh clock.
+          restoreMafiaTable(state, now);
+          return state;
+        },
+        restored: (state) => this.tables.arm(state),
+        row: snapshotRow,
+        deadline: (state) => this.deadline(state),
+        presence: {
+          idle: (state, now) => presenceIdle(tablePresence(state), now),
+          tick: (state, now) => (this.runPresence(state, now) ? 'changed' : 'quiet'),
+          // The funnel, because a spent pause gives up on seats and giving up on a
+          // seat can end the game: banking the careers is part of ending it.
+          changed: (state) => this.afterChange(state)
+        },
+        isSpent: (state, now) => state.phase === 'ended' && state.lastActivityAt < now - FINISHED_GRACE_MS,
+        release: (state) => this.release(state),
+        card: (state) => this.card(state),
+        seated: (state) => Object.keys(state.players).length,
+        begin: (state, bots) => {
+          // What the room asked for first, then whatever the deal still needs. The
+          // top-up is the old behaviour and stays: a room that lost people during
+          // the redirect gets a town rather than an error.
+          if (bots > 0) this.addBots(state.code, bots);
+          const withBots = Object.keys(state.players).length;
+          if (withBots < state.config.minPlayers) {
+            this.addBots(state.code, state.config.minPlayers - withBots);
+          }
+          this.start(state.code);
+        }
+      },
+      tableDeps(log, options, tableStore(db, mafiaSessions))
+    );
+
     this.bots = new MafiaBotDriver(log, {
       chat: (code, botId, channel, text) => this.playerChat(code, botId, channel, text),
       vote: (code, botId, slot) => this.vote(code, botId, slot),
@@ -154,7 +198,7 @@ export class MafiaManager {
       dayAction: (code, botId, action) => this.dayAction(code, botId, action),
       will: (code, botId, text) => this.will(code, botId, text),
       whisper: (code, botId, slot, text) => this.whisper(code, botId, slot, text),
-      get: (code) => this.sessions.get(code),
+      get: (code) => this.tables.get(code),
       busy: (code, busy) => this.busyListener?.(code, busy)
     });
   }
@@ -182,41 +226,24 @@ export class MafiaManager {
     this.rewardListener = listener;
   }
 
-  get(code: string): MafiaState | undefined {
-    return this.sessions.get(code);
-  }
-
   /** What this table's bots have publicly claimed, for the headless harness. */
   botLedger(code: string) {
     return this.bots.ledger(code);
   }
 
-  activeCodes(): ReadonlySet<string> {
-    return new Set(this.sessions.keys());
-  }
-
   private rng = (): number => randomInt(2 ** 31) / 2 ** 31;
 
-  create(input: {
-    hostUserId: number | null;
-    config?: Partial<MafiaConfig>;
-    takenCodes: ReadonlySet<string>;
-  }): MafiaState {
-    let code: string;
-    do {
-      code = generateJoinCode((maxExclusive) => randomInt(maxExclusive));
-    } while (this.sessions.has(code) || input.takenCodes.has(code));
-
-    const state = createMafiaGame({
-      code,
-      hostToken: randomBytes(24).toString('base64url'),
-      hostUserId: input.hostUserId,
-      config: input.config,
-      now: Date.now()
-    });
-    this.sessions.set(code, state);
-    void this.persist(state);
-    return state;
+  /** A new table, under a code no other room in the house is using. */
+  create(input: { hostUserId: number | null; config?: Partial<MafiaConfig> }): MafiaState {
+    return this.tables.create((code) =>
+      createMafiaGame({
+        code,
+        hostToken: randomBytes(24).toString('base64url'),
+        hostUserId: input.hostUserId,
+        config: input.config,
+        now: Date.now()
+      })
+    );
   }
 
   /* ------------------------------ mutations ------------------------------ */
@@ -283,7 +310,7 @@ export class MafiaManager {
   }
 
   playerChat(code: string, playerId: string, channel: string, text: string): ActionOutcome {
-    const state = this.sessions.get(code);
+    const state = this.tables.get(code);
     if (!state) return { ok: false, error: NO_SUCH_TABLE() };
     const result = sayInChat(state, playerId, channel, text, Date.now());
     if (!result.ok) return result;
@@ -315,7 +342,7 @@ export class MafiaManager {
      * one per seat, for as long as the pause lasted.
      */
     if (!mafiaPaused(state)) this.bots.onChat(state, result.message);
-    this.persistSoon(state);
+    this.tables.saveSoon(state, CHAT_PERSIST_MS);
     return { ok: true };
   }
 
@@ -331,7 +358,7 @@ export class MafiaManager {
   vote(code: string, playerId: string, targetSlot: number | 'skip' | null): ActionOutcome {
     const result = this.mutate(code, (state) => castVote(state, playerId, targetSlot, Date.now()));
     if (result.ok) {
-      const state = this.sessions.get(code);
+      const state = this.tables.get(code);
       this.wrote(code, playerId, 'vote', { target: targetSlot });
       if (state && !mafiaPaused(state)) this.bots.onVote(state);
     }
@@ -353,7 +380,7 @@ export class MafiaManager {
    * and the driver only knows half of it.
    */
   private wrote(code: string, playerId: string, what: string, data: Record<string, unknown>): void {
-    const state = this.sessions.get(code);
+    const state = this.tables.get(code);
     const player = state?.players[playerId];
     if (!state || !player) return;
     trace('mafia', code).event(what, {
@@ -379,7 +406,7 @@ export class MafiaManager {
   }
 
   whisper(code: string, playerId: string, targetSlot: number, text: string): ActionOutcome {
-    const state = this.sessions.get(code);
+    const state = this.tables.get(code);
     if (!state) return { ok: false, error: NO_SUCH_TABLE() };
     const result = whisperTo(state, playerId, targetSlot, text, Date.now());
     if (!result.ok) return result;
@@ -413,7 +440,7 @@ export class MafiaManager {
      * from people to a revealed Marshall on a real table, not one of them read.
      */
     if (!mafiaPaused(state)) this.bots.onChat(state, result.message);
-    this.persistSoon(state);
+    this.tables.saveSoon(state, CHAT_PERSIST_MS);
     return { ok: true };
   }
 
@@ -440,7 +467,7 @@ export class MafiaManager {
   }
 
   markConnected(code: string, playerId: string, connected: boolean): void {
-    const state = this.sessions.get(code);
+    const state = this.tables.get(code);
     const player = state?.players[playerId];
     if (!state || !player) return;
     player.connected = connected;
@@ -453,19 +480,17 @@ export class MafiaManager {
      *
      * It still only starts the window. Nothing is paused here — the tick decides
      * that several seconds later, and only if the phone has not come back.
-     */
-    if (connected) noteSeatAlive(state, playerId, Date.now());
-    else noteSeatSilent(state, playerId, Date.now());
-
-    /**
+     *
      * Through the funnel rather than a bare broadcast, because the pause model
      * can end the game outright: a town of two that loses one of them has
      * reached parity, and a game ended that way has careers to bank like any
      * other. `connected` is part of the projection either way, so the room is
-     * told whether or not the model decided anything.
+     * told whether or not the model decided anything: this is always news.
      */
-    this.runPresence(state);
-    this.afterChange(state);
+    const now = this.tables.now();
+    if (connected) noteSeatAlive(state, playerId, now);
+    else noteSeatSilent(state, playerId, now);
+    this.tables.presenceChanged(state);
   }
 
   /**
@@ -475,46 +500,43 @@ export class MafiaManager {
    * out of the dark is news, and only then does the room need telling.
    */
   beat(code: string, playerId: string): void {
-    const state = this.sessions.get(code);
+    const state = this.tables.get(code);
     if (!state?.players[playerId]) return;
     // The beat is recorded either way — that record is what lets the tick notice
-    // the beats stopping later — but only a seat coming back is news.
-    if (noteSeatAlive(state, playerId, Date.now())) {
-      // News, so it goes through the funnel: a seat coming back completes a
-      // resume, and a resume restarts the phase clock — a change worth saving
-      // rather than broadcasting and leaving to the next unrelated write.
-      this.runPresence(state);
-      this.afterChange(state);
-    }
+    // the beats stopping later — but only a seat coming back is news. News goes
+    // through the funnel: a seat coming back completes a resume, and a resume
+    // restarts the phase clock — a change worth saving rather than broadcasting
+    // and leaving to the next unrelated write.
+    if (noteSeatAlive(state, playerId, this.tables.now())) this.tables.presenceChanged(state);
   }
 
   proposeKick(code: string, playerId: string, targetSlot: number): { ok: boolean; reason?: KickRefusal } {
-    const state = this.sessions.get(code);
+    const state = this.tables.get(code);
     if (!state) return { ok: false, reason: 'not-seated' };
-    const opened = proposeMafiaKick(state, playerId, targetSlot, Date.now());
-    if (opened.ok) this.afterChange(state);
-    return opened.ok ? { ok: true } : { ok: false, reason: opened.reason };
+    const opened = proposeMafiaKick(state, playerId, targetSlot, this.tables.now());
+    if (!opened.ok) return { ok: false, reason: opened.reason };
+    this.tables.presenceChanged(state);
+    return { ok: true };
   }
 
   voteKick(code: string, playerId: string, yes: boolean): { ok: boolean; reason?: KickRefusal } {
-    const state = this.sessions.get(code);
+    const state = this.tables.get(code);
     if (!state) return { ok: false, reason: 'not-seated' };
     const cast = voteMafiaKick(state, playerId, yes);
-    // A ballot may be the one that carries it, so the model is advanced here
-    // rather than leaving the room to wait up to a second for the ticker.
-    if (cast.ok) {
-      this.runPresence(state);
-      this.afterChange(state);
-    }
-    return cast.ok ? { ok: true } : { ok: false, reason: cast.reason };
+    if (!cast.ok) return { ok: false, reason: cast.reason };
+    // A ballot may be the one that carries it, so the model is advanced on the
+    // spot rather than leaving the room to wait up to a second for the ticker.
+    this.tables.presenceChanged(state);
+    return { ok: true };
   }
 
-  async destroy(code: string): Promise<void> {
-    const state = this.sessions.get(code);
-    this.clearTimer(code);
-    this.cancelChatFlush(code);
+  /**
+   * What the table keeps on the side, let go with it. Its clock and any chat
+   * still waiting to be saved go with the host's.
+   */
+  private release(state: MafiaState): void {
+    const code = state.code;
     this.bots.forget(code);
-    this.sessions.delete(code);
     this.banked.delete(code);
     this.beats.delete(code);
     this.mourned.delete(code);
@@ -525,21 +547,37 @@ export class MafiaManager {
     // A table swept mid-game still closes its log, or its last minutes sit in a
     // buffer that nothing will ever flush. A table that never started has no
     // log, and `endTrace` will not invent one to close.
-    endTrace('mafia', code, { reason: 'swept', phase: state?.phase ?? 'gone' });
+    endTrace('mafia', code, { reason: 'swept', phase: state.phase });
     forgetTrace('mafia', code);
-    if (state) await db.delete(mafiaSessions).where(eq(mafiaSessions.code, code));
+  }
+
+  /** Its card on the public board: a table that has not started, and asked to be found. */
+  private card(state: MafiaState): LobbyCard | null {
+    if (state.phase !== 'lobby' || !state.config.public) return null;
+    return {
+      game: 'mafia',
+      code: state.code,
+      title: state.config.name || msg(SETUP_CARD_KEYS[state.config.setup.mode] ?? 'lobby.card.table'),
+      detail: msg('lobby.card.dayLength', { minutes: Math.round(state.config.dayMs / 60_000) }),
+      host: null,
+      players: Object.keys(state.players).length,
+      maxPlayers: state.config.maxPlayers,
+      createdAt: state.lastActivityAt,
+      quick: false,
+      locked: state.config.password.length > 0
+    };
   }
 
   /* ------------------------------ lifecycle ------------------------------ */
 
   private mustGet(code: string): MafiaState {
-    const state = this.sessions.get(code);
+    const state = this.tables.get(code);
     if (!state) throw new Error(NO_SUCH_TABLE_TEXT);
     return state;
   }
 
   private mutate(code: string, change: (state: MafiaState) => ActionOutcome): ActionOutcome {
-    const state = this.sessions.get(code);
+    const state = this.tables.get(code);
     if (!state) return { ok: false, error: NO_SUCH_TABLE() };
     const result = change(state);
     if (result.ok) this.afterChange(state);
@@ -556,9 +594,8 @@ export class MafiaManager {
     this.recordChange(state);
     this.listener?.(state);
     // This write covers anything chat was waiting to save.
-    this.cancelChatFlush(state.code);
-    void this.persist(state);
-    this.armTimer(state);
+    this.tables.save(state);
+    this.tables.arm(state);
     // A paused table plans nothing: the bots would otherwise argue and vote
     // through a wait that exists precisely so nobody acts without the absentee.
     if (!mafiaPaused(state)) this.bots.onChange(state);
@@ -685,179 +722,66 @@ export class MafiaManager {
    *
    * The engine has already stopped or restarted the phase clock by the time this
    * reads the result — that is what tickMafiaPresence does — so all that is left
-   * here is the machinery a clock change implies: the timer, the bots, and the
-   * seats a spent pause has given up on.
+   * here is the machinery a clock change implies: the bots, and the seats a
+   * spent pause has given up on. The timer is the host's, which re-reads it
+   * after every change this reports.
    */
-  private runPresence(state: MafiaState): boolean {
+  private runPresence(state: MafiaState, now: number): boolean {
     if (state.phase === 'lobby' || state.phase === 'ended') return false;
-    const tick = tickMafiaPresence(state, Date.now());
+    const tick = tickMafiaPresence(state, now);
     if (!tick.changed) return false;
 
-    if (tick.kicked) dropMafiaSeat(state, tick.kicked, Date.now());
-    for (const playerId of tick.abandoned) dropMafiaSeat(state, playerId, Date.now());
+    if (tick.kicked) dropMafiaSeat(state, tick.kicked, now);
+    for (const playerId of tick.abandoned) dropMafiaSeat(state, playerId, now);
 
     if (tick.kicked !== null || tick.abandoned.length > 0) {
       // Removing a seat can end the game outright — a town of two that loses one
       // of them has reached parity — so the victory check runs before the clock.
-      checkVictory(state, Date.now());
+      checkVictory(state, now);
     }
 
-    // A pause parks the clock and a resume hands it back, so either way the
-    // timer has to be re-read from the state rather than left as it was.
-    this.armTimer(state);
     if (tick.resumed) this.bots.onChange(state);
     return true;
   }
 
-  /** Every live table, once a second. Cheap: most tables have nothing to decide. */
-  private tickAllPresence(): void {
-    const now = Date.now();
-    for (const state of this.sessions.values()) {
-      if (presenceIdle(tablePresence(state), now)) continue;
-      // The funnel, because a spent pause gives up on seats and giving up on a
-      // seat can end the game: banking the careers is part of ending it.
-      if (this.runPresence(state)) this.afterChange(state);
-    }
-  }
-
-  private armTimer(state: MafiaState): void {
-    this.clearTimer(state.code);
+  /**
+   * The phase clock: day, defense, judgement and night all end here.
+   *
+   * Keyed by the phase and timed by `phaseEndsAt`, so a trial that moves the
+   * deadline after the timer was armed makes it a stale timer, which the host
+   * simply re-arms against the new one.
+   */
+  private deadline(state: MafiaState): Deadline<MafiaState> | null {
     // A stopped table has no deadline to run to: the clock is parked, and the
     // engine hands it back when everybody is here again.
-    if (mafiaPaused(state)) return;
-    if (state.phaseEndsAt === null || state.phase === 'ended' || state.phase === 'lobby') return;
+    if (mafiaPaused(state)) return null;
+    if (state.phaseEndsAt === null || state.phase === 'ended' || state.phase === 'lobby') return null;
 
-    const delay = Math.max(50, state.phaseEndsAt - Date.now());
-    const timer = setTimeout(() => {
-      const current = this.sessions.get(state.code);
-      if (!current || current.phaseEndsAt === null) return;
-      // A trial may have moved the deadline since this timer was armed.
-      if (current.phaseEndsAt > Date.now() + 100) {
-        this.armTimer(current);
-        return;
+    return {
+      at: state.phaseEndsAt,
+      key: state.phase,
+      fire: (current, now) => {
+        try {
+          advanceMafia(current, now, this.rng);
+          this.afterChange(current);
+        } catch (error) {
+          this.log.error({ err: error, code: current.code }, 'Mafia phase advance failed');
+          // Never leave a table without a clock: push the deadline and retry,
+          // rather than freezing the town on one bad transition.
+          current.phaseEndsAt = now + 5000;
+          this.tables.arm(current);
+        }
       }
-      try {
-        advanceMafia(current, Date.now(), this.rng);
-        this.afterChange(current);
-      } catch (error) {
-        this.log.error({ err: error, code: state.code }, 'Mafia phase advance failed');
-        // Never leave a table without a clock: push the deadline and retry,
-        // rather than freezing the town on one bad transition.
-        current.phaseEndsAt = Date.now() + 5000;
-        this.armTimer(current);
-      }
-    }, delay);
-    timer.unref();
-    this.timers.set(state.code, timer);
+    };
   }
 
-  private clearTimer(code: string): void {
-    const timer = this.timers.get(code);
-    if (timer) clearTimeout(timer);
-    this.timers.delete(code);
-  }
-
-  /** Coalesces a burst of chat into one save. First message arms it, the rest ride along. */
-  private persistSoon(state: MafiaState): void {
-    if (this.chatFlush.has(state.code)) return;
-    const timer = setTimeout(() => {
-      this.chatFlush.delete(state.code);
-      const current = this.sessions.get(state.code);
-      if (current) void this.persist(current);
-    }, CHAT_PERSIST_MS);
-    timer.unref();
-    this.chatFlush.set(state.code, timer);
-  }
-
-  private cancelChatFlush(code: string): void {
-    const timer = this.chatFlush.get(code);
-    if (timer) clearTimeout(timer);
-    this.chatFlush.delete(code);
-  }
-
-  async persist(state: MafiaState): Promise<void> {
-    try {
-      await db
-        .insert(mafiaSessions)
-        .values({
-          code: state.code,
-          host_user_id: state.hostUserId,
-          phase: state.phase,
-          state: JSON.stringify(state),
-          last_activity_at: state.lastActivityAt
-        })
-        .onConflictDoUpdate({
-          target: mafiaSessions.code,
-          set: { phase: state.phase, state: JSON.stringify(state), last_activity_at: state.lastActivityAt }
-        });
-    } catch (error) {
-      this.log.error({ err: error, code: state.code }, 'Mafia persist failed');
-    }
-  }
-
-  async restore(): Promise<number> {
-    const rows = await db.select().from(mafiaSessions);
-    let restored = 0;
-    for (const row of rows) {
-      if (row.last_activity_at < Date.now() - IDLE_TIMEOUT_MS) {
-        await db.delete(mafiaSessions).where(eq(mafiaSessions.code, row.code));
-        continue;
-      }
-      try {
-        const state = JSON.parse(row.state) as MafiaState;
-        // A table saved by a build that had fewer settings comes back missing
-        // them, and a missing setting read as a string is a crash somewhere far
-        // from here. Defaults fill the gaps, exactly as they do at creation.
-        state.config = { ...DEFAULT_CONFIG, ...state.config };
-        // Clears the absences nothing can measure any more and hands a phase that
-        // was mid-flight — including one a pause had parked — a fresh clock.
-        restoreMafiaTable(state, Date.now());
-        this.sessions.set(state.code, state);
-        this.armTimer(state);
-        restored++;
-      } catch (error) {
-        this.log.warn({ err: error, code: row.code }, 'could not restore Mafia session');
-        await db.delete(mafiaSessions).where(eq(mafiaSessions.code, row.code));
-      }
-    }
-    return restored;
-  }
-
-  startSweeping(): void {
-    this.sweepTimer = setInterval(() => {
-      void this.sweep();
-    }, SWEEP_INTERVAL_MS);
-    this.sweepTimer.unref();
-
-    this.presenceTimer = setInterval(() => this.tickAllPresence(), PRESENCE_TICK_MS);
-    this.presenceTimer.unref();
-  }
-
+  /**
+   * Every clock stopped, the bots' included, and anything still waiting to be
+   * saved saved now rather than dropped. More than `tables.stop`, which knows
+   * nothing of the bots.
+   */
   stopSweeping(): void {
-    if (this.sweepTimer) clearInterval(this.sweepTimer);
-    this.sweepTimer = undefined;
-    if (this.presenceTimer) clearInterval(this.presenceTimer);
-    this.presenceTimer = undefined;
-    for (const code of [...this.timers.keys()]) this.clearTimer(code);
-    // Anything still waiting to be saved is saved now rather than dropped.
-    for (const code of [...this.chatFlush.keys()]) {
-      this.cancelChatFlush(code);
-      const state = this.sessions.get(code);
-      if (state) void this.persist(state);
-    }
+    this.tables.stop();
     this.bots.stop();
-  }
-
-  private async sweep(): Promise<void> {
-    const cutoff = Date.now() - IDLE_TIMEOUT_MS;
-    const finished = Date.now() - FINISHED_GRACE_MS;
-    for (const [code, state] of this.sessions) {
-      const over = state.phase === 'ended';
-      if (state.lastActivityAt < cutoff || (over && state.lastActivityAt < finished)) {
-        this.log.info({ code, over }, 'sweeping Mafia table');
-        await this.destroy(code);
-      }
-    }
-    await db.delete(mafiaSessions).where(lt(mafiaSessions.last_activity_at, cutoff));
   }
 }

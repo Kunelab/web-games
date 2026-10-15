@@ -1,28 +1,34 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { catalogueDiff, interpolate, isLocale, LOCALES, msg, negotiate, render, translator } from './index.js';
+import {
+  interpolate,
+  isLocale,
+  LOCALES,
+  msg,
+  msgOf,
+  negotiate,
+  render,
+  translator,
+  type Catalogue,
+  type Locale
+} from './index.js';
 import { en } from './locales/en.js';
 import { fr } from './locales/fr.js';
 
-const CATALOGUES = { en, fr };
+/*
+  Widened to plain catalogues on purpose: these tests walk every key as a string,
+  which is exactly what the literal-keyed types exist to stop everywhere else.
+
+  What is *not* here any more is the key-parity test ("every locale matches the
+  English reference exactly", over a runtime `catalogueDiff`). The compiler holds
+  that now — `fr` is a `TranslationOf<typeof en>`, so a missing or an extra key
+  does not build — and a test repeating it could only ever agree. What remains
+  below is what a type cannot see: what is inside the strings.
+*/
+const CATALOGUES: Record<Locale, Catalogue> = { en, fr };
 
 describe('the catalogues', () => {
-  /**
-   * The check that keeps translation honest in both directions. A key missing
-   * from `fr` shows English, which is survivable. A key only `fr` has means a
-   * rename happened and the English fallback is now showing raw dotted text to
-   * every reader who is not French — which is not.
-   */
-  it('every locale matches the English reference exactly', () => {
-    for (const locale of LOCALES) {
-      if (locale === 'en') continue;
-      const { missing, extra } = catalogueDiff(en, CATALOGUES[locale]);
-      assert.deepEqual(missing, [], `${locale} is missing keys`);
-      assert.deepEqual(extra, [], `${locale} has keys English does not`);
-    }
-  });
-
   /**
    * A sentence whose parameters differ between languages is a crash waiting for
    * whichever reader has the other one loaded.
@@ -56,12 +62,14 @@ describe('rendering', () => {
   });
 
   it('falls back to English, then to the key itself', () => {
+    // Keys from a made-up catalogue and one that is nowhere, so `msgOf`: these are
+    // exactly the keys `msg` exists to refuse.
     const partial = { 'a.b': 'français' };
-    assert.equal(render(msg('a.b'), partial, { 'a.b': 'english' }), 'français');
+    assert.equal(render(msgOf('a.b'), partial, { 'a.b': 'english' }), 'français');
     assert.equal(render(msg('mafia.night.quiet'), partial, en), en['mafia.night.quiet']);
     // Broken loudly rather than silently blank: a missing string should be
     // obvious in a screenshot.
-    assert.equal(render(msg('nope.missing'), partial, en), 'nope.missing');
+    assert.equal(render(msgOf('nope.missing'), partial, en), 'nope.missing');
   });
 
   it('binds a reader once and renders many', () => {

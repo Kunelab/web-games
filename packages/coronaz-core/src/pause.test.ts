@@ -66,7 +66,7 @@ describe('the raid pause', () => {
     assert.equal(view.paused, false);
     assert.deepEqual(view.waitingFor, []);
     assert.deepEqual(
-      view.recovering.map((seat) => seat.playerId),
+      view.recovering.map((seat) => seat.ref),
       [second]
     );
   });
@@ -125,7 +125,7 @@ describe('the raid pause', () => {
 
     const early = proposeHeroKick(state, first, fourth, DEFAULT_RULES.kickAfterMs - 1);
     assert.deepEqual(early, { ok: false, reason: 'too-soon' });
-    assert.deepEqual(czPresenceView(state, GRACE, first).kickablePlayerIds, []);
+    assert.deepEqual(czPresenceView(state, GRACE, first).kickable.map((seat) => seat.ref), []);
 
     const at = DEFAULT_RULES.kickAfterMs;
     assert.deepEqual(proposeHeroKick(state, first, fourth, at), { ok: true });

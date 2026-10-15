@@ -468,11 +468,6 @@ export function beliefs(self: MafiaPlayer, info: PublicInfo): Map<number, Belief
   return out;
 }
 
-/** How likely one seat is a killer, from this chair. Convenience over `beliefs`. */
-export function evilOdds(self: MafiaPlayer, info: PublicInfo, slot: number): number {
-  return beliefs(self, info).get(slot)?.odds ?? 0;
-}
-
 /**
  * The seat this reader is surest about, when it is sure enough to act.
  *

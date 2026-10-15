@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 
-import { LOCALES, msg, type Locale } from 'i18n';
+import { LOCALES, msg, type Locale, type MsgKey } from 'i18n';
 
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
@@ -11,7 +11,7 @@ import { Button, Field, Input } from '../ui';
 import './home.css';
 
 /** The theme settings, as catalogue keys — the page explains each one. */
-const THEMES: { value: ThemePreference; label: string; hint: string }[] = [
+const THEMES: { value: ThemePreference; label: MsgKey; hint: MsgKey }[] = [
   { value: 'dark', label: 'account.theme.dark', hint: 'account.theme.dark.hint' },
   { value: 'light', label: 'account.theme.light', hint: 'account.theme.light.hint' },
   { value: 'system', label: 'account.theme.system', hint: 'account.theme.system.hint' }

@@ -11,7 +11,7 @@ import { EmptyState, Loading } from '../ui';
 import './history.css';
 
 /** The speedrun-able scenarios, in record-table order. Named by the catalogue. */
-const CZ_SCENARIOS = ['escape', 'purge', 'survival'];
+const CZ_SCENARIOS = ['escape', 'purge', 'survival'] as const;
 
 /**
  * What remains of the evenings: every finished game, newest first, and the careers
@@ -79,9 +79,7 @@ export default function History() {
                   <tr key={career.name}>
                     <td>
                       {career.name}
-                      {career.title && (
-                        <span className="career-title"> {t(msg(badgeMeta(career.title).titleKey))}</span>
-                      )}
+                      {career.title && <span className="career-title"> {t(badgeMeta(career.title).title)}</span>}
                     </td>
                     <td className="num tabular">{career.games}</td>
                     <td className="num tabular">{career.wins}</td>
@@ -92,7 +90,7 @@ export default function History() {
                       {career.badges.map((key) => {
                         const meta = badgeMeta(key);
                         return (
-                          <span key={key} title={`${t(msg(meta.titleKey))} · ${t(msg(meta.hintKey))}`}>
+                          <span key={key} title={`${t(meta.title)} · ${t(meta.hint)}`}>
                             {meta.emoji}
                           </span>
                         );
@@ -146,7 +144,7 @@ export default function History() {
                       {career.trophies.map((key) => {
                         const meta = czTrophyMeta(key);
                         return (
-                          <span key={key} title={`${t(msg(meta.titleKey))} · ${t(msg(meta.hintKey))}`}>
+                          <span key={key} title={`${t(meta.title)} · ${t(meta.hint)}`}>
                             {meta.emoji}
                           </span>
                         );
@@ -187,7 +185,7 @@ export default function History() {
                   <ul className="history-awards">
                     {game.awards.map((award) => {
                       const meta = awardMeta(award.key);
-                      const title = t(msg(meta.titleKey));
+                      const title = t(meta.title);
                       return (
                         <li key={award.key} title={`${title} : ${award.value}`}>
                           {meta.emoji} {title} · {award.playerName}

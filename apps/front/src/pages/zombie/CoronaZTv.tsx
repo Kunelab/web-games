@@ -132,26 +132,7 @@ export default function CoronaZTv() {
       */}
       {view.presence.paused && (
         <PauseOverlay
-          waitingFor={view.presence.waitingFor.map((seat) => ({
-            label: seat.name,
-            id: seat.playerId,
-            awayMs: seat.awayMs
-          }))}
-          expiresAt={view.presence.pauseExpiresAt}
-          resumesAt={view.presence.resumesAt}
-          kickable={[]}
-          vote={
-            view.presence.vote
-              ? {
-                  label: view.presence.vote.name,
-                  closesAt: view.presence.vote.closesAt,
-                  yes: view.presence.vote.yes,
-                  no: view.presence.vote.no,
-                  needed: view.presence.vote.needed,
-                  mine: null
-                }
-              : null
-          }
+          pause={view.presence}
           serverNow={serverNow}
           onPropose={null}
           onVote={null}
@@ -333,7 +314,7 @@ export default function CoronaZTv() {
         />
       )}
 
-      {error && <p className="play-error">{error}</p>}
+      {error && <p className="play-error">{t(error)}</p>}
     </div>
   );
 }
@@ -401,7 +382,7 @@ export function CzEndScreen({
                 <span className="award-emoji" aria-hidden="true">
                   {meta.emoji}
                 </span>
-                <span className="award-title">{t(msg(meta.titleKey))}</span>
+                <span className="award-title">{t(meta.title)}</span>
                 <span className="award-holder">{award.playerName}</span>
                 <span className="award-value">{award.value}</span>
               </li>

@@ -104,7 +104,7 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
       });
 
       if (state.order.length === 0) {
-        await app.games.destroy(state.code);
+        await app.games.tables.destroy(state.code);
         return reply.code(400).send({
           message: "Aucun média de cette playlist n'est prêt à être joué",
           skipped: state.skipped
@@ -168,7 +168,7 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
       });
 
       if (state.order.length === 0) {
-        await app.games.destroy(state.code);
+        await app.games.tables.destroy(state.code);
         // The editor already shows what a draft is missing, so the reason here is
         // the same one in a single sentence rather than a second field list.
         return reply.code(400).send({
@@ -195,7 +195,7 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
     '/play/sessions/:code',
     { schema: { params: z.object({ code: z.string().min(1).max(16) }) } },
     async (request) => {
-      const state = app.games.get(request.params.code.trim().toUpperCase());
+      const state = app.games.tables.get(request.params.code.trim().toUpperCase());
       if (!state) {
         throw app.httpErrors.notFound('Aucune partie avec ce code');
       }
@@ -217,7 +217,7 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: { params: z.object({ code: z.string().min(1).max(16) }) }
     },
     async (request, reply) => {
-      const state = app.games.get(request.params.code.trim().toUpperCase());
+      const state = app.games.tables.get(request.params.code.trim().toUpperCase());
       if (!state) {
         throw app.httpErrors.notFound('Aucune partie avec ce code');
       }
@@ -225,7 +225,7 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
         throw app.httpErrors.forbidden("Cette partie n'est pas la vôtre");
       }
 
-      await app.games.destroy(state.code);
+      await app.games.tables.destroy(state.code);
       return reply.code(204).send();
     }
   );
@@ -342,8 +342,8 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
       connected: number;
     }[] = [];
 
-    for (const code of app.games.activeCodes()) {
-      const state = app.games.get(code);
+    for (const code of app.games.tables.codes()) {
+      const state = app.games.tables.get(code);
       if (state?.hostUserId !== request.currentUser.id) continue;
 
       const seated = Object.values(state.players);
@@ -360,7 +360,8 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
     // Most recent first: with several open at once, the one being played is the
     // one just touched.
     return mine.sort(
-      (a, b) => (app.games.get(b.code)?.lastActivityAt ?? 0) - (app.games.get(a.code)?.lastActivityAt ?? 0)
+      (a, b) =>
+        (app.games.tables.get(b.code)?.lastActivityAt ?? 0) - (app.games.tables.get(a.code)?.lastActivityAt ?? 0)
     );
   });
 

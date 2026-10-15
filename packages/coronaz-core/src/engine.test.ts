@@ -25,7 +25,8 @@ import {
   endEnemyPhase,
   heroPhaseDone,
   startGame,
-  startHeroPhase
+  startHeroPhase,
+  stepHorde
 } from './engine.js';
 import { rollLoot } from './engine.js';
 import {
@@ -59,6 +60,7 @@ import {
   makeItem,
   objectivesDone,
   spawnZombie,
+  switchHero,
   visibleRooms,
   type CzState
 } from './state.js';
@@ -706,6 +708,96 @@ describe('enemy phase', () => {
   });
 });
 
+/**
+ * The horde's turn, driven through the one call every caller makes.
+ *
+ * The order is the rule: the horde takes the board, every creature spends its
+ * points, the dens fire, and only then do the survivors get it back. It used to
+ * be re-typed by the server, the simulator and these tests, and the copies
+ * disagreed about game-master mode without anybody noticing — so the order is
+ * pinned here, at the one place that now owns it.
+ */
+describe("the horde's turn", () => {
+  it('takes the board, moves each creature once, fires the dens, then hands the board back', () => {
+    const state = newGame({ startingZombies: 0, heroPhaseSeconds: 0 });
+    const { hero } = joinHero(state, 'Appât', undefined);
+    startGame(state, 0);
+
+    // Two shamblers far enough off that the first turn is a walk, not a fight.
+    const far = state.board.rooms.find((room) => (shortestPath(state.board, room.id, hero.roomId)?.length ?? 0) >= 4);
+    assert(far, 'the fixture needs a room four steps from the survivor');
+    for (const walker of [spawnZombie(state, far.id, 'walker'), spawnZombie(state, far.id, 'walker')]) {
+      // A creature that starts changing spends its turn doing that instead of
+      // walking, which is a different test.
+      walker.canMutate = false;
+    }
+
+    const seen: { kind: string; phase: string; more?: boolean }[] = [];
+    for (let guard = 0; guard < 20; guard++) {
+      const step = stepHorde(state, 0);
+      seen.push({ kind: step.kind, phase: state.phase, ...(step.kind === 'activated' ? { more: step.act.more } : {}) });
+      if (step.kind === 'ended') break;
+    }
+
+    assert.deepEqual(seen, [
+      { kind: 'began', phase: 'enemy' },
+      { kind: 'activated', phase: 'enemy', more: true },
+      { kind: 'activated', phase: 'enemy', more: false },
+      { kind: 'reinforced', phase: 'enemy' },
+      { kind: 'ended', phase: 'heroes' }
+    ]);
+    assert.equal(state.turn, 2, 'one horde turn is one turn on the clock');
+  });
+
+  it('against a game master the dens stay shut, even when the server plays his turn out', () => {
+    /**
+     * A human horde buys its reinforcements: his income already climbs with the
+     * reinforcement setting, and the weather moves that budget instead of the dens
+     * (see the events tests). Dens firing on top would pay him twice — and only on
+     * the turns he hands to the server, which made giving up the controls the
+     * strongest thing a game master could do. The server's copy of the turn did
+     * exactly that while the simulator's did not, so the bench calibrated a game
+     * nobody was playing.
+     */
+    const play = (mode: 'ai' | 'gm'): { arrived: number; kinds: Set<string> } => {
+      const state = newGame({ mode, startingZombies: 0, reinforcement: 3 });
+      joinHero(state, 'Proie', undefined);
+      startGame(state, 0);
+      const kinds = new Set<string>();
+      for (let turn = 0; turn < 3; turn++) {
+        for (let guard = 0; guard < 200; guard++) {
+          const step = stepHorde(state, 0);
+          kinds.add(step.kind);
+          if (step.kind === 'ended') break;
+        }
+      }
+      return { arrived: Object.keys(state.zombies).length, kinds };
+    };
+
+    const ai = play('ai');
+    assert.ok(ai.arrived > 0, 'the dens never fired against the AI either, so this fixture proves nothing');
+
+    const gm = play('gm');
+    assert.equal(gm.arrived, 0, 'the dens fired for a horde the game master pays for');
+    assert.equal(gm.kinds.has('reinforced'), false, 'a turn with no dens has no dens beat');
+  });
+
+  it('a bite that decides the raid ends the turn on the spot', () => {
+    // `ended` is the pacer's cue to stop booking beats and settle the raid. A
+    // last bite reported as one more creature moving would have it book the next
+    // beat for a raid that is already over.
+    const state = newGame({ startingZombies: 0 });
+    const { hero } = joinHero(state, 'Dernière', undefined);
+    startGame(state, 0);
+    hero.hp = 1;
+    spawnZombie(state, hero.roomId, 'walker');
+
+    assert.equal(stepHorde(state, 0).kind, 'began');
+    assert.deepEqual(stepHorde(state, 0), { kind: 'ended' });
+    assert.equal(state.phase, 'lost');
+  });
+});
+
 describe('objectives and escalation', () => {
   it('a boss objective seeds a boss and gates the exit', () => {
     // Seed chosen so the drawn objective is the boss hunt.
@@ -1295,5 +1387,114 @@ describe('projections', () => {
     const seeded = Object.keys(state.zombies).length;
     assert(seeded > 0);
     assert.equal(view.zombies.length, seeded);
+  });
+});
+
+/**
+ * Where a survivor may go and what it may hit, as the engine says it.
+ *
+ * The phone used to work this out for itself from a copy of the board's
+ * geometry, a copy of each weapon's reach and a copy of two heroes' rules, and
+ * kept a test whose only job was holding the copies together. The view now
+ * carries the answer, and it has to be exactly what the engine takes: every
+ * room offered is a move the engine accepts and every other room is refused,
+ * and the same for each hand against every creature on the board.
+ */
+describe('what a survivor is offered', () => {
+  function offered(heroId: string, hands: [string | null, string | null]) {
+    const state = newGame({ startingZombies: 0 });
+    const { hero } = joinHero(state, 'Survivante', undefined);
+    switchHero(state, hero.playerId, heroId);
+    startGame(state, 0);
+    hero.hands = [hands[0] ? makeItem(state, hands[0]) : null, hands[1] ? makeItem(state, hands[1]) : null];
+    // A creature in every room, so every room's reach is asked about.
+    for (const room of state.board.rooms) spawnZombie(state, room.id, 'walker');
+    const me = toView(state, { kind: 'player', playerId: hero.playerId }).me;
+    assert.ok(me, 'a survivor sees its own sheet');
+    return { state, hero, reach: me.reach };
+  }
+
+  const accepted = (state: CzState, playerId: string, action: Parameters<typeof applyHeroAction>[2]) =>
+    applyHeroAction(structuredClone(state), playerId, action).ok;
+
+  for (const heroId of ['elena', 'nadia']) {
+    it(`offers ${heroId} every move the engine takes and no other`, () => {
+      const { state, hero, reach } = offered(heroId, [null, null]);
+      for (const room of state.board.rooms) {
+        assert.equal(
+          accepted(state, hero.playerId, { type: 'move', roomId: room.id }),
+          reach.moves.includes(room.id),
+          `a move to ${room.id}`
+        );
+      }
+    });
+  }
+
+  for (const [heroId, hands] of [
+    ['elena', ['pistol', 'machete']],
+    ['suzanne', ['pistol', null]],
+    ['bernard', [null, null]]
+  ] as [string, [string | null, string | null]][]) {
+    it(`offers ${heroId} every target each hand can hit and no other`, () => {
+      const { state, hero, reach } = offered(heroId, hands);
+      for (const zombie of Object.values(state.zombies)) {
+        for (const hand of [0, 1] as const) {
+          assert.equal(
+            accepted(state, hero.playerId, { type: 'attack', zombieId: zombie.id, hand }),
+            reach.attack[hand].includes(zombie.roomId),
+            `hand ${hand} on a creature in ${zombie.roomId}`
+          );
+        }
+      }
+    });
+  }
+
+  it("names a brawler's bare hands and a sniper's extra room", () => {
+    assert.equal(offered('bernard', [null, null]).reach.attack[0].length, 1, 'his own room, with his fists');
+    const plain = offered('elena', ['pistol', null]).reach.attack[0].length;
+    const eye = offered('suzanne', ['pistol', null]).reach.attack[0].length;
+    assert.ok(eye >= plain, 'one more room of sight, never fewer');
+  });
+});
+
+/**
+ * Where each creature may walk, as the engine says it, for the game master.
+ *
+ * The game master's screen walked the doorways itself, breadth-first, bounded by
+ * the creature's points, which is the server's rule copied. The view carries the
+ * answer now: every room offered is a walk the engine takes, and no other.
+ */
+describe('what the game master is offered', () => {
+  it('offers every walk the engine takes and no other', () => {
+    const state = createGame({
+      code: 'TEST',
+      hostToken: 'h',
+      gmToken: 'g',
+      hostUserId: null,
+      config: gameConfigSchema.parse({ mode: 'gm', startingZombies: 0, events: false, biome: 'modern' }),
+      seed: 909
+    });
+    joinHero(state, 'Proie', undefined);
+    startGame(state, 0);
+    applyHeroAction(state, Object.keys(state.heroes)[0] ?? '', { type: 'ready' });
+    beginEnemyPhase(state, 0);
+    const start = state.board.rooms[0];
+    assert.ok(start);
+    const runner = spawnZombie(state, start.id, 'runner');
+    runner.ap = 2;
+    const walker = spawnZombie(state, start.id, 'walker');
+    walker.ap = 1;
+
+    const reach = toView(state, { kind: 'gm' }).gm?.reach;
+    assert.ok(reach, 'the game master is told where the horde can go');
+    for (const creature of [runner, walker]) {
+      for (const room of state.board.rooms) {
+        assert.equal(
+          applyGmAction(structuredClone(state), { type: 'gmMove', zombieId: creature.id, roomId: room.id }).ok,
+          (reach[creature.id] ?? []).includes(room.id),
+          `${creature.def} to ${room.id}`
+        );
+      }
+    }
   });
 });

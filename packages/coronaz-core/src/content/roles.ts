@@ -1,3 +1,5 @@
+import type { MsgKey } from 'i18n';
+
 import type { ItemKind, Rarity, WeaponStats } from '../data.js';
 
 /**
@@ -111,7 +113,7 @@ export interface RoleDef {
   tier: Rarity;
   /** What it is for, in one word, for the UI when no biome is in hand. */
   /** Catalogue key: what this job is called on a screen. */
-  label: string;
+  label: MsgKey;
   /**
    * Expected damage of one attack with the reference weapon, in scaled units
    * (dice × chance to hit × damage). Weapons only. A biome's version of this role

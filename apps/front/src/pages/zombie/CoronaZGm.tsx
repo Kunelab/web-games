@@ -17,7 +17,6 @@ import { useCountdown } from '../../hooks/useGameSocket';
 import { PauseOverlay } from '../../components/presence/PauseOverlay';
 import { useCzSocket } from '../../hooks/useCzSocket';
 import { zombieSprite } from './czAssets';
-import { neighbourRooms } from './czBoard';
 import { Button, Loading } from '../../ui';
 import { CzEventBanner } from './CoronaZPlayer';
 import { CzEndScreen } from './CoronaZTv';
@@ -174,26 +173,12 @@ export default function CoronaZGm() {
    *
    * A tap is worth the whole walk now, so the board has to offer the whole walk: a
    * runner with two points shows two rooms of reach and gets there in one tap
-   * instead of four. Breadth-first over the doorways, bounded by the action points,
-   * which is exactly the rule the server applies.
+   * instead of four. The server's own answer (`gm.reach`, see `creatureReach`),
+   * so the board offers exactly the walks the engine takes.
    */
   const targets = new Set<string>();
   if (myPhase && selectedZombie && selectedZombie.ap > 0) {
-    let frontier = [selectedZombie.roomId];
-    for (let step = 0; step < selectedZombie.ap; step++) {
-      const next: string[] = [];
-      for (const id of frontier) {
-        const room = view.rooms.find((candidate) => candidate.id === id);
-        if (!room) continue;
-        for (const other of neighbourRooms(view, room)) {
-          if (other.id === selectedZombie.roomId || targets.has(other.id)) continue;
-          targets.add(other.id);
-          next.push(other.id);
-        }
-      }
-      if (next.length === 0) break;
-      frontier = next;
-    }
+    for (const id of view.gm?.reach[selectedZombie.id] ?? []) targets.add(id);
   } else if (myPhase && !selectedZombie) {
     for (const room of view.rooms) {
       if (room.kind === 'spawn') targets.add(room.id);
@@ -225,26 +210,7 @@ export default function CoronaZGm() {
       */}
       {view.presence.paused && (
         <PauseOverlay
-          waitingFor={view.presence.waitingFor.map((seat) => ({
-            label: seat.name,
-            id: seat.playerId,
-            awayMs: seat.awayMs
-          }))}
-          expiresAt={view.presence.pauseExpiresAt}
-          resumesAt={view.presence.resumesAt}
-          kickable={[]}
-          vote={
-            view.presence.vote
-              ? {
-                  label: view.presence.vote.name,
-                  closesAt: view.presence.vote.closesAt,
-                  yes: view.presence.vote.yes,
-                  no: view.presence.vote.no,
-                  needed: view.presence.vote.needed,
-                  mine: null
-                }
-              : null
-          }
+          pause={view.presence}
           serverNow={serverNow}
           onPropose={null}
           onVote={null}
@@ -506,7 +472,7 @@ export default function CoronaZGm() {
         </Button>
 
         {feedback && <p className="play-error">{feedback}</p>}
-        {error && <p className="play-error">{error}</p>}
+        {error && <p className="play-error">{t(error)}</p>}
       </div>
     </div>
   );

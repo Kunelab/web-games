@@ -1,10 +1,8 @@
 import { msg, type Msg } from 'i18n';
 import {
-  BARE_HANDS,
   eventDef,
   gearStats,
   HEROES,
-  heroDef,
   MUTATIONS,
   PROGRAM_LABELS,
   SHINY_LOOT,
@@ -16,8 +14,9 @@ import {
   gearArmor,
   weaponStats,
   type CzActionAck,
+  type CzClientToServer,
   type CzEventId,
-  type CzJoinAck,
+  type CzRaidReward,
   type CzView,
   type HeroAction,
   type ItemInstance,
@@ -30,26 +29,35 @@ import CzChat from './CzChat';
 import { useT } from '../../i18n/locale-context';
 import { czLine } from './czLine';
 import { czPerkMeta } from '../../app/czMeta';
-import { useCountdown } from '../../hooks/useGameSocket';
+import { useCountdown } from '../../hooks/useServerClock';
 import { PauseOverlay } from '../../components/presence/PauseOverlay';
-import { useCzSocket } from '../../hooks/useCzSocket';
-import { useHeartbeat } from '../../hooks/useHeartbeat';
 import { useWakeLock } from '../../hooks/useWakeLock';
+import { JoinForm } from '../../seat/JoinForm';
+import { useJoinDraft } from '../../seat/useJoinDraft';
+import { czSeat } from '../../seat/protocols';
+import type { Answered } from '../../seat/seat';
+import { useSeat, type SeatOf } from '../../seat/useSeat';
 import { buzz } from '../../tools/haptics';
-import { NICKNAME_MAX, rememberNickname, storedNickname } from '../../tools/nickname';
-import { forgetSeat, noteSeat } from '../../tools/seats';
+import { forgetSeat } from '../../tools/seats';
 import { itemSprite } from './czAssets';
-import { neighbourRooms, sightRooms } from './czBoard';
 import { czNextGoal } from './czGoals';
 import { CzHeroSelect } from './CzHeroSelect';
 import { rarityVars } from './czRarity';
 import { isMuted, sfxEscape, sfxHeal, sfxKill, sfxLoot, sfxShoot, sfxStep, toggleMute } from './czSound';
-import { Badge, Button, Input, Loading } from '../../ui';
+import { Badge, Button, Loading } from '../../ui';
 import { QuickEnd } from '../../ui/QuickEnd';
 import { CzEndScreen } from './CoronaZTv';
 import { CzMap } from './CzMap';
 import './coronaz.css';
 import '../play.css';
+
+/** What an action comes back as: the server's answer, its refusal already a message. */
+type ActionAnswer = Answered<CzActionAck>;
+
+/** The nickname's roster wallet, refreshed by join and unlock answers. */
+type Career = { rations: number; unlockedHeroes: string[] };
+
+type CzSeat = SeatOf<typeof czSeat>;
 
 /**
  * The survivor's phone. Built around one idea: fast.
@@ -62,136 +70,52 @@ import '../play.css';
 export default function CoronaZPlayer() {
   const t = useT();
   const { code = '' } = useParams<{ code: string }>();
-  const { socket, connected, view, rewards, error, serverNow, applyView } = useCzSocket();
+  const { status, view, error, grant, join, call, send, on, serverNow } = useSeat(czSeat, code);
+  const draft = useJoinDraft();
 
-  /** The name this phone last played under, in any of the three games. */
-  const [name, setName] = useState(storedNickname);
-  const [joined, setJoined] = useState(false);
-  const [joinError, setJoinError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  /** The nickname's roster wallet, refreshed by join and unlock acks. */
-  const [career, setCareer] = useState<{ rations: number; unlockedHeroes: string[] } | null>(null);
+  /**
+   * What the raid paid, once it has ended. Null until the server says so, which
+   * is a moment after the final view arrives: the careers have to be written first.
+   */
+  const [rewards, setRewards] = useState<CzRaidReward[] | null>(null);
+  useEffect(() => on('cz:rewards', setRewards), [on]);
+
+  /**
+   * The wallet, as of the answer that last seated this phone or the last unlock
+   * since. Adjusted during render rather than in an effect: a new grant simply
+   * replaces what an older one said.
+   */
+  const [career, setCareer] = useState<Career | null>(null);
+  const [seenGrant, setSeenGrant] = useState(grant);
+  if (grant !== seenGrant) {
+    setSeenGrant(grant);
+    if (grant?.career) setCareer(grant.career);
+  }
   /** The Kune login this raid pays into, when the browser is logged in. */
-  const [account, setAccount] = useState<string | null>(null);
-  const [kickError, setKickError] = useState<string | null>(null);
-  /**
-   * The word at the door, and whether this raid has one.
-   *
-   * Raised by the server's refusal rather than asked up front: most raids have
-   * no door, and a password box on every join screen is a question almost
-   * nobody has an answer to. See `CzJoinAck.needsPassword`.
-   */
-  const [password, setPassword] = useState('');
-  const [locked, setLocked] = useState(false);
+  const account = grant?.account ?? null;
+  const [kickError, setKickError] = useState<Msg | null>(null);
 
-  const tokenKey = `kune.cz.player.${code}`;
-
-  const join = useCallback(
-    // The password is an argument rather than a read of state, so the silent
-    // rejoins stay honest about their dependencies: they never carry one.
-    async (playerName: string, word = '') => {
-      if (!socket) return;
-      setBusy(true);
-      setJoinError(null);
-      try {
-        /**
-         * The name survives alongside the token. A silent rejoin used to send
-         * an empty name, which the server's schema rightly refused — so the
-         * seat token was there and the reclaim still failed. That was the
-         * whole "can't get back into a game" bug.
-         */
-        const remembered = localStorage.getItem(`${tokenKey}.name`) ?? '';
-        const actualName = playerName.trim() || remembered || 'Survivant';
-
-        const ack = (await socket.timeout(5000).emitWithAck('cz:join', {
-          code,
-          name: actualName,
-          playerToken: localStorage.getItem(tokenKey) ?? undefined,
-          password: word
-        })) as CzJoinAck;
-
-        if (ack.ok) {
-          if (ack.playerToken) localStorage.setItem(tokenKey, ack.playerToken);
-          if (ack.playerId) localStorage.setItem(`${tokenKey}.id`, ack.playerId);
-          localStorage.setItem(`${tokenKey}.name`, actualName);
-          rememberNickname(actualName);
-          noteSeat('coronaz', code, actualName);
-          if (ack.view) applyView(ack.view);
-          if (ack.career) setCareer(ack.career);
-          setAccount(ack.account ?? null);
-          setJoined(true);
-        } else {
-          // The raid says it has a door here and nowhere earlier, which is what
-          // makes the field appear. It stays up once raised.
-          if (ack.needsPassword) setLocked(true);
-          setJoinError(ack.needsPassword ? t(msg('room.wrong')) : (ack.error ?? t(msg('cz.play.joinFailed'))));
-        }
-      } catch {
-        setJoinError(t(msg('cz.play.serverQuiet')));
-      } finally {
-        setBusy(false);
-      }
+  /** Proposes carrying on without an absentee, or votes on the open proposal; a refusal shows on the pause. */
+  const kick = useCallback(
+    (payload: Parameters<CzClientToServer['cz:kick']>[0]) => {
+      setKickError(null);
+      void call('cz:kick', payload).then((answer) => {
+        if (!answer.ok) setKickError(answer.error ?? msg('presence.kick.impossible'));
+      });
     },
-    [socket, code, tokenKey, applyView, t]
+    [call]
   );
-
-  const autoJoined = useRef(false);
-  useEffect(() => {
-    if (!socket || !connected || joined || autoJoined.current) return;
-    if (!localStorage.getItem(tokenKey)) return;
-    autoJoined.current = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- talks to the socket
-    void join('');
-  }, [socket, connected, joined, join, tokenKey]);
-
-  /**
-   * The connection is not the seat. When the socket drops and comes back as a
-   * NEW connection (sleep, network change, anything past the 2-minute recovery
-   * window), the server no longer knows which game this socket belongs to —
-   * so every reconnect re-presents the token and reclaims the seat, silently.
-   */
-  useEffect(() => {
-    if (!connected || !joined) return;
-    // Talks to the socket, like the auto-join above.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void join('');
-  }, [connected, joined, join]);
-
-  /**
-   * The heartbeat: how the raid learns this phone is still here.
-   *
-   * An open socket is not a present player — see `useHeartbeat`. The reclaim
-   * above already runs on every reconnect, so this only adds the beat and the
-   * resync that follows it.
-   */
-  const beat = useCallback(() => socket?.emit('cz:beat'), [socket]);
-  useHeartbeat({ connected, seated: joined, beat });
-
   const proposeKick = useCallback(
-    (playerId: string | number) => {
-      setKickError(null);
-      socket?.emit('cz:kick', { type: 'propose', playerId: String(playerId) }, (ack) => {
-        if (!ack.ok) setKickError(ack.error ?? 'Impossible');
-      });
-    },
-    [socket]
+    (playerId: string | number) => kick({ type: 'propose', playerId: String(playerId) }),
+    [kick]
   );
-
-  const voteKick = useCallback(
-    (yes: boolean) => {
-      setKickError(null);
-      socket?.emit('cz:kick', { type: 'vote', yes }, (ack) => {
-        if (!ack.ok) setKickError(ack.error ?? 'Impossible');
-      });
-    },
-    [socket]
-  );
+  const voteKick = useCallback((yes: boolean) => kick({ type: 'vote', yes }), [kick]);
 
   /**
    * A raid is mostly other people's turns, which is exactly as long as a phone
    * waits before locking itself and taking the socket with it.
    */
-  useWakeLock(joined);
+  useWakeLock(view !== null);
 
   /**
    * Your turn, and the horde's, in the pocket.
@@ -220,19 +144,9 @@ export default function CoronaZPlayer() {
     if (phase === 'won' || phase === 'lost') forgetSeat('coronaz', code);
   }, [phase, code]);
 
-  const send = useCallback(
-    async (action: HeroAction): Promise<CzActionAck> => {
-      if (!socket) return { ok: false, error: t(msg('cz.play.offline')) };
-      try {
-        return (await socket.timeout(5000).emitWithAck('cz:action', action)) as CzActionAck;
-      } catch {
-        return { ok: false, error: t(msg('cz.play.serverQuiet')) };
-      }
-    },
-    [socket, t]
-  );
+  const sendAction = useCallback((action: HeroAction): Promise<ActionAnswer> => call('cz:action', action), [call]);
 
-  if (!connected) {
+  if (status === 'connecting') {
     return (
       <div className="jeu-screen jeu-center">
         <Loading label={t(msg('cz.play.connecting'))} />
@@ -240,41 +154,19 @@ export default function CoronaZPlayer() {
     );
   }
 
-  if (!joined) {
+  if (status !== 'seated' && !view) {
     return (
       <div className="jeu-screen jeu-center">
-        <form
-          className="join-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void join(name, password);
-          }}
+        <JoinForm
+          draft={draft}
+          status={status}
+          error={error}
+          join={join}
+          nameLabel={t(msg('cz.play.yourName'))}
+          submitLabel={t(msg('cz.play.join'))}
         >
           <h1 className="join-title">CoronaZ · {code}</h1>
-          <Input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder={t(msg('cz.play.yourName'))}
-            maxLength={NICKNAME_MAX}
-            aria-label={t(msg('cz.play.yourName'))}
-            autoFocus={!locked}
-          />
-          {locked && (
-            <Input
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder={t(msg('room.asked'))}
-              maxLength={40}
-              aria-label={t(msg('room.asked'))}
-              autoComplete="off"
-              autoFocus
-            />
-          )}
-          {joinError && <p className="play-error">{joinError}</p>}
-          <Button type="submit" variant="primary" size="lg" block busy={busy} disabled={!name.trim()}>
-            {t(msg('cz.play.join'))}
-          </Button>
-        </form>
+        </JoinForm>
       </div>
     );
   }
@@ -287,7 +179,7 @@ export default function CoronaZPlayer() {
     );
   }
 
-  const myId = localStorage.getItem(`${tokenKey}.id`);
+  const myId = grant?.playerId ?? null;
   const me = view.heroes.find((hero) => hero.playerId === myId);
   // Present when this very device created the game: solo play needs no TV, so
   // the creator's phone or PC carries the host powers into the player screen.
@@ -298,7 +190,8 @@ export default function CoronaZPlayer() {
       <LobbyScreen
         view={view}
         myId={myId}
-        socket={socket}
+        call={call}
+        send={send}
         hostToken={hostToken}
         career={career}
         account={account}
@@ -316,7 +209,7 @@ export default function CoronaZPlayer() {
           meId={myId}
           // Solo or TV-less: this device created the raid, so it can start the next
           // one without anybody walking back through setup.
-          onRematch={hostToken ? () => socket?.emit('cz:rematch', { hostToken }) : undefined}
+          onRematch={hostToken ? () => send('cz:rematch', { hostToken }) : undefined}
           /* The way out is QuickEnd's below, so there are not two of them. */
         />
         {/**
@@ -351,32 +244,11 @@ export default function CoronaZPlayer() {
       */}
       {pause.paused && (
         <PauseOverlay
-          waitingFor={pause.waitingFor.map((seat) => ({
-            label: seat.name,
-            id: seat.playerId,
-            awayMs: seat.awayMs
-          }))}
-          expiresAt={pause.pauseExpiresAt}
-          resumesAt={pause.resumesAt}
-          kickable={pause.waitingFor
-            .filter((seat) => pause.kickablePlayerIds.includes(seat.playerId))
-            .map((seat) => ({ label: seat.name, id: seat.playerId, awayMs: seat.awayMs }))}
-          vote={
-            pause.vote
-              ? {
-                  label: pause.vote.name,
-                  closesAt: pause.vote.closesAt,
-                  yes: pause.vote.yes,
-                  no: pause.vote.no,
-                  needed: pause.vote.needed,
-                  mine: pause.vote.mine
-                }
-              : null
-          }
+          pause={pause}
           serverNow={serverNow}
           onPropose={proposeKick}
           onVote={voteKick}
-          error={kickError}
+          error={kickError && t(kickError)}
         />
       )}
       <PlayScreen
@@ -384,8 +256,8 @@ export default function CoronaZPlayer() {
         me={me}
         myId={myId ?? ''}
         serverNow={serverNow}
-        send={send}
-        say={(text) => socket?.emit('cz:say', { text }, () => undefined)}
+        send={sendAction}
+        say={(text) => void call('cz:say', { text })}
         error={error}
       />
     </>
@@ -395,7 +267,8 @@ export default function CoronaZPlayer() {
 function LobbyScreen({
   view,
   myId,
-  socket,
+  call,
+  send,
   hostToken,
   career,
   account,
@@ -403,11 +276,13 @@ function LobbyScreen({
 }: {
   view: CzView;
   myId: string | null;
-  socket: ReturnType<typeof useCzSocket>['socket'];
+  /** The seat's own `call` and `send`; the lobby's choices ride on the same line. */
+  call: CzSeat['call'];
+  send: CzSeat['send'];
   hostToken: string;
-  career: { rations: number; unlockedHeroes: string[] } | null;
+  career: Career | null;
   account: string | null;
-  onCareer: (next: { rations: number; unlockedHeroes: string[] }) => void;
+  onCareer: (next: Career) => void;
 }) {
   const t = useT();
   const mine = view.heroes.find((hero) => hero.playerId === myId);
@@ -438,13 +313,13 @@ function LobbyScreen({
         rations={career?.rations ?? null}
         biome={view.biome}
         loadout={mine?.loadout ?? []}
-        onPick={(heroId) => socket?.emit('cz:selectHero', { heroId }, () => undefined)}
+        onPick={(heroId) => void call('cz:selectHero', { heroId })}
         onUnlock={(heroId) =>
-          socket?.emit('cz:unlockHero', { heroId }, (ack) => {
-            if (ack.ok && ack.career) onCareer(ack.career);
+          void call('cz:unlockHero', { heroId }).then((answer) => {
+            if (answer.ok && answer.career) onCareer(answer.career);
           })
         }
-        onLoadout={(perks) => socket?.emit('cz:loadout', { perks }, () => undefined)}
+        onLoadout={(perks) => void call('cz:loadout', { perks })}
       />
 
       {/* The table's own handicap. Any player may toggle one: the people who will
@@ -462,15 +337,11 @@ function LobbyScreen({
                 type="button"
                 className={`cz-perk ${taken ? 'picked' : ''}`}
                 onClick={() =>
-                  socket?.emit(
-                    'cz:mutations',
-                    {
-                      mutations: taken
-                        ? view.mutations.filter((id) => id !== mutation.id)
-                        : [...view.mutations, mutation.id]
-                    },
-                    () => undefined
-                  )
+                  void call('cz:mutations', {
+                    mutations: taken
+                      ? view.mutations.filter((id) => id !== mutation.id)
+                      : [...view.mutations, mutation.id]
+                  })
                 }
               >
                 {mutation.emoji} {t(msg(mutation.name))} · {t(msg(mutation.blurb))}{' '}
@@ -490,7 +361,7 @@ function LobbyScreen({
               const meta = czPerkMeta(perk);
               return (
                 <span className="play-note" key={perk}>
-                  {meta.emoji} {t(msg(meta.labelKey))}
+                  {meta.emoji} {t(meta.label)}
                 </span>
               );
             })}
@@ -506,20 +377,20 @@ function LobbyScreen({
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => socket?.emit('cz:addBot', { hostToken, skill: 'expert' }, () => undefined)}
+                  onClick={() => void call('cz:addBot', { hostToken, skill: 'expert' })}
                 >
                   {t(msg('cz.play.botExpert'))}
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => socket?.emit('cz:addBot', { hostToken, skill: 'newbie' }, () => undefined)}
+                  onClick={() => void call('cz:addBot', { hostToken, skill: 'newbie' })}
                 >
                   {t(msg('cz.play.botNewbie'))}
                 </Button>
               </>
             )}
-            <Button variant="primary" size="lg" onClick={() => socket?.emit('cz:start', { hostToken })}>
+            <Button variant="primary" size="lg" onClick={() => send('cz:start', { hostToken })}>
               {t(msg('cz.play.start'))}
             </Button>
           </div>
@@ -544,13 +415,13 @@ function PlayScreen({
   me: CzView['heroes'][number];
   myId: string;
   serverNow: () => number;
-  send: (action: HeroAction) => Promise<CzActionAck>;
+  send: (action: HeroAction) => Promise<ActionAnswer>;
   say: (text: string) => void;
-  error: string | null;
+  error: Msg | null;
 }) {
   const t = useT();
   const remaining = useCountdown(view.phaseEndsAt, serverNow);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<Msg | null>(null);
   const [loot, setLoot] = useState<ItemInstance | null>(null);
   const [attackTarget, setAttackTarget] = useState<string | null>(null);
   const [bagOpen, setBagOpen] = useState(false);
@@ -567,7 +438,7 @@ function PlayScreen({
 
   async function act(action: HeroAction) {
     const result = await send(action);
-    setFeedback(result.ok ? null : (result.error ?? 'Impossible'));
+    setFeedback(result.ok ? null : (result.error ?? msg('mafia.refuse.impossible')));
     // A search finds one; a corpse can drop one. Same toast, same one-tap equip.
     if (result.loot) setLoot(result.loot);
 
@@ -585,11 +456,12 @@ function PlayScreen({
     return result;
   }
 
-  /** Rooms one doorway or archway away: the tap-to-move surface. */
-  const adjacent = new Set<string>();
-  if (myTurn && me.ap > 0 && room) {
-    for (const next of neighbourRooms(view, room)) adjacent.add(next.id);
-  }
+  /**
+   * Where a tap may move this survivor: the tap-to-move surface. The engine's
+   * own answer (`reach.moves`), so a runner is offered her two-room sprint and
+   * nobody is offered a door the server would refuse.
+   */
+  const adjacent = new Set<string>(myTurn && me.ap > 0 ? (inventory?.reach.moves ?? []) : []);
 
   /**
    * The creatures a tap would actually hit: the attack's missing affordance.
@@ -614,35 +486,9 @@ function PlayScreen({
    * machete against something two rooms away and let the server refuse it.
    */
   const reachByHand = new Map<0 | 1, Set<string>>();
-  if (myTurn && me.ap > 0 && room) {
-    const ability = heroDef(me.heroId).ability;
-    const held: [ItemInstance | null, ItemInstance | null] = [
-      inventory?.hands[0] ?? null,
-      inventory?.hands[1] ?? null
-    ];
-
-    for (const hand of [0, 1] as const) {
-      const item = held[hand];
-      const def = item ? itemDef(item.def) : null;
-      // Bernard fights with what he was born with, so an empty hand still swings.
-      const weapon =
-        def?.weapon && item
-          ? weaponStats(def, item.rarity)
-          : !item && ability === 'brawler'
-            ? BARE_HANDS.weapon
-            : null;
-      if (!weapon) continue;
-
-      const rooms = new Set<string>();
-      if (weapon.melee) {
-        rooms.add(room.id);
-      } else {
-        for (const id of sightRooms(view, room.id, weapon.range + (ability === 'deadeye' ? 1 : 0)).keys()) {
-          rooms.add(id);
-        }
-      }
-      reachByHand.set(hand, rooms);
-    }
+  if (myTurn && me.ap > 0 && inventory) {
+    // The engine's own answer, per hand: Bernard's fists and Suzanne's eye included.
+    for (const hand of [0, 1] as const) reachByHand.set(hand, new Set(inventory.reach.attack[hand]));
   }
 
   const inReach = new Set<string>();
@@ -704,18 +550,18 @@ function PlayScreen({
     // Out of points used to be a silent no-op, which reads exactly like a broken
     // button. Anything a tap cannot do, it should say.
     if (me.ap <= 0) {
-      setFeedback(t(msg('cz.play.noAp')));
+      setFeedback(msg('cz.play.noAp'));
       return;
     }
     const options = attackOptions(zombieId);
     if (options.length === 0) {
-      setFeedback(t(msg('cz.play.noWeapon')));
+      setFeedback(msg('cz.play.noWeapon'));
       return;
     }
     const usable = options.filter((option) => option.usable);
     if (usable.length === 0) {
       // Say the reason the engine would have given, without spending the trip.
-      setFeedback(t(options[0].why ?? msg('cz.play.noWeapon')));
+      setFeedback(options[0].why ?? msg('cz.play.noWeapon'));
       return;
     }
     if (usable.length === 1 && usable[0]) {
@@ -904,8 +750,8 @@ function PlayScreen({
           <InventorySheet view={view} me={me} inventory={inventory} act={(action) => void act(action)} />
         )}
 
-        {feedback && <p className="play-error">{feedback}</p>}
-        {error && <p className="play-error">{error}</p>}
+        {feedback && <p className="play-error">{t(feedback)}</p>}
+        {error && <p className="play-error">{t(error)}</p>}
       </div>
     </div>
   );

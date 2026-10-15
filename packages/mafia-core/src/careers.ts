@@ -23,6 +23,8 @@
  *    that never dropped is worse than no bar.
  */
 
+import type { MsgKey } from 'i18n';
+
 /** Lifetime tallies for one nickname, the substrate every badge reads. */
 export interface MafiaCareerStats {
   /** Spendable balance, and the only number the shop touches. */
@@ -52,14 +54,14 @@ export interface MafiaBadgeDef {
    * a way "68%" is not. The unit is a catalogue key rather than a word, because the
    * server owns the number and the client owns the noun.
    */
-  progress: (stats: MafiaCareerStats) => { current: number; target: number; unit: string };
+  progress: (stats: MafiaCareerStats) => { current: number; target: number; unit: MsgKey };
 }
 
 /** The common shape: a tally that climbs to a threshold. */
 function count(
   of: (stats: MafiaCareerStats) => number,
   target: number,
-  unit: string
+  unit: MsgKey
 ): Pick<MafiaBadgeDef, 'earned' | 'progress'> {
   return {
     earned: (stats) => of(stats) >= target,
@@ -106,7 +108,7 @@ export interface MafiaBadgeProgress {
   current: number;
   target: number;
   /** Catalogue key for the noun, e.g. `mafia.unit.kills`. */
-  unit: string;
+  unit: MsgKey;
   /** This table moved the count, so the bar can say so. */
   moved: boolean;
 }

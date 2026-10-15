@@ -1,3 +1,5 @@
+import type { MsgKey } from 'i18n';
+
 import {
   edgeCode,
   edgeOfCode,
@@ -61,9 +63,9 @@ export interface Plan {
 
 export interface LayoutDef {
   id: string;
-  name: string;
+  name: MsgKey;
   /** One line for the setup screen. */
-  blurb: string;
+  blurb: MsgKey;
   plan: (rng: RngState, width: number, height: number) => Plan;
 }
 

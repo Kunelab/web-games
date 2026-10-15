@@ -1,11 +1,12 @@
-import type { Catalogue } from "../index.js";
+import type { TranslationOf } from "../index.js";
+import type { atelierEn } from "./atelier-en.js";
 
 /**
  * L’atelier, en français : la bibliothèque de choses à faire deviner, les
  * playlists qui les rangent, l’écran de lancement, et l’historique que chaque
  * soirée laisse derrière elle. Les originaux.
  */
-export const atelierFr: Catalogue = {
+export const atelierFr: TranslationOf<typeof atelierEn> = {
   /* ----------------------------- la bibliothèque ---------------------------- */
   "lib.title": "Bibliothèque",
   "lib.loading": "Chargement…",

@@ -37,6 +37,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { MafiaSetupChoice } from 'mafia-core';
 
 import type { MafiaManager as Manager } from '../mafia/manager.js';
+import { CodeRegistry } from '../tables/codes.js';
 
 function flag(name: string): string | null {
   const at = process.argv.indexOf(`--${name}`);
@@ -261,8 +262,9 @@ async function main(): Promise<void> {
     'utf8'
   );
 
-  const manager = new MafiaManager(log);
-  manager.startSweeping();
+  // One game in the process, so a registry of its own is the whole house.
+  const manager = new MafiaManager(log, { codes: new CodeRegistry() });
+  manager.tables.start();
   const rows: Row[] = [];
 
   for (const [index, template] of chosen.entries()) {
@@ -273,8 +275,7 @@ async function main(): Promise<void> {
 
     const state = manager.create({
       hostUserId: null,
-      config: { ...clocks, locale, setup: template.setup },
-      takenCodes: new Set()
+      config: { ...clocks, locale, setup: template.setup }
     });
     manager.addBots(state.code, template.seats);
     manager.start(state.code);
@@ -294,7 +295,7 @@ async function main(): Promise<void> {
      * manifest that does not exist on the run you most want to read.
      */
     await appendFile(join(runDir, 'manifest.jsonl'), `${JSON.stringify(row)}\n`, 'utf8');
-    await manager.destroy(state.code);
+    await manager.tables.destroy(state.code);
   }
 
   manager.stopSweeping();
@@ -329,7 +330,7 @@ function play(manager: Manager, code: string, template: Template, startedAt: num
 
   return new Promise<Row>((done) => {
     const watcher = setInterval(() => {
-      const current = manager.get(code);
+      const current = manager.tables.get(code);
       const wallSeconds = Math.round((Date.now() - startedAt) / 1000);
 
       if (!current) {
@@ -352,7 +353,7 @@ function play(manager: Manager, code: string, template: Template, startedAt: num
   });
 }
 
-type Final = ReturnType<Manager['get']>;
+type Final = ReturnType<Manager['tables']['get']>;
 
 function shape(
   template: Template,

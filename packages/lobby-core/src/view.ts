@@ -1,4 +1,4 @@
-import type { Msg } from 'i18n';
+import type { Msg, MsgKey } from 'i18n';
 
 import {
   quickBotsAllowed,
@@ -32,7 +32,7 @@ export interface QuickMemberView {
 export interface QuickChoiceView {
   value: string;
   /** A catalogue key; `text` overrides it for player-written names. */
-  label: string;
+  label: MsgKey;
   text?: string;
   votes: number;
 }
@@ -40,8 +40,8 @@ export interface QuickChoiceView {
 export interface QuickOptionView {
   key: string;
   /** Catalogue keys, resolved by whoever is reading. */
-  label: string;
-  hint?: string;
+  label: MsgKey;
+  hint?: MsgKey;
   /** The value that would be used if the game started now. */
   value: string;
   choices: QuickChoiceView[];

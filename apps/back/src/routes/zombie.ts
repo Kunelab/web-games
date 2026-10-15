@@ -30,7 +30,6 @@ const zombieRoutes: FastifyPluginAsyncZod = async (app) => {
       const state = await app.cz.create({
         hostUserId: request.currentUser.id,
         config: request.body.config ?? {},
-        quizCodes: app.games.activeCodes(),
         seed: request.body.seed,
         gmLoadout: request.body.gmLoadout
       });
@@ -48,7 +47,7 @@ const zombieRoutes: FastifyPluginAsyncZod = async (app) => {
     '/zombie/sessions/:code',
     { schema: { params: z.object({ code: z.string().min(1).max(16) }) } },
     async (request) => {
-      const state = app.cz.get(request.params.code.trim().toUpperCase());
+      const state = app.cz.tables.get(request.params.code.trim().toUpperCase());
       if (!state) {
         throw app.httpErrors.notFound('Aucune partie avec ce code');
       }
@@ -69,14 +68,14 @@ const zombieRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: { params: z.object({ code: z.string().min(1).max(16) }) }
     },
     async (request, reply) => {
-      const state = app.cz.get(request.params.code.trim().toUpperCase());
+      const state = app.cz.tables.get(request.params.code.trim().toUpperCase());
       if (!state) {
         throw app.httpErrors.notFound('Aucune partie avec ce code');
       }
       if (state.hostUserId !== request.currentUser.id) {
         throw app.httpErrors.forbidden("Cette partie n'est pas la vôtre");
       }
-      await app.cz.destroy(state.code);
+      await app.cz.tables.destroy(state.code);
       return reply.code(204).send();
     }
   );
@@ -85,8 +84,8 @@ const zombieRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/zombie/mine', { preHandler: app.requireAuth }, async (request) => {
     const mine: { code: string; hostToken: string; gmToken?: string; phase: string; scenario: string }[] = [];
 
-    for (const code of app.cz.activeCodes()) {
-      const state = app.cz.get(code);
+    for (const code of app.cz.tables.codes()) {
+      const state = app.cz.tables.get(code);
       if (state?.hostUserId === request.currentUser.id) {
         mine.push({
           code: state.code,

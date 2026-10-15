@@ -1,4 +1,4 @@
-import { msg } from 'i18n';
+import { msg, type MsgKey } from 'i18n';
 import {
   DndContext,
   KeyboardSensor,
@@ -24,7 +24,7 @@ import {
 } from '../api/client';
 import { isAdmin, useAuth } from '../hooks/useAuth';
 import { useT } from '../i18n/locale-context';
-import { kindColor, kindKey } from '../app/kinds';
+import { kindColor, kindName } from '../app/kinds';
 import { useAsync } from '../hooks/useAsync';
 import { Badge, Button, Chip, Dialog, Field, IconButton, Input, Loading, Select, Switch } from '../ui';
 import './library.css';
@@ -56,7 +56,7 @@ function PlaylistPreview({ playlist }: { playlist: Playlist }) {
           {items.map((item) => (
             <li className="pl-row" key={item.id}>
               <span className="pl-row-title">{item.title}</span>
-              <Badge>{t(msg(kindKey(item.kind)))}</Badge>
+              <Badge>{t(kindName(item.kind))}</Badge>
             </li>
           ))}
         </ul>
@@ -196,14 +196,14 @@ interface DuplicateInfo {
 
 const DUPLICATE_RANK: Record<DuplicateReason, number> = { 'same-video': 0, 'same-track': 1, similar: 2 };
 
-function duplicateReasonKey(reason: DuplicateReason): string {
+function duplicateReasonKey(reason: DuplicateReason): MsgKey {
   if (reason === 'same-video') return 'ple.duplicate.sameVideo';
   if (reason === 'same-track') return 'ple.duplicate.sameTrack';
   return 'ple.duplicate.similar';
 }
 
 /** Why an entry's genre is in question, as the dialog says it. */
-const GENRE_REASON_KEYS: Record<GenreFlagReason, string> = {
+const GENRE_REASON_KEYS: Record<GenreFlagReason, MsgKey> = {
   'unknown-genre': 'ple.genre.unknownGenre',
   'wrong-shape': 'ple.genre.wrongShape',
   'label-disagrees': 'ple.genre.labelDisagrees',
@@ -716,7 +716,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                   dotColor={kindColor(kind)}
                   onClick={() => setKindFilter(kindFilter === kind ? '' : kind)}
                 >
-                  {t(msg(kindKey(kind)))}
+                  {t(kindName(kind))}
                 </Chip>
               ))}
             </div>
@@ -754,7 +754,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                   <span className="pl-item-main">
                     <span className="pl-item-title">{item.title}</span>
                     <span className="pl-item-meta">
-                      {t(msg(kindKey(item.kind)))}
+                      {t(kindName(item.kind))}
                       {item.category ? ` · ${item.category}` : ''}
                       {!item.readiness.ready && t(msg('ple.unfinishedMeta'))}
                     </span>
@@ -917,7 +917,7 @@ function SortableRow({
           {index + 1}. {item.title}
         </span>
         <span className="pl-item-meta">
-          {t(msg(kindKey(item.kind)))}
+          {t(kindName(item.kind))}
           {categoryLabel ? ` · ${categoryLabel}` : shownCategory ? ` · ${shownCategory}` : ''}
         </span>
       </span>

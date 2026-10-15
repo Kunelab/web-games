@@ -1,37 +1,44 @@
 import {
+  ACTION,
   needsSecondTarget,
+  ROLE,
   ROLES,
   SELF_FIRES,
+  SLOT,
   slotFaction,
   slotPool,
   WILL_MAX_CHARS,
   type Faction,
   type MafiaChannelKind,
+  type MafiaClientToServer,
   type MafiaView,
   type MafiaPublicPlayer,
   type MafiaViewMe,
   type RoleId,
   type SlotToken
 } from 'mafia-core';
-import { msg, type Msg } from 'i18n';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { msg, type Msg, type MsgKey } from 'i18n';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 import { api } from '../../api/client';
 import { mafiaBadgeMeta } from '../../app/mafiaBadges';
 import { ChatPanel } from '../../components/chat/ChatPanel';
 import { PauseOverlay, RecoveringMark } from '../../components/presence/PauseOverlay';
-import { useHeartbeat } from '../../hooks/useHeartbeat';
-import { useMafiaSocket } from '../../hooks/useMafiaSocket';
+import { useMafiaFeed } from '../../hooks/useMafiaFeed';
 import { useCountdown } from '../../hooks/useServerClock';
 import { useWakeLock } from '../../hooks/useWakeLock';
+import { JoinForm } from '../../seat/JoinForm';
+import { useJoinDraft } from '../../seat/useJoinDraft';
+import { mafiaSeat } from '../../seat/protocols';
+import type { Asked } from '../../seat/seat';
+import { useSeat } from '../../seat/useSeat';
 import { buzz } from '../../tools/haptics';
 import { mafiaKeys } from '../../tools/mafiaKeys';
-import { rememberNickname, storedNickname } from '../../tools/nickname';
-import { noteSeat, forgetSeat } from '../../tools/seats';
+import { forgetSeat } from '../../tools/seats';
 import { authorColour } from '../../ui/authorHue';
 import { cx } from '../../ui/cx';
-import { Button, Field, Input, Loading } from '../../ui';
+import { Button, Loading } from '../../ui';
 import { QuickEnd } from '../../ui/QuickEnd';
 import { Rewards } from '../../ui/Rewards';
 
@@ -69,20 +76,41 @@ import './mafia.css';
  * the creator plays like everybody else, there is no separate console.
  */
 
-/**
- * The three badges that hold somebody overnight, as the screen sees them.
- *
- * Mirrors `KEEPER_ROLES` in the engine. Written as ids rather than imported as
- * the set because this file speaks in `me.role.id`, and the two are checked
- * against each other by the engine's own tests: a keeper the screen does not
- * know about is a keeper with no way to pick anybody.
- */
-const KEEPER_IDS = new Set<string>(['jailor', 'kidnapper', 'interrogator']);
-
 /** Not every night power names a person; these are aimed at your own house. */
 function selfOnly(me: MafiaViewMe): boolean {
   return !!me.action && me.action.targets.length === 0;
 }
+
+type Power = NonNullable<MafiaViewMe['action']>['type'];
+
+/**
+ * The same two powers, by name rather than by shape: the alert and the vest.
+ *
+ * `selfOnly` finds them by what the engine offers (no house to pick), which is
+ * what the rows need. This names them, which is what the compiler needs: they
+ * are the only powers with a spent, an armed and an unarmed line, so a key built
+ * from `me.action.type` is only a key once the type is narrowed to these two.
+ */
+function isSelfPower(type: Power): type is 'alert' | 'vest' {
+  return type === 'alert' || type === 'vest';
+}
+
+/** `in` checks the key and narrows nothing; a role-list token is a role or a category. */
+function isRoleToken(token: SlotToken): token is RoleId {
+  return token in ROLES;
+}
+
+/**
+ * One move this phone can make: an acknowledged event, and the payload that event takes.
+ *
+ * A union of pairs rather than a generic over the event, so that inside `act` the
+ * answer is already one of the real answers and can go straight to `fail`; a
+ * generic leaves it waiting on which event it was, which the compiler cannot
+ * check against anything.
+ */
+type MafiaMove = {
+  [E in Asked<MafiaClientToServer>]: [event: E, payload: Parameters<MafiaClientToServer[E]>[0]];
+}[Asked<MafiaClientToServer>];
 
 interface RowAction {
   label: string;
@@ -168,33 +196,20 @@ const slotCamp = (token: SlotToken): string => slotFaction(token) ?? 'hidden';
 export default function MafiaPlayer() {
   const { code: rawCode } = useParams();
   const code = (rawCode ?? '').toUpperCase();
-  const { socket, connected, view, messages, rewards, busy, error, serverNow, applyView } = useMafiaSocket();
   const { t, locale } = useLocale();
+  /**
+   * The seat, presented with this phone's language: the server records it, and
+   * it is what the bots answer a solo player in. Switching language while seated
+   * presents the seat again, which is how they learn the new one.
+   */
+  const seat = useSeat(mafiaSeat, code, locale);
+  const draft = useJoinDraft();
+  const { status, view, error, join, call, send, serverNow } = seat;
+  const { messages, rewards, busy } = useMafiaFeed(seat);
 
   /** Sugar: almost every string on this screen is a key with no parameters. */
-  const tk = useCallback((key: string, params?: Record<string, string | number | Msg>) => t(msg(key, params)), [t]);
+  const tk = useCallback((key: MsgKey, params?: Record<string, string | number | Msg>) => t(msg(key, params)), [t]);
 
-  /**
-   * The seat's own name first, then the one this phone plays under generally.
-   *
-   * The per-code name is the authority when there is one, because it is what the
-   * server has on the seat and a silent rejoin has to match it. The shared
-   * nickname is what fills the box the *first* time this phone meets this code,
-   * which is the whole point: a player types their name once, not once per game
-   * and again per evening.
-   */
-  const [name, setName] = useState(() => localStorage.getItem(mafiaKeys.name(code)) ?? storedNickname());
-  const [joining, setJoining] = useState(false);
-  const [joinError, setJoinError] = useState<string | null>(null);
-  /**
-   * The word at the door, and whether this table has one.
-   *
-   * Raised by the server's refusal rather than asked up front: most tables have
-   * no door, and a password box on every join screen is a question almost nobody
-   * has an answer to. See `MafiaJoinAck.needsPassword`.
-   */
-  const [password, setPassword] = useState('');
-  const [locked, setLocked] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [jailMode, setJailMode] = useState(false);
   /**
@@ -260,61 +275,32 @@ export default function MafiaPlayer() {
   const navigate = useNavigate();
   const hostToken = sessionStorage.getItem(mafiaKeys.host(code));
 
-  /**
-   * Reclaims the seat with the stored token, on a refresh and on every reconnect.
-   *
-   * The connection is not the seat. A socket that drops and comes back past
-   * socket.io's recovery window is a new connection as far as the server is
-   * concerned, so it no longer knows which table this phone belongs to: the token
-   * has to be re-presented, or the seat is silently detached — receiving no state
-   * and able to do nothing. This used to be gated on `!view`, so it ran on a
-   * refresh and never on a reconnect, which is the one case it exists for.
-   */
-  const reclaim = useCallback(() => {
-    const token = localStorage.getItem(mafiaKeys.token(code));
-    const storedName = localStorage.getItem(mafiaKeys.name(code));
-    if (!socket || !token || !storedName) return;
-    socket.emit('mafia:join', { code, name: storedName, playerToken: token, locale }, (ack) => {
-      if (ack.ok && ack.view) applyView(ack.view);
-      // The room voted to carry on without this phone: the token is spent, and
-      // saying so beats a screen that silently never updates again.
-      else if (ack.error) setJoinError(t(ack.error));
-    });
-  }, [socket, code, locale, applyView, t]);
-
-  useEffect(() => {
-    if (!socket || !connected) return;
-    reclaim();
-  }, [socket, connected, reclaim]);
+  /** Shows the server's refusal under the controls, or clears the last one once a move lands. */
+  const fail = useCallback(
+    (answer: { ok: boolean; error?: Msg }) => {
+      if (!answer.ok) setActionError(answer.error ? t(answer.error) : tk('mafia.refuse.impossible'));
+      else setActionError(null);
+    },
+    [t, tk]
+  );
 
   /**
-   * The heartbeat, and the resync that rides with it.
-   *
-   * Seated phones only: a screen with no seat has no presence to report. See
-   * `useHeartbeat` for why an open socket is not the same as a present player.
+   * Makes a move and reports how it went, which is all almost every button here
+   * does with the answer. The one that also acts on success (a whisper empties
+   * its box) calls the seat itself.
    */
-  const beat = useCallback(() => socket?.emit('mafia:beat'), [socket]);
-  useHeartbeat({ connected, seated: view?.me != null, beat, onReconnect: reclaim });
+  const act = useCallback(
+    (...[event, payload]: MafiaMove) => {
+      void call(event, payload).then(fail);
+    },
+    [call, fail]
+  );
 
   const proposeKick = useCallback(
-    (slot: string | number) => {
-      setActionError(null);
-      socket?.emit('mafia:kick', { type: 'propose', targetSlot: Number(slot) }, (ack) => {
-        if (!ack.ok) setActionError(t(ack.error));
-      });
-    },
-    [socket, t]
+    (slot: string | number) => act('mafia:kick', { type: 'propose', targetSlot: Number(slot) }),
+    [act]
   );
-
-  const voteKick = useCallback(
-    (yes: boolean) => {
-      setActionError(null);
-      socket?.emit('mafia:kick', { type: 'vote', yes }, (ack) => {
-        if (!ack.ok) setActionError(t(ack.error));
-      });
-    },
-    [socket, t]
-  );
+  const voteKick = useCallback((yes: boolean) => act('mafia:kick', { type: 'vote', yes }), [act]);
 
   /**
    * The wallet's local mirror, so an anonymous phone can show its balance.
@@ -370,37 +356,20 @@ export default function MafiaPlayer() {
     if (seenAlive === true && myAlive === false) setHurt((count) => count + 1);
   }
 
-  function join(event: FormEvent) {
-    event.preventDefault();
-    if (!socket || !name.trim()) return;
-    setJoining(true);
-    setJoinError(null);
-    socket.emit('mafia:join', { code, name: name.trim(), locale, password }, (ack) => {
-      setJoining(false);
-      if (!ack.ok || !ack.view) {
-        // The table says it has a door here and nowhere earlier, which is what
-        // makes the field appear. It stays up once raised.
-        if (ack.needsPassword) setLocked(true);
-        setJoinError(ack.error ? t(ack.error) : tk('mafia.ui.joinFailed'));
-        return;
-      }
-      localStorage.setItem(mafiaKeys.token(code), ack.playerToken ?? '');
-      localStorage.setItem(mafiaKeys.name(code), name.trim());
-      rememberNickname(name);
-      noteSeat('mafia', code, name.trim());
-      buzz('joined');
-      applyView(ack.view);
+  /** Only a seat taken by hand buzzes: a silent reclaim is not news. */
+  const takeSeat = (name: string, password: string) =>
+    join(name, password).then((granted) => {
+      if (granted) buzz('joined');
     });
-  }
 
   const me = view?.me ?? null;
   const isNight = view?.phase === 'night';
   const inDiscussion = view?.phase === 'day' && view.stage === 'discussion';
-  /** The whole day, trial included: the cell is picked in daylight. See `jailTarget`. */
-  const inDay = view?.phase === 'day';
   const inJudgement = view?.phase === 'day' && view.stage === 'judgement';
   const inDefense = view?.phase === 'day' && view.stage === 'defense';
-  const canVote = inDiscussion && (view?.day ?? 0) > 1;
+  /** This seat's ballot as the engine offers it: null on day one, dead, or outside the discussion. */
+  const ballot = me?.day.vote ?? null;
+  const canVote = inDiscussion && ballot !== null;
 
   /**
    * The screen stays lit for as long as there is a seat on it.
@@ -473,7 +442,7 @@ export default function MafiaPlayer() {
    * time, so this was the only half of the rule keeping its own clock.
    */
   const [now, setNow] = useState(() => serverNow());
-  const opensAt = canVote ? (view?.voteOpensAt ?? null) : null;
+  const opensAt = ballot?.opensAt ?? null;
   useEffect(() => {
     if (opensAt === null || serverNow() >= opensAt) return;
     /**
@@ -512,11 +481,6 @@ export default function MafiaPlayer() {
   const ballotOpensIn =
     opensAt === null ? 0 : Math.max(0, Math.ceil((opensAt - Math.max(now, serverNow())) / 1000));
 
-  const fail = (ack: { ok: boolean; error?: Msg }) => {
-    if (!ack.ok) setActionError(ack.error ? t(ack.error) : tk('mafia.refuse.impossible'));
-    else setActionError(null);
-  };
-
   /**
    * What the button on one player's row says and does, right now.
    *
@@ -525,11 +489,10 @@ export default function MafiaPlayer() {
    * own power rather than from a generic "confirm".
    */
   function rowAction(player: MafiaPublicPlayer): RowAction | null {
-    if (!socket || !me?.alive || !player.alive) return null;
+    if (!me?.alive || !player.alive) return null;
 
     if (isNight) {
       if (!me.action || me.jailed) return null;
-      const twoStep = needsSecondTarget(me.action.type);
 
       /**
        * A Witch and a Bus Driver are asked twice, on the same list of houses.
@@ -540,7 +503,7 @@ export default function MafiaPlayer() {
        * row that was picked first stays on screen wearing ① so the order is
        * legible while it is being built, and tapping it backs out.
        */
-      if (twoStep) {
+      if (needsSecondTarget(me.action.type)) {
         const submitted = me.actionTargetSlot !== null;
         if (submitted) {
           const isFirst = me.actionTargetSlot === player.slot;
@@ -551,7 +514,7 @@ export default function MafiaPlayer() {
             chosen: true,
             run: () => {
               setPendingFirst(null);
-              socket.emit('mafia:action', { targetSlot: null }, fail);
+              act('mafia:action', { targetSlot: null });
             }
           };
         }
@@ -575,7 +538,7 @@ export default function MafiaPlayer() {
           chosen: false,
           run: () => {
             setPendingFirst(null);
-            socket.emit('mafia:action', { targetSlot: first, secondTargetSlot: player.slot }, fail);
+            act('mafia:action', { targetSlot: first, secondTargetSlot: player.slot });
           }
         };
       }
@@ -595,7 +558,7 @@ export default function MafiaPlayer() {
        * fix — the charge count was on the role card the whole time, behind an
        * icon nobody opens while the clock is running.
        */
-      if (mine && me.action.charges === 0) {
+      if (mine && me.action.charges === 0 && isSelfPower(me.action.type)) {
         return {
           label: tk(`mafia.ui.spent.${me.action.type}`),
           chosen: false,
@@ -608,11 +571,11 @@ export default function MafiaPlayer() {
       // Pointing the match at your own house is a different sentence from
       // pointing it at somebody else's.
       const self = player.slot === me.slot && !!SELF_FIRES[me.action.type];
-      const verb = tk(self ? `mafia.action.${me.action.type}.self` : `mafia.action.${me.action.type}`);
+      const verb = t(ACTION(me.action.type, self));
       return {
         label: chosen ? tk('mafia.ui.cancel') : verb,
         chosen,
-        run: () => socket.emit('mafia:action', { targetSlot: chosen ? null : player.slot }, fail)
+        run: () => act('mafia:action', { targetSlot: chosen ? null : player.slot })
       };
     }
 
@@ -627,13 +590,15 @@ export default function MafiaPlayer() {
      * offered nothing. The engine never had the rule; `jailTarget` asks only
      * that it is daytime.
      */
-    if (inDay && jailMode && KEEPER_IDS.has(me.role?.id ?? '')) {
-      if (player.slot === me.slot) return null;
+    const cells = me.day.jail;
+    if (jailMode && cells) {
+      // Only a cell the engine will fill: not yours, and not another keeper's.
+      if (!cells.targets.includes(player.slot)) return null;
       const chosen = me.jailTargetSlot === player.slot;
       return {
         label: chosen ? tk('mafia.ui.release') : tk('mafia.ui.jail'),
         chosen,
-        run: () => socket.emit('mafia:dayAction', { type: 'jail', targetSlot: chosen ? null : player.slot }, fail)
+        run: () => act('mafia:dayAction', { type: 'jail', targetSlot: chosen ? null : player.slot })
       };
     }
 
@@ -666,9 +631,10 @@ export default function MafiaPlayer() {
             ? `✓ ${tk('mafia.ui.skipTally', { count: view.skipVotes, needed: view.voteThreshold })}`
             : `⏭️ ${tk('mafia.ui.skip')}${view.skipVotes > 0 ? ` (${view.skipVotes}/${view.voteThreshold})` : ''}`,
           chosen: me.votedSkip,
-          run: () => socket.emit('mafia:vote', { targetSlot: me.votedSkip ? null : 'skip' }, fail)
+          run: () => act('mafia:vote', { targetSlot: me.votedSkip ? null : 'skip' })
         };
       }
+      if (!ballot?.targets.includes(player.slot)) return null;
       const chosen = me.voteTargetSlot === player.slot;
       /**
        * Withdrawing is always allowed; committing waits for the floor. The
@@ -685,7 +651,7 @@ export default function MafiaPlayer() {
       return {
         label: chosen ? tk('mafia.ui.withdraw') : tk('mafia.ui.accuse'),
         chosen,
-        run: () => socket.emit('mafia:vote', { targetSlot: chosen ? null : player.slot }, fail)
+        run: () => act('mafia:vote', { targetSlot: chosen ? null : player.slot })
       };
     }
 
@@ -762,10 +728,10 @@ export default function MafiaPlayer() {
      * this exists for.
      */
     const shownRoles = new Set<string>();
-    for (const [id, role] of Object.entries(ROLES)) {
+    for (const id of Object.keys(ROLES) as RoleId[]) {
       const shown = tk(`mafia.role.${id}.name`).trim();
       if (shown && shown !== `mafia.role.${id}.name`) {
-        roleCamp.set(shown.toLowerCase(), role.faction);
+        roleCamp.set(shown.toLowerCase(), ROLES[id].faction);
         shownRoles.add(shown);
       }
     }
@@ -827,7 +793,7 @@ export default function MafiaPlayer() {
     [messages, mine]
   );
 
-  if (!connected && !view) return <Loading />;
+  if (status === 'connecting' && !view) return <Loading />;
 
   /* ------------------------------- join gate ------------------------------- */
 
@@ -836,41 +802,17 @@ export default function MafiaPlayer() {
       <div className="mz-join">
         <h1 className="mz-join-title">{tk('mafia.ui.title')}</h1>
         <p className="mz-join-code">{tk('mafia.ui.table', { code })}</p>
-        {error && <p className="mz-error">{t(error)}</p>}
-        <form onSubmit={join} className="mz-join-form">
-          <Field label={tk('mafia.ui.yourName')}>
-            {({ id }) => (
-              <Input
-                id={id}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                maxLength={20}
-                // Once the table has asked for a word, that is the box the
-                // thumb wants: the name is already filled from last time.
-                autoFocus={!locked}
-              />
-            )}
-          </Field>
-          {locked && (
-            <Field label={tk('room.asked')} hint={tk('room.asked.hint')}>
-              {({ id, describedBy }) => (
-                <Input
-                  id={id}
-                  aria-describedby={describedBy}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  maxLength={40}
-                  autoComplete="off"
-                  autoFocus
-                />
-              )}
-            </Field>
-          )}
-          <Button type="submit" disabled={joining || !name.trim()}>
-            {joining ? tk('mafia.ui.connecting') : tk('mafia.ui.takeSeat')}
-          </Button>
-          {joinError && <p className="mz-error">{joinError}</p>}
-        </form>
+        <JoinForm
+          draft={draft}
+          look="mafia"
+          status={status}
+          error={error}
+          join={takeSeat}
+          nameLabel={tk('mafia.ui.yourName')}
+          // `mafiaJoinSchema` takes twenty characters, not the shared nickname's 24.
+          nameMax={20}
+          submitLabel={status === 'joining' ? tk('mafia.ui.connecting') : tk('mafia.ui.takeSeat')}
+        />
       </div>
     );
   }
@@ -899,32 +841,7 @@ export default function MafiaPlayer() {
       */}
       {pause.paused && (
         <PauseOverlay
-          waitingFor={pause.waitingFor.map((seat) => ({
-            label: tk('mafia.ui.seatLabel', { name: seat.name, slot: seat.slot }),
-            id: seat.slot,
-            awayMs: seat.awayMs
-          }))}
-          expiresAt={pause.pauseExpiresAt}
-          resumesAt={pause.resumesAt}
-          kickable={pause.waitingFor
-            .filter((seat) => pause.kickableSlots.includes(seat.slot))
-            .map((seat) => ({
-              label: tk('mafia.ui.seatLabel', { name: seat.name, slot: seat.slot }),
-              id: seat.slot,
-              awayMs: seat.awayMs
-            }))}
-          vote={
-            pause.vote
-              ? {
-                  label: tk('mafia.ui.seatLabel', { name: pause.vote.name, slot: pause.vote.slot }),
-                  closesAt: pause.vote.closesAt,
-                  yes: pause.vote.yes,
-                  no: pause.vote.no,
-                  needed: pause.vote.needed,
-                  mine: pause.vote.mine
-                }
-              : null
-          }
+          pause={pause}
           serverNow={serverNow}
           onPropose={proposeKick}
           onVote={voteKick}
@@ -1034,9 +951,7 @@ export default function MafiaPlayer() {
                   rows={5}
                 />
                 <div className="mz-row-actions">
-                  <Button onClick={() => socket?.emit('mafia:will', { text: will }, fail)}>
-                    {tk('mafia.ui.seal')}
-                  </Button>
+                  <Button onClick={() => act('mafia:will', { text: will })}>{tk('mafia.ui.seal')}</Button>
                   <Button variant="ghost" onClick={() => setWill(sealed)}>
                     {tk('mafia.ui.cancel')}
                   </Button>
@@ -1238,7 +1153,7 @@ export default function MafiaPlayer() {
                   </div>
                 )}
                 <button type="button" className={`mz-slot mz-slot--${currentCamp}`} onClick={() => setReading(token)}>
-                  {tk(token in ROLES ? `mafia.role.${token}.name` : `mafia.slot.${token}`)}
+                  {t(SLOT(token))}
                 </button>
               </span>
             );
@@ -1247,17 +1162,13 @@ export default function MafiaPlayer() {
       </aside>
 
       {reading && (
-        <FloatingPanel
-          title={tk(reading in ROLES ? `mafia.role.${reading}.name` : `mafia.slot.${reading}`)}
-          onClose={() => setReading(null)}
-          className="mz-panel--reading"
-        >
-          {reading in ROLES ? (
+        <FloatingPanel title={t(SLOT(reading))} onClose={() => setReading(null)} className="mz-panel--reading">
+          {isRoleToken(reading) ? (
             <>
               <p className={`mz-role-faction mz-role-faction--inline mz-fac--${slotCamp(reading)}`}>
-                {tk(`mafia.faction.${ROLES[reading as RoleId].faction}`)}
+                {tk(`mafia.faction.${ROLES[reading].faction}`)}
               </p>
-              <p className="mz-role-desc">{tk(`mafia.role.${reading}.desc`)}</p>
+              <p className="mz-role-desc">{t(ROLE.description(reading))}</p>
             </>
           ) : (
             <>
@@ -1338,12 +1249,12 @@ export default function MafiaPlayer() {
                     variant="ghost"
                     // One at a time: four was a guess at how many a table wants, and it
                     // overshoots the moment the answer is not a multiple of four.
-                    onClick={() => socket?.emit('mafia:addBots', { hostToken, count: 1 })}
+                    onClick={() => send('mafia:addBots', { hostToken, count: 1 })}
                     disabled={seats >= view.maxPlayers}
                   >
                     {tk('mafia.ui.lobby.addBots')}
                   </Button>
-                  <Button onClick={() => socket?.emit('mafia:start', { hostToken })} disabled={seats < view.minPlayers}>
+                  <Button onClick={() => send('mafia:start', { hostToken })} disabled={seats < view.minPlayers}>
                     {tk('mafia.ui.lobby.start')}
                   </Button>
                 </div>
@@ -1436,8 +1347,8 @@ export default function MafiaPlayer() {
                           <span className={`mz-fac mz-fac--${me.role.faction}`}> · {t(me.role.name)}</span>
                         )}
                         {/* Wobbling, not waited on: a mark, never an overlay. */}
-                        {view.presence.waitingFor.every((seat) => seat.slot !== player.slot) &&
-                          view.presence.recovering.some((seat) => seat.slot === player.slot) && (
+                        {view.presence.waitingFor.every((seat) => seat.ref !== player.slot) &&
+                          view.presence.recovering.some((seat) => seat.ref === player.slot) && (
                             <RecoveringMark label={player.name} />
                           )}
                       </span>
@@ -1454,7 +1365,7 @@ export default function MafiaPlayer() {
                           wearing the first vest, and printing it raw would
                           promise one more than you have.
                         */}
-                        {isMe && selfPower && me.action && (
+                        {isMe && selfPower && me.action && isSelfPower(me.action.type) && (
                           <span
                             className={cx('mz-armed', armed && 'mz-armed--on')}
                             aria-live="polite"
@@ -1610,21 +1521,21 @@ export default function MafiaPlayer() {
                   <button
                     type="button"
                     className={me.ballot === 'guilty' ? 'mz-guilty mz-cast' : 'mz-guilty'}
-                    onClick={() => socket?.emit('mafia:ballot', { verdict: 'guilty' }, fail)}
+                    onClick={() => act('mafia:ballot', { verdict: 'guilty' })}
                   >
                     {tk('mafia.ui.guilty')}
                   </button>
                   <button
                     type="button"
                     className={me.ballot === 'innocent' ? 'mz-innocent mz-cast' : 'mz-innocent'}
-                    onClick={() => socket?.emit('mafia:ballot', { verdict: 'innocent' }, fail)}
+                    onClick={() => act('mafia:ballot', { verdict: 'innocent' })}
                   >
                     {tk('mafia.ui.innocent')}
                   </button>
                   <button
                     type="button"
                     className="mz-abstain"
-                    onClick={() => socket?.emit('mafia:ballot', { verdict: 'abstain' }, fail)}
+                    onClick={() => act('mafia:ballot', { verdict: 'abstain' })}
                   >
                     {tk('mafia.ui.abstain')}
                   </button>
@@ -1660,7 +1571,7 @@ export default function MafiaPlayer() {
                   Ravisseur had no way to use its own role at all: no button
                   by day, and by night a cell it had never filled.
                 */}
-                {view.phase === 'day' && me.alive && KEEPER_IDS.has(me.role?.id ?? '') && (
+                {me.day.jail !== null && (
                   <Button variant="ghost" onClick={() => setJailMode((mode) => !mode)}>
                     {jailMode
                       ? tk('mafia.ui.backToAccusations')
@@ -1675,7 +1586,7 @@ export default function MafiaPlayer() {
                   me.alive &&
                   (me.role?.id === 'mayor' || me.role?.id === 'marshall') &&
                   !iAmRevealed && (
-                    <Button variant="ghost" onClick={() => socket?.emit('mafia:dayAction', { type: 'reveal' }, fail)}>
+                    <Button variant="ghost" onClick={() => act('mafia:dayAction', { type: 'reveal' })}>
                       {tk('mafia.ui.revealMayor')}
                     </Button>
                   )}
@@ -1694,7 +1605,7 @@ export default function MafiaPlayer() {
                     variant={courtAsked ? 'danger' : 'ghost'}
                     onClick={() => {
                       if (courtAsked) {
-                        socket?.emit('mafia:dayAction', { type: 'court' }, fail);
+                        act('mafia:dayAction', { type: 'court' });
                         setCourtAsked(false);
                       } else setCourtAsked(true);
                     }}
@@ -1723,13 +1634,15 @@ export default function MafiaPlayer() {
                       size="sm"
                       disabled={!whisperText.trim()}
                       onClick={() =>
-                        socket?.emit('mafia:whisper', { targetSlot: whisperTo, text: whisperText.trim() }, (ack) => {
-                          fail(ack);
-                          if (ack.ok) {
-                            setWhisperText('');
-                            setWhisperTo(null);
+                        void call('mafia:whisper', { targetSlot: whisperTo, text: whisperText.trim() }).then(
+                          (answer) => {
+                            fail(answer);
+                            if (answer.ok) {
+                              setWhisperText('');
+                              setWhisperTo(null);
+                            }
                           }
-                        })
+                        )
                       }
                     >
                       {tk('mafia.ui.send')}
@@ -1775,7 +1688,7 @@ export default function MafiaPlayer() {
               label: channelLabel(channel),
               canWrite: channel.canWrite
             }))}
-            onSend={(channel, text) => socket?.emit('mafia:chat', { channel, text }, fail)}
+            onSend={(channel, text) => act('mafia:chat', { channel, text })}
             authorTag={(name) => {
               const seat = view.players.find((player) => player.name === name);
               return seat ? String(seat.slot) : null;

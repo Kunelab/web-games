@@ -1,4 +1,5 @@
-import { msg } from 'i18n';
+import { msg, type Msg } from 'i18n';
+import type { PresenceView } from 'presence-core';
 import { useState } from 'react';
 
 import { useCountdown } from '../../hooks/useServerClock';
@@ -29,51 +30,25 @@ import './presence.css';
  * the explanation, not the lock.
  */
 
-export interface PauseSeat {
-  /** How the game names this seat: a house number, or a survivor. */
-  label: string;
-  /** What the room votes against. A slot in Mafia, a player id in CoronaZ. */
-  id: string | number;
-  awayMs: number;
-}
-
-export interface PauseVote {
-  label: string;
-  closesAt: number;
-  yes: number;
-  no: number;
-  needed: number;
-  /** This viewer's own ballot, or null if they have not cast one. */
-  mine: boolean | null;
-}
-
-export interface PauseOverlayProps {
-  waitingFor: PauseSeat[];
-  /** When the wait lapses on its own and play continues without them. */
-  expiresAt: number | null;
-  /** Set while the resume countdown runs: every screen shows this number. */
-  resumesAt: number | null;
-  /** Seats a kick may be proposed against; empty until the delay has elapsed. */
-  kickable: PauseSeat[];
-  vote: PauseVote | null;
+export interface PauseOverlayProps<Ref extends string | number> {
+  /** The pause as the game describes it: who is awaited, who may be voted out, the vote. */
+  pause: PresenceView<Ref, Msg>;
   serverNow: () => number;
   /** Null for a screen with no seat: a television watches, it does not vote. */
-  onPropose: ((id: string | number) => void) | null;
+  onPropose: ((ref: Ref) => void) | null;
   onVote: ((yes: boolean) => void) | null;
   error?: string | null;
 }
 
-export function PauseOverlay({
-  waitingFor,
-  expiresAt,
-  resumesAt,
-  kickable,
-  vote,
+export function PauseOverlay<Ref extends string | number>({
+  pause,
   serverNow,
   onPropose,
   onVote,
   error
-}: PauseOverlayProps) {
+}: PauseOverlayProps<Ref>) {
+  const { waitingFor, kickable, vote, resumesAt } = pause;
+  const expiresAt = pause.pauseExpiresAt;
   const t = useT();
   const [folded, setFolded] = useState(false);
   const resumeIn = useCountdown(resumesAt, serverNow);
@@ -104,7 +79,7 @@ export function PauseOverlay({
       <div className="pz-banner" role="status">
         <span className="pz-spinner" aria-hidden="true" />
         <span>
-          {t(msg('presence.paused.short', { names: waitingFor.map((seat) => seat.label).join(', ') }))}
+          {t(msg('presence.paused.short', { names: waitingFor.map((seat) => t(seat.label)).join(', ') }))}
           {expiresAt !== null && ` · ${t(msg('presence.resuming.inSeconds', { seconds: expiresIn }))}`}
         </span>
         <button type="button" className="pz-fold" onClick={() => setFolded(false)}>
@@ -139,13 +114,13 @@ export function PauseOverlay({
               {t(msg('presence.paused.title'))}
             </h2>
             <p className="pz-lead">
-              {t(msg('presence.paused.lead', { names: waitingFor.map((seat) => seat.label).join(', ') }))}
+              {t(msg('presence.paused.lead', { names: waitingFor.map((seat) => t(seat.label)).join(', ') }))}
             </p>
             <ul className="pz-waiting">
               {waitingFor.map((seat) => (
-                <li key={String(seat.id)}>
+                <li key={String(seat.ref)}>
                   <span className="pz-spinner" aria-hidden="true" />
-                  {seat.label}
+                  {t(seat.label)}
                   <span className="pz-away">
                     {t(msg('presence.paused.away', { seconds: Math.round(seat.awayMs / 1000) }))}
                   </span>
@@ -160,7 +135,7 @@ export function PauseOverlay({
 
         {vote ? (
           <div className="pz-vote">
-            <p className="pz-vote-q">{t(msg('presence.vote.question', { name: vote.label }))}</p>
+            <p className="pz-vote-q">{t(msg('presence.vote.question', { name: t(vote.label) }))}</p>
             <p className="pz-vote-tally">
               {t(msg('presence.vote.tally', { yes: vote.yes, no: vote.no, needed: vote.needed }))} · {voteIn}s
             </p>
@@ -195,8 +170,8 @@ export function PauseOverlay({
               <p className="pz-vote-q">{t(msg('presence.vote.propose'))}</p>
               <div className="pz-vote-buttons">
                 {kickable.map((seat) => (
-                  <button key={String(seat.id)} type="button" className="pz-btn" onClick={() => onPropose(seat.id)}>
-                    {seat.label}
+                  <button key={String(seat.ref)} type="button" className="pz-btn" onClick={() => onPropose(seat.ref)}>
+                    {t(seat.label)}
                   </button>
                 ))}
               </div>

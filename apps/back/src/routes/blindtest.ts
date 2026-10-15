@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import { env } from '../env.js';
 import { GameManager } from '../game/manager.js';
-import { GENRES, SECTIONS, catalogAvailable, genreById, poolStatus } from '../services/blindtest-catalog.js';
+import { GENRES, SECTIONS, catalogAvailable, genreById } from '../services/blindtest-catalog.js';
 import { countAvailable, drawRounds, emptyHistory } from '../services/blindtest-draw.js';
 import { catalogueKeys, countLibrary } from '../services/blindtest-library.js';
 import { dismissDuplicateFlags, findLibraryDuplicates } from '../services/blindtest-duplicates.js';
@@ -16,9 +16,8 @@ import {
 } from '../services/blindtest-genres.js';
 import { takeOpener, warmOpener } from '../services/blindtest-opener.js';
 import { prefillCatalogue, prefillStatus } from '../services/blindtest-prefill.js';
-import { harvestSeeds, seedStats } from '../services/blindtest-seeds.js';
+import { catalogue } from '../services/catalogue-service.js';
 import { isAdmin } from '../services/ownership.js';
-import { searchesToday } from '../services/youtube-budget.js';
 
 /**
  * The generated blind test: a room that never runs out.
@@ -254,7 +253,7 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request, reply) => {
       const code = request.params.code.trim().toUpperCase();
-      const state = app.games.get(code);
+      const state = app.games.tables.get(code);
 
       if (!state) throw app.httpErrors.notFound('Aucune partie avec ce code');
       if (state.hostUserId !== request.currentUser.id) {
@@ -269,7 +268,7 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   /** Pool diagnostics: sizes, ages, and any source that came back suspiciously thin. */
-  app.get('/blindtest/pools', { preHandler: app.requireAuth }, async () => ({ pools: poolStatus() }));
+  app.get('/blindtest/pools', { preHandler: app.requireAuth }, async () => ({ pools: catalogue.status() }));
 
   /**
    * Possible duplicates in the shared catalogue, for the admin's cleanup.
@@ -317,7 +316,7 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
     if (!isAdmin(request.currentUser)) {
       throw app.httpErrors.forbidden('Réservé à un administrateur');
     }
-    return findLibraryGenreFlags();
+    return findLibraryGenreFlags(catalogue.seedIndex());
   });
 
   /** "This genre is right", for as long as the entry keeps it. */
@@ -382,7 +381,7 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
     if (!isAdmin(request.currentUser)) {
       throw app.httpErrors.forbidden('Réservé à un administrateur');
     }
-    return { genres: seedStats(), searches: searchesToday(), prefill: prefillStatus() };
+    return { genres: catalogue.seedStats(), searches: catalogue.searchesToday(), prefill: prefillStatus() };
   });
 
   /**
@@ -428,7 +427,7 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
 
       void (async () => {
         for (const genre of genres) {
-          await harvestSeeds(genre).catch((error: unknown) => {
+          await catalogue.harvest(genre.id).catch((error: unknown) => {
             app.log.warn({ err: error, genre: genre.id }, 'seed harvest failed');
           });
         }

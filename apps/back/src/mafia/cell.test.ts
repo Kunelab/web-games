@@ -1,8 +1,9 @@
-import assert from 'node:assert/strict';
-import { createServer, type Server } from 'node:http';
-import { after, before, describe, it } from 'node:test';
+// Before anything that reaches env.ts: see the file for why it must be first.
+import './test-env.js';
 
-import type { FastifyBaseLogger } from 'fastify';
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
 import {
   addMafiaBot,
   createMafiaGame,
@@ -14,7 +15,10 @@ import {
   type MafiaState
 } from 'mafia-core';
 
-import type { Decision } from './bots.js';
+import { MafiaBotDriver } from './bots.js';
+import type { Decision } from './seat.js';
+import { chainOver, fakeEndpoints, silentLog, slots } from './chain-fakes.js';
+import { seatAlone } from './seat-fakes.js';
 import type { Intent } from './mouth.js';
 
 /**
@@ -27,21 +31,6 @@ import type { Intent } from './mouth.js';
  * "I am the jailor" on the captive's board under the keeper's house.
  */
 
-const quiet = () => undefined;
-const log = {
-  info: quiet,
-  warn: quiet,
-  error: quiet,
-  debug: quiet,
-  fatal: quiet,
-  trace: quiet,
-  silent: quiet,
-  level: 'silent',
-  child() {
-    return log;
-  }
-} as unknown as FastifyBaseLogger;
-
 type Driver = {
   write(
     state: MafiaState,
@@ -51,44 +40,12 @@ type Driver = {
     intent: Intent,
     self: unknown
   ): Promise<Decision>;
-  answering(state: MafiaState, botId: string, room: string): { who: string; text: string }[];
   stop(): void;
 };
 
-let server: Server;
-let port = 0;
-/** Every prompt the endpoint was sent. */
-const prompts: string[] = [];
-
-before(async () => {
-  server = createServer((request, response) => {
-    let body = '';
-    request.on('data', (chunk) => (body += chunk));
-    request.on('end', () => {
-      prompts.push(body);
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ line: 'Doctor.' }) } }] }));
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  port = (server.address() as { port: number }).port;
-
-  // See the note in `chain.test.ts`: blanked rather than deleted, because of dotenv.
-  for (let slot = 1; slot <= 24; slot++) {
-    const suffix = slot === 1 ? '' : `_${slot}`;
-    for (const part of ['URL', 'KEY', 'MODEL', 'MODELS']) process.env[`MAFIA_API${suffix}_${part}`] = '';
-  }
-  process.env.MAFIA_BOT_PROVIDER = 'api*';
-  process.env.MAFIA_API_URL = `http://127.0.0.1:${port}/quick`;
-  process.env.MAFIA_API_KEY = 'test-key';
-  process.env.MAFIA_API_MODEL = 'quick-model';
-  process.env.MAFIA_HEDGE_MS = '0';
-  process.env.GAME_TRACE = 'off';
-});
-
-after(() => {
-  server.close();
-});
+/** One quick endpoint that always answers "Doctor.", keeping every prompt it was sent. */
+const endpoints = slots('quick-model');
+const transport = fakeEndpoints(endpoints, { answer: () => ({ line: 'Doctor.' }) });
 
 const KEEPER = 'Keyholder';
 
@@ -121,27 +78,28 @@ function table(): { state: MafiaState; cell: string; prisonerId: string } {
   return { state, cell, prisonerId: prisoner.playerId };
 }
 
-async function driverFor(state: MafiaState): Promise<Driver> {
-  const { MafiaBotDriver } = await import('./bots.js');
-  return new MafiaBotDriver(log, {
-    chat: () => ({ ok: true as const }),
-    vote: () => ({ ok: true as const }),
-    ballot: () => ({ ok: true as const }),
-    action: () => ({ ok: true as const }),
-    dayAction: () => ({ ok: true as const }),
-    will: () => ({ ok: true as const }),
-    whisper: () => ({ ok: true as const }),
-    busy: () => undefined,
-    get: () => state
-  }) as unknown as Driver;
+function driverFor(state: MafiaState): Driver {
+  return new MafiaBotDriver(
+    silentLog,
+    {
+      chat: () => ({ ok: true as const }),
+      vote: () => ({ ok: true as const }),
+      ballot: () => ({ ok: true as const }),
+      action: () => ({ ok: true as const }),
+      dayAction: () => ({ ok: true as const }),
+      will: () => ({ ok: true as const }),
+      whisper: () => ({ ok: true as const }),
+      busy: () => undefined,
+      get: () => state
+    },
+    { chain: chainOver(endpoints), transport }
+  ) as unknown as Driver;
 }
 
 describe('the voice through the cell door', () => {
-  it('is answered without a name', async () => {
+  it('is answered without a name', () => {
     const { state, cell, prisonerId } = table();
-    const driver = await driverFor(state);
-    const heard = driver.answering(state, prisonerId, cell);
-    driver.stop();
+    const heard = seatAlone().seat.answering(state, prisonerId, cell);
 
     assert.ok(heard.length > 0, 'the prisoner still hears the question');
     assert.ok(heard.every((line) => line.who !== KEEPER));
@@ -149,18 +107,20 @@ describe('the voice through the cell door', () => {
 
   it('never reaches the model with the keeper named', async () => {
     const { state, cell, prisonerId } = table();
-    const driver = await driverFor(state);
+    const driver = driverFor(state);
     const intent: Intent = {
       act: 'answer the other voice in the cell, where only the two of you can hear',
       mood: 'blunt',
       fallback: 'Doctor.',
-      answering: driver.answering(state, prisonerId, cell)
+      answering: seatAlone().seat.answering(state, prisonerId, cell)
     };
     const decision: Decision = { say: null, targetSlot: null, verdict: null, claim: null };
-    prompts.length = 0;
+    transport.sent.length = 0;
     await driver.write(state, prisonerId, decision, cell, intent, state.players[prisonerId]);
     driver.stop();
 
+    // Every prompt the endpoint was sent, whole.
+    const prompts = transport.sent.map((one) => one.system + one.user);
     assert.ok(prompts.length > 0, 'the mouth was asked');
     assert.ok(prompts.every((body) => !body.includes(KEEPER)));
     assert.ok(prompts.some((body) => body.includes('I am the jailor')), 'the words themselves still arrive');

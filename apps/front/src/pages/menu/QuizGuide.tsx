@@ -2,7 +2,7 @@ import { msg } from 'i18n';
 import { Link } from 'react-router';
 
 import { gameEntry } from '../../app/games';
-import { kindColor, kindKey } from '../../app/kinds';
+import { kindColor, kindName } from '../../app/kinds';
 import { useT } from '../../i18n/locale-context';
 import { Prose } from '../../ui/Prose';
 import './menu.css';
@@ -16,7 +16,7 @@ import './menu.css';
  */
 
 /** The five kinds, in the order a newcomer meets them. Each explains itself. */
-const KINDS = ['blindtest', 'quiz', 'estimation', 'image-reveal', 'image-memory'];
+const KINDS = ['blindtest', 'quiz', 'estimation', 'image-reveal', 'image-memory'] as const;
 
 export default function QuizGuide() {
   const entry = gameEntry('quiz');
@@ -53,7 +53,7 @@ export default function QuizGuide() {
           {KINDS.map((kind) => (
             <article className="guide-card" key={kind} style={{ borderLeft: `3px solid ${kindColor(kind)}` }}>
               <div>
-                <div className="guide-card-name">{t(msg(kindKey(kind)))}</div>
+                <div className="guide-card-name">{t(kindName(kind))}</div>
                 <p className="guide-card-note">{t(msg(`quiz.kind.${kind}.about`))}</p>
               </div>
             </article>

@@ -13,7 +13,7 @@ import type { Catalogue } from '../index.js';
  * trade share a line, which is the whole point — an ambiguous result is the
  * information, so two roles must read *identically*, not merely similarly.
  */
-export const notesEn: Catalogue = {
+export const notesEn = {
   /* ------------------------------ what you are ------------------------------ */
   'mafia.note.lodgeStruck': 'You knocked, and {name} answered in the cult’s words. They did not see the morning.',
   'mafia.note.lodgeHeld': '{name} came to preach at your door. The lodge does not convert.',
@@ -160,6 +160,6 @@ export const notesEn: Catalogue = {
   'mafia.trade.rope': 'has new rope',
   'mafia.trade.charm': 'wears a heady perfume',
   'mafia.trade.dirt': 'has dirt under their fingernails'
-};
+} satisfies Catalogue;
 
 export default notesEn;

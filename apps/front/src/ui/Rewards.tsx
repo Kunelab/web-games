@@ -1,4 +1,4 @@
-import { msg } from 'i18n';
+import { msg, msgOf, type Msg } from 'i18n';
 
 import { useLocale } from '../i18n/locale-context';
 import './rewards.css';
@@ -50,7 +50,7 @@ export function Rewards({
   /** The emoji this game pays in: 🎟️ for the quiz, 🩸 for Mafia, 🥫 for a raid. */
   currency: string;
   /** A badge key to its face. Each game owns its ladder, so each owns this. */
-  meta: (key: string) => { emoji: string; titleKey: string };
+  meta: (key: string) => { emoji: string; title: Msg };
 }) {
   const { t } = useLocale();
   if (rewards.length === 0) return null;
@@ -84,7 +84,7 @@ export function Rewards({
                 const face = meta(key);
                 return (
                   <li key={key}>
-                    <span aria-hidden="true">{face.emoji}</span> <strong>{t(msg(face.titleKey))}</strong>
+                    <span aria-hidden="true">{face.emoji}</span> <strong>{t(face.title)}</strong>
                   </li>
                 );
               })}
@@ -94,7 +94,7 @@ export function Rewards({
           {reward.newTitle && (
             <p className="reward-title-line">
               {t(msg('play.rewards.newTitle'))} · {meta(reward.newTitle).emoji}{' '}
-              <strong>{t(msg(meta(reward.newTitle).titleKey))}</strong>
+              <strong>{t(meta(reward.newTitle).title)}</strong>
             </p>
           )}
 
@@ -107,13 +107,15 @@ export function Rewards({
                 return (
                   <li key={next.key} className={next.moved ? 'moved' : ''}>
                     <span className="next-label">
-                      <span aria-hidden="true">{face.emoji}</span> {t(msg(face.titleKey))}
+                      <span aria-hidden="true">{face.emoji}</span> {t(face.title)}
                     </span>
                     <span className="next-bar" aria-hidden="true">
                       <span className="next-fill" style={{ width: `${pct.toFixed(1)}%` }} />
                     </span>
                     <span className="next-count tabular">
-                      {next.current}/{next.target} {t(msg(next.unit))}
+                      {/* The noun's key, as the server sent it: the quiz's ladder lives in a package that cannot name
+                          the catalogue's keys, so this one cannot be checked here. */}
+                      {next.current}/{next.target} {t(msgOf(next.unit))}
                       {next.moved && <span className="next-moved"> ↑</span>}
                     </span>
                   </li>

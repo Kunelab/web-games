@@ -5,6 +5,7 @@ import { cleanAliases } from '../game/session.js';
 
 import { db } from '../db/index.js';
 import { media, playlistItems, playlists, type MediaRow } from '../db/schema.js';
+import { libraryVideoCodesIn } from './blindtest-catalog.js';
 import type { DrawHistory } from './blindtest-draw.js';
 import { toMediaView, type MediaView } from './media-service.js';
 
@@ -75,29 +76,9 @@ export function trackKeyOf(item: { answers: { key: string; value: string }[] }):
   return left ? `${left}::${right}` : right;
 }
 
-/**
- * Every video id the shared catalogue already holds.
- *
- * What a fresh search is *for* is a song nobody has heard. A pool draw knows
- * what this session has played and nothing about what the catalogue holds, so
- * it would happily spend a search on a track already sitting there — which is a
- * round the room could have had for free, and the one flavour of duplicate the
- * track key does not catch, because the two never met inside one session.
- *
- * Projected rather than read whole: this runs on the draw path, where the rows
- * themselves are not wanted.
- */
-export async function libraryVideoCodes(): Promise<Set<string>> {
-  const rows = await db
-    .select({ code: sql<string | null>`json_extract(${media.payload}, '$.code')` })
-    .from(media)
-    .where(and(isNull(media.user_id), eq(media.kind, 'blindtest')));
-
-  const codes = new Set<string>();
-  for (const row of rows) {
-    if (row.code) codes.add(row.code);
-  }
-  return codes;
+/** Every video id the shared catalogue already holds. See `libraryVideoCodesIn`. */
+export function libraryVideoCodes(): Promise<Set<string>> {
+  return libraryVideoCodesIn(db);
 }
 
 /**
