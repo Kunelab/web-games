@@ -1,4 +1,5 @@
-import { roleDef, ROLES, staysHome, type RoleId } from '../roles.js';
+import { staysHome } from '../powers.js';
+import { roleDef, ROLES, type RoleId } from '../roles.js';
 import { deductions, deductionWeight } from './deduce.js';
 import { isEvilRole } from './policies.js';
 import type { Claim, PublicInfo } from './policies.js';

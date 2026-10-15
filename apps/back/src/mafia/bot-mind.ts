@@ -1,19 +1,13 @@
 import {
   agendaOf,
-  bindPersonalities,
+  BotTable,
   chatRules,
   contradicted,
   DEFAULT_PROFILE,
-  feelPressure,
   heedChance,
-  closingAccusations,
   isEvilRole,
-  isLodgeMate,
-  makeBrain,
   makePersonality,
   stanceOf,
-  staysHome,
-  toPublicInfo,
   type Agenda,
   type Brain,
   type Claim,
@@ -21,8 +15,7 @@ import {
   type MafiaState,
   type PublicInfo,
   type RoleId,
-  type Stance,
-  type VoteRecord
+  type Stance
 } from 'mafia-core';
 
 /**
@@ -34,16 +27,12 @@ const RULES = chatRules();
 /**
  * What the bots at one table remember, and how they feel about it.
  *
- * The engine is stateless about opinion: it knows who voted for whom, not who
- * *said* what, because speech is chat and chat is prose. So the driver keeps a
- * structured ledger alongside it — every claim its bots make, in the same shape
- * the headless bench uses — and from that ledger plus authoritative state it can
- * build the exact `PublicInfo` the simulated seats reason over.
- *
- * That shared shape is the whole point of this file. It means a live LLM bot and
- * a benched scripted one read the same board, carry the same desperation meter,
- * and reach for the same masks. Without it we would have two social models and
- * only one of them measured.
+ * The decisions, the ledger, the brains and the mood are a `BotTable`, the same
+ * object the headless bench drives, so a live bot and a benched one read the
+ * same board, carry the same desperation meter and decide in the same order.
+ * What lives here is the rest of a live bot's continuity: the mask it wears,
+ * the will it keeps, what it was told in private and whom it has learned to
+ * believe. None of that exists on the bench, because the bench does not talk.
  *
  * Memory is per table and lives only as long as the table does. Losing it to a
  * restart costs the bots their sense of the conversation, which is a real but
@@ -189,18 +178,21 @@ export interface WillNote {
 }
 
 interface TableMemory {
+  /** The game this memory belongs to: a new game under the same code starts afresh. */
+  state: MafiaState;
+  table: BotTable;
   minds: Map<string, BotMind>;
-  claims: Claim[];
-  voteHistory: VoteRecord[];
-  /** The day `feelPressure` last ran, so the meter ticks once per dawn. */
-  pressuredDay: number;
-  /** Closing accusations already filed, so a day is recorded once. */
-  recordedDay: number;
 }
 
-/** Ledger and speech caps. A table that argues forever still fits in memory. */
-const MAX_CLAIMS = 400;
-const MAX_VOTE_HISTORY = 400;
+/**
+ * A bot's character, drawn once and kept: a bot that is jumpy on Tuesday should
+ * be jumpy on Wednesday, or the table has no characters in it. Seeded off the
+ * player id so the same seat is the same person across a restart. A person's
+ * seat has none: nobody here decides for it.
+ */
+function characterOf(player: MafiaState['players'][string]): ReturnType<typeof makePersonality> | null {
+  return player.isBot ? makePersonality(DEFAULT_PROFILE, seededRng(player.playerId)) : null;
+}
 
 export class BotMinds {
   private readonly tables = new Map<string, TableMemory>();
@@ -209,13 +201,18 @@ export class BotMinds {
     this.tables.delete(code);
   }
 
-  private memory(code: string): TableMemory {
-    let table = this.tables.get(code);
-    if (!table) {
-      table = { minds: new Map(), claims: [], voteHistory: [], pressuredDay: -1, recordedDay: -1 };
-      this.tables.set(code, table);
+  private memory(state: MafiaState): TableMemory {
+    let memory = this.tables.get(state.code);
+    if (!memory || memory.state !== state) {
+      memory = { state, table: new BotTable(state, characterOf), minds: new Map() };
+      this.tables.set(state.code, memory);
     }
-    return table;
+    return memory;
+  }
+
+  /** This table's bots: what they decide, and in what order. See `BotTable`. */
+  table(state: MafiaState): BotTable {
+    return this.memory(state).table;
   }
 
   /**
@@ -233,12 +230,7 @@ export class BotMinds {
    * asking; a reader is required to see anything more.
    */
   board(state: MafiaState, readerId?: string): PublicInfo {
-    const table = this.memory(state.code);
-    const heard =
-      readerId === undefined
-        ? table.claims.filter((claim) => claim.room === undefined)
-        : table.claims.filter((claim) => claim.room === undefined || RULES.canRead(claim.room, readerId, state));
-    return toPublicInfo(state, heard, table.voteHistory);
+    return this.table(state).board(readerId);
   }
 
   /**
@@ -257,8 +249,8 @@ export class BotMinds {
    * other's ledger.
    */
   confide(state: MafiaState, room: string, fromSlot: number, kind: 'accuse' | 'clear', about: number): void {
-    const table = this.memory(state.code);
-    for (const [playerId, mind] of table.minds) {
+    const memory = this.memory(state);
+    for (const [playerId, mind] of memory.minds) {
       const listener = state.players[playerId];
       if (!listener?.isBot || listener.slot === fromSlot) continue;
       if (!RULES.canRead(room, playerId, state)) continue;
@@ -269,23 +261,17 @@ export class BotMinds {
     }
   }
 
-  /**
-   * One bot's mind, created on first sight.
-   *
-   * Personality is drawn once and kept: a bot that is jumpy on Tuesday should be
-   * jumpy on Wednesday, or the table has no characters in it. Seeded off the
-   * player id so the same seat is the same person across a restart.
-   */
+  /** One bot's mind, created on first sight; its brain is the table's. See `characterOf`. */
   mind(state: MafiaState, playerId: string): BotMind | null {
     const player = state.players[playerId];
     if (!player?.role) return null;
 
-    const table = this.memory(state.code);
-    let mind = table.minds.get(playerId);
+    const memory = this.memory(state);
+    let mind = memory.minds.get(playerId);
     if (!mind) {
-      const rng = seededRng(playerId);
+      const brain = memory.table.brain(playerId);
+      if (!brain) return null;
       const agenda = agendaOf(player.role);
-      const brain = makeBrain(player.slot, makePersonality(DEFAULT_PROFILE, rng));
       mind = {
         brain,
         agenda,
@@ -298,7 +284,7 @@ export class BotMinds {
         confided: [],
         privateTrust: new Map()
       };
-      table.minds.set(playerId, mind);
+      memory.minds.set(playerId, mind);
     }
     // A converted, audited or remembered seat wants a different agenda than the
     // one it sat down with.
@@ -314,54 +300,13 @@ export class BotMinds {
    * times a day and the whole table would be frantic by Tuesday.
    */
   openDay(state: MafiaState): void {
-    const table = this.memory(state.code);
-    if (table.pressuredDay === state.day) return;
-    table.pressuredDay = state.day;
-
-    for (const player of Object.values(state.players)) {
-      if (!player.isBot || !player.alive || !player.role) continue;
-      const mind = this.mind(state, player.playerId);
+    for (const [playerId, felt] of this.table(state).settleMorningMoods()) {
+      const mind = this.mind(state, playerId);
       if (!mind) continue;
-      // Each seat's own board: a mafioso's dawn mood may know what the family
-      // said in the night, and nobody else's may.
-      const board = this.board(state, player.playerId);
-      const allies = new Set(
-        Object.values(state.players)
-          .filter(
-            (other) =>
-              other.playerId !== player.playerId && other.alive && sameSide(state, player.playerId, other.playerId)
-          )
-          .map((other) => other.slot)
-      );
-      const felt = feelPressure(player, mind.brain, board, allies);
       mind.agenda = felt.agenda;
       mind.stance = felt.stance;
       settleConfidences(state, mind);
     }
-  }
-
-  /**
-   * Puts this table's temperaments where the policies read them.
-   *
-   * `suspicionParts` weighs the wagon by the seat's herd instinct, and reads it
-   * from a module-level map that only the headless bench ever filled. Live
-   * tables never bound anything, so every bot in production weighed the crowd
-   * at exactly one half whatever its personality said: the one trait meant to
-   * tell a follower from a sceptic did nothing at a real table.
-   *
-   * The map is keyed by slot and shared by every table in the process, so it
-   * is rebound before each decision rather than once at the start. Decisions
-   * are synchronous, so nothing runs between the bind and the reads that
-   * follow it, and the next table's decision rebinds its own seats.
-   */
-  bind(state: MafiaState): void {
-    const brains: Brain[] = [];
-    for (const player of Object.values(state.players)) {
-      if (!player.isBot || !player.alive) continue;
-      const mind = this.mind(state, player.playerId);
-      if (mind) brains.push(mind.brain);
-    }
-    bindPersonalities(brains);
   }
 
   /**
@@ -375,13 +320,7 @@ export class BotMinds {
    * `closingAccusations`.
    */
   closeDay(state: MafiaState): void {
-    const table = this.memory(state.code);
-    if (table.recordedDay === state.day) return;
-    table.recordedDay = state.day;
-    for (const record of closingAccusations(state, state.day)) table.voteHistory.push(record);
-    if (table.voteHistory.length > MAX_VOTE_HISTORY) {
-      table.voteHistory.splice(0, table.voteHistory.length - MAX_VOTE_HISTORY);
-    }
+    this.table(state).fileClosingVotes();
   }
 
   /**
@@ -402,17 +341,12 @@ export class BotMinds {
     const mind = this.mind(state, playerId);
     if (!mind) return;
 
-    const player = state.players[playerId];
-    const homebound = !!player?.role && (staysHome(player.role) || slot === player.slot);
-
-    if (homebound) {
+    if (!this.table(state).recordVisit(playerId, slot)) {
       // Nowhere to be seen going, so there is nothing to answer for tomorrow.
-      mind.brain.wentTo = null;
       if (slot !== null && !mind.stayedIn.includes(state.day)) mind.stayedIn.push(state.day);
       return;
     }
 
-    mind.brain.wentTo = slot;
     // And the same journey on the permanent record, one line per night. See `went`.
     if (slot === null) return;
     const already = mind.went.find((trip) => trip.night === state.day);
@@ -428,83 +362,9 @@ export class BotMinds {
    * the briefing exposes it.
    */
   record(state: MafiaState, claimerId: string, kind: ClaimKind, targetSlot: number, extra?: Partial<Claim>): void {
-    const table = this.memory(state.code);
     const claimer = state.players[claimerId];
     if (!claimer) return;
-    /**
-     * Once per claimer, target, kind and day — per room.
-     *
-     * The room belongs in the key now that private ones are read. Without it,
-     * a person who whispers "7 is mafia" to one bot and then says it out loud
-     * in the square files the whisper and has the announcement swallowed as a
-     * duplicate: the same sentence, but one of them was evidence the whole
-     * town could weigh and the other was not.
-     */
-    const alreadySaid = table.claims.find(
-      (claim) =>
-        claim.claimerSlot === claimer.slot &&
-        claim.targetSlot === targetSlot &&
-        claim.kind === kind &&
-        claim.day === state.day &&
-        claim.room === extra?.room
-    );
-    if (alreadySaid) {
-      /**
-       * Two readers reaching the same reading is worth more than one.
-       *
-       * A person's line is read twice: instantly, off cue words, and a few
-       * seconds later by a model. The second reading used to be swallowed whole
-       * as a duplicate, which was right when a claim was a claim and wrong now
-       * that one carries how sure its reader was — the quick reader's 0.65 hung
-       * around even after the careful one had agreed with it.
-       *
-       * Agreement raises it; it never lowers. A reader that missed something is
-       * silent rather than contradicting, so a lower number arriving second is
-       * an absence of evidence and not evidence of absence.
-       */
-      const offered = extra?.confidence;
-      if (offered !== undefined && offered > (alreadySaid.confidence ?? 1)) {
-        alreadySaid.confidence = Math.min(1, offered + 0.1);
-      }
-      return;
-    }
-
-    /**
-     * An account replaces the account it corrects, rather than joining it.
-     *
-     * Every other kind of claim accumulates, because saying two things about
-     * two houses is two claims. An account is about the claimer's own night and
-     * there is only one of those: "I stayed home" followed by "I went to 4"
-     * is not a person holding two positions, it is a person correcting
-     * themselves, or a reader that got the first one wrong.
-     *
-     * Which happens, and is the reason this exists. Human speech reaches the
-     * board through two readers now, one of them a set of regular expressions
-     * running on a half-typed sentence, and the price of reading a hesitation
-     * as an alibi used to be permanent: the seat kept both entries and the town
-     * hanged them for the one they withdrew. The newest reading wins, so the
-     * better reader arriving a few seconds later genuinely corrects the quicker
-     * one, and a person who changes their story is answerable for the story
-     * they are actually telling.
-     *
-     * Same day only. Yesterday's account was about yesterday's night and is
-     * still evidence about it.
-     */
-    if (kind === 'account') {
-      for (let index = table.claims.length - 1; index >= 0; index--) {
-        const claim = table.claims[index];
-        if (
-          claim.kind === 'account' &&
-          claim.claimerSlot === claimer.slot &&
-          claim.day === state.day &&
-          claim.room === extra?.room
-        ) {
-          table.claims.splice(index, 1);
-        }
-      }
-    }
-
-    table.claims.push({
+    this.table(state).hear({
       day: state.day,
       /**
        * Said today, so it is last night it is talking about.
@@ -519,10 +379,8 @@ export class BotMinds {
       claimerSlot: claimer.slot,
       targetSlot,
       kind,
-      truthful: false,
       ...extra
     });
-    if (table.claims.length > MAX_CLAIMS) table.claims.splice(0, table.claims.length - MAX_CLAIMS);
   }
 
   /**
@@ -535,7 +393,7 @@ export class BotMinds {
    * fatal to the game.
    */
   ledger(code: string): readonly Claim[] {
-    return this.tables.get(code)?.claims ?? [];
+    return this.tables.get(code)?.table.claims() ?? [];
   }
 
   /** Seats the record has caught contradicting their own account. */
@@ -543,24 +401,6 @@ export class BotMinds {
     const board = this.board(state);
     return board.aliveSlots.filter((slot) => contradicted(slot, board));
   }
-}
-
-/**
- * Everyone who wins alongside this seat.
- *
- * `isLodgeMate` already answers it for the two blocs that know each other — a
- * family and the masons' lodge — and it is the same predicate the view uses to
- * decide who appears in your teammates list, so "my allies" here means exactly
- * the people the game has told me about. Bound hearts count too: lovers win
- * together whoever else does.
- */
-function sameSide(state: MafiaState, a: string, b: string): boolean {
-  const one = state.players[a];
-  const two = state.players[b];
-  if (!one?.role || !two?.role) return false;
-  // Lovers, not the Heartbreaker's victims: a charm is a hostage, not a side. See `allies` in bots.ts.
-  if (one.bondKind === 'lover' && (one.bondPartnerId === two.playerId || two.bondPartnerId === one.playerId)) return true;
-  return isLodgeMate(one, two);
 }
 
 /**

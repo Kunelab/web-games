@@ -1,5 +1,5 @@
 import { roleDef, ROLES, type RoleId } from '../roles.js';
-import { playerBySlot, playerFamily, type IntelEntry, type MafiaPlayer, type MafiaState } from '../state.js';
+import { playerBySlot, playerFamily, type MafiaPlayer, type MafiaState } from '../state.js';
 import { deductions } from './deduce.js';
 import { decideNightTarget, isEvilRole, judgeRequest, type Brain, type Claim, type PublicInfo } from './policies.js';
 import { add, type Tally } from './report.js';
@@ -52,7 +52,6 @@ export interface ScenarioContext {
   push: (claim: Claim) => void;
   brainOf: (playerId: string) => Brain | undefined;
   teammatesOf: (playerId: string) => Set<number>;
-  familyIntelFor: (playerId: string) => IntelEntry[];
   reveal: (playerId: string) => void;
 }
 
@@ -325,7 +324,7 @@ export class Scenarios {
       elsewhere,
       'kill',
       this.ctx.teammatesOf(asker.playerId),
-      this.ctx.familyIntelFor(asker.playerId),
+      asker.intel,
       this.ctx.rng
     );
     const ask = preferred ?? elsewhere[Math.floor(this.ctx.rng() * elsewhere.length)];

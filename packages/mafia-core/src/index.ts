@@ -1,96 +1,40 @@
+export { ACTION, FACTION, NO, refusalOf, ROLE, SLOT, type DeathSource } from './messages.js';
 export {
-  ACTION,
-  BODY,
-  CAUSE,
-  FACTION,
-  M,
-  MafiaError,
-  NO,
-  refusalOf,
-  ROLE,
-  SLOT,
-  type DeathSource
-} from './messages.js';
-export {
-  ACTION_LABELS,
-  BYSTANDER_ROLES,
-  FACTION_LABELS,
-  FAMILIES,
   ROLES,
   SELF_FIRES,
-  familyOf,
-  staysHome,
-  isSoloKiller,
-  roleDef,
-  rolesOfFaction,
-  rosterFor,
   wearableMask,
   twinMasks,
   maskRank,
-  LOW_PRIORITY_MASKS,
   type Faction,
-  type FamilyId,
-  type NightActionType,
   type RoleDef,
   type RoleId
 } from './roles.js';
+export { staysHome } from './powers.js';
 export {
   DEFAULT_CONFIG,
-  alivePlayers,
-  assignRoles,
   chatRules,
   createMafiaGame,
   isLodgeMate,
-  isMafia,
   isMason,
   jailChannel,
   keepsCell,
   isKeeper,
   captiveOf,
-  keeperHolding,
-  KEEPER_ROLES,
   playerBySlot,
   playerFamily,
-  pmChannel,
-  pmParticipants,
   pointsFor,
-  rosterForSetup,
-  seatPlayer,
   SKIP_VOTE,
   tableRoleList,
   spokenLocale,
   tablePresence,
-  voteWeight,
-  waitedOnSeats,
   WILL_MAX_CHARS,
-  type DayStage,
   type IntelEntry,
   type MafiaConfig,
-  type MafiaPhase,
   type MafiaPlayer,
   type MafiaSetupChoice,
-  type MafiaState,
-  type NightAction,
-  type PointEntry,
-  type TrialState,
-  type WinEntry,
-  type WinKind
+  type MafiaState
 } from './state.js';
-export {
-  SETUPS,
-  SLOT_TOKENS,
-  censusSetup,
-  chaosSetup,
-  fitSetup,
-  isSlotToken,
-  rollSetup,
-  setupById,
-  slotFaction,
-  slotPool,
-  sortRoleList,
-  type Setup,
-  type SlotToken
-} from './setups.js';
+export { SETUPS, SLOT_TOKENS, isSlotToken, slotFaction, slotPool, type SlotToken } from './setups.js';
 export {
   addMafiaBot,
   advanceMafia,
@@ -98,7 +42,6 @@ export {
   castBallot,
   castVote,
   chatLineFor,
-  chatVisibleTo,
   checkVictory,
   dropMafiaSeat,
   jailTarget,
@@ -106,7 +49,6 @@ export {
   legalNightAction,
   needsSecondTarget,
   mafiaPaused,
-  mafiaPresenceView,
   noteSeatAlive,
   noteSeatSilent,
   proposeMafiaKick,
@@ -119,99 +61,46 @@ export {
   startMafia,
   tickMafiaPresence,
   voteMafiaKick,
-  voteThreshold,
   whisperTo,
-  type ActionOutcome,
-  type LegalAction,
-  type MafiaPresenceView
+  type ActionOutcome
 } from './engine.js';
 export {
   toMafiaView,
   type MafiaChannelKind,
   type MafiaPublicPlayer,
-  type MafiaResultRow,
   type MafiaView,
   type MafiaViewer,
   type MafiaViewMe
 } from './view.js';
-export {
-  MAFIA_BADGES,
-  emptyMafiaStats,
-  mafiaBadgesFor,
-  mafiaReward,
-  mafiaTitleFor,
-  nextMafiaBadges,
-  type MafiaBadgeDef,
-  type MafiaBadgeProgress,
-  type MafiaCareerStats
-} from './careers.js';
+export { emptyMafiaStats, mafiaReward, type MafiaCareerStats } from './careers.js';
 
-export { toPublicInfo, closingAccusations } from './observe.js';
 /**
  * The social model. Exported because the live bot driver and the headless bench
  * must reach for the same one: a bot that panics differently from the simulated
  * seat we measured is a bot we have not measured.
  */
+export { agendaOf, stanceOf, type Agenda, type Stance } from './social.js';
 export {
-  advanceDesperation,
-  agendaOf,
-  CALM,
-  MASKS,
-  pickMask,
-  ridesWithTown,
-  stanceOf,
-  type Agenda,
-  type Pressure,
-  type Stance,
-  type StanceTraits
-} from './social.js';
-export {
-  BADGE_ROLES,
-  bindPersonalities,
   claimerWeight,
-  decideBallot,
-  decideDay,
   decideNightTarget,
-  decideSecondTarget,
-  executesCaptive,
   heedChance,
   judgeRequest,
-  roomsRead,
   type RequestRefusal,
   type RequestVerdict,
   cellProves,
-  type DayDecision,
   contradicted,
   ownsUpTo,
   buddyRead,
-  type BuddyRead,
-  TEMPERAMENT_MIN,
-  TEMPERAMENT_MAX,
-  temperamentOf,
-  EVEN_TEMPERAMENT,
   QUIET_TRADE,
   sheriffSuspects,
   isEvilRole,
   tradeVerdict,
-  rolesWithTrade,
   tradeSuspects,
-  familyKnife,
-  unclashedTargets,
-  FAMILY_AIM,
-  canEmitTrade,
   couldStillAct,
   DEFAULT_PROFILE,
-  HUMAN_PROFILE,
-  NO_QUIRKS,
-  quirksOf,
-  feelPressure,
-  losingClock,
-  makeBrain,
   makePersonality,
   parityPressure,
   provenLiar,
-  rivalThreat,
-  steadyVote,
   suspicion,
   suspicionParts,
   stolenBadge,
@@ -220,19 +109,14 @@ export {
   type Brain,
   type Claim,
   type ClaimKind,
-  type Personality,
-  type Quirks,
-  type SheriffVerdict,
-  type Temperament,
-  type PublicInfo,
-  type SteadyVote,
-  type VoteRecord
+  type PublicInfo
 } from './sim/policies.js';
-export { deductions, deductionWeight, strongest, privateFindings, CORPSE_ONLY, type Deduction } from './sim/deduce.js';
-export { possibleRoles } from './sim/slots.js';
-export { visitOdds, type VisitOdds, type VisitReason } from './sim/visits.js';
-export { rank, caseFor, defenceFor, type Suspect, type Reason, type ReasonCode } from './sim/ranking.js';
-export { beliefs, evilOdds, surestSuspect, type Belief, type BeliefWhy } from './sim/beliefs.js';
+export { testimonyOf } from './sim/testimony.js';
+export { BotTable } from './sim/table.js';
+export { deductions, strongest, type Deduction } from './sim/deduce.js';
+
+export { rank, caseFor, defenceFor, type Reason } from './sim/ranking.js';
+export { beliefs } from './sim/beliefs.js';
 export {
   mafiaActionSchema,
   mafiaBallotSchema,
@@ -241,16 +125,14 @@ export {
   mafiaDayActionSchema,
   mafiaJoinSchema,
   mafiaKickSchema,
-  mafiaSetupSchema,
   mafiaVoteSchema,
   mafiaWhisperSchema,
   mafiaWillSchema,
-  type MafiaAckResult,
   type MafiaClientToServer,
   type MafiaJoinAck,
   type MafiaReward,
   type MafiaServerToClient,
   type MafiaBusy
 } from './protocol.js';
-export { tempoReads, wagonOpener, type TempoCode, type TempoRead } from './sim/tempo.js';
-export { townClock, soloEndgame, type TownClock } from './sim/clock.js';
+export { wagonOpener } from './sim/tempo.js';
+export { townClock, soloEndgame } from './sim/clock.js';

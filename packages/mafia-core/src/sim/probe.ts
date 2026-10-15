@@ -1,4 +1,5 @@
-import { roleDef, staysHome, type RoleId } from '../roles.js';
+import { staysHome } from '../powers.js';
+import { roleDef, type RoleId } from '../roles.js';
 import { playerBySlot, playerFamily, type MafiaPlayer, type MafiaState, type NightOutcome } from '../state.js';
 import { deductions } from './deduce.js';
 import {
@@ -385,7 +386,7 @@ export class Probe {
       const target = choice.targetSlot;
       const targetRole = this.roleAt(target);
 
-      if (choice.action === 'block' || choice.action === 'kidnap' || choice.action === 'silence') {
+      if (choice.action === 'block' || choice.action === 'silence') {
         const order = orders.get(target);
         if (order && (order.type === 'kill' || order.type === 'poison' || order.type === 'rampage')) {
           this.role(dealt, 'blockedKiller');

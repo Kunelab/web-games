@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { api, type MediaItem } from '../api/client';
-import { kindColor, kindKey } from '../app/kinds';
+import { kindColor, kindName } from '../app/kinds';
 import { fieldText } from '../forms/fieldText';
 import { useAsync } from '../hooks/useAsync';
 import { useLocale } from '../i18n/locale-context';
@@ -289,7 +289,7 @@ export default function Library() {
               <Link to={`/bibliotheque/${item.id}`} className="media-main">
                 <span className="media-title">{item.title}</span>
                 <span className="media-meta">
-                  {t(msg(kindKey(item.kind)))}
+                  {t(kindName(item.kind))}
                   {item.category ? ` · ${item.category}` : ''}
                   {item.date ? ` · ${item.date.slice(0, 4)}` : ''}
                 </span>

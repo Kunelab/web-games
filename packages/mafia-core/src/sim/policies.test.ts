@@ -12,7 +12,6 @@ import {
   type MafiaState,
 } from "../state.js";
 import {
-  bindPersonalities,
   buddyScore,
   friendlySeats,
   DEFAULT_PROFILE,
@@ -329,7 +328,6 @@ describe("the claims board", () => {
   it("and the score stops charging him for a doorstep he named himself", () => {
     const state = table(["citizen", "lookout", "doctor", "mafioso"]);
     const judge = playerBySlot(state, 1)!;
-    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
 
     const sawHimAtOne = claim({
       claimerSlot: 2,
@@ -658,7 +656,6 @@ describe("two seats claiming one unique role", () => {
       }),
     ];
 
-    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
     return suspicionParts(2, judge, toPublicInfo(state, claims, []), () => 0)
       .evidence;
   }
@@ -719,7 +716,6 @@ describe("two seats claiming one unique role", () => {
         claimedRole: "jailor",
       }),
     ];
-    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
     assert.ok(
       suspicionParts(2, judge, toPublicInfo(state, claims, []), () => 0)
         .evidence >= 3,
@@ -750,7 +746,6 @@ describe("a second look at the ballot", () => {
   function seat(state: MafiaState, slot: number): MafiaPlayer {
     const player = playerBySlot(state, slot);
     if (!player) throw new Error("no seat " + slot);
-    bindPersonalities([makeBrain(player.slot, HERD_HALF)]);
     return player;
   }
 
@@ -929,7 +924,6 @@ describe("what the record proves", () => {
     const { state, info } = porch();
     const doctor = playerBySlot(state, 6);
     if (!doctor) throw new Error("no doctor");
-    bindPersonalities([makeBrain(doctor.slot, HERD_HALF)]);
     const brain = makeBrain(doctor.slot, HERD_HALF);
     for (let i = 0; i < 20; i++) {
       const target = decideNightTarget(
@@ -961,7 +955,6 @@ describe("what the record proves", () => {
     );
     const judge = playerBySlot(state, 1);
     if (!judge) throw new Error("no judge");
-    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
 
     const pileOn = [2, 3, 4, 5].map((slot) =>
       claim({ claimerSlot: slot, targetSlot: 6, kind: "accuse" }),
@@ -997,7 +990,6 @@ describe("what the record proves", () => {
     );
     const judge = playerBySlot(state, 1);
     if (!judge) throw new Error("no judge");
-    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
 
     // Everybody who can, naming the same seat, and one of them trusted for it.
     const roomful = [2, 3, 4, 5, 6, 7].map((slot) =>
@@ -1024,7 +1016,6 @@ describe("what the record proves", () => {
     );
     const judge = playerBySlot(state, 1);
     if (!judge) throw new Error("no judge");
-    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
 
     const caught = [
       claim({
@@ -1084,7 +1075,6 @@ describe("what the record proves", () => {
 
     const judge = playerBySlot(state, 1);
     if (!judge) throw new Error("no judge");
-    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
     assert.ok(
       suspicionParts(3, judge, info, () => 0).evidence >= 3,
       "and it is read as a town corpse’s testimony",
@@ -1160,7 +1150,6 @@ describe("the second look and the family", () => {
     );
     const me = playerBySlot(state, 3);
     if (!me) throw new Error("no seat");
-    bindPersonalities([makeBrain(me.slot, HERD_HALF)]);
     const claims: Claim[] = [
       claim({ claimerSlot: 1, targetSlot: 5, kind: "accuse" }),
       claim({ claimerSlot: 2, targetSlot: 5, kind: "accuse" }),
@@ -1454,7 +1443,6 @@ describe("the witch learns by doing", () => {
 
     const info = toPublicInfo(state, [], []);
     const brain = makeBrain(1, { ...DEFAULT_PROFILE });
-    bindPersonalities([brain]);
 
     // Deterministic dice: always take the first ranked choice.
     const picks = new Set<number | null>();
@@ -1489,7 +1477,6 @@ describe("the witch learns by doing", () => {
 
     const info = toPublicInfo(state, [], []);
     const brain = makeBrain(1, { ...DEFAULT_PROFILE });
-    bindPersonalities([brain]);
 
     for (let i = 0; i < 40; i++) {
       const pick = decideNightTarget(
@@ -2157,7 +2144,6 @@ describe("the blades that are not ours", () => {
     claims: Claim[];
   }): number | null => {
     const brain = makeBrain(2, DEFAULT_PROFILE);
-    bindPersonalities([brain]);
     return decideDay(
       fixture.self,
       brain,
@@ -2213,7 +2199,6 @@ describe("the trust a seat does not have to earn", () => {
     const state = table(["mason-leader", "mason", "citizen", "citizen", "godfather"]);
     const judge = playerBySlot(state, 1)!;
     judge.bondKind = bond;
-    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
     return suspicionParts(2, judge, board(state), () => 0, new Set(allies)).evidence;
   }
 
@@ -2237,7 +2222,6 @@ describe("the trust a seat does not have to earn", () => {
     const state = table(["sheriff", "mayor", "citizen", "citizen", "godfather"]);
     const judge = playerBySlot(state, 1)!;
     const mayor = playerBySlot(state, 2)!;
-    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
 
     const before = suspicionParts(2, judge, board(state), () => 0).evidence;
     mayor.revealed = true;
@@ -2262,7 +2246,6 @@ describe("the jury reads a spectrum", () => {
   function convictions(accusers: number): number {
     const state = table(["citizen", "citizen", "citizen", "citizen", "godfather"], 3);
     const juror = playerBySlot(state, 1)!;
-    bindPersonalities([makeBrain(juror.slot, HERD_HALF)]);
 
     // A wagon of the given size, which is the cheapest way to move the score.
     const claims: Claim[] = [];
@@ -2309,7 +2292,6 @@ describe("the triad is a family like the other one", () => {
   function reading(roles: RoleId[], judgeSlot: number, aboutSlot: number, allies: number[]): number {
     const state = table(roles, 3);
     const judge = playerBySlot(state, judgeSlot)!;
-    bindPersonalities([makeBrain(judge.slot, HERD_HALF)]);
     return suspicionParts(aboutSlot, judge, board(state), () => 0, new Set(allies)).evidence;
   }
 

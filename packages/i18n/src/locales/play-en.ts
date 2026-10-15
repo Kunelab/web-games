@@ -9,7 +9,7 @@ import type { Catalogue } from "../index.js";
  * screens pass the reader's own locale now, which is the one piece of
  * localisation the catalogue cannot do for them.
  */
-export const playEn: Catalogue = {
+export const playEn = {
   /* -------------------------------- the phone ------------------------------- */
   "play.connecting": "Connecting…",
   "play.waitingForGame": "Waiting for the game…",
@@ -196,6 +196,6 @@ export const playEn: Catalogue = {
   "play.rewards.inStock": "{count} in all",
   "play.rewards.newTitle": "New title",
   "play.rewards.next": "Almost there",
-};
+} satisfies Catalogue;
 
 export default playEn;

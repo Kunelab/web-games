@@ -1,13 +1,14 @@
 import {
   BOARD_MEMO,
   isEvilRole,
-  sheriffSuspects,
-  tradeVerdict,
   type Claim,
+  type Personality,
   type PublicInfo,
   type VoteRecord
 } from './sim/policies.js';
-import { roleDef, ROLES, type RoleId } from './roles.js';
+import { publicIdentity } from './identity.js';
+import { testimonyOf } from './sim/testimony.js';
+import { roleDef, ROLES, type Faction, type RoleId } from './roles.js';
 import type { DeathSource } from './messages.js';
 import { tableRoleList, type MafiaState, type VoteNote } from './state.js';
 import { slotPool, type SlotToken } from './setups.js';
@@ -25,8 +26,7 @@ const LONE_BLADES = new Set<DeathSource>(['serialKiller', 'massMurderer', 'arson
  * mafioso" must not accidentally conclude that the Godfather is accounted for,
  * or that the table's only Sheriff is dead.
  */
-function campStandIn(role: RoleId): RoleId {
-  const faction = roleDef(role).faction;
+function campStandIn(faction: Faction): RoleId {
   if (faction === 'mafia') return 'mafioso';
   if (faction === 'triad') return 'enforcer';
   if (faction === 'cult') return 'cultist';
@@ -105,6 +105,7 @@ interface BoardCache {
   info: PublicInfo | null;
   voteHistoryRef: VoteRecord[] | null;
   voteHistoryLen: number;
+  personalitiesRef: ReadonlyMap<number, Personality> | undefined;
   /** Per-board working memory, kept alive across reads that only moved a vote. */
   memo: BoardMemo;
 }
@@ -190,7 +191,18 @@ function copiesDealt(tokens: readonly SlotToken[]): Map<RoleId, number> {
   return copies;
 }
 
-export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: VoteRecord[]): PublicInfo {
+/**
+ * The board one seat reasons over: authoritative state, plus what was said, plus
+ * the closing votes of past days. `personalities` is the reading table's own
+ * characters, carried along for the readers that need them; see
+ * `PublicInfo.personalities`.
+ */
+export function toPublicInfo(
+  state: MafiaState,
+  spoken: Claim[],
+  voteHistory: VoteRecord[],
+  personalities?: ReadonlyMap<number, Personality>
+): PublicInfo {
   const players = Object.values(state.players);
   const slotOf = (playerId: string): number | undefined => state.players[playerId]?.slot;
 
@@ -253,6 +265,7 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
       info: null,
       voteHistoryRef: null,
       voteHistoryLen: -1,
+      personalitiesRef: undefined,
       memo: {}
     };
     BOARDS.set(state, cache);
@@ -296,7 +309,7 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
     cache.spokenLen = spoken.length;
     // What the dead said, joined with what was spoken while they lived.
     cache.claims = [...spoken, ...testamentClaims(state, spoken)];
-    cache.provenRoles = provenRoles(state, cache.claims, grave.deaths);
+    cache.provenRoles = provenRoles(state, cache.claims, grave.deaths, grave.deadRoles);
   }
 
   /** The trial record, which only moves when a trial ends. */
@@ -334,6 +347,8 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
   const historyMoved = cache.voteHistoryRef !== voteHistory || cache.voteHistoryLen !== voteHistory.length;
   cache.voteHistoryRef = voteHistory;
   cache.voteHistoryLen = voteHistory.length;
+  const charactersMoved = cache.personalitiesRef !== personalities;
+  cache.personalitiesRef = personalities;
 
   const trialSlot = state.trial ? (slotOf(state.trial.accusedId) ?? null) : null;
 
@@ -345,6 +360,7 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
     !trialsStale &&
     !ballotsStale &&
     !historyMoved &&
+    !charactersMoved &&
     cache.info &&
     cache.info.trialSlot === trialSlot
   ) {
@@ -386,7 +402,8 @@ export function toPublicInfo(state: MafiaState, spoken: Claim[], voteHistory: Vo
     dealCopies: cache.dealCopies,
     revealedMayorSlot: grave.revealedMayorSlot,
     trialSlot,
-    claims: cache.claims
+    claims: cache.claims,
+    ...(personalities ? { personalities } : {})
   };
   Object.defineProperty(info, BOARD_MEMO, {
     value: cache.memo,
@@ -403,15 +420,11 @@ function buildGrave(
   players: MafiaState['players'][string][],
   slotOf: (playerId: string) => number | undefined
 ): NonNullable<BoardCache['grave']> {
-  const reveal = state.config.revealOnDeath ?? 'role';
-
   const deaths: PublicInfo['deaths'] = [];
   const lastNightDeathSlots = new Set<number>();
-  const hiddenIds = new Set<string>();
   let nightDeathsTotal = 0;
   let rampage = 0;
   for (const death of state.deaths) {
-    if (death.hidden) hiddenIds.add(death.playerId);
     if (death.phase === 'night') {
       nightDeathsTotal++;
       if (death.day === state.day - 1) {
@@ -442,12 +455,10 @@ function buildGrave(
       continue;
     }
     /**
-     * A janitor-cleaned corpse keeps its secret from the public board, and so
-     * does a table playing without role reveals — the graveyard only knows what
-     * the game agreed to say out loud.
-     */
-    if (player.role === null || reveal === 'none' || hiddenIds.has(player.playerId)) continue;
-    /**
+     * The graveyard only knows what the game agreed to say out loud: see
+     * `publicIdentity`. A cleaned corpse, or a table playing without reveals,
+     * leaves nothing here.
+     *
      * Under a faction-reveal table, a stand-in of the right camp.
      *
      * This map is how the board remembers what the graveyard turned out to
@@ -467,7 +478,9 @@ function buildGrave(
      * player; anything that wants the camp gets a truthful answer either way,
      * which is exactly as much as the table said out loud.
      */
-    deadRoles.set(player.slot, reveal === 'role' ? player.role : campStandIn(player.role));
+    const told = publicIdentity(state, player);
+    const role = told.role ?? (told.faction ? campStandIn(told.faction) : null);
+    if (role) deadRoles.set(player.slot, role);
   }
 
   return {
@@ -561,107 +574,9 @@ function readTestaments(state: MafiaState): Claim[] {
     const record = state.deaths.find((death) => death.playerId === player.playerId);
     if (!record || record.hidden) continue;
 
+    // What each night says out loud: the one rule every reader of a record uses. See `testimonyOf`.
     for (const entry of player.intel) {
-      const base = {
-        day: entry.night,
-        // Written down rather than left to be guessed from `day`. See `Claim.night`.
-        night: entry.night,
-        claimerSlot: player.slot,
-        truthful: false,
-        /**
-         * Every line of this is a night somebody actually worked.
-         *
-         * A will rendered from `intel` is the record itself: the entry exists
-         * because the engine wrote it when the power resolved. `worked` is what
-         * separates "I checked 9 and he came back bad" from "I reckon 9 is
-         * bad", and without it a dead investigator's testimony reached the
-         * board indistinguishable from a stranger's hunch — which is how the
-         * town's own corpses ended up counting as hearsay in the one place it
-         * matters, the half of the score a juror is allowed to point at.
-         */
-        worked: true,
-        /**
-         * And which instrument wrote it, which is what corroborates.
-         *
-         * `worked` says this came out of a night; `from` says which power, and
-         * two different powers pointing at one house is the strongest thing the
-         * board can hold. A dead investigator's testimony arrived carrying the
-         * first and not the second, so a Sheriff's check read from a will
-         * counted as an ungrounded hunch the moment `grounding` started asking.
-         */
-        from: entry.kind
-      } as const;
-      switch (entry.kind) {
-        case 'sheriff':
-          file({
-            ...base,
-            targetSlot: entry.targetSlot,
-            kind: sheriffSuspects(entry.value) ? 'accuse' : 'clear'
-          });
-          break;
-        case 'role':
-          // Guarded, so a stray string in a record cannot become a claim.
-          if (entry.value in ROLES) {
-            file({
-              ...base,
-              targetSlot: entry.targetSlot,
-              kind: isEvilRole(entry.value as RoleId) ? 'accuse' : 'clear'
-            });
-          }
-          break;
-        /**
-         * With the house, which is half the finding.
-         *
-         * Filed without `at`, a Lookout's list at the house that died and a
-         * tail that ended at the corpse's door both reached the board as "went
-         * out", and the doorstep rule (the strongest movement evidence there is)
-         * could never fire off a will.
-         */
-        case 'visitors':
-          for (const visitor of entry.slots ?? []) {
-            file({ ...base, targetSlot: visitor, kind: 'sighting', at: entry.targetSlot });
-          }
-          break;
-        case 'tracked': {
-          /**
-           * Only a tail that went somewhere is a sighting.
-           *
-           * "Night 2 I was on Pac-Man, and they never left" was filed as Pac-Man
-           * seen out, and the room hanged a Veteran for "Garuda watched them go to
-           * someone's house" on the very night the will said he stayed in.
-           */
-          const where = entry.slots?.[0];
-          if (where !== undefined) file({ ...base, targetSlot: entry.targetSlot, kind: 'sighting', at: where });
-          break;
-        }
-        /**
-         * And the Investigator's line, which was never read at all.
-         *
-         * "Hades smells of petrol: Arsonist" sat in a dead Investigator's will
-         * beside a living Sheriff's matching check, and the board held neither as
-         * evidence: the town hanged the Sheriff. Graded against the roster the
-         * same way the living Investigator grades it before speaking.
-         */
-        case 'trade': {
-          const verdict = tradeVerdict(entry.value, rolesInPlay);
-          file({
-            ...base,
-            targetSlot: entry.targetSlot,
-            kind: verdict === 'damning' ? 'accuse' : verdict === 'clean' ? 'clear' : 'hint'
-          });
-          break;
-        }
-        case 'went':
-          file({
-            ...base,
-            targetSlot: entry.targetSlot,
-            kind: 'account',
-            account: 'visited'
-          });
-          break;
-        default:
-          break;
-      }
+      for (const claim of testimonyOf(entry, player.slot, rolesInPlay)) file({ ...claim, truthful: false });
     }
   }
   return filed;
@@ -702,7 +617,12 @@ const PORCH_KILLS: Partial<Record<DeathSource, RoleId>> = {
  * Indexed once per call. This runs on every board read, and the first shape
  * of it scanned the whole roster for every accusation of every claimant.
  */
-function provenRoles(state: MafiaState, claims: Claim[], deaths: PublicInfo['deaths']): Map<number, RoleId> {
+function provenRoles(
+  state: MafiaState,
+  claims: Claim[],
+  deaths: PublicInfo['deaths'],
+  deadRoles: ReadonlyMap<number, RoleId>
+): Map<number, RoleId> {
   const proven = new Map<number, RoleId>();
   const players = Object.values(state.players);
   const bySlot = new Map(players.map((player) => [player.slot, player]));
@@ -739,14 +659,9 @@ function provenRoles(state: MafiaState, claims: Claim[], deaths: PublicInfo['dea
     if (journey && alive.has(journey.targetSlot)) proven.set(journey.targetSlot, role);
   }
 
-  // The badge.
-  const revealed = (state.config.revealOnDeath ?? 'role') !== 'none';
-  const hidden = new Set(state.deaths.filter((death) => death.hidden).map((death) => death.playerId));
-  const deadRoleOf = (slot: number): RoleId | null => {
-    const player = bySlot.get(slot);
-    if (!player || player.alive || !player.role || !revealed || hidden.has(player.playerId)) return null;
-    return player.role;
-  };
+  // The badge. What the graveyard said out loud: a faction-revealed corpse is
+  // its camp's stand-in, never the role the town was not shown.
+  const deadRoleOf = (slot: number): RoleId | null => deadRoles.get(slot) ?? null;
   const accusationsBy = new Map<number, Claim[]>();
   for (const claim of claims) {
     if (claim.kind !== 'accuse') continue;

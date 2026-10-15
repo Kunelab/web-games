@@ -3,8 +3,9 @@ import './test-env.js';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { FastifyBaseLogger } from 'fastify';
-import { addMafiaBot, createMafiaGame, type IntelEntry, type MafiaState } from 'mafia-core';
+import { addMafiaBot, createMafiaGame, type IntelEntry } from 'mafia-core';
+
+import { seatAlone } from './seat-fakes.js';
 
 /**
  * A will is a record, and a record says each night once.
@@ -28,25 +29,8 @@ import { addMafiaBot, createMafiaGame, type IntelEntry, type MafiaState } from '
  * — the part nobody else can reconstruct — off the bottom.
  */
 
-const quiet = () => undefined;
-const log = {
-  info: quiet,
-  warn: quiet,
-  error: quiet,
-  debug: quiet,
-  fatal: quiet,
-  trace: quiet,
-  silent: quiet,
-  level: 'silent',
-  child() {
-    return log;
-  }
-} as unknown as FastifyBaseLogger;
-
 describe('a will names each night once', () => {
-  async function willOf(nightsLived: number): Promise<string> {
-    const { MafiaBotDriver } = await import('./bots.js');
-
+  function willOf(nightsLived: number): string {
     const state = createMafiaGame({ code: 'WILL1', hostToken: 'h', hostUserId: null, now: 0 });
     for (let i = 0; i < 6; i++) addMafiaBot(state, `tok${i}`, `bot${i}`, () => 0);
     for (const player of Object.values(state.players)) player.role = 'citizen';
@@ -58,19 +42,10 @@ describe('a will names each night once', () => {
     state.day = nightsLived;
 
     let filed = '';
-    const driver = new MafiaBotDriver(log, {
-      chat: () => ({ ok: true as const }),
-      vote: () => ({ ok: true as const }),
-      ballot: () => ({ ok: true as const }),
-      action: () => ({ ok: true as const }),
-      dayAction: () => ({ ok: true as const }),
-      will: (_code: string, _botId: string, text: string) => {
+    const { seat: played, minds } = seatAlone({
+      will: (_code, _botId, text) => {
         filed = text;
-        return { ok: true as const };
-      },
-      whisper: () => ({ ok: true as const }),
-      get: (code: string) => (code === state.code ? state : undefined),
-      busy: () => undefined
+      }
     });
 
     /**
@@ -78,24 +53,19 @@ describe('a will names each night once', () => {
      * for what the journey produced, and the seat's own note of where it was
      * going. That pairing is the whole of the bug.
      */
-    const driven = driver as unknown as {
-      minds: { wentTo(state: MafiaState, botId: string, slot: number): void };
-      updateWill(state: MafiaState, botId: string, tonight?: number | null): void;
-    };
-
     for (let night = 1; night <= nightsLived; night++) {
       const house = 2 + (night % 4);
       state.day = night;
-      driven.minds.wentTo(state, 'bot0', house);
+      minds.wentTo(state, 'bot0', house);
       seat.intel.push({ night, kind: 'went', targetSlot: house } as IntelEntry);
     }
     state.day = nightsLived;
-    driven.updateWill(state, 'bot0');
+    played.updateWill(state, 'bot0');
     return filed;
   }
 
-  it('does not repeat a night it has already reported', async () => {
-    const text = await willOf(6);
+  it('does not repeat a night it has already reported', () => {
+    const text = willOf(6);
     const lines = text.split('\n');
     assert.ok(text.length > 0, 'the seat filed something');
 
@@ -119,8 +89,7 @@ describe('a will names each night once', () => {
    * And the one line the plan exists for survives: the night being spent now
    * has no entry yet, so it is the seat's only chance to name where it went.
    */
-  it('still writes down the night it has not lived through yet', async () => {
-    const { MafiaBotDriver } = await import('./bots.js');
+  it('still writes down the night it has not lived through yet', () => {
     const state = createMafiaGame({ code: 'WILL2', hostToken: 'h', hostUserId: null, now: 0 });
     for (let i = 0; i < 6; i++) addMafiaBot(state, `tok${i}`, `bot${i}`, () => 0);
     for (const player of Object.values(state.players)) player.role = 'citizen';
@@ -131,29 +100,15 @@ describe('a will names each night once', () => {
     state.day = 3;
 
     let filed = '';
-    const driver = new MafiaBotDriver(log, {
-      chat: () => ({ ok: true as const }),
-      vote: () => ({ ok: true as const }),
-      ballot: () => ({ ok: true as const }),
-      action: () => ({ ok: true as const }),
-      dayAction: () => ({ ok: true as const }),
-      will: (_c: string, _b: string, text: string) => {
+    const { seat: played, minds } = seatAlone({
+      will: (_code, _botId, text) => {
         filed = text;
-        return { ok: true as const };
-      },
-      whisper: () => ({ ok: true as const }),
-      get: (code: string) => (code === state.code ? state : undefined),
-      busy: () => undefined
+      }
     });
 
-    const driven = driver as unknown as {
-      minds: { wentTo(state: MafiaState, botId: string, slot: number): void };
-      updateWill(state: MafiaState, botId: string, tonight?: number | null): void;
-    };
-
     // Night 3 is being spent right now: no intel for it, only the intention.
-    driven.minds.wentTo(state, 'bot0', 4);
-    driven.updateWill(state, 'bot0', 4);
+    minds.wentTo(state, 'bot0', 4);
+    played.updateWill(state, 'bot0', 4);
 
     /**
      * Matched on the house rather than the night, because one of the three

@@ -14,7 +14,7 @@ import type { Catalogue } from '../index.js';
  * language and neither is a person's screen. Every surface a player looks at
  * resolves the keys below instead.
  */
-export const rolesEn: Catalogue = {
+export const rolesEn = {
   /* -------------------------------- the camps ------------------------------- */
   'mafia.faction.town': 'Town',
   'mafia.faction.mafia': 'Mafia',
@@ -188,7 +188,6 @@ export const rolesEn: Catalogue = {
   'mafia.action.silence': 'Silence',
   'mafia.action.clean': 'Clean',
   'mafia.action.swap': 'Swap',
-  'mafia.action.kidnap': 'Kidnap',
   'mafia.action.recruit': 'Initiate',
   'mafia.action.convert': 'Convert',
   'mafia.action.remember': 'Remember',
@@ -224,6 +223,6 @@ export const rolesEn: Catalogue = {
   'mafia.slot.neutral-random': 'Random Neutral',
   'mafia.slot.any': 'Any Role',
   'mafia.slot.pool': 'Rolled at the start from: {roles}.'
-};
+} satisfies Catalogue;
 
 export default rolesEn;

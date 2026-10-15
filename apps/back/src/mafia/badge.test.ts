@@ -5,9 +5,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { addMafiaBot, advanceMafia, createMafiaGame, startMafia, type MafiaState } from 'mafia-core';
-import type { FastifyBaseLogger } from 'fastify';
 
-import { MafiaBotDriver } from './bots.js';
+import { seatAlone } from './seat-fakes.js';
+import type { Seat } from './seat.js';
 
 /**
  * A seat wearing somebody else's badge, and the somebody else.
@@ -18,33 +18,7 @@ import { MafiaBotDriver } from './bots.js';
  * at all, not even the role claim and the accusation queued behind it.
  */
 
-const quiet = () => undefined;
-const log = {
-  info: quiet,
-  warn: quiet,
-  error: quiet,
-  debug: quiet,
-  fatal: quiet,
-  trace: quiet,
-  silent: quiet,
-  level: 'silent',
-  child() {
-    return log;
-  }
-} as unknown as FastifyBaseLogger;
-
-interface Decision {
-  say: string | null;
-  verdict: string | null;
-  claim: { kind: string; slot: number | null; deniedRole?: string } | null;
-}
-interface Driver {
-  scripted(state: MafiaState, botId: string, task: string, channel?: string): Decision;
-  minds: { record(state: MafiaState, claimerId: string, kind: string, targetSlot: number, extra?: object): void };
-  stop(): void;
-}
-
-function table(): { state: MafiaState; driver: Driver; jailor: string; impostor: string } {
+function table(): { state: MafiaState; seat: Seat; jailor: string; impostor: string } {
   const rng = () => 0.5;
   const state = createMafiaGame({
     code: 'BADGE',
@@ -71,27 +45,15 @@ function table(): { state: MafiaState; driver: Driver; jailor: string; impostor:
   // Somebody is already voting for the impostor, so its badge is under fire.
   if (rest[0]) state.votes[rest[0].playerId] = impostor.playerId;
 
-  const driver = new MafiaBotDriver(log, {
-    chat: () => ({ ok: true }),
-    vote: () => ({ ok: true }),
-    ballot: () => ({ ok: true }),
-    action: () => ({ ok: true }),
-    dayAction: () => ({ ok: true }),
-    will: () => ({ ok: true }),
-    whisper: () => ({ ok: true }),
-    busy: () => undefined,
-    get: () => state
-  }) as unknown as Driver;
-  driver.minds.record(state, impostor.playerId, 'role-claim', impostor.slot, { claimedRole: 'jailor' });
-  return { state, driver, jailor: jailor.playerId, impostor: impostor.playerId };
+  const { seat, minds } = seatAlone({ rng });
+  minds.record(state, impostor.playerId, 'role-claim', impostor.slot, { claimedRole: 'jailor' });
+  return { state, seat, jailor: jailor.playerId, impostor: impostor.playerId };
 }
 
 describe('a seat claims the badge of the seat listening', () => {
   it('is contested out loud in the square', () => {
-    const { state, driver, jailor, impostor } = table();
-    const spoken: Decision[] = [];
-    for (let turn = 0; turn < 6; turn++) spoken.push(driver.scripted(state, jailor, 'day'));
-    driver.stop();
+    const { state, seat, jailor, impostor } = table();
+    const spoken = Array.from({ length: 6 }, () => seat.play(state, jailor, 'day'));
 
     const said = spoken.filter((decision) => decision.say);
     assert.ok(said.length > 0, `the real Jailor never spoke: ${JSON.stringify(spoken)}`);
@@ -105,11 +67,10 @@ describe('a seat claims the badge of the seat listening', () => {
   });
 
   it('is contested in the booth, with a guilty ballot', () => {
-    const { state, driver, jailor, impostor } = table();
+    const { state, seat, jailor, impostor } = table();
     state.stage = 'judgement';
     state.trial = { accusedId: impostor, ballots: {} };
-    const decision = driver.scripted(state, jailor, 'judgement');
-    driver.stop();
+    const decision = seat.play(state, jailor, 'judgement');
 
     assert.equal(decision.verdict, 'guilty');
     assert.equal(decision.claim?.kind, 'counter-claim');

@@ -10,23 +10,6 @@
 
 export type Faction = 'town' | 'mafia' | 'triad' | 'cult' | 'neutral';
 
-/**
- * What a player is told their camp is called.
- *
- * A `Record` rather than a chain of ternaries on purpose: the screen that shows
- * this used two branches for a five-member union, so every Triad member and
- * every convert was told they were Neutral — on the one card that exists to say
- * which side you are on. Keyed by the type, so adding a sixth faction is a
- * compile error here instead of a lie on a phone.
- */
-export const FACTION_LABELS: Record<Faction, string> = {
-  town: 'Ville',
-  mafia: 'Mafia',
-  triad: 'Triade',
-  cult: 'Secte',
-  neutral: 'Neutre'
-};
-
 export type RoleId =
   // Town (20)
   | 'bodyguard'
@@ -116,7 +99,6 @@ export type NightActionType =
   | 'silence' // blackmailer, silencer
   | 'clean' // janitor, incense master: hide the victim's role
   | 'swap' // bus driver: exchange two houses' fates (two targets)
-  | 'kidnap' // kidnapper, interrogator: block + shelter, roughly
   | 'recruit' // mason leader: a citizen joins the lodge
   | 'convert' // cultist: a town soul joins the cult (cooldown)
   | 'remember' // amnesiac: become a dead player's role
@@ -129,48 +111,6 @@ export type NightActionType =
   | 'rampage' // mass murderer: kill a house and everyone in it
   | 'poison' // poisoner: death tomorrow unless a doctor intervenes
   | 'charge'; // electromaniac; self = discharge
-
-/**
- * The verb on the button, per power.
- *
- * The seat screen puts each night action on the row of the player it targets, so
- * every power needs a word short enough to sit beside a name. Content, not
- * presentation, which is why it lives next to the role names rather than in the
- * frontend: a bot's prompt and a future TV screen want the same word.
- */
-export const ACTION_LABELS: Record<NightActionType, string> = {
-  kill: 'Tuer',
-  heal: 'Soigner',
-  guard: 'Protéger',
-  block: 'Occuper',
-  investigate: 'Sonder',
-  examine: 'Examiner',
-  watch: 'Surveiller',
-  track: 'Pister',
-  shadow: 'Suivre',
-  frame: 'Piéger',
-  'jail-execute': 'Exécuter',
-  alert: 'Se mettre en alerte',
-  vest: 'Enfiler le gilet',
-  douse: 'Arroser',
-  control: 'Envoûter',
-  silence: 'Faire taire',
-  clean: 'Nettoyer',
-  swap: 'Échanger',
-  kidnap: 'Enlever',
-  recruit: 'Initier',
-  convert: 'Convertir',
-  remember: 'Se souvenir',
-  audit: 'Contrôler',
-  imitate: 'Emprunter le visage',
-  hide: 'Se cacher chez',
-  charm: 'Séduire',
-  bond: 'Aimer',
-  autopsy: 'Autopsier',
-  rampage: 'Massacrer',
-  poison: 'Empoisonner',
-  charge: 'Câbler'
-};
 
 /**
  * The powers whose own house is the target: the match, the lever, the ignition.
@@ -204,7 +144,7 @@ export interface RoleDef {
    * delete the role on night four.
    *
    * So the gate asks this first. The charge is spent by the execution and by
-   * nothing else; see `kidnap` in `legalNightAction` and in `resolveNight`.
+   * nothing else; see `jail-execute` in `legalNightAction` and in `resolveNight`.
    */
   optionalCharges?: boolean;
   /** Survives basic (power 1) night attacks. */
@@ -234,7 +174,7 @@ export interface RoleDef {
   /** One-line pitch shown on the role card. */
   description: string;
   /** What the investigator sees, as a trade id: `mafia.trade.<id>`. */
-  investigated: string;
+  investigated: TradeId;
 }
 
 /**
@@ -279,6 +219,15 @@ const L = {
   charm: 'charm',
   dirt: 'dirt'
 } as const;
+
+/**
+ * One line of the answer sheet, as the union of the ids above.
+ *
+ * Typed so that `mafia.trade.${trade}` is a key the compiler can check: a trade
+ * added here without its catalogue line fails to build instead of reaching an
+ * examiner's notes as raw dotted text.
+ */
+export type TradeId = (typeof L)[keyof typeof L];
 
 /* ----------------------------- the answer sheet ---------------------------- */
 
@@ -967,23 +916,6 @@ export const FAMILIES = {
 
 export type FamilyId = keyof typeof FAMILIES | 'cult';
 
-/** The family a role belongs to, or null for town and neutrals. */
-/**
- * Does this role spend its nights at home?
- *
- * A Veteran sits on his porch with a rifle and a Survivor puts on a vest; a role
- * with no night action at all does not get up either. Nobody wearing one of these
- * badges can honestly say they were at somebody else's door, which matters most
- * to the seats that are lying: a Witch bluffing Veteran answered "where were
- * you" with the truth — it had been out controlling somebody — and told the room
- * it had been turning a house over while claiming the one role that never leaves
- * its own. A bluff has to be consistent with itself or it is not a bluff, it is
- * a confession with extra steps.
- */
-export function staysHome(role: RoleId): boolean {
-  const action = roleDef(role).nightAction;
-  return action === null || action === 'alert' || action === 'vest';
-}
 
 /**
  * How many seats are left before the endgame is worth thinking about.
@@ -1036,6 +968,7 @@ export function duelBeats(mine: RoleId, theirs: RoleId): boolean {
   return !!them.nightImmune && !me.nightImmune;
 }
 
+/** The family a role belongs to, or null for town and neutrals. */
 export function familyOf(role: RoleId): FamilyId | null {
   const faction = ROLES[role].faction;
   return faction === 'mafia' || faction === 'triad' || faction === 'cult' ? faction : null;

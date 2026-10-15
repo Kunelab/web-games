@@ -1,18 +1,21 @@
-import { toServerTime, type AnswerAck, type JoinAck, type RedactedAnswerField, type RoundView } from 'game-core';
+import type { RedactedAnswerField, RoundView, SessionView } from 'game-core';
 import { msg } from 'i18n';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 
 import { awardMeta } from '../app/awards';
 import { badgeMeta } from '../app/badges';
 import { fieldText } from '../forms/fieldText';
-import { useCountdown, useGameSocket } from '../hooks/useGameSocket';
+import { useCountdown } from '../hooks/useServerClock';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useLocale } from '../i18n/locale-context';
+import { JoinForm } from '../seat/JoinForm';
+import { useJoinDraft } from '../seat/useJoinDraft';
+import { quizSeat } from '../seat/protocols';
+import { useSeat } from '../seat/useSeat';
 import { assetUrl } from '../tools/api-url';
 import { buzz as haptic } from '../tools/haptics';
-import { NICKNAME_MAX, rememberNickname, storedNickname } from '../tools/nickname';
-import { forgetSeat, noteSeat } from '../tools/seats';
+import { forgetSeat } from '../tools/seats';
 import { BlindtestAudio } from '../ui/BlindtestAudio';
 import { QuickEnd } from '../ui/QuickEnd';
 import { RevealImage } from '../ui/RevealImage';
@@ -31,116 +34,9 @@ import './play.css';
  */
 export default function Player() {
   const { code = '' } = useParams<{ code: string }>();
-  const { socket, connected, session, error, serverNow, clock } = useGameSocket();
+  const { status, view: session, error, grant, join, call, serverNow } = useSeat(quizSeat, code);
+  const draft = useJoinDraft();
   const { t, locale } = useLocale();
-
-  /**
-   * Filled from the name this phone last played under, whatever the game was.
-   *
-   * Not from the per-code name: that one is read inside `join` and is what a
-   * silent rejoin sends back, but it is empty the first time this phone meets
-   * this code, which is exactly when the box is shown.
-   */
-  const [name, setName] = useState(storedNickname);
-  const [joined, setJoined] = useState(false);
-  const [joinError, setJoinError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  /**
-   * The word at the door, and whether this room has one.
-   *
-   * The flag is raised by the server's refusal rather than asked for up front:
-   * the overwhelming majority of rooms have no door, and a password box on every
-   * join screen is a question almost nobody has an answer to. See `JoinAck`.
-   */
-  const [password, setPassword] = useState('');
-  const [locked, setLocked] = useState(false);
-
-  const tokenKey = `kune.player.${code}`;
-
-  const join = useCallback(
-    // The password is an argument rather than a read of state so that the silent
-    // rejoins below stay honest about their dependencies: they never carry one.
-    async (playerName: string, word = '') => {
-      if (!socket) return;
-      setBusy(true);
-      setJoinError(null);
-
-      try {
-        // The remembered name rides with the token: a silent rejoin used to
-        // send an empty name, which the schema refused — token or no token.
-        const remembered = localStorage.getItem(`${tokenKey}.name`) ?? '';
-        const actualName = playerName.trim() || remembered || t(msg('play.defaultName'));
-
-        // socket.io's ack types do not survive `timeout()`; asserted once here.
-        const ack = (await socket.timeout(5000).emitWithAck('session:join', {
-          code,
-          playerName: actualName,
-          playerToken: localStorage.getItem(tokenKey) ?? undefined,
-          password: word
-        })) as JoinAck;
-
-        if (ack.ok) {
-          if (ack.playerToken) localStorage.setItem(tokenKey, ack.playerToken);
-          if (ack.playerId) localStorage.setItem(`${tokenKey}.id`, ack.playerId);
-          localStorage.setItem(`${tokenKey}.name`, actualName);
-          // The name this phone plays under generally, and the seat it can be
-          // offered a way back into. Both are written on the silent rejoins too:
-          // they cost nothing and they keep the seat's timestamp honest.
-          rememberNickname(actualName);
-          noteSeat('quiz', code, actualName);
-          setJoined(true);
-        } else {
-          // A room with a door says so here and nowhere earlier, so this is what
-          // makes the field appear. It stays up once raised: a wrong word is
-          // still a room that wants one.
-          if (ack.needsPassword) setLocked(true);
-          setJoinError(ack.needsPassword ? t(msg('room.wrong')) : (ack.error ?? t(msg('play.joinFailed'))));
-        }
-      } catch {
-        setJoinError(t(msg('play.serverQuiet')));
-      } finally {
-        setBusy(false);
-      }
-    },
-    // Wrapped so the auto-rejoin effect below can depend on it honestly. Without
-    // this it would be a new function every render, and the effect would either
-    // lie about its dependencies or re-run on each one.
-    [socket, code, tokenKey, t]
-  );
-
-  // A stored token means this phone was already in the game: rejoin silently
-  // rather than asking for the nickname again.
-  const autoJoined = useRef(false);
-  useEffect(() => {
-    if (!socket || !connected || joined || autoJoined.current) return;
-    if (!localStorage.getItem(tokenKey)) return;
-
-    autoJoined.current = true;
-    // Rejoining talks to the socket, an external system, and the busy flag has to
-    // flip as the request starts.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void join('');
-  }, [socket, connected, joined, join, tokenKey]);
-
-  /**
-   * A NEW socket after a drop knows nothing: every reconnect re-presents the
-   * token and reclaims the seat, silently.
-   *
-   * Only on the edge, which is what the ref is for. The effect also runs when
-   * `joined` flips, so a successful manual join was immediately followed by a
-   * second, pointless one: another round trip, another roster broadcast to
-   * everybody, and another three-probe latency measurement fired at a phone that
-   * had just been measured. Comparing against the previous value means this fires
-   * when the line comes back and at no other time.
-   */
-  const wasConnected = useRef(connected);
-  useEffect(() => {
-    const reconnected = connected && !wasConnected.current;
-    wasConnected.current = connected;
-    if (!joined || !reconnected) return;
-    // Same reasoning as the auto-join above: this talks to the socket.
-    void join('');
-  }, [connected, joined, join]);
 
   /**
    * Lit for as long as there is a seat here.
@@ -149,7 +45,7 @@ export default function Player() {
    * also how long a phone waits before locking itself. The player then misses
    * the buzzer, and the socket goes with the screen.
    */
-  useWakeLock(joined);
+  useWakeLock(session !== null);
 
   /**
    * A finished game is not somewhere to send anybody back to.
@@ -161,7 +57,7 @@ export default function Player() {
     if (session?.phase === 'finished') forgetSeat('quiz', code);
   }, [session?.phase, code]);
 
-  if (!connected) {
+  if (status === 'connecting') {
     return (
       <div className="jeu-screen jeu-center">
         <Loading label={t(msg('play.connecting'))} />
@@ -169,43 +65,19 @@ export default function Player() {
     );
   }
 
-  if (!joined) {
+  if (status !== 'seated' && !session) {
     return (
       <div className="jeu-screen jeu-center">
-        <form
-          className="join-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void join(name, password);
-          }}
+        <JoinForm
+          draft={draft}
+          status={status}
+          error={error}
+          join={join}
+          nameLabel={t(msg('play.yourNickname'))}
+          submitLabel={t(msg('play.join'))}
         >
           <h1 className="join-title">{t(msg('play.game', { code }))}</h1>
-          <Input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder={t(msg('play.yourNickname'))}
-            maxLength={NICKNAME_MAX}
-            aria-label={t(msg('play.yourNickname'))}
-            // The nickname is already filled from the last game; once the room
-            // has asked for a word, that is the box the thumb wants.
-            autoFocus={!locked}
-          />
-          {locked && (
-            <Input
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder={t(msg('room.asked'))}
-              maxLength={40}
-              aria-label={t(msg('room.asked'))}
-              autoComplete="off"
-              autoFocus
-            />
-          )}
-          {joinError && <p className="play-error">{joinError}</p>}
-          <Button type="submit" variant="primary" size="lg" block busy={busy} disabled={!name.trim()}>
-            {t(msg('play.join'))}
-          </Button>
-        </form>
+        </JoinForm>
       </div>
     );
   }
@@ -218,7 +90,7 @@ export default function Player() {
     );
   }
 
-  const myId = localStorage.getItem(`${tokenKey}.id`);
+  const myId = grant?.playerId ?? null;
   const me = session.players.find((player) => player.id === myId);
 
   return (
@@ -280,38 +152,33 @@ export default function Player() {
           key={session.round.roundId}
           session={session}
           serverNow={serverNow}
-          offsetMs={clock.offsetMs}
           myId={myId}
           locale={locale}
           onSubmit={async (fieldKey, value, direct) => {
-            if (!socket || !session.round) return { ok: false };
+            if (!session.round) return { ok: false };
 
             // `clientTime` is this phone's own clock converted to server time with
             // its measured offset. That is what lets the server credit the moment
             // the player actually pressed rather than when the packet landed.
-            return (await socket.timeout(5000).emitWithAck('answer:submit', {
+            const answer = await call('answer:submit', {
               roundId: session.round.roundId,
               fieldKey,
               value,
-              clientTime: toServerTime(clock),
+              clientTime: serverNow(),
               direct
-            })) as AnswerAck;
+            });
+            return { ...answer, error: answer.error && t(answer.error) };
           }}
           onRevealChoices={async (fieldKey) => {
-            if (!socket || !session.round) return;
-            await socket.timeout(5000).emitWithAck('answer:revealChoices', {
-              roundId: session.round.roundId,
-              fieldKey
-            });
+            if (!session.round) return;
+            await call('answer:revealChoices', { roundId: session.round.roundId, fieldKey });
           }}
           onBuzz={async () => {
-            if (!socket || !session.round) return { ok: false };
+            if (!session.round) return { ok: false };
             // Same clock treatment as an answer: the race is decided on when the
             // thumb landed, not on when the packet did.
-            return (await socket.timeout(5000).emitWithAck('answer:buzz', {
-              roundId: session.round.roundId,
-              clientTime: toServerTime(clock)
-            })) as { ok: boolean; error?: string };
+            const answer = await call('answer:buzz', { roundId: session.round.roundId, clientTime: serverNow() });
+            return { ok: answer.ok, error: answer.error && t(answer.error) };
           }}
         />
       )}
@@ -327,7 +194,7 @@ export default function Player() {
                 const meta = awardMeta(award.key);
                 return (
                   <p className="player-award" key={award.key}>
-                    {meta.emoji} {t(msg(meta.titleKey))} · {award.value}
+                    {meta.emoji} {t(meta.title)} · {award.value}
                   </p>
                 );
               })}
@@ -363,15 +230,14 @@ export default function Player() {
         </div>
       )}
 
-      {error && <p className="play-error">{error}</p>}
+      {error && <p className="play-error">{t(error)}</p>}
     </div>
   );
 }
 
 interface RoundPanelProps {
-  session: NonNullable<ReturnType<typeof useGameSocket>['session']>;
+  session: SessionView;
   serverNow: () => number;
-  offsetMs: number;
   /** This phone’s player id, so the reveal shows its own score. */
   myId: string | null;
   /** The reader's language, for the numbers `toLocaleString` has to format. */
@@ -950,7 +816,7 @@ function Presentation({
   serverNow,
   revealed = false
 }: {
-  round: NonNullable<NonNullable<ReturnType<typeof useGameSocket>['session']>['round']>;
+  round: NonNullable<SessionView['round']>;
   serverNow: () => number;
   revealed?: boolean;
 }) {

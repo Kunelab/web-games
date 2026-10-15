@@ -8,9 +8,9 @@ import type {
   QuickServerToClient
 } from 'lobby-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { io, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
-import { apiOrigin } from '../tools/api-url';
+import { openSocket } from '../seat/browser';
 
 export type QuickSocket = Socket<QuickServerToClient, QuickClientToServer>;
 
@@ -79,7 +79,7 @@ export function useQuickplay(options: QuickplayOptions): QuickConnection {
   useEffect(() => {
     if (!enabled || !name.trim()) return;
 
-    const socket: QuickSocket = io(apiOrigin, { transports: ['websocket', 'polling'] });
+    const socket: QuickSocket = openSocket();
     socketRef.current = socket;
     let joinedCode: string | null = null;
 

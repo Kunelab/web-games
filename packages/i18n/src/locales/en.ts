@@ -13,15 +13,22 @@ import { siteEn } from './site-en.js';
 /**
  * English: the reference catalogue and the fallback for every other language.
  *
- * A key must exist here before it may be used anywhere, and `catalogue.test.ts`
- * fails the build if another locale drifts from this list in either direction —
- * a key only `fr` has means a rename left the English fallback showing raw
- * dotted text.
+ * A key must exist here before it may be used anywhere, and the compiler is what
+ * enforces it: this object's keys *are* `MsgKey`, so `msg()` with a key that is
+ * not below does not typecheck. That is why it is `satisfies Catalogue` and not
+ * `: Catalogue` — the annotation would widen every key to `string` and leave
+ * nothing to check against. Each sub-catalogue spread in here is declared the
+ * same way, for the same reason.
+ *
+ * Other locales are typed against this one (`TranslationOf<typeof en>`, and each
+ * French sub-catalogue against its English twin), so drift in either direction is
+ * a compile error too — a key only `fr` has means a rename left the English
+ * fallback showing raw dotted text.
  *
  * Ordering follows the game, not the alphabet: lobby, day, trial, night, ending.
  * A translator reads it top to bottom and sees an evening happen.
  */
-export const en: Catalogue = {
+export const en = {
   ...rolesEn,
   ...atelierEn,
   ...coronazEn,
@@ -145,6 +152,6 @@ export const en: Catalogue = {
     'The killers took the town down with them. There is nobody left to save, and nobody to save them.',
   'mafia.end.unmasked': 'The masks come off:',
   'mafia.end.unmaskedRow': '{slot}. {name}: {role}'
-};
+} satisfies Catalogue;
 
 export default en;

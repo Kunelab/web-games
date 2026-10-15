@@ -94,6 +94,13 @@ function sessionCookie(response: { cookies: { name: string; value: string }[] })
 
 const login = `smoke_${Date.now()}`;
 
+/**
+ * The code on every session built by hand below, through the engine rather than
+ * the app. The O is outside the join-code alphabet, so no live room can ever
+ * have it, not even beside the one such session handed to the running app.
+ */
+const HAND_BUILT_CODE = 'SMOKE';
+
 /* ----------------------------- auth and access ---------------------------- */
 section('auth');
 
@@ -640,7 +647,7 @@ const state = createSession({
   hostUserId: 1,
   items: playable,
   config: defaultSessionConfig,
-  existingCodes: new Set()
+  code: HAND_BUILT_CODE
 });
 
 const alice = joinSession(state, 'Alice', undefined).player;
@@ -776,7 +783,7 @@ section('pooled answers');
     hostUserId: 1,
     items: [item],
     config: sessionConfigSchema.parse({ attemptsPerField: 2 }),
-    existingCodes: new Set()
+    code: HAND_BUILT_CODE
   });
   const solo = joinSession(pool, 'Solo', undefined).player;
   advance(pool, () => item);
@@ -810,7 +817,7 @@ section('pooled answers');
     hostUserId: 1,
     items: [item],
     config: sessionConfigSchema.parse({ attemptsPerField: 2 }),
-    existingCodes: new Set()
+    code: HAND_BUILT_CODE
   });
   const waster = joinSession(spam, 'Waster', undefined).player;
   advance(spam, () => item);
@@ -855,7 +862,7 @@ section('estimation');
     hostUserId: 1,
     items: [item],
     config: defaultSessionConfig,
-    existingCodes: new Set()
+    code: HAND_BUILT_CODE
   });
   const near = joinSession(est, 'Near', undefined).player;
   const far = joinSession(est, 'Far', undefined).player;
@@ -952,7 +959,7 @@ section('who gets the media');
     hostUserId: 1,
     items: [item],
     config: defaultSessionConfig,
-    existingCodes: new Set()
+    code: HAND_BUILT_CODE
   });
   const alone = joinSession(noTv, 'Phone', undefined).player;
   advance(noTv, () => item);
@@ -965,7 +972,7 @@ section('who gets the media');
     hostUserId: 1,
     items: [item],
     config: { ...defaultSessionConfig, tv: true },
-    existingCodes: new Set()
+    code: HAND_BUILT_CODE
   });
   const seated = joinSession(withTv, 'Phone', undefined).player;
   advance(withTv, () => item);
@@ -1023,7 +1030,7 @@ section('who gets the media');
     hostUserId: 1,
     items: [picture],
     config: defaultSessionConfig,
-    existingCodes: new Set()
+    code: HAND_BUILT_CODE
   });
   const looker = joinSession(noTvPicture, 'Phone', undefined).player;
   advance(noTvPicture, () => picture);
@@ -1059,7 +1066,7 @@ section('who gets the media');
     hostUserId: 1,
     items: [picture, question],
     config: { ...defaultSessionConfig, tv: true },
-    existingCodes: new Set()
+    code: HAND_BUILT_CODE
   });
   const watcher = joinSession(pictureOnTv, 'Phone', undefined).player;
   advance(pictureOnTv, (id) => byId.get(id));
@@ -1170,7 +1177,7 @@ section('when a game is banked');
   await app.games.advanceSession(alone.code);
   const soloScorer = alone.players[hermit.id];
   if (soloScorer) soloScorer.totalScore = 12;
-  await app.games.destroy(alone.code);
+  await app.games.tables.destroy(alone.code);
 
   const solo = (await resultsService.careers()).find((career) => career.name === 'Hermit');
   check('a solo game is recorded', solo?.games === 1, solo?.games);
@@ -1200,12 +1207,12 @@ section('when a game is banked');
   await app.games.advanceSession(dryRun.code);
   const rehearsalScorer = dryRun.players[author.id];
   if (rehearsalScorer) rehearsalScorer.totalScore = 30;
-  await app.games.destroy(dryRun.code);
+  await app.games.tables.destroy(dryRun.code);
 
   const rehearsed = (await resultsService.careers()).find((career) => career.name === 'Rehearser');
   check('a rehearsal is played but never recorded', rehearsed === undefined, rehearsed);
 
-  await app.games.destroy(live.code);
+  await app.games.tables.destroy(live.code);
 }
 
 /* -------------------- ending a game early still pays ---------------------- */
@@ -1225,7 +1232,7 @@ section('a game ended early still banks its tokens');
     hostUserId: 1,
     items: [quizItem],
     config: defaultSessionConfig,
-    existingCodes: new Set()
+    code: HAND_BUILT_CODE
   });
   const quitter = joinSession(early, 'Earlybird', undefined).player;
   advance(early, () => quizItem);
@@ -1234,8 +1241,8 @@ section('a game ended early still banks its tokens');
   const before = (await quizCareerService.forName('Earlybird')).tokens;
 
   // Exactly what the "Terminer" button does.
-  app.games.adopt(early);
-  await app.games.destroy(early.code);
+  app.games.tables.adopt(early);
+  await app.games.tables.destroy(early.code);
 
   const after = (await quizCareerService.forName('Earlybird')).tokens;
   check('the wallet is credited when a game is ended early', after === before + 42, { before, after });
@@ -1263,7 +1270,7 @@ section('oral mode');
     // second one off when you pick the first, but the engine keeps them apart so a
     // hands-off run through a playlist stays possible.
     config: sessionConfigSchema.parse({ oral: true, autoAdvance: false }),
-    existingCodes: new Set()
+    code: HAND_BUILT_CODE
   });
 
   // The whole point of the mode: nobody is here, and it starts anyway.
@@ -1298,7 +1305,7 @@ section('oral mode');
     hostUserId: 1,
     items: playable,
     config: sessionConfigSchema.parse({ oral: true, autoAdvance: true }),
-    existingCodes: new Set()
+    code: HAND_BUILT_CODE
   });
   advance(auto, (id) => playable.find((item) => item.id === id));
   if (auto.round?.phase === 'study') openAnswers(auto);

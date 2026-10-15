@@ -5,7 +5,8 @@ import { useNavigate } from 'react-router';
 
 import { gameEntry } from '../app/games';
 import { useT } from '../i18n/locale-context';
-import { liveSeats, type Seat } from '../tools/seats';
+import { liveSeats } from '../tools/liveSeats';
+import type { Seat } from '../tools/seats';
 import { Button } from '../ui';
 // The join board's cards, which this reuses wholesale. Imported here rather
 // than by each page, so a screen that wants the panel does not also have to

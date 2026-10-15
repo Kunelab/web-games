@@ -1,10 +1,11 @@
-import type { Catalogue } from "../index.js";
+import type { TranslationOf } from "../index.js";
+import type { playEn } from "./play-en.js";
 
 /**
  * Un quiz en train de se jouer : le téléphone dans la main, l’écran face à la
  * salle, et la cérémonie de fin. Les originaux.
  */
-export const playFr: Catalogue = {
+export const playFr: TranslationOf<typeof playEn> = {
   /* ------------------------------- le téléphone ----------------------------- */
   "play.connecting": "Connexion…",
   "play.waitingForGame": "En attente de la partie…",

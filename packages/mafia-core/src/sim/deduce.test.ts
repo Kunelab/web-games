@@ -241,7 +241,7 @@ describe('reading the night back to people', () => {
     const buried = board({
       claims: [one, other],
       rolesInPlay: new Set<RoleId>(['jailor', 'kidnapper', 'mafioso', 'citizen']),
-      deadRoles: new Map([[4, 'kidnapper' as RoleId]]),
+      deadRoles: new Map([[4, 'kidnapper']]),
       deaths: [{ slot: 4, day: 1, phase: 'day', source: null }]
     });
     assert.deepEqual(kinds(deductions(2, buried)), ['two-in-one-cell']);

@@ -210,7 +210,7 @@ Deceit and herd can shift how large a stake justifies departing from the cover, 
 
 ## 4. Family-room requests are granted by a roll, and refused without a reason
 
-**Where.** `bots.ts`, `scripted`, night branch. A teammate's ask is granted if `willHeed` in `bot-mind.ts` passes a hashed roll: a base of 0.25 plus 0.2 times herd, doubled for a human, plus a small earned term from `privateTrust`. Family rooms never feed `privateTrust` (`hearPrivately` returns early for `mafia`, `triad` and `cult`), so for a family ask only the base counts, and a human is refused between one time in five and two times in five depending on the bot's herd (herd varies by 0.2 either side of 0.5; the bench measured 30% refused). A refusal (`familyLine`) explains why the bot likes its own pick (`whyKill(aim)`), not what is wrong with the asked house. `familyAsk` returns null outside the night, so a daytime request in the family room ("all on 7", "don't bus me") never reaches the day vote.
+**Where.** `seat.ts`, `Seat.play`, night branch. A teammate's ask is granted if `willHeed` in `bot-mind.ts` passes a hashed roll: a base of 0.25 plus 0.2 times herd, doubled for a human, plus a small earned term from `privateTrust`. Family rooms never feed `privateTrust` (`hearPrivately` returns early for `mafia`, `triad` and `cult`), so for a family ask only the base counts, and a human is refused between one time in five and two times in five depending on the bot's herd (herd varies by 0.2 either side of 0.5; the bench measured 30% refused). A refusal (`familyLine`) explains why the bot likes its own pick (`whyKill(aim)`), not what is wrong with the asked house. `familyAsk` returns null outside the night, so a daytime request in the family room ("all on 7", "don't bus me") never reaches the day vote.
 
 **What a player sees.** "Take 10." "I'd rather do 13, 13 is loud." Nothing about 10. Asking again gets the same answer, because the roll is stable. That is the stubborn teammate the brief warns against.
 
@@ -237,7 +237,7 @@ If the human repeats an ask after a refusal, grant it unless the defect is certa
 
 **Measured: this proposal was wrong.** The live overlay described below only applies once the policy has already decided to execute the prisoner (`slot !== null`), and both of its "execute" branches fall through to that same execution. So silence and a disputed badge do not cause executions; they only remove the chances of a reprieve. Nothing was changed. The text is kept as written, for the record.
 
-**Where.** `bots.ts`, `scripted`, the `jail-execute` block. A prisoner whose claimed badge is disputed (another living claimant, a copy in the graveyard, or a proven holder) is executed with probability 0.9. A prisoner who said nothing is executed with probability 0.8. Both fire before and regardless of the prisoner's suspicion.
+**Where.** `seat.ts`, `Seat.play`, the `jail-execute` block. A prisoner whose claimed badge is disputed (another living claimant, a copy in the graveyard, or a proven holder) is executed with probability 0.9. A prisoner who said nothing is executed with probability 0.8. Both fire before and regardless of the prisoner's suspicion.
 
 **What a player sees.** A human who is new, slow, or did not notice the cell is executed with no case against them. A human real Sheriff who is jailed after a bot Mafioso claimed Sheriff first is executed nine times in ten. Both feel like the game punishing the player for the bot's rule.
 
@@ -354,7 +354,7 @@ Without a stake, act quietly: note it in the will, whisper it to a revealed Mayo
 
 ## 12. A claim made on the stand cannot be contested before the verdict
 
-**Where.** `bots.ts`, `scripted`, `defense` task: a bystander gets at most one watch line and files no claim, and the impostor reflex lives in `decideDay`, which does not run during a trial. In `decideBallot`, a juror never uses its own card: `suspicionParts` weighs role claims only against other claims and the graveyard.
+**Where.** `seat.ts`, `Seat.play`, `defense` task: a bystander gets at most one watch line and files no claim, and the impostor reflex lives in `decideDay`, which does not run during a trial. In `decideBallot`, a juror never uses its own card: `suspicionParts` weighs role claims only against other claims and the graveyard.
 
 **What a player sees, as an evil human.** On the stand, claim a unique role nobody has claimed yet. The defence earns 0.4 (`defenceStrength`), and the real holder, sitting on the jury, cannot object before the vote and does not even vote guilty for it.
 
@@ -406,8 +406,8 @@ The same weighing extends to night requests from likely allies ("doc, protect me
 **Where.**
 
 - `policies.ts`, `decideDay`: a Sheriff or Investigator under two votes or on trial claims and publishes every suspicious result.
-- `bots.ts`, `defenceLine`: on a live stand, a town seat claims its real role in round one, always. On the bench, `bluffFor` does the same.
-- `bots.ts`, `scripted`: on a live table, a seat with even one vote on it returns the push-back line from `answerWagon` with `claim: null`. Whatever `decideDay` wanted to say that turn is dropped, including a timely finding, a claim or a clear.
+- `seat.ts`, `defenceLine`: on a live stand, a town seat claims its real role in round one, always. On the bench, `bluffFor` does the same.
+- `seat.ts`, `Seat.play`: on a live table, a seat with even one vote on it returns the push-back line from `answerWagon` with `claim: null`. Whatever `decideDay` wanted to say that turn is dropped, including a timely finding, a claim or a clear.
 
 **What a player sees.** As an evil human: put two votes on a quiet bot (bench), or drag it to the stand (live), and a power role outs itself whether or not the case would have hanged it. As a town human: a bot Sheriff with one vote on it says only "why me?" while sitting on a check about the seat everyone is voting.
 
@@ -415,7 +415,7 @@ The same weighing extends to night requests from likely allies ("doc, protect me
 
 **Change.** On the stand, a power role estimates its own verdict from the evidence a town juror would see against it (its public `hard` and `evidence`) and claims in round one only if it is likely to hang. Otherwise it opens with its record (the account, then the will) and claims in a later round if the case holds. The live stand has three rounds, which is what makes this possible. A Citizen claims at once, since it costs nothing. Before a trial, the wagon reply should carry the seat's best card when it has one: a timely finding, a claim that defends it, a clear.
 
-**Simpler alternative.** In `scripted`, let `answerWagon` give way to a role claim or a worked accusation already in `day.publishes`. Leave the stand as it is.
+**Simpler alternative.** In `Seat.play`, let `answerWagon` give way to a role claim or a worked accusation already in `day.publishes`. Leave the stand as it is.
 
 **Effort.** Medium; the simpler version is low.
 

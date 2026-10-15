@@ -308,6 +308,21 @@ export interface CzState {
    */
   event?: CzEventId | null;
   /**
+   * Whether this enemy phase's dens have had their turn.
+   *
+   * `stepHorde` walks the horde's turn one beat per call, and the beat after the
+   * last creature moves is the dens; the one after that hands the board back. By
+   * then nobody holds a point in either case, and a lull fires nothing, so the
+   * board cannot tell the two beats apart — this is what does. Stored on the raid
+   * rather than kept by the caller because a pause can land between the two: the
+   * server's old stepper, resumed after one, found nobody left to move and sent
+   * the dens a second time.
+   *
+   * Optional so a raid saved before it existed still parses: undefined reads as
+   * "not yet", which at worst repeats that old second wave once.
+   */
+  densFired?: boolean;
+  /**
    * The game master's points. Income arrives each enemy phase and unspent
    * points carry over: saving up for an abomination is a strategy, not a bug.
    */

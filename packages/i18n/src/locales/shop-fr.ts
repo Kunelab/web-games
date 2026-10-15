@@ -1,10 +1,11 @@
-import type { Catalogue } from '../index.js';
+import type { TranslationOf } from '../index.js';
+import type { shopEn } from './shop-en.js';
 
 /**
  * Les trois porte-monnaie et les neuf choses qu’ils achètent, en français.
  * Rien ici ne change une partie : le catalogue est fait d’apparences, exprès.
  */
-export const shopFr: Catalogue = {
+export const shopFr: TranslationOf<typeof shopEn> = {
   /* ------------------------------ les monnaies ------------------------------ */
   'shop.currency.quiz': 'jetons',
   'shop.currency.quiz.earned': 'Un jeton par point marqué, à la fin de chaque partie.',

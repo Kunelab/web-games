@@ -10,7 +10,7 @@ import type { Catalogue } from '../index.js';
  * `lobby-core`. It is a key now, resolved on the phone, which is the only place
  * that knows who is reading.
  */
-export const lobbyEn: Catalogue = {
+export const lobbyEn = {
   /* ------------------------------- signing in ------------------------------- */
   'auth.signIn': 'Sign in',
   'auth.signUp': 'Sign up',
@@ -238,6 +238,6 @@ export const lobbyEn: Catalogue = {
   /* ---------------------------- once the game is over ----------------------- */
   'quickEnd.again': 'Play again',
   'quickEnd.back': 'Back to the {game} menu'
-};
+} satisfies Catalogue;
 
 export default lobbyEn;

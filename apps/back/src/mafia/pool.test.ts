@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { createServer, type Server } from 'node:http';
-import { after, before, describe, it } from 'node:test';
+import { describe, it } from 'node:test';
 
-import type { FastifyBaseLogger } from 'fastify';
+import { BrainChain } from './chain.js';
+import { chainOver, fakeEndpoints, silentLog, slots } from './chain-fakes.js';
 
 /**
  * Picking an endpoint when nobody has asked for a rotation.
@@ -25,94 +25,26 @@ import type { FastifyBaseLogger } from 'fastify';
  *    of the healthy field is used rather than the table waiting.
  */
 
-const quiet = () => undefined;
-const log = {
-  info: quiet,
-  warn: quiet,
-  error: quiet,
-  debug: quiet,
-  fatal: quiet,
-  trace: quiet,
-  silent: quiet,
-  level: 'silent',
-  child() {
-    return log;
-  }
-} as unknown as FastifyBaseLogger;
-
-const hooks = {
-  chat: () => ({ ok: true as const }),
-  vote: () => ({ ok: true as const }),
-  ballot: () => ({ ok: true as const }),
-  action: () => ({ ok: true as const }),
-  dayAction: () => ({ ok: true as const }),
-  will: () => ({ ok: true as const }),
-  whisper: () => ({ ok: true as const }),
-  busy: () => undefined,
-  get: () => undefined
-};
-
 const SLOTS = 6;
-/** One call at a time per endpoint, so "busy" means what the test says it means. */
 const PARALLEL = 1;
 
-let server: Server;
-let port = 0;
+/** Six endpoints, each slower than the last: slot n answers in 60n - 40 ms. */
+const endpoints = slots(...Array.from({ length: SLOTS }, (_, index) => `model-${String(index + 1)}`));
+const delayOf = (model: string) => Number(model.replace('model-', '')) * 60 - 40;
 
-before(async () => {
-  /**
-   * Six endpoints from 20ms to 320ms, which is the shape of a real chain.
-   *
-   * Slot 1 is the quickest and slot 6 is sixteen times slower. Under the old
-   * quarter-second window slots 4, 5 and 6 were unreachable while slot 1 was
-   * alive; under a human tolerance they are all "fast enough" and the only
-   * thing keeping them idle is that the quick ones are free.
-   */
-  const body = JSON.stringify({ choices: [{ message: { content: '{"line":"ok"}' } }] });
-  server = createServer((request, response) => {
-    const slot = Number(/\/slot(\d+)/.exec(request.url ?? '')?.[1] ?? 1);
-    setTimeout(
-      () => {
-        response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(body);
-      },
-      slot * 60 - 40
-    );
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  port = (server.address() as { port: number }).port;
-
-  // Blanked rather than deleted: see the note in `chain.test.ts`.
-  for (let slot = 1; slot <= 24; slot++) {
-    const suffix = slot === 1 ? '' : `_${slot}`;
-    for (const part of ['URL', 'KEY', 'MODEL', 'MODELS']) process.env[`MAFIA_API${suffix}_${part}`] = '';
-  }
-
-  process.env.MAFIA_BOT_PROVIDER = 'api*';
-  for (let slot = 1; slot <= SLOTS; slot++) {
-    const suffix = slot === 1 ? '' : `_${slot}`;
-    process.env[`MAFIA_API${suffix}_URL`] = `http://127.0.0.1:${String(port)}/slot${String(slot)}`;
-    process.env[`MAFIA_API${suffix}_KEY`] = 'test-key';
-    process.env[`MAFIA_API${suffix}_MODEL`] = `model-${String(slot)}`;
-  }
-  // The default: no rotation asked for, so the ranking decides.
-  process.env.MAFIA_API_SPREAD = '0';
-  process.env.MAFIA_API_PARALLEL = String(PARALLEL);
-  // The hedge would ask a second endpoint on the slow ones and muddy the count.
-  process.env.MAFIA_HEDGE_MS = '0';
-  process.env.GAME_TRACE = 'off';
-});
-
-after(() => {
-  server.close();
-});
-
-const ask = (driver: { askChain: (...args: never[]) => Promise<unknown> }) =>
-  (driver.askChain as unknown as (a: unknown, b: unknown, c: string) => Promise<unknown>)(
-    { system: 'system', user: 'user', format: {}, maxTokens: 50 },
-    { code: 'TEST' },
-    'decide'
+/**
+ * The default: no rotation asked for, so the ranking decides. The hedge would
+ * ask a second endpoint on the slow ones and muddy the count, so it is off.
+ */
+const field = () =>
+  new BrainChain(
+    chainOver(endpoints, { spread: 0, apiParallel: PARALLEL, hedgeMs: 0 }),
+    fakeEndpoints(endpoints, { delay: delayOf }),
+    silentLog
   );
+
+const ask = (chain: BrainChain) =>
+  chain.ask({ system: 'system', user: 'user', format: {}, maxTokens: 50 }, { code: 'TEST' }, 'decide');
 
 describe('choosing an endpoint when none was asked for by name', () => {
   /**
@@ -123,15 +55,14 @@ describe('choosing an endpoint when none was asked for by name', () => {
    * merely acceptable should stay idle.
    */
   it('gives a lone call to the fastest healthy endpoint', async () => {
-    const { MafiaBotDriver } = await import('./bots.js');
-    const driver = new MafiaBotDriver(log, hooks);
+    const chain = field();
 
     // One warm-up per slot, so every endpoint has a measured speed to be ranked on.
-    for (let round = 0; round < SLOTS * 2; round++) await ask(driver);
+    for (let round = 0; round < SLOTS * 2; round++) await ask(chain);
 
-    const before = new Map(driver.scoreboard().map((row) => [row.model, row.ok]));
-    for (let round = 0; round < 8; round++) await ask(driver);
-    const after = driver.scoreboard();
+    const before = new Map(chain.scoreboard().map((row) => [row.model, row.ok]));
+    for (let round = 0; round < 8; round++) await ask(chain);
+    const after = chain.scoreboard();
 
     const gained = (model: string) => (after.find((row) => row.model === model)?.ok ?? 0) - (before.get(model) ?? 0);
     assert.ok(gained('model-1') >= 6, `the quickest should take a lone call: ${JSON.stringify(after)}`);
@@ -147,14 +78,13 @@ describe('choosing an endpoint when none was asked for by name', () => {
    * phrasebook, so the work goes wide instead.
    */
   it('reaches the rest of the field when the quick ones are full', async () => {
-    const { MafiaBotDriver } = await import('./bots.js');
-    const driver = new MafiaBotDriver(log, hooks);
+    const chain = field();
 
-    for (let round = 0; round < SLOTS * 2; round++) await ask(driver);
+    for (let round = 0; round < SLOTS * 2; round++) await ask(chain);
 
-    const before = new Map(driver.scoreboard().map((row) => [row.model, row.ok]));
-    await Promise.all(Array.from({ length: SLOTS * 2 }, () => ask(driver)));
-    const after = driver.scoreboard();
+    const before = new Map(chain.scoreboard().map((row) => [row.model, row.ok]));
+    await Promise.all(Array.from({ length: SLOTS * 2 }, () => ask(chain)));
+    const after = chain.scoreboard();
 
     const used = after.filter((row) => (row.ok ?? 0) - (before.get(row.model) ?? 0) > 0);
     assert.ok(

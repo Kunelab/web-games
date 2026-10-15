@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { api, type Playlist } from '../api/client';
-import { kindColor, kindKey } from '../app/kinds';
+import { kindColor, kindName } from '../app/kinds';
 import { useAsync } from '../hooks/useAsync';
 import { useAuth } from '../hooks/useAuth';
 import { useT } from '../i18n/locale-context';
@@ -314,7 +314,7 @@ function PlaylistGrid({
               <div className="playlist-kinds">
                 {Object.entries(playlist.kindCounts).map(([kind, count]) => (
                   <Tag key={kind} dotColor={kindColor(kind)}>
-                    {t(msg(kindKey(kind)))} {count}
+                    {t(kindName(kind))} {count}
                   </Tag>
                 ))}
               </div>

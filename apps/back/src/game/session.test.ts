@@ -81,7 +81,7 @@ function playing(names: string[], overrides: Partial<SessionConfig> = {}, item =
     hostUserId: null,
     items: [item],
     config: config(overrides),
-    existingCodes: new Set()
+    code: 'ABCDE'
   });
 
   const ids = names.map((name) => {

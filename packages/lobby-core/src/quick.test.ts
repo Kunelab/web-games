@@ -35,21 +35,21 @@ import { toQuickView } from './view.js';
 const SPECS: QuickOptionSpec[] = [
   {
     key: 'map',
-    label: 'Carte',
+    label: 'lobby.opt.biome',
     choices: [
-      { value: 'a', label: 'A' },
-      { value: 'b', label: 'B' },
-      { value: 'c', label: 'C' }
+      { value: 'a', label: 'lobby.choice.biome.random' },
+      { value: 'b', label: 'lobby.choice.biome.modern' },
+      { value: 'c', label: 'lobby.choice.biome.cyber' }
     ],
     roll: true,
     fallback: 'a'
   },
   {
     key: 'pace',
-    label: 'Rythme',
+    label: 'lobby.opt.pace',
     choices: [
-      { value: 'slow', label: 'Lent' },
-      { value: 'fast', label: 'Rapide' }
+      { value: 'slow', label: 'lobby.choice.pace.posed' },
+      { value: 'fast', label: 'lobby.choice.pace.rapide' }
     ],
     roll: false,
     fallback: 'slow'
@@ -91,7 +91,7 @@ describe('the roll', () => {
     const lobby = createQuickLobby({
       code: 'ABCDE',
       game: 'quiz',
-      specs: [{ key: 'playlist', label: 'Quiz', choices: [], roll: true, fallback: '' }],
+      specs: [{ key: 'playlist', label: 'lobby.opt.playlist', choices: [], roll: true, fallback: '' }],
       minPlayers: 1,
       maxPlayers: 4,
       randomInt: lastChoice,
@@ -114,8 +114,11 @@ describe('the roll', () => {
       specs: [
         {
           key: 'playlist',
-          label: 'Quiz',
-          choices: [{ value: 'cheap', label: 'A' }, { value: 'expensive', label: 'B', noRoll: true }],
+          label: 'lobby.opt.playlist',
+          choices: [
+            { value: 'cheap', label: 'lobby.card.quizSurprise' },
+            { value: 'expensive', label: 'lobby.choice.playlist.infinite', noRoll: true }
+          ],
           roll: true,
           fallback: 'cheap'
         }
@@ -135,8 +138,8 @@ describe('the roll', () => {
       specs: [
         {
           key: 'playlist',
-          label: 'Quiz',
-          choices: [{ value: 'expensive', label: 'B', noRoll: true }],
+          label: 'lobby.opt.playlist',
+          choices: [{ value: 'expensive', label: 'lobby.choice.playlist.infinite', noRoll: true }],
           roll: true,
           fallback: 'nothing'
         }

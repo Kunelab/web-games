@@ -3,12 +3,15 @@ import { msg, type Msg } from 'i18n';
 
 import {
   chatVisibleTo,
+  legalDayMoves,
   legalNightAction,
   mafiaPresenceView,
   voteThreshold,
+  type DayMoves,
   type LegalAction,
   type MafiaPresenceView
 } from './engine.js';
+import { publicIdentity, publicWill } from './identity.js';
 import { ACTION, ROLE } from './messages.js';
 import { roleDef, type Faction, type RoleId } from './roles.js';
 import type { SlotToken } from './setups.js';
@@ -154,6 +157,12 @@ export interface MafiaViewMe {
   jailed: boolean;
   /** Jailor only: slot currently marked for tonight's cell. */
   jailTargetSlot: number | null;
+  /**
+   * What this seat may do in daylight, as the engine will take it: who it may
+   * vote for (or skip), and for a keeper who it may jail. Offer these and
+   * nothing else. See `legalDayMoves`.
+   */
+  day: DayMoves;
   /** Tonight's available power, with legal targets, or null. */
   action: LegalAction | null;
   /** What I currently submitted tonight, as a slot. */
@@ -438,35 +447,9 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
   const allyRoleOf = (player: MafiaPlayer): Msg | null => side?.roleOf(player) ?? null;
   const allyIntentOf = (player: MafiaPlayer) => side?.intent.get(player.playerId) ?? null;
 
-  /**
-   * What the body says, per the table's policy.
-   *
-   * The end of the game overrides everything — that is the moment the masks come
-   * off. Before it, a cleaned corpse says nothing whatever the policy (the power
-   * was paid for), and what an identified corpse says is the setting's business:
-   * the whole role, the camp alone, or nothing at all.
-   *
-   * Always read from `player.role`, never `disguiseRole`: a borrowed face fools
-   * examiners, not the undertaker. A role that was genuinely *changed* — audited,
-   * converted, remembered, initiated — reveals what it became, which is the point.
-   */
-  const reveal = state.config.revealOnDeath ?? 'role';
   const publicPlayers: MafiaPublicPlayer[] = players.map((player) => {
-    const cleaned = !ended && state.deaths.some((death) => death.playerId === player.playerId && death.hidden);
-    const identified = ended || (!player.alive && !cleaned);
-    /**
-     * A seat that has taken the sash out is public, by definition.
-     *
-     * Revealing is an engine action and the town announces it by name, so
-     * naming the role on the roster leaks nothing the chat has not already
-     * said out loud. It was reduced to a ribbon glyph, which left the one
-     * identity in the game that is beyond doubt as the only one a player
-     * could not read off the list — and the glyph was the Mayor's icon, so it
-     * was wrong on every revealed Marshall.
-     */
-    const sashOut = player.alive && player.revealed && player.role !== null;
-    const showRole = sashOut || (identified && (ended || reveal === 'role'));
-    const showFaction = sashOut || (identified && (ended || reveal === 'role' || reveal === 'faction'));
+    // What the body (or the sash) says: see `publicIdentity`.
+    const told = publicIdentity(state, player);
     const votedId = state.votes[player.playerId];
     return {
       slot: player.slot,
@@ -483,12 +466,12 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
       allyRole: allyRoleOf(player),
       familyVotes: familyAim.get(player.playerId) ?? 0,
       allyIntent: allyIntentOf(player),
-      role: showRole ? player.role : null,
-      roleName: showRole && player.role ? ROLE.name(player.role) : null,
-      faction: showFaction && player.role ? roleDef(player.role).faction : null,
+      role: told.role,
+      roleName: told.role ? ROLE.name(told.role) : null,
+      faction: told.faction,
       death: player.death,
-      // A cleaned body says nothing, will included: that is what the power buys.
-      lastWill: identified && player.lastWill ? player.lastWill : null
+      // What the will says, and to whom: see `publicWill`.
+      lastWill: publicWill(state, player)
     };
   });
 
@@ -600,6 +583,7 @@ export function toMafiaView(state: MafiaState, viewer: MafiaViewer, now = Date.n
          * Interrogateur had no way to see or clear their own pick: the screen
          * showed them nothing and the row offered no way to take it back.
          */
+        day: legalDayMoves(state, self.playerId),
         jailTargetSlot: (() => {
           if (!isKeeper(self)) return null;
           const heldId = captiveOf(state, self.playerId);

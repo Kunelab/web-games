@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 
 import { addMafiaBot, createMafiaGame, startMafia, type MafiaPlayer, type MafiaState } from 'mafia-core';
 
-import type { Decision } from './bots.js';
+import type { Decision } from './seat.js';
 import { vetTurn } from './turn.js';
 
 /**

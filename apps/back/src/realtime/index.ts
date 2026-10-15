@@ -16,7 +16,7 @@ import {
 import { randomUUID } from 'node:crypto';
 
 import type { FastifyInstance } from 'fastify';
-import { msg, type Msg } from 'i18n';
+import { msg, type Msg, type MsgKey } from 'i18n';
 import {
   chatLineFor,
   chatRules,
@@ -141,7 +141,7 @@ interface Parser<T> {
  * catalogue's. Every branch is a rule the player is entitled to be told about,
  * `too-soon` most of all: it is the whole reason the delay exists.
  */
-const KICK_REFUSALS: Partial<Record<KickRefusal, string>> = {
+const KICK_REFUSALS: Partial<Record<KickRefusal, MsgKey>> = {
   'too-soon': 'presence.kick.tooSoon',
   'target-present': 'presence.kick.targetPresent',
   'already-open': 'presence.kick.alreadyOpen',
@@ -460,7 +460,7 @@ export function registerRealtime(
         return;
       }
 
-      const state = games.get(parsed.data.code);
+      const state = games.tables.get(parsed.data.code);
       if (!state) {
         respond({ ok: false, error: 'Aucune partie avec ce code' });
         return;
@@ -540,7 +540,7 @@ export function registerRealtime(
       const respond = responder(ack);
       const code = readCode(payload);
 
-      const state = games.get(code);
+      const state = games.tables.get(code);
       if (!state) {
         respond({ ok: false, error: 'Aucune partie avec ce code' });
         return;
@@ -575,7 +575,7 @@ export function registerRealtime(
       const code = socket.data.code;
       if (!code) return;
 
-      const state = games.get(code);
+      const state = games.tables.get(code);
       if (!state || !hostToken || hostToken !== state.hostToken) {
         socket.emit('session:error', { message: "Action réservée à l'hôte" });
         return;
@@ -698,7 +698,7 @@ export function registerRealtime(
      */
     socket.on('host:correctRound', (payload) => {
       const code = socket.data.code;
-      const state = code ? games.get(code) : undefined;
+      const state = code ? games.tables.get(code) : undefined;
       if (!state || !payload?.hostToken || payload.hostToken !== state.hostToken) {
         socket.emit('session:error', { message: "Action réservée à l'hôte" });
         return;
@@ -868,7 +868,7 @@ export function registerRealtime(
         return;
       }
 
-      const state = games.get(code);
+      const state = games.tables.get(code);
       if (!state) {
         respond({ ok: false, error: 'Partie introuvable' });
         return;
@@ -944,7 +944,7 @@ export function registerRealtime(
         return;
       }
 
-      const state = games.get(code);
+      const state = games.tables.get(code);
       if (!state) {
         respond({ ok: false, error: 'Partie introuvable' });
         return;
@@ -975,7 +975,7 @@ export function registerRealtime(
       }
 
       const parsed = revealChoicesPayloadSchema.safeParse(payload);
-      const state = games.get(code);
+      const state = games.tables.get(code);
       if (!parsed.success || !state) {
         respond({ ok: false });
         return;
@@ -1007,7 +1007,7 @@ export function registerRealtime(
       payload: { hostToken?: unknown; gmToken?: unknown } | undefined
     ) {
       const { czCode } = socket.data;
-      const state = czCode ? cz.get(czCode) : undefined;
+      const state = czCode ? cz.tables.get(czCode) : undefined;
       if (!state) return undefined;
       const expected = token === 'hostToken' ? state.hostToken : state.gmToken;
       return payload?.[token] === expected ? state : undefined;
@@ -1037,7 +1037,7 @@ export function registerRealtime(
     /** The Mafia twin: this socket's table, if the payload holds the host token. */
     function mafiaTableForHost(payload: { hostToken?: unknown } | undefined) {
       const { mafiaCode } = socket.data;
-      const state = mafiaCode ? mafia.get(mafiaCode) : undefined;
+      const state = mafiaCode ? mafia.tables.get(mafiaCode) : undefined;
       return state && payload?.hostToken === state.hostToken ? state : undefined;
     }
 
@@ -1051,7 +1051,7 @@ export function registerRealtime(
     socket.on('cz:open', (payload, ack) => {
       const respond = responder(ack);
       const code = readCode(payload);
-      const state = cz.get(code);
+      const state = cz.tables.get(code);
 
       if (!state || payload?.hostToken !== state.hostToken) {
         respond({ ok: false, error: NO.noTable() });
@@ -1075,7 +1075,7 @@ export function registerRealtime(
     socket.on('cz:gmOpen', (payload, ack) => {
       const respond = responder(ack);
       const code = readCode(payload);
-      const state = cz.get(code);
+      const state = cz.tables.get(code);
 
       if (!state || payload?.gmToken !== state.gmToken) {
         respond({ ok: false, error: 'Jeton du maître du jeu invalide' });
@@ -1093,7 +1093,7 @@ export function registerRealtime(
       // The socket's own attachment is the credential: only a seated player may
       // change the table's handicap, and it is stored on the socket at join.
       const code = typeof socket.data.czCode === 'string' ? socket.data.czCode : '';
-      const state = code ? cz.get(code) : undefined;
+      const state = code ? cz.tables.get(code) : undefined;
       if (!state || socket.data.czRole?.kind !== 'player') {
         respond({ ok: false, error: 'Pas dans cette partie' });
         return;
@@ -1116,7 +1116,7 @@ export function registerRealtime(
         return;
       }
 
-      const state = cz.get(parsed.data.code.trim().toUpperCase());
+      const state = cz.tables.get(parsed.data.code.trim().toUpperCase());
       if (!state) {
         respond({ ok: false, error: 'Aucune partie avec ce code' });
         return;
@@ -1181,7 +1181,7 @@ export function registerRealtime(
     socket.on('cz:selectHero', (payload, ack) => {
       const respond = responder(ack);
       const { czCode, czRole } = socket.data;
-      const state = czCode ? cz.get(czCode) : undefined;
+      const state = czCode ? cz.tables.get(czCode) : undefined;
 
       if (!state || czRole?.kind !== 'player') {
         respond({ ok: false, error: 'Vous n’êtes pas dans une partie' });
@@ -1211,7 +1211,7 @@ export function registerRealtime(
     socket.on('cz:loadout', (payload, ack) => {
       const respond = responder(ack);
       const { czCode, czRole } = socket.data;
-      const state = czCode ? cz.get(czCode) : undefined;
+      const state = czCode ? cz.tables.get(czCode) : undefined;
       if (!state || czRole?.kind !== 'player') {
         respond({ ok: false, error: 'Vous n’êtes pas dans une partie' });
         return;
@@ -1233,7 +1233,7 @@ export function registerRealtime(
     socket.on('cz:unlockHero', (payload, ack) => {
       const respond = responder(ack);
       const { czCode, czRole } = socket.data;
-      const state = czCode ? cz.get(czCode) : undefined;
+      const state = czCode ? cz.tables.get(czCode) : undefined;
       const me = state && czRole?.kind === 'player' ? state.heroes[czRole.playerId] : undefined;
 
       if (!me || me.isBot) {
@@ -1418,7 +1418,7 @@ export function registerRealtime(
         return;
       }
 
-      const state = mafia.get(parsed.data.code.trim().toUpperCase());
+      const state = mafia.tables.get(parsed.data.code.trim().toUpperCase());
       if (!state) {
         respond({ ok: false, error: NO.noTable() });
         return;
@@ -1469,7 +1469,7 @@ export function registerRealtime(
     socket.on('mafia:host', (payload, ack) => {
       const respond = responder(ack);
       const code = readCode(payload);
-      const state = mafia.get(code);
+      const state = mafia.tables.get(code);
       if (!state || payload?.hostToken !== state.hostToken) {
         respond({ ok: false, error: NO.noTable() });
         return;
@@ -1492,7 +1492,7 @@ export function registerRealtime(
     socket.on('mafia:spectate', (payload, ack) => {
       const respond = responder(ack);
       const code = readCode(payload);
-      const state = mafia.get(code);
+      const state = mafia.tables.get(code);
       if (!state) {
         respond({ ok: false, error: NO.noTable() });
         return;
@@ -1809,7 +1809,7 @@ export function registerRealtime(
       const { czCode, czRole } = current.data;
       if (!czCode || czRole?.kind !== 'player') return;
 
-      const state = cz.get(czCode);
+      const state = cz.tables.get(czCode);
       const hero = state?.heroes[czRole.playerId];
       if (!state || !hero) return;
 
@@ -1835,7 +1835,7 @@ export function registerRealtime(
       const { code, playerId } = current.data;
       if (!code || !playerId) return;
 
-      const state = games.get(code);
+      const state = games.tables.get(code);
       const player = state?.players[playerId];
       if (!state || !player) return;
 

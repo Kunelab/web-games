@@ -13,6 +13,8 @@
  * without standing up a server.
  */
 
+import type { MsgKey } from 'i18n';
+
 export const LOBBY_GAMES = ['quiz', 'coronaz', 'mafia'] as const;
 export type LobbyGame = (typeof LOBBY_GAMES)[number];
 
@@ -33,7 +35,7 @@ export function isLobbyGame(value: string): value is LobbyGame {
  */
 export interface QuickOptionChoice {
   value: string;
-  label: string;
+  label: MsgKey;
   text?: string;
   /**
    * Offered, but never drawn by the die.
@@ -59,8 +61,8 @@ export interface QuickOptionChoice {
 export interface QuickOptionSpec {
   key: string;
   /** Catalogue keys, like `QuickOptionChoice.label`. */
-  label: string;
-  hint?: string;
+  label: MsgKey;
+  hint?: MsgKey;
   choices: QuickOptionChoice[];
   roll: boolean;
   /** Used when `roll` is false, and as the tie-break when a vote is split. */

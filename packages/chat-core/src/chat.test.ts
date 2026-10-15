@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { msg } from 'i18n';
+/*
+  `msgOf`, not `msg`: the chat stores a system line as opaque data and never
+  renders it, so these tests tag each one with whatever makes it findable again
+  ("m540", "la nuit est tombée"). None of them is, or is meant to be, a key.
+*/
+import { msgOf } from 'i18n';
 
 import { createChat, post, systemPost, visibleTo, type ChannelRules } from './chat.js';
 
@@ -43,7 +48,7 @@ describe('chat-core', () => {
     const chat = createChat();
     post(chat, { channel: 'open', authorId: 'a', authorName: 'A', text: 'public', at: 1 });
     post(chat, { channel: 'secret', authorId: 'b', authorName: 'B', text: 'entre nous', at: 2 });
-    systemPost(chat, 'secret', msg('annonce secrète'), 3);
+    systemPost(chat, 'secret', msgOf('annonce secrète'), 3);
 
     const insider = visibleTo(chat, 'b', new Set(['b']), rules);
     const outsider = visibleTo(chat, 'a', new Set(['b']), rules);
@@ -55,7 +60,7 @@ describe('chat-core', () => {
   it('keeps each channel bounded, newest kept', () => {
     const chat = createChat({ perChannel: 60 });
     for (let i = 0; i < 600; i++) {
-      systemPost(chat, 'open', msg(`m${i}`), i);
+      systemPost(chat, 'open', msgOf(`m${i}`), i);
     }
     assert.equal(chat.messages.length, 60);
     assert.equal(chat.messages[0]?.msg?.k, 'm540');
@@ -68,9 +73,9 @@ describe('chat-core', () => {
    */
   it('a flooded channel does not evict another channel', () => {
     const chat = createChat({ perChannel: 20 });
-    systemPost(chat, 'day', msg('la nuit est tombée'), 0);
+    systemPost(chat, 'day', msgOf('la nuit est tombée'), 0);
     for (let i = 0; i < 500; i++) {
-      systemPost(chat, 'mafia', msg(`spam${i}`), i + 1);
+      systemPost(chat, 'mafia', msgOf(`spam${i}`), i + 1);
     }
     const day = chat.messages.filter((message) => message.channel === 'day');
     assert.equal(day.length, 1);
@@ -83,7 +88,7 @@ describe('chat-core', () => {
    */
   it('chatter does not evict the announcements in the same channel', () => {
     const chat = createChat({ perChannel: 5 });
-    systemPost(chat, 'day', msg('Alice a été retrouvée morte'), 0);
+    systemPost(chat, 'day', msgOf('Alice a été retrouvée morte'), 0);
     for (let i = 0; i < 50; i++) {
       post(chat, { channel: 'day', authorId: `u${i}`, authorName: 'U', text: `bla ${i}`, at: 1000 + i });
     }
@@ -97,8 +102,8 @@ describe('chat-core', () => {
   it('a channel override outranks the default', () => {
     const chat = createChat({ perChannel: 3, channels: { day: 10 } });
     for (let i = 0; i < 40; i++) {
-      systemPost(chat, 'day', msg(`d${i}`), i);
-      systemPost(chat, 'whisper', msg(`w${i}`), i);
+      systemPost(chat, 'day', msgOf(`d${i}`), i);
+      systemPost(chat, 'whisper', msgOf(`w${i}`), i);
     }
     assert.equal(chat.messages.filter((message) => message.channel === 'day').length, 10);
     assert.equal(chat.messages.filter((message) => message.channel === 'whisper').length, 3);
@@ -107,7 +112,7 @@ describe('chat-core', () => {
   it('the total is a backstop when a table opens many channels', () => {
     const chat = createChat({ perChannel: 50, total: 100 });
     for (let channel = 0; channel < 20; channel++) {
-      for (let i = 0; i < 40; i++) systemPost(chat, `pm:${channel}`, msg(`m${i}`), channel * 100 + i);
+      for (let i = 0; i < 40; i++) systemPost(chat, `pm:${channel}`, msgOf(`m${i}`), channel * 100 + i);
     }
     assert.equal(chat.messages.length, 100);
   });

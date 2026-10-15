@@ -1,4 +1,4 @@
-import { msg } from 'i18n';
+import { msg, type MsgKey } from 'i18n';
 import { Link } from 'react-router';
 
 import type { GameEntry } from '../../app/games';
@@ -23,8 +23,8 @@ import './menu.css';
 export interface MenuTile {
   to: string;
   /** Catalogue keys, resolved here: a tile list is data, not prose. */
-  label: string;
-  hint: string;
+  label: MsgKey;
+  hint: MsgKey;
   emoji: string;
   /** Draws the eye: the one thing most visitors came to do. */
   primary?: boolean;
@@ -37,7 +37,7 @@ export interface MenuTile {
 export interface GameMenuProps {
   game: GameEntry;
   /** Key for the two or three lines of what this game is, above the tiles. */
-  lede: string;
+  lede: MsgKey;
   tiles: MenuTile[];
 }
 

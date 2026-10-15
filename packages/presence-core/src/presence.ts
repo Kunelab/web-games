@@ -185,12 +185,12 @@ export function createPresence(rules?: Partial<PresenceRules>): PresenceState {
  * resumes with nothing left, and resumes immediately, rather than coming back
  * with a negative deadline that fires in the past.
  */
-export function parkDeadline(deadline: number | null, now: number): number | null {
+function parkDeadline(deadline: number | null, now: number): number | null {
   return deadline === null ? null : Math.max(0, deadline - now);
 }
 
 /** The deadline a resumed phase runs to: what was left of it, starting now. */
-export function restoreDeadline(parkedMs: number | null, now: number): number | null {
+function restoreDeadline(parkedMs: number | null, now: number): number | null {
   return parkedMs === null ? null : now + parkedMs;
 }
 
@@ -333,19 +333,74 @@ export interface PresenceTick {
   kicked: string | null;
   /** Anything above happened, so the room needs the new projection. */
   changed: boolean;
+  /**
+   * The deadline the table's phase clock should carry now: null while paused,
+   * what was left of it from the moment of a resume, and the deadline it was
+   * handed otherwise. See `PresenceState.parkedMs`.
+   */
+  phaseEndsAt: number | null;
 }
 
 /**
- * Advances the presence model to `now`. Idempotent, so it is safe to call from a
- * ticker, from a heartbeat, and from a phase change.
+ * Advances the presence model to `now`, and the table's phase clock with it.
+ * Idempotent, so it is safe to call from a ticker, from a heartbeat, and from a
+ * phase change.
+ *
+ * The clock is parked rather than left running: a paused table carries no
+ * deadline, so no screen counts down a phase that is not passing, and what was
+ * left of it comes back untouched on resume. Both games used to do that dance
+ * themselves around this call, line for line; the caller now hands in its
+ * deadline and carries whatever comes back.
+ */
+export function tickPresence(
+  presence: PresenceState,
+  roster: Roster,
+  now: number,
+  phaseEndsAt: number | null = null
+): PresenceTick {
+  const tick = advance(presence, roster, now);
+  let deadline = phaseEndsAt;
+  if (tick.paused) {
+    presence.parkedMs = parkDeadline(phaseEndsAt, now);
+    deadline = null;
+  }
+  if (tick.resumed) {
+    deadline = restoreDeadline(presence.parkedMs, now);
+    presence.parkedMs = null;
+  }
+  return { ...tick, phaseEndsAt: deadline };
+}
+
+/**
+ * `tickPresence` for a game that keeps its phase deadline in a `phaseEndsAt`
+ * field, as both games do: the deadline is read from that field and the one
+ * that comes back is written onto it.
+ *
+ * The write is the half that matters. A tick whose deadline is dropped leaves
+ * the old one standing, and every screen goes on counting down a phase through
+ * the pause that was meant to stop it.
+ */
+export function tickPresenceAndClock(
+  presence: PresenceState,
+  roster: Roster,
+  now: number,
+  game: { phaseEndsAt: number | null }
+): PresenceTick {
+  const tick = tickPresence(presence, roster, now, game.phaseEndsAt);
+  game.phaseEndsAt = tick.phaseEndsAt;
+  return tick;
+}
+
+/**
+ * The pause model alone, without the clock. See `tickPresence`.
  *
  * The order of the decisions is deliberate. A closing vote is resolved first,
  * because a seat the room has just removed is no longer a seat the room is
  * waiting for; then the pause is lifted or expired; then a fresh absence opens
  * one. So a game never pauses for a player it kicked in the same tick.
  */
-export function tickPresence(presence: PresenceState, roster: Roster, now: number): PresenceTick {
-  const result: PresenceTick = {
+function advance(presence: PresenceState, roster: Roster, now: number): Omit<PresenceTick, 'phaseEndsAt'> {
+  const result: Omit<PresenceTick, 'phaseEndsAt'> = {
     paused: false,
     resumed: false,
     abandoned: [],
@@ -588,6 +643,16 @@ function decided(presence: PresenceState, roster: Roster, vote: KickVote): boole
 /* ------------------------------ projection ------------------------------- */
 
 /**
+ * A seat as the pause screen shows it: the handle the game votes against it by
+ * (a slot, a player id), what to call it, and how long it has been silent.
+ */
+export interface PauseSeat<Ref, Label> {
+  ref: Ref;
+  label: Label;
+  awayMs: number;
+}
+
+/**
  * What a screen is told, with the ballots reduced to counts.
  *
  * Who voted which way is deliberately not sent. In Mafia it would be read as
@@ -595,25 +660,26 @@ function decided(presence: PresenceState, roster: Roster, vote: KickVote): boole
  * the network, not about the wolves — and in a co-op raid it is somebody's bad
  * evening being put to a recorded vote.
  */
-export interface PresenceView {
+export interface PresenceView<Ref = string, Label = string> {
   paused: boolean;
   /** Seats being waited on, with how long each has been silent. */
-  waitingFor: { seatId: string; awayMs: number }[];
+  waitingFor: PauseSeat<Ref, Label>[];
   /**
    * Seats quiet but still inside the resync window, so play has not stopped.
    *
    * Rendered as a mark beside one name rather than an overlay over the game: a
    * micro-lag is worth showing and not worth interrupting anybody for.
    */
-  recovering: { seatId: string; awayMs: number }[];
+  recovering: PauseSeat<Ref, Label>[];
   /** When this pause lapses on its own; the room sees the bound it is inside. */
   pauseExpiresAt: number | null;
   /** Set while the resume countdown runs. Every screen shows the same number. */
   resumesAt: number | null;
-  /** Absentees a kick may now be proposed against. */
-  kickableSeatIds: string[];
+  /** Absentees a kick may now be proposed against: none while a vote is open. */
+  kickable: PauseSeat<Ref, Label>[];
   vote: {
-    targetId: string;
+    ref: Ref;
+    label: Label;
     closesAt: number;
     yes: number;
     no: number;
@@ -622,30 +688,37 @@ export interface PresenceView {
     /** Whether this recipient has already voted, and which way. */
     mine: boolean | null;
   } | null;
-  kicked: string[];
+  kicked: Ref[];
 }
 
-export function presenceView(
+export function presenceView<Ref, Label>(
   presence: PresenceState,
   roster: Roster,
   now: number,
-  viewerId: string | null
-): PresenceView {
+  viewerId: string | null,
+  /**
+   * How the game names a seat, said once so no screen has to: the handle it is
+   * voted against by and what it is called. Both games used to relabel this
+   * view, and then every screen mapped it again into what the overlay draws.
+   */
+  describe: (seatId: string) => { ref: Ref; label: Label }
+): PresenceView<Ref, Label> {
   const waited = roster.filter((seatId) => !presence.kicked.includes(seatId));
   const gone = missing(presence, waited, now);
   const vote = presence.vote;
   const voters = vote ? electorate(presence, roster, vote) : [];
+  const seat = (seatId: string): PauseSeat<Ref, Label> => ({ ...describe(seatId), awayMs: age(presence, seatId, now) });
 
   return {
     paused: presence.pause !== null,
-    waitingFor: gone.map((seatId) => ({ seatId, awayMs: age(presence, seatId, now) })),
-    recovering: recovering(presence, waited, now).map((seatId) => ({ seatId, awayMs: age(presence, seatId, now) })),
+    waitingFor: gone.map(seat),
+    recovering: recovering(presence, waited, now).map(seat),
     pauseExpiresAt: presence.pause?.expiresAt ?? null,
     resumesAt: presence.pause?.resumesAt ?? null,
-    kickableSeatIds: vote ? [] : gone.filter((seatId) => age(presence, seatId, now) >= presence.rules.kickAfterMs),
+    kickable: vote ? [] : gone.filter((seatId) => age(presence, seatId, now) >= presence.rules.kickAfterMs).map(seat),
     vote: vote
       ? {
-          targetId: vote.targetId,
+          ...describe(vote.targetId),
           closesAt: vote.closesAt,
           yes: yesCount(vote, voters),
           no: voters.filter((seatId) => vote.ballots[seatId] === false).length,
@@ -653,7 +726,7 @@ export function presenceView(
           mine: viewerId === null ? null : (vote.ballots[viewerId] ?? null)
         }
       : null,
-    kicked: [...presence.kicked]
+    kicked: presence.kicked.map((seatId) => describe(seatId).ref)
   };
 }
 

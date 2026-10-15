@@ -7,7 +7,7 @@ import { api } from '../api/client';
 import { GAMES, gameEntry } from '../app/games';
 import { useAsync } from '../hooks/useAsync';
 import { useT } from '../i18n/locale-context';
-import { gameForCode } from '../tools/seats';
+import { gameForCode } from '../tools/liveSeats';
 import { Button, Chip, Field, Input, Loading } from '../ui';
 import { ResumeSeats } from '../ui/ResumeSeats';
 import './play.css';

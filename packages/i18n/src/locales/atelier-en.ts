@@ -9,7 +9,7 @@ import type { Catalogue } from "../index.js";
  * category — because those are their words. What is here is the furniture around
  * them.
  */
-export const atelierEn: Catalogue = {
+export const atelierEn = {
   /* -------------------------------- the library ----------------------------- */
   "lib.title": "Library",
   "lib.loading": "Loading…",
@@ -418,6 +418,6 @@ export const atelierEn: Catalogue = {
     "Three things go into the total: the place taken on the answer, which counts for most; the time left on the clock; and the time against the other players who found it, which rewards whoever knew when the question was hard for everyone.",
   "launch.howScore.3":
     "Network lag is compensated: what counts is the moment the player pressed, not when their message arrived. Points have decimals, and that is normal.",
-};
+} satisfies Catalogue;
 
 export default atelierEn;

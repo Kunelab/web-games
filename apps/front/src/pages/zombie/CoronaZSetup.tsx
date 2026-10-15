@@ -1,4 +1,4 @@
-import { msg } from 'i18n';
+import { msg, type MsgKey } from 'i18n';
 import {
   BIOMES,
   DIFFICULTY_PRESETS,
@@ -30,18 +30,18 @@ import '../playlists.css';
 
 /** The side quests a host may allow, and how to say them. */
 /** Quests that can lock the exit. */
-const OBJECTIVE_KINDS = [
-  { id: 'boss' as const, emoji: '💀', label: 'cz.quest.boss' },
-  { id: 'kills' as const, emoji: '🧟', label: 'cz.quest.kills' },
-  { id: 'searches' as const, emoji: '🎒', label: 'cz.quest.searches' }
+const OBJECTIVE_KINDS: { id: 'boss' | 'kills' | 'searches'; emoji: string; label: MsgKey }[] = [
+  { id: 'boss', emoji: '💀', label: 'cz.quest.boss' },
+  { id: 'kills', emoji: '🧟', label: 'cz.quest.kills' },
+  { id: 'searches', emoji: '🎒', label: 'cz.quest.searches' }
 ];
 
 /** Quests that pay points and lock nothing, drawn from the same allow-list. */
-const BONUS_KINDS = [
-  { id: 'explore' as const, emoji: '🗺️', label: 'cz.quest.explore' },
-  { id: 'treasure' as const, emoji: '💎', label: 'cz.quest.treasure' },
-  { id: 'intact' as const, emoji: '🤝', label: 'cz.quest.intact' },
-  { id: 'speed' as const, emoji: '⏱️', label: 'cz.quest.speed' }
+const BONUS_KINDS: { id: 'explore' | 'treasure' | 'intact' | 'speed'; emoji: string; label: MsgKey }[] = [
+  { id: 'explore', emoji: '🗺️', label: 'cz.quest.explore' },
+  { id: 'treasure', emoji: '💎', label: 'cz.quest.treasure' },
+  { id: 'intact', emoji: '🤝', label: 'cz.quest.intact' },
+  { id: 'speed', emoji: '⏱️', label: 'cz.quest.speed' }
 ];
 
 /**
@@ -51,7 +51,7 @@ const BONUS_KINDS = [
  * dial stays editable, so "cauchemar mais sur une petite carte" is a choice.
  */
 /** A blurb is a key when there is one, and nothing at all when there is not. */
-function blurbOf(key: string | undefined, t: (message: ReturnType<typeof msg>) => string): string {
+function blurbOf(key: MsgKey | undefined, t: (message: ReturnType<typeof msg>) => string): string {
   return key ? t(msg(key)) : '';
 }
 

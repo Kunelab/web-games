@@ -1,4 +1,5 @@
-import type { Catalogue } from "../index.js";
+import type { TranslationOf } from "../index.js";
+import type { siteEn } from "./site-en.js";
 
 /**
  * Le site autour des jeux, en français : la page d’accueil, la barre, les trois
@@ -8,7 +9,7 @@ import type { Catalogue } from "../index.js";
  * « Quiz » sont des noms propres, identiques dans tous les catalogues, et
  * restent donc dans `games.ts` avec la couleur et l’emoji.
  */
-export const siteFr: Catalogue = {
+export const siteFr: TranslationOf<typeof siteEn> = {
   /* -------------------------------- la barre -------------------------------- */
   "site.nav.main": "Navigation principale",
   "site.foot.label": "Liens légaux et contact",

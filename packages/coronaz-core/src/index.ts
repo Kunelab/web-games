@@ -194,11 +194,18 @@ export {
   sayInRaid,
   startGame,
   startHeroPhase,
-  beginEnemyPhase,
-  endEnemyPhase,
-  activateNextZombie,
+  /**
+   * The horde's turn, one beat per call. Its steps are not exported on their own:
+   * stringing them together was the callers' job once, and the copies disagreed.
+   */
+  stepHorde,
+  type HordeStep,
   type Activation,
-  spawnReinforcements,
+  /**
+   * Not a step of the horde's turn but the game master cutting it short: whatever
+   * he left unmoved stays where it is, and the board goes back to the survivors.
+   */
+  endEnemyPhase,
   heroPhaseDone,
   checkEnd,
   rollLoot,

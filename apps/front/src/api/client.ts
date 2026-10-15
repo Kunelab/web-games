@@ -1,5 +1,6 @@
 import type { AnswerField, FieldMeta, FinalAward, KindTiming, Readiness, SessionConfig } from 'game-core';
 import type { Currency, LobbyCard, LobbyGame, LockerView, ShopItem } from 'lobby-core';
+import type { MafiaState } from 'mafia-core';
 
 import { apiBaseUrl } from '../tools/api-url';
 
@@ -486,7 +487,8 @@ export const api = {
       allowAnonymous: true
     }),
   mafiaEnd: (code: string) => request<void>(`/mafia/sessions/${code}`, { method: 'DELETE' }),
-  mafiaMine: () => request<{ code: string; hostToken: string; phase: string; players: number }[]>('/mafia/mine'),
+  mafiaMine: () =>
+    request<{ code: string; hostToken: string; phase: MafiaState['phase']; players: number }[]>('/mafia/mine'),
   /* Blind test infini */
   blindtestCatalog: () => request<BlindtestCatalog>('/blindtest/catalog', { allowAnonymous: true }),
   blindtestCount: (settings: BlindtestSettings) =>

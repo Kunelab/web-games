@@ -1,9 +1,13 @@
+// Before anything that reaches env.ts: see the file for why it must be first.
+import './test-env.js';
+
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { FastifyBaseLogger } from 'fastify';
 
-import { MafiaBotDriver, type Decision } from './bots.js';
+import { MafiaBotDriver } from './bots.js';
+import type { Decision } from './seat.js';
 
 import { addMafiaBot, createMafiaGame, joinMafia, playerBySlot, SKIP_VOTE, startMafia, type MafiaState } from 'mafia-core';
 

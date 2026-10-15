@@ -1,16 +1,16 @@
+import { msg, type Msg } from 'i18n';
 import {
   castKickBallot,
   isPaused,
   markAway,
   noteBeat,
   openKickVote,
-  parkDeadline,
   presenceView,
   resetPresence,
-  restoreDeadline,
-  tickPresence,
+  tickPresenceAndClock,
   type KickRefusal,
-  type PresenceTick
+  type PresenceTick,
+  type PresenceView
 } from 'presence-core';
 
 import { activeHeroes, raidPresence, waitedOnHeroes, type CzState } from './state.js';
@@ -90,28 +90,14 @@ export function noteHeroSilent(state: CzState, playerId: string, now: number): b
 }
 
 /**
- * Advances the pause model, and stops or starts the phase clock with it.
- *
- * The clock is parked rather than left running: a paused raid sends
- * `phaseEndsAt: null`, so no screen counts down a hero phase that is not
- * passing, and what was left of it comes back untouched on resume.
+ * Advances the pause model, and stops or starts the phase clock with it. See
+ * `tickPresenceAndClock`, which parks and hands back the clock.
  *
  * Idempotent, so the server may call it from its ticker, from every heartbeat
  * and from every phase change; calling it more often only makes it prompter.
  */
 export function tickRaidPresence(state: CzState, now: number): PresenceTick {
-  const presence = raidPresence(state);
-  const tick = tickPresence(presence, waitedOnHeroes(state), now);
-
-  if (tick.paused) {
-    presence.parkedMs = parkDeadline(state.phaseEndsAt, now);
-    state.phaseEndsAt = null;
-  }
-  if (tick.resumed) {
-    state.phaseEndsAt = restoreDeadline(presence.parkedMs, now);
-    presence.parkedMs = null;
-  }
-  return tick;
+  return tickPresenceAndClock(raidPresence(state), waitedOnHeroes(state), now, state);
 }
 
 /** True while the raid is stopped: no clock, no horde, no hero actions. */
@@ -152,53 +138,14 @@ export function dropHeroSeat(state: CzState, playerId: string): void {
   hero.connected = false;
 }
 
-/** What a phone is told about the pause: names, so a screen can say who. */
-export interface CzPresenceView {
-  paused: boolean;
-  waitingFor: { playerId: string; name: string; awayMs: number }[];
-  /** Quiet, but still inside the resync window: a mark, not an overlay. */
-  recovering: { playerId: string; name: string }[];
-  pauseExpiresAt: number | null;
-  resumesAt: number | null;
-  kickablePlayerIds: string[];
-  vote: {
-    playerId: string;
-    name: string;
-    closesAt: number;
-    yes: number;
-    no: number;
-    needed: number;
-    mine: boolean | null;
-  } | null;
-}
+/** What a phone is told about the pause: survivors by player id, named. See `presenceView`. */
+export type CzPresenceView = PresenceView<string, Msg>;
 
 export function czPresenceView(state: CzState, now: number, viewerId: string | null): CzPresenceView {
-  const view = presenceView(raidPresence(state), waitedOnHeroes(state), now, viewerId);
-  const nameOf = (playerId: string): string => state.heroes[playerId]?.name ?? '?';
-
-  return {
-    paused: view.paused,
-    waitingFor: view.waitingFor.map((seat) => ({
-      playerId: seat.seatId,
-      name: nameOf(seat.seatId),
-      awayMs: seat.awayMs
-    })),
-    recovering: view.recovering.map((seat) => ({ playerId: seat.seatId, name: nameOf(seat.seatId) })),
-    pauseExpiresAt: view.pauseExpiresAt,
-    resumesAt: view.resumesAt,
-    kickablePlayerIds: view.kickableSeatIds,
-    vote: view.vote
-      ? {
-          playerId: view.vote.targetId,
-          name: nameOf(view.vote.targetId),
-          closesAt: view.vote.closesAt,
-          yes: view.vote.yes,
-          no: view.vote.no,
-          needed: view.vote.needed,
-          mine: view.vote.mine
-        }
-      : null
-  };
+  return presenceView(raidPresence(state), waitedOnHeroes(state), now, viewerId, (playerId) => ({
+    ref: playerId,
+    label: msg('presence.seat.named', { name: state.heroes[playerId]?.name ?? '?' })
+  }));
 }
 
 /**

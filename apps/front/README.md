@@ -54,12 +54,14 @@ src/
     router.tsx       Route table, every page lazily imported
     shells.tsx       The two shells, atelier and jeu
     kinds.ts         Colour and short label per media kind
-  hooks/             useAuth, useAsync, useGameSocket, useYoutube
+  hooks/             useAuth, useAsync, the game sockets, useMafiaFeed, useYoutube
+  seat/              A player's seat at any table: join, rejoin, heartbeat, one protocol per game
   forms/             Answer editor and the generated payload fields
   ui/                Primitives: button, field, dialog, select, switch
   pages/             One file per route
   styles/            Design tokens and the base sheet
   tools/api-url.ts   API origin, asset URLs, join URLs
+  tools/seats.ts     Remembered seats on this phone; liveSeats.ts checks them against the server
 ```
 
 ## Two shells

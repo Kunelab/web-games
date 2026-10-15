@@ -67,7 +67,7 @@ export const TOUGHENED_ARMOR = 2;
  */
 export const BARE_HANDS: ItemDef = {
   id: '__fists',
-  name: 'Poings',
+  name: 'coronaz.thing.fists',
   kind: 'weapon',
   tier: 1,
   emoji: '👊',
@@ -118,25 +118,31 @@ export function weaponFor(hero: HeroState, hand: Hand): ChosenWeapon | { error: 
   return { def, weapon: stats, rarity: item.rarity, dice: stats.dice };
 }
 
+/**
+ * The rooms this hand can hit from where the hero stands: the one rule the
+ * attack checks and the phone is shown, so a tap is offered only where it lands.
+ *
+ * Melee wants the same room; a barrel wants a straight, open line out to its
+ * range, and Suzanne's eye adds one room to every barrel. A hand with nothing
+ * that fights reaches nowhere, except a brawler's, which is never unarmed.
+ */
+export function handReach(state: CzState, hero: HeroState, hand: Hand): string[] {
+  const chosen = weaponFor(hero, hand);
+  if ('error' in chosen) return [];
+  if (chosen.weapon.melee) return [hero.roomId];
+  const reach = chosen.weapon.range + (heroDef(hero.heroId).ability === 'deadeye' ? 1 : 0);
+  return [...lineOfSight(state.board, hero.roomId, reach).keys()];
+}
+
 export function resolveHeroAttack(state: CzState, hero: HeroState, target: ZombieState, hand: Hand): AttackOutcome {
   const chosen = weaponFor(hero, hand);
   if ('error' in chosen) return { ok: false, error: chosen.error };
-  const weapon = chosen.weapon;
 
+  const weapon = chosen.weapon;
   const ability = heroDef(hero.heroId).ability;
 
-  // Reach: melee wants the same room; ranged wants a straight, open line.
-  // Suzanne's eye adds one room to every barrel.
-  if (weapon.melee) {
-    if (target.roomId !== hero.roomId) {
-      return { ok: false, error: 'Trop loin pour le corps à corps' };
-    }
-  } else {
-    const reach = weapon.range + (ability === 'deadeye' ? 1 : 0);
-    const sight = lineOfSight(state.board, hero.roomId, reach);
-    if (!sight.has(target.roomId)) {
-      return { ok: false, error: 'Pas de ligne de vue' };
-    }
+  if (!handReach(state, hero, hand).includes(target.roomId)) {
+    return { ok: false, error: weapon.melee ? 'Trop loin pour le corps à corps' : 'Pas de ligne de vue' };
   }
 
   let dice = chosen.dice;

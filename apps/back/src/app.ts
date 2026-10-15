@@ -9,6 +9,7 @@ import session from '@fastify/session';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import { serializerCompiler, validatorCompiler, type ZodTypeProvider } from 'fastify-type-provider-zod';
+import type { LobbyGame } from 'lobby-core';
 
 import { mediaMigration } from './db/index.js';
 import { SqliteSessionStore } from './db/session-store.js';
@@ -29,6 +30,8 @@ import playlistRoutes from './routes/playlists.js';
 import userRoutes from './routes/user.js';
 import zombieRoutes from './routes/zombie.js';
 import { createLobbyService } from './services/lobby-service.js';
+import { CodeRegistry } from './tables/codes.js';
+import type { Tables } from './tables/host.js';
 import { CzManager } from './zombie/manager.js';
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -144,19 +147,25 @@ export async function buildApp(): Promise<FastifyInstance> {
   // cookie; see realtime/account.ts.
   app.decorate('sessions', sessionStore);
 
-  const games = new GameManager(app.log);
+  /** One namespace of join codes for every room in the house, whatever the game. */
+  const codes = new CodeRegistry();
+
+  const games = new GameManager(app.log, { codes });
   app.decorate('games', games);
 
-  const cz = new CzManager(app.log);
+  const cz = new CzManager(app.log, { codes });
   app.decorate('cz', cz);
 
-  const mafia = new MafiaManager(app.log);
+  const mafia = new MafiaManager(app.log, { codes });
   app.decorate('mafia', mafia);
 
-  const quick = new QuickplayManager(app.log, { games, cz, mafia });
+  /** Each game's tables under its name, for whatever knows a room's game and nothing else about it. */
+  const tables: Record<LobbyGame, Tables> = { quiz: games.tables, coronaz: cz.tables, mafia: mafia.tables };
+
+  const quick = new QuickplayManager(app.log, { games, cz, mafia, tables, codes });
   app.decorate('quick', quick);
 
-  app.decorate('lobbies', createLobbyService({ games, cz, mafia, quick }));
+  app.decorate('lobbies', createLobbyService({ tables, quick }));
 
   await app.register(
     async (api) => {
@@ -229,23 +238,23 @@ export async function buildApp(): Promise<FastifyInstance> {
   }
 
   app.addHook('onReady', async () => {
-    const restored = await games.restore();
+    const restored = await games.tables.restore();
     if (restored > 0) {
       app.log.info({ restored }, 'restored games in progress');
     }
-    games.startSweeping();
+    games.tables.start();
 
-    const raids = await cz.restore();
+    const raids = await cz.tables.restore();
     if (raids > 0) {
       app.log.info({ restored: raids }, 'restored CoronaZ raids in progress');
     }
-    cz.startSweeping();
+    cz.tables.start();
 
-    const tables = await mafia.restore();
-    if (tables > 0) {
-      app.log.info({ restored: tables }, 'restored Mafia tables in progress');
+    const towns = await mafia.tables.restore();
+    if (towns > 0) {
+      app.log.info({ restored: towns }, 'restored Mafia tables in progress');
     }
-    mafia.startSweeping();
+    mafia.tables.start();
 
     // No restore: a quick room is a decision in progress, not a game. See the manager.
     quick.start();
@@ -253,8 +262,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.addHook('onClose', async () => {
     sessionStore.stopSweeping();
-    games.stopSweeping();
-    cz.stopSweeping();
+    games.tables.stop();
+    cz.tables.stop();
+    // Mafia's own, because its bots keep clocks of their own as well.
     mafia.stopSweeping();
     quick.stop();
     await app.io.close();

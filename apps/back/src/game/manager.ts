@@ -1,14 +1,16 @@
-import { eq, lt } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { defaultSessionConfig, sessionConfigSchema, type SessionConfig } from 'game-core';
+import { msg } from 'i18n';
+import type { LobbyCard } from 'lobby-core';
 
 import { db } from '../db/index.js';
-import { gameSessions } from '../db/schema.js';
 import { indexCatalogueEntry } from '../services/blindtest-duplicates.js';
 import { rememberPlayedRound, replayFromLibrary } from '../services/blindtest-library.js';
 import { drawRounds, reserveEphemeralIdsBelow, withGenreLabel, type DrawHistory } from '../services/blindtest-draw.js';
 import { mediaService, type MediaView } from '../services/media-service.js';
 import { resultsService } from '../services/results-service.js';
+import { TableHost, tableDeps, type Deadline, type TableOptions } from '../tables/host.js';
+import { quizTableStore, type QuizRow } from '../tables/store.js';
 import { assetUrlFor, sweepAssets } from './assets.js';
 import {
   abandonIfEmpty,
@@ -32,12 +34,12 @@ import {
  * Sessions live in memory for speed and are written to SQLite on each phase change,
  * so a restart mid-party resumes rather than ending the game. The previous
  * implementation kept them in a plain object with no persistence at all, so a deploy
- * lost every score.
+ * lost every score. That machinery is the shared `TableHost` now; what is here is
+ * the quiz.
  */
 
 /** A session with no activity for this long is dropped. */
 const IDLE_TIMEOUT_MS = 3 * 60 * 60 * 1000;
-const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 
 /**
  * How long a lobby the room walked out of is kept.
@@ -98,213 +100,162 @@ function snapshotReplacer(state: SessionState): (key: string, value: unknown) =>
 }
 
 export class GameManager {
-  private readonly sessions = new Map<string, SessionState>();
+  /** Every live session, and everything that keeps one alive between rounds. */
+  readonly tables: TableHost<SessionState, QuizRow>;
   /** Media snapshot per session, so a round is unaffected by later library edits. */
   private readonly mediaBySession = new Map<string, Map<number, MediaView>>();
-  private readonly timers = new Map<string, NodeJS.Timeout>();
   private listener: TransitionListener | null = null;
-  private sweepTimer: NodeJS.Timeout | undefined;
 
-  constructor(private readonly log: FastifyBaseLogger) {}
+  constructor(
+    private readonly log: FastifyBaseLogger,
+    options: TableOptions<QuizRow>
+  ) {
+    this.tables = new TableHost<SessionState, QuizRow>(
+      {
+        game: 'quiz',
+        idleMs: IDLE_TIMEOUT_MS,
+        revive: (saved) => this.revive(saved as SessionState),
+        restored: (state) => this.reloadMedia(state),
+        row: (state) => ({
+          code: state.code,
+          playlistId: state.playlistId,
+          hostUserId: state.hostUserId,
+          hostToken: state.hostToken,
+          phase: state.phase,
+          config: JSON.stringify(state.config),
+          state: JSON.stringify(state, snapshotReplacer(state)),
+          lastActivityAt: state.lastActivityAt
+        }),
+        deadline: (state) => this.deadline(state),
+        isSpent: (state, now) => state.phase === 'finished' && state.lastActivityAt < now - FINISHED_GRACE_MS,
+        sweep: (state, now) => this.sweepOne(state, now),
+        swept: () => sweepAssets(),
+        release: (state) => this.release(state),
+        card: (state) => this.card(state),
+        seated: (state) => Object.keys(state.players).length,
+        begin: async (state) => {
+          await this.advanceSession(state.code);
+        }
+      },
+      tableDeps(log, options, quizTableStore(db))
+    );
+  }
 
   onTransition(listener: TransitionListener): void {
     this.listener = listener;
   }
 
-  /** Restores sessions from the database, e.g. after a restart. */
-  async restore(): Promise<number> {
-    const rows = await db.select().from(gameSessions);
-    let restored = 0;
+  /** A saved session read back after a restart. */
+  private revive(state: SessionState): SessionState {
+    /**
+     * The config is re-parsed rather than trusted as it was written.
+     *
+     * A snapshot is JSON from whichever build wrote it, and a build that adds
+     * a setting restores rows that have never heard of it. Reading one back
+     * as `undefined` is how a new field becomes a crash in a route that has
+     * nothing to do with it — the board asking whether a room has a password,
+     * for instance. Running it through the schema fills every gap with the
+     * same default a fresh session would have got.
+     */
+    const revived = sessionConfigSchema.safeParse(state.config);
+    if (revived.success) state.config = revived.data;
 
-    for (const row of rows) {
-      if (row.last_activity_at < Date.now() - IDLE_TIMEOUT_MS) {
-        await db.delete(gameSessions).where(eq(gameSessions.code, row.code));
-        continue;
-      }
-
-      try {
-        const state = JSON.parse(row.state) as SessionState;
-
-        /**
-         * The config is re-parsed rather than trusted as it was written.
-         *
-         * A snapshot is JSON from whichever build wrote it, and a build that adds
-         * a setting restores rows that have never heard of it. Reading one back
-         * as `undefined` is how a new field becomes a crash in a route that has
-         * nothing to do with it — the board asking whether a room has a password,
-         * for instance. Running it through the schema fills every gap with the
-         * same default a fresh session would have got.
-         */
-        const revived = sessionConfigSchema.safeParse(state.config);
-        if (revived.success) state.config = revived.data;
-
-        /**
-         * Every socket in the world is gone, so no seat is connected.
-         *
-         * The flags were persisted as they stood when the process died, which
-         * would have this session come back believing a roomful of phones was on
-         * the line. Two things read that and both would be wrong: the "in
-         * progress" banner counts connected seats to tell a game from a room
-         * everybody left, and `abandonIfEmpty` would never start its clock on a
-         * game nobody ever comes back to. A phone that does come back clears this
-         * with its first `session:join`, which is a second or two away.
-         */
-        for (const player of Object.values(state.players)) {
-          player.connected = false;
-        }
-        state.emptySince = null;
-
-        this.sessions.set(state.code, state);
-
-        /**
-         * Reload the media this session referenced. A round already in flight
-         * keeps the answers embedded in its own state, so this only matters for
-         * later ones.
-         *
-         * Generated rounds are not in the library and never will be, so they come
-         * back from the snapshot the state carries. Both sources are merged
-         * rather than chosen between, because a session may legitimately mix the
-         * two, and the library is consulted only for the ids that could be in it.
-         */
-        const lookup = new Map<number, MediaView>();
-
-        for (const item of state.ephemeralItems ?? []) {
-          lookup.set(item.id, item);
-        }
-
-        const libraryIds = state.order.filter((id) => id > 0);
-        if (libraryIds.length > 0) {
-          for (const item of await mediaService.getManyByIds(libraryIds)) {
-            lookup.set(item.id, item);
-          }
-        }
-
-        // Keep newly generated ids clear of the ones this session already uses.
-        for (const id of state.order) {
-          if (id < 0) reserveEphemeralIdsBelow(id);
-        }
-
-        this.mediaBySession.set(state.code, lookup);
-        restored += 1;
-
-        // No timer is armed. Rather than resuming a countdown whose deadline may
-        // already be in the past, control goes back to the host: the phase stays
-        // where it is until they advance.
-      } catch (error) {
-        this.log.warn({ err: error, code: row.code }, 'could not restore game session, dropping it');
-        await db.delete(gameSessions).where(eq(gameSessions.code, row.code));
-      }
+    /**
+     * Every socket in the world is gone, so no seat is connected.
+     *
+     * The flags were persisted as they stood when the process died, which
+     * would have this session come back believing a roomful of phones was on
+     * the line. Two things read that and both would be wrong: the "in
+     * progress" banner counts connected seats to tell a game from a room
+     * everybody left, and `abandonIfEmpty` would never start its clock on a
+     * game nobody ever comes back to. A phone that does come back clears this
+     * with its first `session:join`, which is a second or two away.
+     */
+    for (const player of Object.values(state.players)) {
+      player.connected = false;
     }
+    state.emptySince = null;
 
-    return restored;
-  }
-
-  startSweeping(): void {
-    this.sweepTimer = setInterval(() => void this.sweep(), SWEEP_INTERVAL_MS);
-    this.sweepTimer.unref();
-  }
-
-  stopSweeping(): void {
-    if (this.sweepTimer) {
-      clearInterval(this.sweepTimer);
-      this.sweepTimer = undefined;
-    }
-    for (const timer of this.timers.values()) {
-      clearTimeout(timer);
-    }
-    this.timers.clear();
-  }
-
-  private async sweep(): Promise<void> {
-    const now = Date.now();
-    const cutoff = now - IDLE_TIMEOUT_MS;
-
-    for (const [code, state] of this.sessions) {
-      /**
-       * The other half of the abandoned-room rule.
-       *
-       * `afterTransition` catches a game that is still moving, which is the one
-       * that costs something. This catches the one that is not: a session parked
-       * on a reveal waiting for a host who left transitions never again, so
-       * nothing else would ever look at it until the three-hour rule, and that
-       * rule reads a clock this sweep is the only thing still winding.
-       *
-       * It is ended rather than dropped, so the ceremony survives for its grace
-       * and the standings are banked on the way through `afterTransition`.
-       */
-      if (abandonIfEmpty(state, now)) {
-        await this.afterTransition(state);
-        continue;
-      }
-
-      if (!this.isSpent(state, now)) continue;
-
-      /**
-       * Banked before it is dropped, exactly as the host's own "Terminer" does.
-       *
-       * A swept game is still a game that was played. The old sweeper called
-       * `drop` straight out, so an abandoned game took its standings and every
-       * token its players had won with it, silently, hours later. `bank` is
-       * idempotent and refuses a lobby nobody played, so this costs nothing in
-       * the cases where there is nothing to keep.
-       */
-      await this.bank(state);
-      this.drop(code);
-      // Per session rather than by timestamp: a game dropped for being abandoned
-      // or over is not necessarily old, and leaving its row behind would restore
-      // it on the next restart.
-      await db.delete(gameSessions).where(eq(gameSessions.code, code));
-    }
-
-    // Rows with no session in memory, e.g. after a restart that did not restore
-    // them, still age out on the plain idle rule.
-    await db.delete(gameSessions).where(lt(gameSessions.last_activity_at, cutoff));
-    sweepAssets();
+    return state;
   }
 
   /**
-   * Whether a session has nothing left to do.
+   * Reload the media a restored session referenced. A round already in flight
+   * keeps the answers embedded in its own state, so this only matters for
+   * later ones.
    *
-   * Three ways to be done, in order of how sure we are. Nothing at all has
-   * happened for hours; or the game is over and has had its grace; or it is a
-   * lobby whose players have all gone and which was therefore never going to
-   * start.
+   * Generated rounds are not in the library and never will be, so they come
+   * back from the snapshot the state carries. Both sources are merged
+   * rather than chosen between, because a session may legitimately mix the
+   * two, and the library is consulted only for the ids that could be in it.
+   *
+   * No timer is armed. Rather than resuming a countdown whose deadline may
+   * already be in the past, control goes back to the host: the phase stays
+   * where it is until they advance.
    */
-  private isSpent(state: SessionState, now: number): boolean {
-    if (state.lastActivityAt < now - IDLE_TIMEOUT_MS) return true;
+  private async reloadMedia(state: SessionState): Promise<void> {
+    const lookup = new Map<number, MediaView>();
 
-    if (state.phase === 'finished') {
-      return state.lastActivityAt < now - FINISHED_GRACE_MS;
+    for (const item of state.ephemeralItems ?? []) {
+      lookup.set(item.id, item);
     }
 
+    const libraryIds = state.order.filter((id) => id > 0);
+    if (libraryIds.length > 0) {
+      for (const item of await mediaService.getManyByIds(libraryIds)) {
+        lookup.set(item.id, item);
+      }
+    }
+
+    // Keep newly generated ids clear of the ones this session already uses.
+    for (const id of state.order) {
+      if (id < 0) reserveEphemeralIdsBelow(id);
+    }
+
+    this.mediaBySession.set(state.code, lookup);
+  }
+
+  /**
+   * The quiz's own look at a session on each sweep, before the host asks whether
+   * it is idle or finished past its grace.
+   */
+  private async sweepOne(state: SessionState, now: number): Promise<boolean> {
+    /**
+     * The other half of the abandoned-room rule.
+     *
+     * `afterTransition` catches a game that is still moving, which is the one
+     * that costs something. This catches the one that is not: a session parked
+     * on a reveal waiting for a host who left transitions never again, so
+     * nothing else would ever look at it until the three-hour rule, and that
+     * rule reads a clock this sweep is the only thing still winding.
+     *
+     * It is ended rather than dropped, so the ceremony survives for its grace
+     * and the standings are banked on the way through `afterTransition`.
+     */
+    if (abandonIfEmpty(state, now)) {
+      await this.afterTransition(state);
+      return true;
+    }
+
+    /**
+     * A lobby whose players have all gone, and which was therefore never going
+     * to start.
+     *
+     * Judged here rather than as one more way of being spent, because it reads
+     * who is connected, and a restart reads every seat as gone: asked then, it
+     * would drop every lobby with anybody in it whose phones were about to
+     * reconnect.
+     */
     if (state.phase === 'lobby') {
       const seated = Object.values(state.players);
       const empty = seated.length > 0 && !seated.some((player) => player.connected);
-      return empty && state.lastActivityAt < now - ABANDONED_LOBBY_MS;
+      if (empty && state.lastActivityAt < now - ABANDONED_LOBBY_MS) {
+        await this.tables.destroy(state.code);
+        return true;
+      }
     }
 
     return false;
-  }
-
-  /**
-   * Puts an already-built session under this manager.
-   *
-   * Exists for the smoke test, which builds sessions with the pure engine
-   * functions and needs them to go through the real ending — the one that banks
-   * tokens — rather than a reimplementation of it. Named rather than done by
-   * reaching into the private map, so the test exercises the same object graph
-   * the server does.
-   */
-  adopt(state: SessionState): void {
-    this.sessions.set(state.code, state);
-  }
-
-  get(code: string): SessionState | undefined {
-    return this.sessions.get(code);
-  }
-
-  activeCodes(): ReadonlySet<string> {
-    return new Set(this.sessions.keys());
   }
 
   /** View context for a session: turns asset paths into opaque per-round URLs. */
@@ -377,33 +328,36 @@ export class GameManager {
     const parsedConfig = sessionConfigSchema.safeParse(options.config ?? {});
     const config: SessionConfig = parsedConfig.success ? parsedConfig.data : defaultSessionConfig;
 
-    const state = createSession({
-      playlistId: options.playlistId,
-      playlistName: options.playlistName,
-      hostUserId: options.hostUserId,
-      items: options.items,
-      config,
-      existingCodes: this.activeCodes()
+    // Built whole inside the host's call, so the first save already has every
+    // setting below in it. The code comes from the registry every game shares.
+    const state = this.tables.create((code) => {
+      const session = createSession({
+        playlistId: options.playlistId,
+        playlistName: options.playlistName,
+        hostUserId: options.hostUserId,
+        items: options.items,
+        config,
+        code
+      });
+
+      if (options.maxRounds !== undefined && options.maxRounds > 0) {
+        session.order = session.order.slice(0, options.maxRounds);
+      }
+
+      if (options.rehearsal) {
+        session.rehearsal = true;
+      }
+
+      if (options.infinite) {
+        session.infinite = options.infinite;
+        // The generated items exist nowhere else, so they travel with the state.
+        session.ephemeralItems = options.items;
+      }
+
+      return session;
     });
 
-    if (options.maxRounds !== undefined && options.maxRounds > 0) {
-      state.order = state.order.slice(0, options.maxRounds);
-    }
-
-    if (options.rehearsal) {
-      state.rehearsal = true;
-    }
-
-    if (options.infinite) {
-      state.infinite = options.infinite;
-      // The generated items exist nowhere else, so they travel with the state.
-      state.ephemeralItems = options.items;
-    }
-
-    this.sessions.set(state.code, state);
     this.mediaBySession.set(state.code, new Map(options.items.map((item) => [item.id, item])));
-    await this.persist(state);
-
     return state;
   }
 
@@ -612,7 +566,7 @@ export class GameManager {
          * about again - one stale key per abandoned endless game, for the life of
          * the process.
          */
-        if (!this.sessions.has(state.code)) return;
+        if (this.tables.get(state.code) !== state) return;
 
         if (items.length === 0) {
           // Nothing found. Leave it a moment before asking again, so a dry set
@@ -653,7 +607,7 @@ export class GameManager {
    * the order. Ending on the spot would cut off a round people are mid-answer on.
    */
   stopRefilling(code: string): boolean {
-    const state = this.sessions.get(code);
+    const state = this.tables.get(code);
     if (!state?.infinite) return false;
     state.infinite.stopping = true;
 
@@ -678,9 +632,7 @@ export class GameManager {
      * would restore a session still set to refill and quietly hand the room an
      * endless game it had already asked to end.
      */
-    void this.persist(state).catch((error: unknown) => {
-      this.log.warn({ err: error, code }, 'could not persist the stop request');
-    });
+    this.tables.save(state);
     return true;
   }
 
@@ -691,7 +643,7 @@ export class GameManager {
 
   /** Host pressed start, or the reveal ended and the session auto-advances. */
   async advanceSession(code: string): Promise<SessionState | undefined> {
-    const state = this.sessions.get(code);
+    const state = this.tables.get(code);
     if (!state) return undefined;
 
     /**
@@ -716,7 +668,7 @@ export class GameManager {
   }
 
   async closeAnswersFor(code: string): Promise<SessionState | undefined> {
-    const state = this.sessions.get(code);
+    const state = this.tables.get(code);
     if (!state) return undefined;
 
     closeAnswers(state);
@@ -725,7 +677,7 @@ export class GameManager {
   }
 
   async openAnswersFor(code: string): Promise<SessionState | undefined> {
-    const state = this.sessions.get(code);
+    const state = this.tables.get(code);
     if (!state) return undefined;
 
     openAnswers(state);
@@ -773,9 +725,9 @@ export class GameManager {
       await this.bank(state);
     }
 
-    await this.persist(state);
+    this.tables.save(state);
     this.listener?.(state);
-    this.scheduleNext(state);
+    this.tables.arm(state);
 
     /**
      * And here is the loop: every transition looks at the buffer, and a round
@@ -880,68 +832,45 @@ export class GameManager {
   }
 
   /**
-   * Arms a single timer for whatever comes next.
+   * Whatever comes next, for the host's one timer.
    *
    * The server drives phase changes rather than trusting a client to report that
    * time is up, which is the same reason it owns the clock: a client that never
    * sends the message, or sends it early, must not be able to stall or rush a round.
+   *
+   * Whatever comes soonest, which since the buzzer is not always the phase: a
+   * raced round has up to three live deadlines — the phase, the arbitration
+   * window, the holder's window — and `nextDeadline` picks the earliest. Every
+   * firing re-arms, so the later ones are simply scheduled again once the
+   * earlier one has been dealt with.
+   *
+   * The key names the round, the phase this was armed for and which clock it
+   * is. The host copies it when it arms and compares it when it fires, so a
+   * round the host advanced in the meantime makes this a stale timer that does
+   * nothing; see `TableHost.arm` for the bug that copy exists to prevent.
    */
-  private scheduleNext(state: SessionState): void {
-    const existing = this.timers.get(state.code);
-    if (existing) {
-      clearTimeout(existing);
-      this.timers.delete(state.code);
-    }
-
+  private deadline(state: SessionState): Deadline<SessionState> | null {
     const round = state.round;
-    /**
-     * Whatever comes soonest, which since the buzzer is not always the phase.
-     *
-     * Still one timer. A raced round has up to three live deadlines — the phase,
-     * the arbitration window, the holder's window — and giving each its own timer
-     * is how a stale one ends up firing into a phase it no longer belongs to.
-     * `nextDeadline` picks the earliest and every firing re-arms, so the later
-     * ones are simply scheduled again once the earlier one has been dealt with.
-     */
-    const deadline = nextDeadline(state);
-    if (state.phase !== 'playing' || !round || !deadline) {
-      return;
+    const next = nextDeadline(state);
+    if (state.phase !== 'playing' || !round || !next) {
+      return null;
     }
 
-    const delay = Math.max(0, deadline.at - Date.now());
-
-    /**
-     * The phase is read now, not when the timer fires.
-     *
-     * `round` is the live object, so reading `round.phase` inside the callback
-     * handed `runScheduledTransition` whatever the phase had become by then - and
-     * it compares that against the same object's phase, so the staleness test it
-     * exists for could never fail. Snapshotting it here is what gives the guard
-     * something to actually compare against: the phase this timer was armed for.
-     */
     const armedFor = round.phase;
-
-    const timer = setTimeout(() => {
-      this.timers.delete(state.code);
-      void this.runScheduledTransition(state.code, round.id, armedFor, deadline.kind);
-    }, delay);
-
-    timer.unref();
-    this.timers.set(state.code, timer);
+    return {
+      at: next.at,
+      key: `${round.id}:${armedFor}:${next.kind}`,
+      fire: () => this.runScheduledTransition(state.code, armedFor, next.kind)
+    };
   }
 
   private async runScheduledTransition(
     code: string,
-    roundId: string,
     phase: string,
     kind: 'phase' | 'buzz-race' | 'buzz-window' = 'phase'
   ): Promise<void> {
-    const state = this.sessions.get(code);
-    // The round may have been advanced by the host in the meantime, in which case
-    // this timer is stale and must do nothing.
-    if (!state || state.round?.id !== roundId || state.round.phase !== phase) {
-      return;
-    }
+    const state = this.tables.get(code);
+    if (!state) return;
 
     try {
       /**
@@ -955,12 +884,12 @@ export class GameManager {
        */
       if (kind === 'buzz-race') {
         if (resolveBuzzRace(state)) await this.afterTransition(state);
-        else this.scheduleNext(state);
+        else this.tables.arm(state);
         return;
       }
       if (kind === 'buzz-window') {
         if (expireBuzzWindow(state)) await this.afterTransition(state);
-        else this.scheduleNext(state);
+        else this.tables.arm(state);
         return;
       }
 
@@ -976,39 +905,30 @@ export class GameManager {
     }
   }
 
+  /**
+   * Writes the session down. Never rejects and never resurrects a session
+   * already gone; see `TableHost.save`. Kept a promise for the callers that
+   * chain on it.
+   */
   async persist(state: SessionState): Promise<void> {
-    const payload = {
-      code: state.code,
-      playlist_id: state.playlistId,
-      host_user_id: state.hostUserId,
-      host_token: state.hostToken,
-      phase: state.phase,
-      config: JSON.stringify(state.config),
-      state: JSON.stringify(state, snapshotReplacer(state)),
-      last_activity_at: state.lastActivityAt
-    };
-
-    await db
-      .insert(gameSessions)
-      .values(payload)
-      .onConflictDoUpdate({
-        target: gameSessions.code,
-        set: {
-          phase: payload.phase,
-          config: payload.config,
-          state: payload.state,
-          last_activity_at: payload.last_activity_at
-        }
-      });
+    this.tables.save(state);
   }
 
-  drop(code: string): void {
-    const timer = this.timers.get(code);
-    if (timer) {
-      clearTimeout(timer);
-      this.timers.delete(code);
-    }
-    this.sessions.delete(code);
+  /**
+   * What the quiz keeps of a session it lets go, and what it forgets with it.
+   *
+   * Banked before it is dropped, whoever drops it: the host's own "Terminer",
+   * the sweeper letting an abandoned game go, a restart finding it spent. A
+   * swept game is still a game that was played. The old sweeper dropped
+   * sessions straight out, so an abandoned game took its standings and every
+   * token its players had won with it, silently, hours later. `bank` is
+   * idempotent and refuses a lobby nobody played, so this costs nothing in
+   * the cases where there is nothing to keep.
+   */
+  private async release(state: SessionState): Promise<void> {
+    await this.bank(state);
+
+    const code = state.code;
     this.mediaBySession.delete(code);
     // A top-up still in flight resolves into a session that no longer exists; it
     // checks for that, so this only stops the map holding the entry forever.
@@ -1017,17 +937,23 @@ export class GameManager {
   }
 
   /**
-   * The host's way out, from any phase.
-   *
-   * Banks first. A game ended early is still a game that was played, and the
-   * points on the screen when the button was pressed are the points the players
-   * believe they won.
+   * Its card on the public board: a lobby that asked to be found.
    */
-  async destroy(code: string): Promise<void> {
-    const state = this.sessions.get(code);
-    if (state) await this.bank(state);
-
-    this.drop(code);
-    await db.delete(gameSessions).where(eq(gameSessions.code, code));
+  private card(state: SessionState): LobbyCard | null {
+    if (state.phase !== 'lobby' || !state.config.public) return null;
+    return {
+      game: 'quiz',
+      code: state.code,
+      // The host's own name for the room when they gave it one, and what is
+      // being played when they did not. See `SessionConfig.name`.
+      title: state.config.name || state.playlistName,
+      detail: msg('lobby.card.rounds', { count: state.order.length }),
+      host: null,
+      players: Object.keys(state.players).length,
+      maxPlayers: null,
+      createdAt: state.lastActivityAt,
+      quick: false,
+      locked: state.config.password.length > 0
+    };
   }
 }

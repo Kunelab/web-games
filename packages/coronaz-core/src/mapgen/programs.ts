@@ -1,3 +1,5 @@
+import type { MsgKey } from 'i18n';
+
 import { ROADWAY_PROGRAMS, type FloorKind, type RoomProgram } from '../map.js';
 import { pick, randInt, type RngState } from '../rng.js';
 
@@ -26,7 +28,7 @@ export interface ProgramEntry {
 
 export interface BuildingProgram {
   id: string;
-  name: string;
+  name: MsgKey;
   /** Rooms handed out in this order; the first entries get the best-fitting spaces. */
   rooms: ProgramEntry[];
   /** Repeated per dwelling, for blocks of flats. */
@@ -669,7 +671,7 @@ export function floorFor(rng: RngState, program: RoomProgram): FloorKind {
 
 /** Human-readable, for the log and the game master's screen. */
 /** A catalogue key per program, for the log and the game master's screen. */
-export const PROGRAM_LABELS: Record<RoomProgram, string> = {
+export const PROGRAM_LABELS: Record<RoomProgram, MsgKey> = {
   living: 'coronaz.program.living',
   kitchen: 'coronaz.program.kitchen',
   bath: 'coronaz.program.bath',

@@ -1,11 +1,14 @@
-import assert from 'node:assert/strict';
-import { createServer, type Server } from 'node:http';
-import { after, before, describe, it } from 'node:test';
+// Before anything that reaches env.ts: see the file for why it must be first.
+import './test-env.js';
 
-import type { FastifyBaseLogger } from 'fastify';
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
 import { addMafiaBot, createMafiaGame, joinMafia, playerBySlot, startMafia, type MafiaState } from 'mafia-core';
 
-import type { Decision } from './bots.js';
+import { MafiaBotDriver } from './bots.js';
+import type { Decision } from './seat.js';
+import { chainOver, fakeEndpoints, silentLog, slots } from './chain-fakes.js';
 import type { Intent } from './mouth.js';
 
 /**
@@ -23,21 +26,6 @@ import type { Intent } from './mouth.js';
  * him tonight" carries none of the three.
  */
 
-const quiet = () => undefined;
-const log = {
-  info: quiet,
-  warn: quiet,
-  error: quiet,
-  debug: quiet,
-  fatal: quiet,
-  trace: quiet,
-  silent: quiet,
-  level: 'silent',
-  child() {
-    return log;
-  }
-} as unknown as FastifyBaseLogger;
-
 type Writer = {
   write(
     state: MafiaState,
@@ -49,38 +37,10 @@ type Writer = {
   ): Promise<Decision>;
 };
 
-let server: Server;
-let port = 0;
 /** What the endpoint answers with next. */
 let line = '';
-
-before(async () => {
-  server = createServer((request, response) => {
-    request.resume();
-    request.on('end', () => {
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ line }) } }] }));
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  port = (server.address() as { port: number }).port;
-
-  // See the note in `chain.test.ts`: blanked rather than deleted, because of dotenv.
-  for (let slot = 1; slot <= 24; slot++) {
-    const suffix = slot === 1 ? '' : `_${slot}`;
-    for (const part of ['URL', 'KEY', 'MODEL', 'MODELS']) process.env[`MAFIA_API${suffix}_${part}`] = '';
-  }
-  process.env.MAFIA_BOT_PROVIDER = 'api*';
-  process.env.MAFIA_API_URL = `http://127.0.0.1:${port}/quick`;
-  process.env.MAFIA_API_KEY = 'test-key';
-  process.env.MAFIA_API_MODEL = 'quick-model';
-  process.env.MAFIA_HEDGE_MS = '0';
-  process.env.GAME_TRACE = 'off';
-});
-
-after(() => {
-  server.close();
-});
+const endpoints = slots('quick-model');
+const transport = fakeEndpoints(endpoints, { answer: () => ({ line }) });
 
 /** A table with a mafioso on slot 2, sitting in its own family room on day 2. */
 function table(): MafiaState {
@@ -105,20 +65,23 @@ const FALLBACK = 'Tonight: 7, he is the loudest one left.';
 const PLAN = "I'll kill 7 tonight.";
 
 async function saidIn(room: string, hushed: boolean): Promise<string | null> {
-  const { MafiaBotDriver } = await import('./bots.js');
   const state = table();
   const self = playerBySlot(state, 2)!;
-  const driver = new MafiaBotDriver(log, {
-    chat: () => ({ ok: true as const }),
-    vote: () => ({ ok: true as const }),
-    ballot: () => ({ ok: true as const }),
-    action: () => ({ ok: true as const }),
-    dayAction: () => ({ ok: true as const }),
-    will: () => ({ ok: true as const }),
-    whisper: () => ({ ok: true as const }),
-    busy: () => undefined,
-    get: () => state
-  });
+  const driver = new MafiaBotDriver(
+    silentLog,
+    {
+      chat: () => ({ ok: true as const }),
+      vote: () => ({ ok: true as const }),
+      ballot: () => ({ ok: true as const }),
+      action: () => ({ ok: true as const }),
+      dayAction: () => ({ ok: true as const }),
+      will: () => ({ ok: true as const }),
+      whisper: () => ({ ok: true as const }),
+      busy: () => undefined,
+      get: () => state
+    },
+    { chain: chainOver(endpoints), transport }
+  );
   const intent: Intent = {
     act: 'tell your own family what you want done tonight',
     mood: 'blunt',

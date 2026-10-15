@@ -945,11 +945,6 @@ export function playerFamily(player: MafiaPlayer): FamilyId | null {
   return player.role !== null ? familyOf(player.role) : null;
 }
 
-/** Kept for readability at call sites that specifically mean the mafia. */
-export function isMafia(player: MafiaPlayer): boolean {
-  return playerFamily(player) === 'mafia';
-}
-
 /** Either half of the lodge. Asked in three places, so it is named once. */
 export function isMason(player: MafiaPlayer): boolean {
   return player.role === 'mason' || player.role === 'mason-leader';
@@ -996,6 +991,43 @@ export const KEEPER_ROLES: ReadonlySet<RoleId> = new Set<RoleId>(['jailor', 'kid
 
 export function isKeeper(player: MafiaPlayer): boolean {
   return player.role !== null && KEEPER_ROLES.has(player.role);
+}
+
+/** Why a seat's badge changed in the middle of the game. */
+export type RoleChange = 'promoted' | 'converted' | 'initiated' | 'remembered' | 'audited' | 'despaired';
+
+/**
+ * The rewrites that leave the seat with the old badge's nights to account for.
+ *
+ * Done *to* the seat, overnight, by somebody else: a Sheriff taken into the
+ * lodge or audited down to a Citizen still has a Sheriff's notebook, and its
+ * will is signed from the badge it was dealt. See `MafiaPlayer.roleBefore`.
+ */
+const KEEPS_DEALT_BADGE: ReadonlySet<RoleChange> = new Set<RoleChange>(['initiated', 'audited']);
+
+/**
+ * A seat becomes something else, with everything the rewrite owes.
+ *
+ * - The new role's own charges, never the old one's: a promoted Kidnapper does
+ *   not carry the cell's execution into the knife.
+ * - The badge it was dealt, written once, for the rewrites in `KEEPS_DEALT_BADGE`:
+ *   a seat rewritten twice was still dealt one role.
+ * - A keeper that stops being one lets its captive go: a cell nobody keeps
+ *   holds nobody.
+ */
+export function changeRole(state: MafiaState, seat: MafiaPlayer, to: RoleId, why: RoleChange): void {
+  if (KEEPS_DEALT_BADGE.has(why) && seat.roleBefore == null) seat.roleBefore = seat.role;
+  if (isKeeper(seat) && !KEEPER_ROLES.has(to) && state.captives) delete state.captives[seat.playerId];
+  deal(seat, to);
+}
+
+/**
+ * Hands a seat a badge with the charges that come with it, and only those: at
+ * the deal, and again whenever `changeRole` rewrites it.
+ */
+function deal(seat: MafiaPlayer, role: RoleId): void {
+  seat.role = role;
+  seat.charges = roleDef(role).charges ?? 0;
 }
 
 /**
@@ -1278,8 +1310,7 @@ function ensureCarrier(players: MafiaPlayer[], faction: 'mafia' | 'triad', knife
   if (armed) return;
 
   const heir = members[members.length - 1];
-  heir.role = knife;
-  heir.charges = roleDef(knife).charges ?? 0;
+  deal(heir, knife);
 }
 
 /**
@@ -1320,8 +1351,7 @@ function retireIdleCoroner(players: MafiaPlayer[]): void {
   const taken = new Set<RoleId>(players.map((player) => player.role).filter((role): role is RoleId => role !== null));
   for (const coroner of coroners) {
     const role = CORONER_STAND_INS.find((candidate) => !taken.has(candidate)) ?? 'citizen';
-    coroner.role = role;
-    coroner.charges = roleDef(role).charges ?? 0;
+    deal(coroner, role);
     taken.add(role);
   }
 }
@@ -1342,8 +1372,7 @@ export function assignRoles(state: MafiaState, rng: () => number): void {
 
   players.forEach((player, index) => {
     const role = roster[index] ?? 'citizen';
-    player.role = role;
-    player.charges = roleDef(role).charges ?? 0;
+    deal(player, role);
   });
 
   /**
@@ -1387,7 +1416,7 @@ export function assignRoles(state: MafiaState, rng: () => number): void {
     if (player.role === 'executioner') {
       const marks = players.filter((other) => other.role !== null && roleDef(other.role).faction === 'town');
       if (marks.length === 0) {
-        player.role = 'jester';
+        deal(player, 'jester');
       } else {
         player.obsessionId = marks[Math.floor(rng() * marks.length)]?.playerId ?? null;
       }

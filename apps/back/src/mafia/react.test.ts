@@ -17,6 +17,7 @@ import {
 import type { ChatMessage } from 'chat-core';
 import type { FastifyBaseLogger } from 'fastify';
 
+import { handClock } from '../clock.js';
 import { MafiaBotDriver } from './bots.js';
 
 /**
@@ -46,6 +47,8 @@ const log = {
 interface Table {
   state: MafiaState;
   driver: MafiaBotDriver;
+  /** The driver's clock, which only moves when the test moves it. */
+  clock: ReturnType<typeof handClock>;
   said: { botId: string; channel: string; text: string }[];
   human: string;
 }
@@ -75,27 +78,43 @@ function table(): Table {
   }
 
   const said: Table['said'] = [];
-  const driver = new MafiaBotDriver(log, {
-    chat: (_code, botId, channel, text) => {
-      said.push({ botId, channel, text });
-      return { ok: true };
+  const clock = handClock(Date.now());
+  const driver = new MafiaBotDriver(
+    log,
+    {
+      chat: (_code, botId, channel, text) => {
+        said.push({ botId, channel, text });
+        return { ok: true };
+      },
+      vote: () => ({ ok: true }),
+      ballot: () => ({ ok: true }),
+      action: () => ({ ok: true }),
+      dayAction: () => ({ ok: true }),
+      will: () => ({ ok: true }),
+      whisper: () => ({ ok: true }),
+      busy: () => undefined,
+      get: () => state
     },
-    vote: () => ({ ok: true }),
-    ballot: () => ({ ok: true }),
-    action: () => ({ ok: true }),
-    dayAction: () => ({ ok: true }),
-    will: () => ({ ok: true }),
-    whisper: () => ({ ok: true }),
-    busy: () => undefined,
-    get: () => state
-  });
+    { clock }
+  );
 
-  return { state, driver, said, human: player.playerId };
+  return { state, driver, clock, said, human: player.playerId };
+}
+
+/**
+ * Lets `ms` of table time pass: every timer that falls due runs, and whatever
+ * it set going is let finish before the clock moves on.
+ */
+async function elapse(fixture: Table, ms: number): Promise<void> {
+  for (let passed = 0; passed < ms; passed += 100) {
+    fixture.clock.advance(100);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
 }
 
 /** Says something as the person, the way the manager does. */
 function types(fixture: Table, text: string): ChatMessage {
-  const result = sayInChat(fixture.state, fixture.human, 'day', text, Date.now());
+  const result = sayInChat(fixture.state, fixture.human, 'day', text, fixture.clock.now());
   assert.ok(result.ok, `the engine refused the line: ${JSON.stringify(result)}`);
   fixture.driver.onChat(fixture.state, result.message);
   return result.message;
@@ -125,13 +144,13 @@ describe('a person says something in a private room', () => {
       bot.role = family.role;
       fixture.state.phase = 'night';
       fixture.state.stage = null;
-      fixture.state.phaseEndsAt = Date.now() + 40_000;
+      fixture.state.phaseEndsAt = fixture.clock.now() + 40_000;
 
-      const result = sayInChat(fixture.state, fixture.human, family.room, 'take 4 tonight', Date.now());
+      const result = sayInChat(fixture.state, fixture.human, family.room, 'take 4 tonight', fixture.clock.now());
       assert.ok(result.ok, `the engine refused the line: ${JSON.stringify(result)}`);
       fixture.driver.onChat(fixture.state, result.message);
 
-      await new Promise((resolve) => setTimeout(resolve, 4000));
+      await elapse(fixture, 4000);
       assert.ok(
         fixture.said.some((line) => line.channel === family.room),
         `nothing was said in the ${family.room}'s room: ${JSON.stringify(fixture.said)}`
@@ -148,13 +167,13 @@ describe('a person says something in a private room', () => {
     const fixture = table();
     const bot = Object.values(fixture.state.players).find((player) => player.isBot && player.alive);
     assert.ok(bot);
-    fixture.state.phaseEndsAt = Date.now() + 90_000;
+    fixture.state.phaseEndsAt = fixture.clock.now() + 90_000;
 
-    const result = whisperTo(fixture.state, fixture.human, bot.slot, 'who do you trust?', Date.now());
+    const result = whisperTo(fixture.state, fixture.human, bot.slot, 'who do you trust?', fixture.clock.now());
     assert.ok(result.ok, `the engine refused the whisper: ${JSON.stringify(result)}`);
     fixture.driver.onChat(fixture.state, result.message);
 
-    await new Promise((resolve) => setTimeout(resolve, 4000));
+    await elapse(fixture, 4000);
     assert.ok(
       fixture.said.some((line) => line.botId === bot.playerId && line.channel === result.message.channel),
       `no reply in the whisper: ${JSON.stringify(fixture.said)}`
@@ -205,7 +224,7 @@ describe('a person says something', () => {
     assert.ok(target);
 
     types(fixture, `${target.slot}, where were you last night?`);
-    await new Promise((resolve) => setTimeout(resolve, 3200));
+    await elapse(fixture, 3200);
 
     assert.ok(fixture.said.length > 0, 'the table said nothing at all');
     assert.ok(

@@ -1,14 +1,17 @@
 import type { CzClientToServer, CzRaidReward, CzServerToClient, CzView } from 'coronaz-core';
 import type { ClockPongPayload } from 'game-core';
+import { msg, type Msg } from 'i18n';
 import { useCallback, useEffect, useState } from 'react';
-import { io, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
-import { apiOrigin } from '../tools/api-url';
+import { openSocket } from '../seat/browser';
+import { said } from '../seat/seat';
 import { useClockUpkeep, useServerClock } from './useServerClock';
 
 /**
- * The CoronaZ twin of `useGameSocket`: same server, same clock discipline,
- * different state event. Kept as its own hook rather than a parameterised one
+ * The CoronaZ twin of `useGameSocket`, for the television and the game master:
+ * same server, same clock discipline, different state event. A survivor's phone
+ * holds a seat and uses `useSeat` instead. Kept as its own hook rather than a parameterised one
  * because the two views share no shape, and a union would put quiz fields on
  * every zombie screen. The clock itself is shared — see `useServerClock`.
  *
@@ -32,7 +35,8 @@ export interface CzConnection {
    * a moment after the final view arrives: the careers have to be written first.
    */
   rewards: CzRaidReward[] | null;
-  error: string | null;
+  /** A key, like everything else the server says; the screen renders it. */
+  error: Msg | null;
   serverNow: () => number;
   /** Feeds a view carried by an ack, so a screen never waits for a broadcast. */
   applyView: (next: CzView) => void;
@@ -43,11 +47,11 @@ export function useCzSocket(): CzConnection {
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState<CzView | null>(null);
   const [rewards, setRewards] = useState<CzRaidReward[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Msg | null>(null);
   const { serverNow, synchronise } = useServerClock();
 
   useEffect(() => {
-    const current: CzSocket = io(apiOrigin, { transports: ['websocket', 'polling'] });
+    const current: CzSocket = openSocket();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- publishing an external resource
     setSocket(current);
 
@@ -57,10 +61,10 @@ export function useCzSocket(): CzConnection {
       synchronise(current);
     });
     current.on('disconnect', () => setConnected(false));
-    current.on('connect_error', () => setError('Connexion au serveur impossible.'));
+    current.on('connect_error', () => setError(msg('net.unreachable')));
     current.on('cz:state', (next) => setView(next));
     current.on('cz:rewards', (next) => setRewards(next));
-    current.on('cz:error', (payload) => setError(payload.message));
+    current.on('cz:error', (payload) => setError(said(payload.message) ?? null));
 
     return () => {
       current.removeAllListeners();

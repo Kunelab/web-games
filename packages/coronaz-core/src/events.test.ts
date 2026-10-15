@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { gameConfigSchema } from './config.js';
-import { beginEnemyPhase, endEnemyPhase, gmIncome, spawnReinforcements, startGame } from './engine.js';
+import { beginEnemyPhase, endEnemyPhase, gmIncome, spawnReinforcements, startGame, stepHorde } from './engine.js';
 import { CZ_EVENTS, EVENT_FROM_TURN } from './events.js';
 import { connectionsOf, passable } from './map.js';
 import { createGame, joinHero, visibleRooms, type CzState } from './state.js';
@@ -72,7 +72,15 @@ describe('the set stays balanced', () => {
 
 describe('nothing touches the walls', () => {
   it('the board is exactly as connected after a hundred turns of weather', () => {
-    const state = game();
+    /**
+     * Whole horde turns, against a game master who never buys anything.
+     *
+     * Against the AI the dens fire and the creatures walk, and a survivor who never
+     * moves is eaten by turn twenty — after which this loop would quietly have
+     * checked a fifth of what it claims. A purse nobody spends leaves the board to
+     * the weather alone, which is the thing under test, for all hundred turns.
+     */
+    const state = game({ mode: 'gm' });
     const before = state.board.rooms.map(
       (room) =>
         `${room.id}:${connectionsOf(state.board, room)
@@ -82,11 +90,11 @@ describe('nothing touches the walls', () => {
     );
 
     for (let turn = 0; turn < 100; turn++) {
-      beginEnemyPhase(state, 0);
-      spawnReinforcements(state);
-      endEnemyPhase(state, 0);
-      if (state.phase !== 'heroes') break;
+      while (stepHorde(state, 0).kind !== 'ended') {
+        /* one beat per call */
+      }
     }
+    assert.equal(state.turn, 101, 'the raid ended early, so the weather ran for less than it claims');
 
     const after = state.board.rooms.map(
       (room) =>

@@ -1,9 +1,13 @@
-import assert from 'node:assert/strict';
-import { createServer, type Server } from 'node:http';
-import { after, before, describe, it } from 'node:test';
+// Before anything that reaches env.ts: see the file for why it must be first.
+import './test-env.js';
 
-import type { FastifyBaseLogger } from 'fastify';
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
 import { addMafiaBot, createMafiaGame, type MafiaState } from 'mafia-core';
+
+import { MafiaBotDriver } from './bots.js';
+import { chainOver, fakeEndpoints, silentLog, slots } from './chain-fakes.js';
 
 /**
  * Which brain the board says is driving a seat.
@@ -16,23 +20,6 @@ import { addMafiaBot, createMafiaGame, type MafiaState } from 'mafia-core';
  * go through one walk, so all three report from it now.
  */
 
-const quiet = () => undefined;
-const log = {
-  info: quiet,
-  warn: quiet,
-  error: quiet,
-  debug: quiet,
-  fatal: quiet,
-  trace: quiet,
-  silent: quiet,
-  level: 'silent',
-  child() {
-    return log;
-  }
-} as unknown as FastifyBaseLogger;
-
-let server: Server;
-let port = 0;
 let state: MafiaState;
 
 function table(): MafiaState {
@@ -55,52 +42,20 @@ const hooks = {
 
 const brains = () => Object.values(state.players).map((player) => player.botBrain ?? null);
 
-before(async () => {
-  const body = JSON.stringify({ choices: [{ message: { content: '{"line":"ok"}' } }] });
-  server = createServer((request, response) => {
-    let sent = '';
-    request.on('data', (chunk: Buffer) => {
-      sent += chunk.toString();
-    });
-    request.on('end', () => {
-      // A refusal is asked for by name, because `env` is read once at import
-      // and a rung cannot be taken away after this file has loaded the driver.
-      if (sent.includes('REFUSE')) {
-        response.writeHead(500, { 'content-type': 'application/json' });
-        response.end('{}');
-        return;
-      }
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(body);
-    });
+/** One quick endpoint, which refuses any question that asks it to. */
+const endpoints = slots('quick-model');
+const driverFor = () =>
+  new MafiaBotDriver(silentLog, hooks, {
+    chain: chainOver(endpoints),
+    transport: fakeEndpoints(endpoints, { refuses: (_model, user) => user === 'REFUSE' })
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  port = (server.address() as { port: number }).port;
-
-  // See the note in `chain.test.ts`: blanked rather than deleted, because of dotenv.
-  for (let slot = 1; slot <= 24; slot++) {
-    const suffix = slot === 1 ? '' : `_${slot}`;
-    for (const part of ['URL', 'KEY', 'MODEL', 'MODELS']) process.env[`MAFIA_API${suffix}_${part}`] = '';
-  }
-  process.env.MAFIA_BOT_PROVIDER = 'api*';
-  process.env.MAFIA_API_URL = `http://127.0.0.1:${port}/quick`;
-  process.env.MAFIA_API_KEY = 'test-key';
-  process.env.MAFIA_API_MODEL = 'quick-model';
-  process.env.MAFIA_HEDGE_MS = '0';
-  process.env.GAME_TRACE = 'off';
-});
-
-after(() => {
-  server.close();
-});
 
 describe('which brain the board reports', () => {
   const ask = { system: 'system', user: 'user', format: {}, maxTokens: 50 };
 
   it('names the model for the one seat a walk was asked about', async () => {
-    const { MafiaBotDriver } = await import('./bots.js');
     state = table();
-    const driver = new MafiaBotDriver(log, hooks);
+    const driver = driverFor();
 
     assert.deepEqual(brains(), [null, null, null], 'nothing has answered for anybody yet');
     const answer = await driver.askChain(ask, { code: state.code, botId: 'bot1' });
@@ -114,23 +69,21 @@ describe('which brain the board reports', () => {
    * one answer to any of them is a model driving all of them.
    */
   it('names it for every bot when the walk was for the table', async () => {
-    const { MafiaBotDriver } = await import('./bots.js');
     state = table();
-    const driver = new MafiaBotDriver(log, hooks);
+    const driver = driverFor();
 
     await driver.askChain(ask, { code: state.code }, 'listen');
     assert.deepEqual(brains(), ['quick-model', 'quick-model', 'quick-model']);
   });
 
   it('says the phrasebook drove the seat when nothing answered', async () => {
-    const { MafiaBotDriver } = await import('./bots.js');
     state = table();
-    const driver = new MafiaBotDriver(log, hooks);
+    const driver = driverFor();
 
     await driver.askChain(ask, { code: state.code, botId: 'bot2' });
     assert.deepEqual(brains(), [null, null, 'quick-model']);
 
-    const dead = new MafiaBotDriver(log, hooks);
+    const dead = driverFor();
     const answer = await dead.askChain({ ...ask, user: 'REFUSE' }, { code: state.code, botId: 'bot2' });
     assert.equal(answer, null, 'the endpoint refused');
     assert.deepEqual(brains(), [null, null, 'scripted'], 'and the seat says so');
@@ -143,14 +96,13 @@ describe('which brain the board reports', () => {
    * a worse lie than the one this whole mechanism is here to fix.
    */
   it('does not flip the whole table back when a table-wide walk fails', async () => {
-    const { MafiaBotDriver } = await import('./bots.js');
     state = table();
-    const driver = new MafiaBotDriver(log, hooks);
+    const driver = driverFor();
 
     await driver.askChain(ask, { code: state.code }, 'listen');
     assert.deepEqual(brains(), ['quick-model', 'quick-model', 'quick-model']);
 
-    const dead = new MafiaBotDriver(log, hooks);
+    const dead = driverFor();
     await dead.askChain({ ...ask, user: 'REFUSE' }, { code: state.code }, 'listen');
     assert.deepEqual(brains(), ['quick-model', 'quick-model', 'quick-model']);
   });

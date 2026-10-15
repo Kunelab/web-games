@@ -238,9 +238,9 @@ un contexte audible d'autrui (cf. anti-fuite).
 Toute action de ce jeu vise une personne, donc chaque action vit sur la ligne de
 cette personne : « Accuser » à côté d'un nom le jour, « Soigner » à côté du même
 nom la nuit. Un seul endroit à regarder, un seul type de geste, un libellé
-lisible. Les verbes viennent de `ACTION_LABELS` dans `roles.ts` — c'est du
-contenu, pas de la présentation : un prompt de bot et un futur écran veulent le
-même mot.
+lisible. Les verbes viennent de `ACTION` dans `messages.ts` (clés
+`mafia.action.*` du catalogue `i18n`) — c'est du contenu, pas de la
+présentation : un prompt de bot et un futur écran veulent le même mot.
 
 Ce que ça remplace : une carte isométrique non zoomable qui était à la fois le
 tableau de bord, le trombinoscope et le seul moyen de viser quoi que ce soit. Sur
@@ -325,8 +325,9 @@ La fin de partie lève tous les réglages : c'est le moment où les masques tomb
    joueurs, où il ne coûte rien.
 4. **Les joueurs de la Triade et de la Secte s'entendaient dire « Neutre ».** Le
    libellé de camp était un ternaire à deux branches pour une union à cinq
-   membres. C'est un `Record<Faction, string>` (`FACTION_LABELS`), donc un
-   sixième camp serait une erreur de compilation et non un mensonge sur un
+   membres. C'est une clé `mafia.faction.${faction}` (`FACTION` dans
+   `messages.ts`), vérifiée contre le catalogue `i18n`, donc un sixième camp
+   sans sa ligne serait une erreur de compilation et non un mensonge sur un
    téléphone.
 
 Effet mesuré du correctif nº 1 sur le banc (1000 parties par taille) : la Ville

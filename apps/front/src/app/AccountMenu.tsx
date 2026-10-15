@@ -1,4 +1,4 @@
-import { msg } from 'i18n';
+import { msg, type MsgKey } from 'i18n';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NavLink } from 'react-router';
@@ -20,7 +20,7 @@ import { useTheme, type ThemePreference } from '../hooks/useTheme';
  */
 
 /** The three theme settings, as catalogue keys. */
-const THEMES: { value: ThemePreference; key: string; emoji: string }[] = [
+const THEMES: { value: ThemePreference; key: MsgKey; emoji: string }[] = [
   { value: 'dark', key: 'site.account.theme.dark', emoji: '🌙' },
   { value: 'light', key: 'site.account.theme.light', emoji: '☀️' },
   { value: 'system', key: 'site.account.theme.system', emoji: '💻' }

@@ -10,7 +10,7 @@ import type { Catalogue } from '../index.js';
  * labels into it makes both halves harder to translate. A key here is UI; a key
  * there is something the town said out loud.
  */
-export const screenEn: Catalogue = {
+export const screenEn = {
   /* --------------------------- what the table refuses ----------------------- */
   'mafia.refuse.notSeated': 'You are not at a table',
   'mafia.refuse.noTable': 'This table no longer exists',
@@ -59,6 +59,8 @@ export const screenEn: Catalogue = {
   'presence.kick.alreadyOpen': 'A vote is already open.',
   'presence.kick.alreadyKicked': 'That player has already left the table.',
   'presence.kick.self': 'You do not vote yourself out.',
+  /** A seat on the pause screen, named and nothing else: a survivor has no house number. */
+  'presence.seat.named': '{name}',
   'presence.kick.noVote': 'No vote is open.',
   'presence.kick.impossible': 'Impossible.',
 
@@ -1369,6 +1371,6 @@ export const screenEn: Catalogue = {
   'mafia.bot.will.note.wrong.1': 'Day {day}: I was wrong about {who}.',
   'mafia.bot.will.note.wrong.2': 'Day {day}: {who} was town. My mistake.',
   'mafia.bot.will.note.wrong.3': 'Day {day}: cross {who} off. I got that wrong.'
-};
+} satisfies Catalogue;
 
 export default screenEn;

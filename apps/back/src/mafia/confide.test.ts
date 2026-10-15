@@ -47,7 +47,7 @@ function bury(state: MafiaState, slot: number, role: RoleId, hidden = false): vo
     playerId: player.playerId,
     day: 2,
     phase: 'night',
-    cause: msg('x'),
+    cause: msg('mafia.cause.unknown'),
     role,
     ...(hidden ? { hidden: true } : {})
   });

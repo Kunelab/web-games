@@ -950,7 +950,7 @@ export default function Host() {
         </div>
       )}
 
-      {error && <p className="play-error">{error}</p>}
+      {error && <p className="play-error">{t(error)}</p>}
     </div>
   );
 }
@@ -1003,7 +1003,6 @@ function SoloAnswers({ code }: { code: string }) {
         key={session.round.roundId}
         session={session}
         serverNow={serverNow}
-        offsetMs={clock.offsetMs}
         myId={myId}
         locale={locale}
         hidePresentation

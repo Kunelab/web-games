@@ -7,7 +7,7 @@ import type { Catalogue } from '../index.js';
  * those names reach three different screens plus the join board, so they live
  * here rather than as prose inside `coronaz-core`.
  */
-export const coronazEn: Catalogue = {
+export const coronazEn = {
   /* ------------------------------- the scenarios ---------------------------- */
   'coronaz.scenario.escape.name': 'Escape',
   'coronaz.scenario.escape.goal': 'Meet the objectives, pick up the keys, then reach the exit.',
@@ -157,6 +157,8 @@ export const coronazEn: Catalogue = {
   'coronaz.biome.cyber.blurb':
     'The city once the network came back: chrome, towers, and whatever the clinics left behind.',
 
+  /* What a survivor hits with when there is nothing in either hand: in every world. */
+  'coronaz.thing.fists': 'Fists',
   'coronaz.thing.bat': 'Baseball bat',
   'coronaz.thing.machete': 'Machete',
   'coronaz.thing.pickaxe': 'Pickaxe',
@@ -282,6 +284,7 @@ export const coronazEn: Catalogue = {
 
   'coronaz.upgrade.hide': 'Carapace (+1 HP to reinforcements)',
   'coronaz.upgrade.claws': 'Claws (+1 damage to reinforcements)',
+  'coronaz.order.rush': 'Rush (+1 AP to the whole horde, this turn)',
   /* ------------------------- what a job of work is called ------------------- */
   'coronaz.role.club': 'Blunt weapon',
   'coronaz.role.blade': 'Blade',
@@ -572,6 +575,6 @@ export const coronazEn: Catalogue = {
   'cz.hero.signaturePerks': 'Signature perks',
   'cz.hero.unlockFor': 'Unlock for {cost} 🥫',
   'cz.hero.alreadyTaken': 'Already taken by {who}.'
-};
+} satisfies Catalogue;
 
 export default coronazEn;

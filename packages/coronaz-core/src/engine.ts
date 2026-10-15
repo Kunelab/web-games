@@ -1,4 +1,4 @@
-import { msg, type Msg } from 'i18n';
+import { msg, type Msg, type MsgKey } from 'i18n';
 import { createChat, post, type PostResult } from 'chat-core';
 import { creditKill, resolveHeroAttack, resolveZombieAttack, weaponFor, type Hand } from './combat.js';
 import { archetypeOf, itemFor, zombieFor } from './content/registry.js';
@@ -9,6 +9,7 @@ import { CZ_EVENTS, EVENT_CHANCE, EVENT_FROM_TURN } from './events.js';
 import {
   cellIndex,
   DIRS,
+  distancesFrom,
   edgeBetween,
   getRoom,
   neighbors,
@@ -131,6 +132,33 @@ export interface ActionResult {
   /** Attack feedback, so the phone can sound the hit and the kill. */
   hits?: number;
   killed?: string[];
+}
+
+/**
+ * The rooms a move may take this hero to: the one rule the move checks and the
+ * phone is shown. One doorway or archway away, or two for a runner.
+ *
+ * Nadia runs. One point carries her two rooms, and she arrives loudly.
+ *
+ * Her old ability made her first step each turn free, which is the same
+ * distance and none of the tension. A trade beats a discount: the horde homes
+ * in on noise, so her speed is also how she gets found — and the second room
+ * has to be reachable *through* the first, or she would be walking through
+ * walls rather than sprinting down a corridor.
+ */
+export function moveReach(state: CzState, hero: HeroState): string[] {
+  const from = getRoom(state.board, hero.roomId);
+  const near = neighbors(state.board, from);
+  const rooms = new Set(near.map((room) => room.id));
+  if (heroDef(hero.heroId).ability === 'fleet') {
+    for (const next of near) {
+      for (const beyond of neighbors(state.board, next)) {
+        if (beyond.id === from.id || rooms.has(beyond.id)) continue;
+        if ((shortestPath(state.board, from.id, beyond.id)?.length ?? 99) === 2) rooms.add(beyond.id);
+      }
+    }
+  }
+  return [...rooms];
 }
 
 /**
@@ -311,21 +339,8 @@ export function applyHeroAction(state: CzState, playerId: string, action: HeroAc
     }
     case 'move': {
       const from = getRoom(state.board, hero.roomId);
-      const open = neighbors(state.board, from).some((room) => room.id === action.roomId);
-
-      /**
-       * Nadia runs. One point carries her two rooms, and she arrives loudly.
-       *
-       * Her old ability made her first step each turn free, which is the same
-       * distance and none of the tension. A trade beats a discount: the horde homes
-       * in on noise, so her speed is also how she gets found — and the second room
-       * has to be reachable *through* the first, or she would be walking through
-       * walls rather than sprinting down a corridor.
-       */
-      const sprinting =
-        !open && heroDef(hero.heroId).ability === 'fleet' && (shortestPath(state.board, from.id, action.roomId)?.length ?? 99) === 2;
-
-      if (!open && !sprinting) return { ok: false, error: 'Pas de porte par là' };
+      if (!moveReach(state, hero).includes(action.roomId)) return { ok: false, error: 'Pas de porte par là' };
+      const sprinting = !neighbors(state.board, from).some((room) => room.id === action.roomId);
       spend();
       hero.roomId = action.roomId;
       if (sprinting) {
@@ -1062,6 +1077,7 @@ export function beginEnemyPhase(state: CzState, now = Date.now()): void {
     if (surge > 0 && rand(state.rng) < surge) zombie.ap += 1;
   }
   state.gmSurgeUsed = false;
+  state.densFired = false;
   for (const hero of Object.values(state.heroes)) {
     hero.toughUsed = false;
     /**
@@ -1249,15 +1265,15 @@ export function activateNextZombie(state: CzState): Activation {
   }
 
   zombie.ap = 0;
+  return { more: anyoneToMove(state), visited, struck };
+}
 
-  let more = false;
+/** Whether any creature still holds a point to spend this turn. */
+function anyoneToMove(state: CzState): boolean {
   for (const id in state.zombies) {
-    if ((state.zombies[id]?.ap ?? 0) > 0) {
-      more = true;
-      break;
-    }
+    if ((state.zombies[id]?.ap ?? 0) > 0) return true;
   }
-  return { more, visited, struck };
+  return false;
 }
 
 /**
@@ -1453,6 +1469,67 @@ export function endEnemyPhase(state: CzState, now = Date.now()): void {
   }
 }
 
+/**
+ * What one step of the horde's turn did, for whoever is pacing it.
+ *
+ * Each kind is a different beat for the room: the horde arriving on the board, one
+ * creature moving (with where it went, so a pacer can tell a creature the table
+ * watched from one shuffling through a basement), the dens firing, and the board
+ * going back to the survivors — or to nobody, when the raid is decided.
+ */
+export type HordeStep =
+  { kind: 'began' } | { kind: 'activated'; act: Activation } | { kind: 'reinforced' } | { kind: 'ended' };
+
+/**
+ * Advances the horde's turn by exactly one beat, whichever beat it is on.
+ *
+ * The turn has an order — take the board, move every creature, fire the dens,
+ * hand the board back — and it used to be spelled out by every caller: the server's
+ * paced stepper, the simulator and the tests each strung the four steps together
+ * themselves, and the copies drifted. One beat per call is what keeps the pacing the
+ * caller's: the server waits a beat between calls so the room can watch, the
+ * simulator calls it in a tight loop, and neither has to know what comes next.
+ *
+ * Called while the survivors still hold the board, it takes it from them — the
+ * caller decides *when* that is (everyone ready, or the clock), exactly as it
+ * decides when the next creature moves. Outside a raid in progress it does nothing
+ * and answers `ended`: there is no horde turn to advance.
+ */
+export function stepHorde(state: CzState, now = Date.now()): HordeStep {
+  if (state.phase === 'heroes') {
+    beginEnemyPhase(state, now);
+    return { kind: 'began' };
+  }
+  if (state.phase !== 'enemy') return { kind: 'ended' };
+
+  if (anyoneToMove(state)) {
+    const act = activateNextZombie(state);
+    // The last bite, or a held shot that completed a purge: the turn ends with the
+    // raid, and saying so is what stops a pacer booking a beat for a raid that is over.
+    return state.phase === 'enemy' ? { kind: 'activated', act } : { kind: 'ended' };
+  }
+
+  /**
+   * The dens, and only against the AI.
+   *
+   * A game master buys his reinforcements — his income climbs with the same
+   * setting the dens read, and a swarm or a lull moves that income instead (see
+   * `beginEnemyPhase`). This step also runs when he hands the rest of his turn to
+   * the server, and the server's old copy of the turn fired the dens there too: a
+   * second, free wave on exactly the turns he gave up the controls, which made
+   * handing over the strongest move he had and was never in the game the bench
+   * measured. Decided here, once, so no pacer can choose differently.
+   */
+  if (state.config.mode === 'ai' && !state.densFired) {
+    state.densFired = true;
+    spawnReinforcements(state);
+    return { kind: 'reinforced' };
+  }
+
+  endEnemyPhase(state, now);
+  return { kind: 'ended' };
+}
+
 /* ------------------------------- GM actions ------------------------------- */
 
 export type GmAction =
@@ -1473,15 +1550,29 @@ export type GmAction =
  */
 export const GM_UPGRADES: Record<
   'hide' | 'claws',
-  { label: string; maxLevel: number; cost: (level: number) => number }
+  { label: MsgKey; maxLevel: number; cost: (level: number) => number }
 > = {
   hide: { label: 'coronaz.upgrade.hide', maxLevel: 3, cost: (level) => 8 + level * 4 },
   claws: { label: 'coronaz.upgrade.claws', maxLevel: 2, cost: (level) => 12 + level * 6 }
 };
 
-export const GM_ORDERS: Record<'rush', { label: string; cost: number }> = {
-  rush: { label: 'Ruée (+1 PA à toute la horde, ce tour)', cost: 6 }
+export const GM_ORDERS: Record<'rush', { label: MsgKey; cost: number }> = {
+  rush: { label: 'coronaz.order.rush', cost: 6 }
 };
+
+/**
+ * The rooms a creature may walk to on the game master's turn: one point per room
+ * crossed, along a real path. The same rule the walk checks, handed to the game
+ * master's screen so it offers exactly the walks the engine takes.
+ */
+export function creatureReach(state: CzState, zombie: ZombieState): string[] {
+  if (zombie.ap <= 0) return [];
+  const rooms: string[] = [];
+  for (const [roomId, steps] of distancesFrom(state.board, zombie.roomId)) {
+    if (steps >= 1 && steps <= zombie.ap) rooms.push(roomId);
+  }
+  return rooms;
+}
 
 export function applyGmAction(state: CzState, action: GmAction): ActionResult {
   if (raidPaused(state)) return PAUSED_REFUSAL;

@@ -8,10 +8,12 @@ import {
   castBallot,
   castVote,
   chatLineFor,
+  dropMafiaSeat,
   checkVictory,
   chatVisibleTo,
   jailTarget,
   joinMafia,
+  legalDayMoves,
   legalNightAction,
   revealMayor,
   voteThreshold,
@@ -29,6 +31,7 @@ import type { RoleId } from "./roles.js";
 import {
   chatRules,
   ANONYMOUS,
+  captiveOf,
   createMafiaGame,
   jailChannel,
   playerBySlot,
@@ -1127,6 +1130,8 @@ describe("mafia engine", () => {
       assert.equal(settles(["arsonist", "stump"]).phase, "ended");
       // And a bullet is power 1 against a killer who is night-immune to a man.
       assert.equal(settles(["serial-killer", "vigilante"]).phase, "ended");
+      // Poison is already inside: no armour argues with it.
+      assert.equal(settles(["poisoner", "stump"]).phase, "ended");
     });
 
     it("leaves a rope the room can still reach", () => {
@@ -3243,6 +3248,38 @@ describe("the cellar is a cell", () => {
   });
 
   /**
+   * The lever is signed by the cell that pulled it.
+   *
+   * All three hit equally hard, so the signature is the only thing that tells
+   * the town's execution from a family's on the record. The families' two
+   * cellars sign the same name: `kidnapper` is "the other cell", whichever
+   * family keeps it.
+   */
+  for (const [keeper, carrier, weapon] of [
+    ["jailor", "mafioso", "jailor"],
+    ["kidnapper", "mafioso", "kidnapper"],
+    ["interrogator", "enforcer", "kidnapper"],
+  ] as [RoleId, RoleId, string][]) {
+    it(`signs the ${keeper}'s execution as the ${weapon}'s`, () => {
+      const state = table([keeper, carrier, "doctor", "sheriff", "escort"]);
+      const boss = bySlot(state, 1);
+      const doctor = bySlot(state, 3);
+
+      assert.equal(jailTarget(state, boss.playerId, doctor.slot).ok, true);
+      advanceMafia(state, 0, lcg(1));
+      assert.equal(setNightAction(state, boss.playerId, doctor.slot).ok, true);
+      advanceMafia(state, 1, lcg(1));
+
+      assert.equal(doctor.alive, false, "the captive did not come out");
+      assert.equal(
+        state.deaths.find((death) => death.playerId === doctor.playerId)
+          ?.source,
+        weapon,
+      );
+    });
+  }
+
+  /**
    * One seat cannot be in two cells, and the second keeper is told while there
    * is still time to choose somebody else.
    *
@@ -3613,7 +3650,7 @@ describe("a family's night, spent as one", () => {
       unclashedTargets(
         state,
         bySlot(state, 1).playerId,
-        "kidnap",
+        "block",
         [3, 4, 5],
       ).includes(3),
     );
@@ -3712,5 +3749,161 @@ describe("who takes the last two seats", () => {
 
   it("and nothing beats the witch", () => {
     assert.equal(duelBeats("witch", "serial-killer"), false);
+  });
+});
+
+/**
+ * A seat that becomes something else in the middle of the game.
+ *
+ * Promotion, conversion, initiation, a remembered corpse and an audit all
+ * rewrite a badge, and each one used to do its own share of the bookkeeping:
+ * the new role's charges on some, the dealt badge kept for the will on others,
+ * the cell released on one. These are the things every rewrite owes.
+ */
+describe("a seat that becomes something else", () => {
+  /** Walks the day out until the next night opens. */
+  function toNight(state: MafiaState): void {
+    for (let step = 0; state.phase !== "night" && step < 20; step++) {
+      advanceMafia(state, (state.phaseEndsAt ?? 0) + 1, lcg(step + 1));
+    }
+    assert.equal(state.phase, "night");
+  }
+
+  /** Resolves the night that is open. */
+  function toDawn(state: MafiaState): void {
+    advanceMafia(state, (state.phaseEndsAt ?? 0) + 1, lcg(7));
+    assert.notEqual(state.phase, "night");
+  }
+
+  /**
+   * The will is signed from the badge a seat was dealt, so a Sheriff taken into
+   * the lodge and then audited still has a Sheriff's nights to account for.
+   * Only the first rewrite records it: a seat rewritten twice was dealt once.
+   */
+  it("keeps the badge it was dealt through a second rewrite", () => {
+    const state = table(
+      ["mason-leader", "auditor", "sheriff", "citizen", "citizen", "godfather", "mafioso"],
+      3,
+    );
+    const sheriff = bySlot(state, 3);
+
+    toNight(state);
+    setNightAction(state, bySlot(state, 1).playerId, sheriff.slot);
+    toDawn(state);
+    assert.equal(sheriff.role, "mason", "initiated into the lodge");
+    assert.equal(sheriff.roleBefore, "sheriff");
+
+    toNight(state);
+    setNightAction(state, bySlot(state, 2).playerId, sheriff.slot);
+    toDawn(state);
+    assert.equal(sheriff.role, "citizen", "and audited out of it");
+    assert.equal(sheriff.roleBefore, "sheriff", "the first badge survives");
+  });
+
+  it("starts with nothing to remember", () => {
+    const state = table(["sheriff", "citizen", "godfather"], 2);
+    assert.equal(bySlot(state, 1).roleBefore ?? null, null);
+  });
+
+  it("arrives with the new role's charges and none of the old one's", () => {
+    const state = table(
+      ["amnesiac", "vigilante", "citizen", "citizen", "godfather", "mafioso"],
+      3,
+    );
+    const amnesiac = bySlot(state, 1);
+    const vigilante = bySlot(state, 2);
+    vigilante.alive = false;
+    state.deaths.push({
+      playerId: vigilante.playerId,
+      day: 2,
+      phase: "night",
+      cause: { k: "mafia.cause.unknown" },
+      role: "vigilante",
+      hidden: false,
+      source: "mafia",
+    });
+
+    toNight(state);
+    setNightAction(state, amnesiac.playerId, vigilante.slot);
+    toDawn(state);
+    assert.equal(amnesiac.role, "vigilante");
+    assert.equal(amnesiac.charges, 3, "a Vigilante's three bullets");
+  });
+
+  /**
+   * A keeper promoted to the knife stops being a keeper, and a cell nobody
+   * keeps holds nobody: the captive picked this afternoon walks free tonight.
+   */
+  it("lets a promoted keeper's captive go", () => {
+    const state = table(["kidnapper", "mafioso", "citizen", "sheriff", "doctor"], 2);
+    const keeper = bySlot(state, 1);
+    const captive = bySlot(state, 4);
+    assert.equal(jailTarget(state, keeper.playerId, captive.slot).ok, true);
+
+    // The knife dies in daylight; at nightfall the family hands it to the keeper.
+    dropMafiaSeat(state, bySlot(state, 2).playerId, 10);
+    toNight(state);
+    assert.equal(keeper.role, "mafioso");
+    assert.equal(captiveOf(state, keeper.playerId), null);
+  });
+});
+
+/**
+ * What a phone may do in daylight, as the engine says it.
+ *
+ * The phone used to work it out for itself, from a copy of the keeper list and
+ * a copy of the first-day rule, and it never knew that a cell another keeper
+ * already filled is refused, so it offered buttons the engine turned down. The
+ * view now carries the moves, and they have to be exactly the moves the engine
+ * accepts: everything offered goes through, and nothing else does.
+ */
+describe("the day moves a seat is offered", () => {
+  const slots = (state: MafiaState) => Object.values(state.players).map((player) => player.slot);
+
+  function accepts(state: MafiaState, act: (copy: MafiaState) => { ok: boolean }): boolean {
+    return act(structuredClone(state)).ok;
+  }
+
+  it("offers every vote the ballot box takes and no other", () => {
+    const state = table(["citizen", "doctor", "mafioso", "sheriff", "citizen", "citizen"], 3);
+    bySlot(state, 5).alive = false;
+    for (const voter of Object.values(state.players).filter((player) => player.alive)) {
+      const offered = legalDayMoves(state, voter.playerId).vote;
+      assert.ok(offered, `seat ${voter.slot} may vote`);
+      for (const slot of slots(state)) {
+        assert.equal(
+          accepts(state, (copy) => castVote(copy, voter.playerId, slot, 10_000)),
+          offered.targets.includes(slot),
+          `seat ${voter.slot} on seat ${slot}`,
+        );
+      }
+      assert.equal(accepts(state, (copy) => castVote(copy, voter.playerId, "skip", 10_000)), offered.canSkip);
+    }
+  });
+
+  it("offers no vote on the first day, or to the dead", () => {
+    const first = table(["citizen", "doctor", "mafioso", "sheriff"], 1);
+    assert.equal(legalDayMoves(first, bySlot(first, 1).playerId).vote, null);
+    const later = table(["citizen", "doctor", "mafioso", "sheriff"], 3);
+    bySlot(later, 2).alive = false;
+    assert.equal(legalDayMoves(later, bySlot(later, 2).playerId).vote, null);
+  });
+
+  it("offers every cell the engine lets a keeper fill, and not one already filled", () => {
+    const state = table(["jailor", "kidnapper", "mafioso", "sheriff", "doctor", "citizen"], 3);
+    const jailor = bySlot(state, 1).playerId;
+    assert.equal(jailTarget(state, bySlot(state, 2).playerId, 4).ok, true, "the kidnapper takes the sheriff");
+
+    const offered = legalDayMoves(state, jailor).jail;
+    assert.ok(offered, "a keeper may jail");
+    assert.ok(!offered.targets.includes(4), "the sheriff is in somebody else's cell");
+    for (const slot of slots(state)) {
+      assert.equal(
+        accepts(state, (copy) => jailTarget(copy, jailor, slot)),
+        offered.targets.includes(slot),
+        `the jailor on seat ${slot}`,
+      );
+    }
+    assert.equal(legalDayMoves(state, bySlot(state, 4).playerId).jail, null, "a sheriff holds no keys");
   });
 });

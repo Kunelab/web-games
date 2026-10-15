@@ -1,11 +1,12 @@
-import type { Catalogue } from '../index.js';
+import type { TranslationOf } from '../index.js';
+import type { lobbyEn } from './lobby-en.js';
 
 /**
  * L’entrée, et le salon que personne n’organise : les pages de connexion, le
  * tableau des parties ouvertes, la partie rapide et les trois réglages dont
  * chaque jeu autorise la discussion. Les originaux.
  */
-export const lobbyFr: Catalogue = {
+export const lobbyFr: TranslationOf<typeof lobbyEn> = {
   /* -------------------------------- la connexion ---------------------------- */
   'auth.signIn': 'Connexion',
   'auth.signUp': 'S’inscrire',

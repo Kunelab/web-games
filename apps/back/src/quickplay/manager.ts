@@ -1,6 +1,5 @@
 import { randomInt, randomUUID } from 'node:crypto';
 
-import { generateJoinCode } from 'game-core';
 import { msg, type Msg } from 'i18n';
 import {
   QUICK_INFINITE_VALUE,
@@ -29,9 +28,12 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import type { GameManager } from '../game/manager.js';
 import type { MafiaManager } from '../mafia/manager.js';
-import { catalogAvailable, warmPool } from '../services/blindtest-catalog.js';
+import { catalogAvailable } from '../services/blindtest-catalog.js';
 import { drawRounds, emptyHistory } from '../services/blindtest-draw.js';
+import { catalogue } from '../services/catalogue-service.js';
 import { playlistService } from '../services/playlist-service.js';
+import type { CodeRegistry } from '../tables/codes.js';
+import type { Tables } from '../tables/host.js';
 import type { CzManager } from '../zombie/manager.js';
 import {
   coronazConfig,
@@ -128,8 +130,19 @@ export class QuickplayManager {
 
   constructor(
     private readonly log: FastifyBaseLogger,
-    private readonly deps: { games: GameManager; cz: CzManager; mafia: MafiaManager }
-  ) {}
+    private readonly deps: {
+      games: GameManager;
+      cz: CzManager;
+      mafia: MafiaManager;
+      /** The same tables as the three managers', by game, for a room that knows only which game it plays. */
+      tables: Record<LobbyGame, Tables>;
+      codes: CodeRegistry;
+    }
+  ) {
+    // A quick room's code is in the same namespace as every game's, so a typo
+    // lands nowhere at all.
+    deps.codes.track(this.lobbies);
+  }
 
   onTransition(listener: QuickTransitionListener): void {
     this.transitionListener = listener;
@@ -161,10 +174,6 @@ export class QuickplayManager {
 
   specs(code: string): QuickOptionSpec[] {
     return this.specsByCode.get(code) ?? [];
-  }
-
-  activeCodes(): ReadonlySet<string> {
-    return new Set(this.lobbies.keys());
   }
 
   /** Open quick rooms, for the public board. */
@@ -328,12 +337,12 @@ export class QuickplayManager {
      *
      * Charged on the vote itself rather than on the tally, because the vote is
      * where somebody has said out loud that they want it. Pools are cached and
-     * `warmPool` is a no-op against a warm one, so a room of five all voting for
-     * it costs exactly what one of them does.
+     * `catalogue.warm` is a no-op against a warm one, so a room of five all
+     * voting for it costs exactly what one of them does.
      */
     if (key === QUICK_PLAYLIST_KEY && value === QUICK_INFINITE_VALUE && catalogAvailable()) {
       for (const genreId of quickBlindtestSettings().genreIds) {
-        warmPool(genreId, (error: unknown) =>
+        catalogue.warm(genreId, (error: unknown) =>
           this.log.warn({ err: error, genreId }, 'could not warm a quick blind test pool')
         );
       }
@@ -385,7 +394,7 @@ export class QuickplayManager {
     const size = quickSize(game);
 
     const lobby = createQuickLobby({
-      code: this.newCode(),
+      code: this.deps.codes.allocate(),
       game,
       specs,
       minPlayers: size.min,
@@ -453,23 +462,6 @@ export class QuickplayManager {
     }
 
     return specs;
-  }
-
-  /** One namespace for every code in the house, so a typo lands nowhere at all. */
-  private newCode(): string {
-    const taken = new Set<string>([
-      ...this.lobbies.keys(),
-      ...this.deps.games.activeCodes(),
-      ...this.deps.cz.activeCodes(),
-      ...this.deps.mafia.activeCodes()
-    ]);
-
-    for (let attempt = 0; attempt < 200; attempt++) {
-      const code = generateJoinCode((maxExclusive) => randomInt(maxExclusive));
-      if (!taken.has(code)) return code;
-    }
-
-    throw new Error('could not allocate an unused lobby code');
   }
 
   /* ------------------------------------------------------------- the clock */
@@ -546,7 +538,7 @@ export class QuickplayManager {
         this.boarding.delete(lobbyCode);
         continue;
       }
-      if (this.seated(entry) >= entry.expected || now >= entry.deadline) {
+      if (this.deps.tables[entry.game].seated(entry.code) >= entry.expected || now >= entry.deadline) {
         entry.started = true;
         await this.beginGame(entry);
         this.boarding.delete(lobbyCode);
@@ -646,7 +638,7 @@ export class QuickplayManager {
         });
 
         if (state.order.length === 0) {
-          await this.deps.games.destroy(state.code);
+          await this.deps.games.tables.destroy(state.code);
           throw new Error('playlist had nothing playable left');
         }
 
@@ -656,8 +648,7 @@ export class QuickplayManager {
       case 'coronaz': {
         const state = await this.deps.cz.create({
           hostUserId: null,
-          config: coronazConfig(settings),
-          quizCodes: this.deps.games.activeCodes()
+          config: coronazConfig(settings)
         });
         return state.code;
       }
@@ -665,8 +656,7 @@ export class QuickplayManager {
       case 'mafia': {
         const state = this.deps.mafia.create({
           hostUserId: null,
-          config: mafiaConfig(settings, lobby.maxPlayers),
-          takenCodes: new Set([...this.deps.games.activeCodes(), ...this.deps.cz.activeCodes()])
+          config: mafiaConfig(settings, lobby.maxPlayers)
         });
         return state.code;
       }
@@ -732,76 +722,18 @@ export class QuickplayManager {
     return state.code;
   }
 
-  /** How many of the room have actually taken a seat in the game it started. */
-  private seated(entry: Boarding): number {
-    switch (entry.game) {
-      case 'quiz':
-        return Object.keys(this.deps.games.get(entry.code)?.players ?? {}).length;
-      case 'coronaz':
-        return Object.keys(this.deps.cz.get(entry.code)?.heroes ?? {}).length;
-      case 'mafia':
-        return Object.keys(this.deps.mafia.get(entry.code)?.players ?? {}).length;
-    }
-  }
-
   /**
    * The first round, once the room is in the room.
    *
    * A hostless game has nobody to press start, so this is that hand. It is also
    * where a room that lost people on the way is made playable again: Mafia needs
    * a town, and five strangers who became three during the redirect get bots
-   * rather than a game that cannot be dealt.
+   * rather than a game that cannot be dealt. A game nobody boarded at all is let
+   * go instead. How each game is started is its own manager's business.
    */
   private async beginGame(entry: Boarding): Promise<void> {
     try {
-      switch (entry.game) {
-        case 'quiz': {
-          const state = this.deps.games.get(entry.code);
-          if (!state) return;
-          if (Object.keys(state.players).length === 0) {
-            await this.deps.games.destroy(entry.code);
-            return;
-          }
-          await this.deps.games.advanceSession(entry.code);
-          return;
-        }
-
-        case 'coronaz': {
-          const state = this.deps.cz.get(entry.code);
-          if (!state) return;
-          if (Object.keys(state.heroes).length === 0) {
-            await this.deps.cz.destroy(entry.code);
-            return;
-          }
-          // One call each: CoronaZ seats bots one at a time because each draws its
-          // own mindset and loadout, which is what keeps a squad of them a squad.
-          for (let i = 0; i < entry.bots; i++) {
-            this.deps.cz.addBot(entry.code, 'expert');
-          }
-          await this.deps.cz.start(entry.code);
-          return;
-        }
-
-        case 'mafia': {
-          const state = this.deps.mafia.get(entry.code);
-          if (!state) return;
-          const seated = Object.keys(state.players).length;
-          if (seated === 0) {
-            await this.deps.mafia.destroy(entry.code);
-            return;
-          }
-          // What the room asked for first, then whatever the deal still needs. The
-          // top-up is the old behaviour and stays: a room that lost people during
-          // the redirect gets a town rather than an error.
-          if (entry.bots > 0) this.deps.mafia.addBots(entry.code, entry.bots);
-          const withBots = Object.keys(this.deps.mafia.get(entry.code)?.players ?? {}).length;
-          if (withBots < state.config.minPlayers) {
-            this.deps.mafia.addBots(entry.code, state.config.minPlayers - withBots);
-          }
-          this.deps.mafia.start(entry.code);
-          return;
-        }
-      }
+      await this.deps.tables[entry.game].begin(entry.code, entry.bots);
     } catch (error) {
       this.log.error({ err: error, code: entry.code, game: entry.game }, 'quick match could not begin its game');
     }

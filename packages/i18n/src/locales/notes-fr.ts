@@ -1,4 +1,5 @@
-import type { Catalogue } from '../index.js';
+import type { TranslationOf } from '../index.js';
+import type { notesEn } from './notes-en.js';
 
 /**
  * Le fil privé, en français : ce que la nuit vous a dit, à vous et à personne
@@ -9,7 +10,7 @@ import type { Catalogue } from '../index.js';
  * rôles du même métier doivent se lire *à l’identique*, jamais « presque » — le
  * flou est l’information.
  */
-export const notesFr: Catalogue = {
+export const notesFr: TranslationOf<typeof notesEn> = {
   /* ------------------------------ ce que vous êtes -------------------------- */
   'mafia.note.lodgeStruck': 'Vous avez frappé, et {name} a répondu dans la langue de la secte. Il n’a pas vu le matin.',
   'mafia.note.lodgeHeld': '{name} est venu prêcher à votre porte. La loge ne se convertit pas.',

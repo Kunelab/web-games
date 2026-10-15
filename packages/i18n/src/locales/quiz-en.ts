@@ -8,7 +8,7 @@ import type { Catalogue } from '../index.js';
  * that somebody writes their own questions in their own words, and those words
  * are theirs in every language.
  */
-export const quizEn: Catalogue = {
+export const quizEn = {
   /* --------------------------- the five question types ---------------------- */
   'quiz.kind.blindtest': 'Blind test',
   'quiz.kind.quiz': 'Question',
@@ -100,6 +100,6 @@ export const quizEn: Catalogue = {
   'mafia.guide.will.dont':
     'What does not survive: two findings crammed into one sentence, a verdict with no house beside it, and sarcasm. Write it as a record, not as an argument: the argument is what the square is for.',
   'mafia.guide.back': '← Back to the Mafia menu'
-};
+} satisfies Catalogue;
 
 export default quizEn;
