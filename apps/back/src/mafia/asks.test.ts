@@ -27,3 +27,20 @@ describe('what a private line asks for', () => {
     assert.deepEqual(kinds('not 13, take 10'), ['13:spare', '10:target']);
   });
 });
+
+describe('a number that is not a house', () => {
+  /**
+   * `J6D7G`: "Arsonist take 2 day to kill" was a person explaining a clock,
+   * and "night 5 ?" a person asking about a night. Both were read as houses.
+   */
+  it('reads a duration and a night as what they are', () => {
+    assert.deepEqual(kinds('take 10 days if you have to'), []);
+    assert.deepEqual(kinds('night 10 we take 13'), ['13:target']);
+    assert.deepEqual(kinds('nuit 5, on prend 10'), ['10:target']);
+  });
+
+  it('still reads the house a night marker dates', () => {
+    assert.deepEqual(kinds('take 10 night 2'), ['10:target']);
+    assert.deepEqual(kinds('kill 13 tonight'), ['13:target']);
+  });
+});

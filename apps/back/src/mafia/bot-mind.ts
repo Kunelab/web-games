@@ -1,6 +1,8 @@
 import {
   agendaOf,
   BotTable,
+  castCharacter,
+  castProfile,
   chatRules,
   contradicted,
   DEFAULT_PROFILE,
@@ -110,6 +112,26 @@ export interface BotMind {
    */
   named?: { night: number; slot: number };
   /**
+   * How big the wagon was the last time this seat pushed back at it, today.
+   *
+   * "What did I actually do?" was the commonest thing a bot said on the live
+   * tables, up to one line in eight, because every turn a seat spent under any
+   * vote at all opened with it. Once per wagon is a person objecting; once per
+   * turn is a record skipping. A new voter, or a person speaking to the seat,
+   * earns another.
+   */
+  pushedBack?: { day: number; votes: number; heard?: number };
+  /**
+   * Mason Leader only: what the lodge asked of tonight's knock, and what came of it.
+   *
+   * Kept so the line in the lodge can say it: "as you asked", "not that one,
+   * the door already stayed shut", "fine, not him". A request answered by a
+   * knock somewhere else, in silence, reads as a room that is not listening.
+   */
+  knockAsk?: { night: number; slot: number; kind: 'ask' | 'spare'; granted: boolean; why: 'shut' | 'reach' | null };
+  /** Mason Leader only: the night whose knock has been reported to the lodge. */
+  reportedKnock?: number;
+  /**
    * The night lines of this seat's own will, as last written.
    *
    * Cached here rather than rebuilt, because the will is rewritten every dawn
@@ -182,6 +204,8 @@ interface TableMemory {
   state: MafiaState;
   table: BotTable;
   minds: Map<string, BotMind>;
+  /** Things the whole table has done today, by name and day. See `countToday`. */
+  today: Map<string, number>;
 }
 
 /**
@@ -191,7 +215,10 @@ interface TableMemory {
  * seat has none: nobody here decides for it.
  */
 function characterOf(player: MafiaState['players'][string]): ReturnType<typeof makePersonality> | null {
-  return player.isBot ? makePersonality(DEFAULT_PROFILE, seededRng(player.playerId)) : null;
+  if (!player.isBot) return null;
+  // Who it is, from its own draw; how that person's numbers fall, from another. See `castCharacter`.
+  const cast = castCharacter(seededRng(player.playerId + ':cast'));
+  return makePersonality(castProfile(cast, DEFAULT_PROFILE), seededRng(player.playerId));
 }
 
 export class BotMinds {
@@ -204,7 +231,7 @@ export class BotMinds {
   private memory(state: MafiaState): TableMemory {
     let memory = this.tables.get(state.code);
     if (!memory || memory.state !== state) {
-      memory = { state, table: new BotTable(state, characterOf), minds: new Map() };
+      memory = { state, table: new BotTable(state, characterOf), minds: new Map(), today: new Map() };
       this.tables.set(state.code, memory);
     }
     return memory;
@@ -392,6 +419,21 @@ export class BotMinds {
    * writing prose and leaving the structured field null — invisible in the chat,
    * fatal to the game.
    */
+  /**
+   * How many times the table has done `what` today, counting this one when `add` is set.
+   *
+   * For the moves that are worth something once or twice an afternoon and
+   * nothing as a chorus. Per game, like everything here: a new game under the
+   * same code starts at zero.
+   */
+  countToday(state: MafiaState, what: string, add = false): number {
+    const memory = this.memory(state);
+    const key = `${what}:${state.day}`;
+    const count = (memory.today.get(key) ?? 0) + (add ? 1 : 0);
+    memory.today.set(key, count);
+    return count;
+  }
+
   ledger(code: string): readonly Claim[] {
     return this.tables.get(code)?.table.claims() ?? [];
   }

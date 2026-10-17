@@ -3,7 +3,15 @@ import './test-env.js';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { addMafiaBot, createMafiaGame, type IntelEntry } from 'mafia-core';
+import {
+  addMafiaBot,
+  advanceMafia,
+  createMafiaGame,
+  joinMafia,
+  setNightAction,
+  startMafia,
+  type IntelEntry
+} from 'mafia-core';
 
 import { seatAlone } from './seat-fakes.js';
 
@@ -119,5 +127,87 @@ describe('a will names each night once', () => {
     const destination = Object.values(state.players).find((player) => player.slot === 4)?.name;
     assert.ok(destination, 'there is a house 4');
     assert.ok(filed.includes(destination), `the unresolved night is still named in:\n${filed}`);
+  });
+});
+
+/**
+ * A will says how its author came by the badge it dies with.
+ *
+ * Read off the seat's history of rewrites, not guessed from the badge: a seat
+ * the lodge took in and later made its Master signed "An Auditor made me the
+ * Mason Leader" (`9RVWV`), and an Amnesiac who remembered a Vigilante signed as
+ * a Vigilante with no word of where the badge came from.
+ */
+describe('a will tells how the badge changed', () => {
+  function table(roles: string[]): ReturnType<typeof createMafiaGame> {
+    const state = createMafiaGame({ code: 'WILL2', hostToken: 'h', hostUserId: null, now: 0 });
+    roles.forEach((_, index) => addMafiaBot(state, `tok${index}`, `bot${index}`, () => 0));
+    joinMafia(state, 'Max', 'tok-h', 'human');
+    startMafia(state, 1000, () => 0.5);
+    roles.forEach((role, index) => {
+      state.players[`bot${index}`].role = role as never;
+    });
+    state.players.human.role = 'citizen';
+    return state;
+  }
+
+  function willOf(state: ReturnType<typeof createMafiaGame>, botId: string): string {
+    let filed = '';
+    const { seat } = seatAlone({
+      will: (_code, _botId, text) => {
+        filed = text;
+      }
+    });
+    seat.updateWill(state, botId);
+    return filed;
+  }
+
+  function toNight(state: ReturnType<typeof createMafiaGame>): void {
+    for (let step = 0; state.phase !== 'night' && step < 20; step++) {
+      advanceMafia(state, (state.phaseEndsAt ?? 0) + 1, () => 0.5);
+    }
+  }
+
+  function toDawn(state: ReturnType<typeof createMafiaGame>): void {
+    advanceMafia(state, (state.phaseEndsAt ?? 0) + 1, () => 0.5);
+  }
+
+  it('names the badge an Amnesiac remembered, and that it was remembered', () => {
+    const state = table(['amnesiac', 'vigilante', 'citizen', 'citizen', 'godfather', 'mafioso']);
+    const vigilante = state.players.bot1;
+    vigilante.alive = false;
+    state.deaths.push({
+      playerId: vigilante.playerId,
+      day: 1,
+      phase: 'night',
+      cause: { k: 'mafia.cause.unknown' },
+      role: 'vigilante',
+      hidden: false,
+      source: 'mafia'
+    });
+
+    toNight(state);
+    setNightAction(state, 'bot0', vigilante.slot);
+    toDawn(state);
+    assert.equal(state.players.bot0.role, 'vigilante');
+
+    const will = willOf(state, 'bot0');
+    assert.match(will, /Amnesiac/, will);
+    assert.match(will, /remember/i, will);
+  });
+
+  it('says the lodge raised it, never an Auditor', () => {
+    const state = table(['mason-leader', 'lookout', 'citizen', 'citizen', 'godfather', 'mafioso']);
+    toNight(state);
+    setNightAction(state, 'bot0', state.players.bot1.slot);
+    toDawn(state);
+    state.players.bot0.alive = false;
+    toNight(state);
+    toDawn(state);
+    assert.equal(state.players.bot1.role, 'mason-leader');
+
+    const will = willOf(state, 'bot1');
+    assert.match(will, /lodge/i, will);
+    assert.doesNotMatch(will, /Auditor/, will);
   });
 });

@@ -30,11 +30,12 @@
  *    to say, lying, which is a legal move in Mafia.
  */
 import type { ChatMessage } from 'chat-core';
-import type { Claim, ClaimKind, MafiaState, RoleId } from 'mafia-core';
+import { ROLE, type Claim, type ClaimKind, type MafiaState, type RoleId } from 'mafia-core';
 
 import { roleFromName, seatHits } from './asks.js';
 import { screen } from './guard.js';
-import { readSquare, type Seat } from './square.js';
+import { say } from './say.js';
+import { readSquare, standSlot, type Seat } from './square.js';
 
 /** The shape the model must answer in. Every field is required, null when unused. */
 export const HEARD_FORMAT = {
@@ -350,10 +351,24 @@ export function hearingPrompt(state: MafiaState, lines: ChatMessage[], square?: 
    */
   const testators = new Set(lines.map((line) => line.authorId).filter((id): id is string => id !== null));
   const badge = new Map((square?.claimed ?? []).map((entry) => [entry.slot, entry.role]));
+  /**
+   * Each badge in English, which is the language this prompt is written in.
+   *
+   * The square hands over the role's catalogue name, and that is French: an
+   * English prompt told the model a seat "says they are the Franc-maçon", in
+   * the middle of a rule list that calls the same role "mason", and a model
+   * reconciling the two is a model not reading the lines it was asked to read.
+   * Anything the role table does not recognise is passed through as it was.
+   */
+  const english = (role: string): string => {
+    const id = roleFromName(role);
+    return id ? say('en')(ROLE.name(id)) : role;
+  };
   const roster = Object.values(state.players)
     .filter((player) => player.alive || testators.has(player.playerId))
     .map((player) => {
-      const said = badge.get(player.slot);
+      const claimed = badge.get(player.slot);
+      const said = claimed ? english(claimed) : undefined;
       return (
         `${player.slot} ${player.name}` +
         (player.alive ? '' : ' (dead, last will)') +
@@ -490,14 +505,16 @@ export function readHeard(
   const heard = Array.isArray(raw.claims) ? (raw.claims as Heard[]) : [];
   const spokenNumbers = numbersSpoken(said);
   /** A house the transcript only ever mentioned as a night is not a house. See `numbersSpoken`. */
-  const onlyANight = (slot: number): boolean =>
-    spokenNumbers.nights.has(slot) && !spokenNumbers.houses.has(slot);
+  const onlyANight = (slot: number): boolean => spokenNumbers.nights.has(slot) && !spokenNumbers.houses.has(slot);
   const bySlot = new Map(Object.values(state.players).map((player) => [player.slot, player]));
   const filed: HeardClaim[] = [];
   const drop = (entry: Heard, why: DroppedClaim['why']): undefined => {
     dropped.push({ entry, why });
     return undefined;
   };
+
+  /** The seat the room is looking at, which is who an unaddressed line is to. */
+  const onTrial = standSlot(state);
 
   /**
    * What the patterns made of the same words, and which houses each line names.
@@ -510,14 +527,13 @@ export function readHeard(
   const parsed = new Map<number, ReturnType<typeof readSquare>>();
   const named = new Map<number, Set<number>>();
   for (const line of spoken) {
-    parsed.set(line.slot, [...(parsed.get(line.slot) ?? []), ...readSquare(line.text, line.slot, seats)]);
+    // With the seat on the stand, so "your role ?" is read as put to them, as the model is told to read it.
+    const read = readSquare(line.text, line.slot, seats, onTrial === null ? {} : { onTrial });
+    parsed.set(line.slot, [...(parsed.get(line.slot) ?? []), ...read]);
     const houses = named.get(line.slot) ?? new Set<number>();
     for (const hit of seatHits(line.text, seats)) houses.add(hit.slot);
     named.set(line.slot, houses);
   }
-
-  /** The seat the room is looking at, which is who an unaddressed line is to. */
-  const onTrial = state.trial ? (state.players[state.trial.accusedId]?.slot ?? null) : null;
 
   /** Did the instant reader take this speaker's words the opposite way about this house? */
   const inverted = (speakerSlot: number, kind: string, targetSlot: number): boolean => {
@@ -575,7 +591,11 @@ export function readHeard(
           drop(entry, 'read the other way by the parser');
           continue;
         }
-        filed.push({ claimerId: speaker.playerId, kind: entry.kind, targetSlot: about.slot });
+        filed.push({
+          claimerId: speaker.playerId,
+          kind: entry.kind,
+          targetSlot: about.slot
+        });
         break;
 
       case 'account-home':

@@ -51,9 +51,11 @@ import {
   type MafiaPlayer,
   type MafiaState,
   isMason,
+  knockIsTest,
   isLodgeMate,
   type IntelEntry,
   type MafiaView,
+  type NightAim,
   type PublicInfo,
   type RoleId
 } from 'mafia-core';
@@ -70,8 +72,8 @@ import { willHeed, type BotMind } from './bot-mind.js';
 import { type Square } from './ear.js';
 import { type JuryLean } from './jury.js';
 import { screen } from './guard.js';
-import { SAY_CHARS, type Intent } from './mouth.js';
-import { type SquareClaim } from './square.js';
+import { asksSomething, SAY_CHARS, type Intent } from './mouth.js';
+import { asksRole, type SquareClaim } from './square.js';
 
 /**
  * The phrasebook seat: one bot's turn played without a model, and everything a
@@ -361,12 +363,24 @@ export function claimableRoles(state: MafiaState): Set<string> {
  * and how it *behaves* come from one place: a seat that accuses on thin evidence
  * reads as impulsive because it is impulsive.
  */
-function moodOf(personality: { aggression: number; herd: number; claimRate: number; deceit: number }): string {
+function moodOf(personality: {
+  aggression: number;
+  herd: number;
+  claimRate: number;
+  deceit: number;
+  voice?: { mood: string };
+}): string {
+  // The character it was cast as, which is the voice its numbers were rolled for. See `CHARACTERS`.
+  if (personality.voice) return personality.voice.mood;
   if (personality.claimRate < 0.3) return 'taciturn: you barely speak, and never more than a few words';
   if (personality.aggression > 0.7) return 'impulsive and combative, quick to accuse';
   if (personality.deceit > 0.6) return 'smooth and plausible, never quite pinned down';
   if (personality.herd > 0.7) return 'agreeable, happier following the room than leading it';
   if (personality.aggression < 0.3) return 'calm and careful, you argue rather than shout';
+  if (Math.random() < 0.16) return 'quiet and polite, you do not like to be the centre of attention';
+  if (Math.random() < 0.21) return 'friendly and helpful, you are happy to explain yourself';
+  if (Math.random() < 0.31) return 'suspicious and cautious, you are slow to trust';
+  if (Math.random() < 0.51) return 'witty and clever, you enjoy a good joke';
   return 'dry, a little sarcastic';
 }
 
@@ -526,6 +540,97 @@ function joinReasons(parts: readonly string[], locale: Locale): string {
  * sentence, and far short of the clock.
  */
 export const CLUE_WINDOW_MS = 15_000;
+
+/**
+ * How soon after a seat's own line an unnamed line still reads as the answer to it.
+ *
+ * "why?" ten seconds after a bot accused somebody is said to that bot; the same
+ * word a minute later, after three other people have spoken, is said to the
+ * room. Only the line immediately after counts, so this is a ceiling, not a
+ * window anything can hide in.
+ */
+const REPLY_GAP_MS = 20_000;
+
+/**
+ * Which sentence a will opens with when its author's badge changed hands, and from what.
+ *
+ * Read off `MafiaPlayer.roleHistory`, because the reason is what the sentence is
+ * made of: a seat the lodge took in says so, a seat the lodge then made its
+ * Master says that (it used to sign "An Auditor made me the Mason Leader",
+ * `9RVWV`), an audited seat names the Auditor, and an Amnesiac says what it
+ * remembered, where it used to sign as the borrowed badge with no word of how.
+ * Null for a badge that never changed, and for one only a promotion inside a
+ * family touched, which is the same badge with a bigger job.
+ */
+function willStory(
+  self: MafiaPlayer
+): { key: 'raised' | 'initiated' | 'audited' | 'remembered'; was: RoleId | null } | null {
+  const path = self.roleHistory ?? [];
+  const first = path[0];
+  if (!first) return null;
+  const by = (why: string) => path.some((step) => step.why === why);
+  if (by('remembered')) return { key: 'remembered', was: path.find((step) => step.why === 'remembered')!.from };
+  if (by('initiated')) return { key: self.role === 'mason-leader' ? 'raised' : 'initiated', was: first.from };
+  if (by('audited')) return { key: 'audited', was: first.from };
+  return null;
+}
+
+/**
+ * How readily a seat names its badge when somebody asks outside the stand. See `roleAnswer`.
+ *
+ * 15% in the square, 15 more with at least two votes on the seat, 30% in a
+ * whisper; then halved for somebody voting or accusing it, half again for
+ * somebody who vouched for it, and moved by up to two fifths either way by how
+ * far it trusts the asker. Never past 60%.
+ */
+const ROLE_ANSWER = {
+  square: 0.15,
+  pressed: 0.15,
+  pressedAt: 2,
+  whisper: 0.3,
+  hostile: 0.5,
+  friendly: 1.5,
+  perRegard: 0.15,
+  regardFloor: 0.6,
+  regardCeiling: 1.4,
+  cap: 0.6
+} as const;
+
+/** A roll in [0, 1) that is the same every time it is asked about the same thing. */
+function seededRoll(salt: string): number {
+  return (hashCode(salt) % 1000) / 1000;
+}
+
+/** What the Master says about a brother's request it is not granting, by why. See `knockLine`. */
+const ASK_ANSWER = {
+  shut: 'mafia.bot.lodge.askShut',
+  reach: 'mafia.bot.lodge.askReach',
+  declined: 'mafia.bot.lodge.askDeclined'
+} as const;
+
+/** The name on a door, or the number when nobody sits behind it. */
+function nameAt(state: MafiaState, slot: number): string {
+  return Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
+}
+
+/** How many unprompted "what did I actually do?" a table hears in one day. See `BotMind.pushedBack`. */
+const PUSH_BACKS_PER_DAY = 3;
+
+/**
+ * Where the current day or night began, which is where "today" begins.
+ *
+ * `phaseStartedAt` is stamped at `beginDay` and `beginNight` and deliberately
+ * not at a stage change, so a trial and the argument that led to it are one
+ * window. Falls back to the phase clock for tables persisted before the field
+ * existed. Shared by everything that hands a model "what was just said": a
+ * line from yesterday is not just said, and on the live tables it was the
+ * commonest thing in those prompts (`59P6Z` still had "Montcul: Hi" from day
+ * one in a bot's context on day nine).
+ */
+export function phaseWindow(state: MafiaState): number {
+  const span = state.phase === 'night' ? state.config.nightMs : state.config.dayMs;
+  return state.phaseStartedAt ?? (state.phaseEndsAt ?? 0) - span;
+}
 
 /**
  * A will assembled to fit the one hard limit there is, editing rather than
@@ -907,6 +1012,26 @@ export class Seat {
         const heard = this.answering(state, botId, channel);
         if (heard.length === 0) return EMPTY;
         const t = say(spokenLocale(state));
+        // Asked its badge in private, which is where a seat is likeliest to give it. See `roleAnswer`.
+        const confided = this.roleAnswer(state, botId, mind, board, this.saidTo(state, botId, channel), {
+          privately: true,
+          votesOnMe: 0
+        });
+        if (confided) {
+          const told = t(
+            vary('mafia.bot.whisper.confide', 3, botId + ':confide:' + state.day, { role: ROLE.name(confided) })
+          );
+          return {
+            ...EMPTY,
+            say: told,
+            intent: {
+              act: `answer the person who just whispered to you, privately: tell them you are the ${say('en')(ROLE.name(confided))}`,
+              mood: moodOf(mind.brain.personality),
+              fallback: told,
+              answering: heard
+            }
+          };
+        }
         const line = t(vary('mafia.bot.whisper.heard', 4, botId + ':heard:' + heard[heard.length - 1].text));
         return {
           ...EMPTY,
@@ -928,12 +1053,16 @@ export class Seat {
        * it is steered in below: a teammate's request and the houses it was asked
        * to spare. See `BotTable.night`.
        */
-      const request: { ask: RoomAsks['ask']; verdict: RequestVerdict | null; heeded: boolean } = {
+      const request: { ask: RoomAsks['ask']; verdict: RequestVerdict | null; heeded: boolean; spared: number[] } = {
         ask: null,
         verdict: null,
-        heeded: false
+        heeded: false,
+        spared: []
       };
-      const order = table.night(botId, rng, ({ aimable: targets, chosen: decided }) => {
+      const order = table.night(botId, rng, (aim) => {
+        // The lodge has its own conversation about its own door. See `steerKnock`.
+        if (action.type === 'recruit') return this.steerKnock(state, botId, view, mind, aim, rng);
+        const { aimable: targets, chosen: decided } = aim;
         /**
          * And what the person in the family actually asked for.
          *
@@ -955,7 +1084,7 @@ export class Seat {
          * holding the knife, and pointing its investigation at whoever the family
          * fancies would waste it.
          */
-        const room = action.type === 'kill' ? this.familyAsk(state, botId, view) : null;
+        const room = action.type === 'kill' ? this.teamAsk(state, botId, view, playerFamily(self)) : null;
         const ask = room?.ask ?? null;
         /**
          * Whether the request is granted, which used to be a coin the family
@@ -1016,13 +1145,23 @@ export class Seat {
          * house is dropped whenever there is anywhere else to go.
          */
         const spared = new Set((room?.spared ?? []).map((entry) => entry.slot));
+        request.spared = [...spared];
         const elsewhere = targets.filter((target) => !spared.has(target));
         const own =
           spared.has(decided ?? -1) && elsewhere.length > 0
             ? decideNightTarget(self, mind.brain, board, elsewhere, action.type, allies, self.intel, rng)
             : decided;
         // A house already named to this seat's room tonight is the house it takes. See `BotMind.named`.
-        const promised = mind.named?.night === state.day && targets.includes(mind.named.slot) ? mind.named.slot : null;
+        /**
+         * Unless a teammate has since asked for that very house to be left alone.
+         * The promise used to win over the refusal: on `J6D7G` the Godfather had
+         * named Max, a person in the family said "Don't kill max", and the knife
+         * stayed on Max because the house had been named first.
+         */
+        const promised =
+          mind.named?.night === state.day && targets.includes(mind.named.slot) && !spared.has(mind.named.slot)
+            ? mind.named.slot
+            : null;
         /**
          * Asked for the house this seat was taking anyway, which is not a request to refuse.
          *
@@ -1041,7 +1180,7 @@ export class Seat {
       // A power used at home names no house and no room: nothing to say about it.
       if (action.targets.length === 0) return { ...EMPTY, targetSlot: order?.targetSlot ?? null };
       const slot = order?.targetSlot ?? null;
-      const { ask, verdict, heeded } = request;
+      const { ask, verdict, heeded, spared } = request;
 
       /**
        * The jailor listens before pulling the lever.
@@ -1210,13 +1349,19 @@ export class Seat {
           // The house the line is actually about: the recruit when there is one.
           about: recruit ?? slot,
           intent: {
+            /**
+             * Answering a brother still says what the line says. The act used to be
+             * a generic "answer your brother" whenever a person had spoken, so with
+             * a model up the Master's actual answer (as you asked, that door is
+             * shut, I am testing X) lived only in the fallback and was never said.
+             */
             act:
               heard.length > 0
-                ? 'answer your brother in the lodge, where only the masons can hear: you all know each other to be town'
+                ? `answer your brother in the lodge, where only the masons can hear, and tell them this: "${line}"`
                 : `tell your brothers in the lodge what you know, where only the masons can hear. Say this and only this: "${line}"`,
             mood: moodOf(mind.brain.personality),
             fallback: line,
-            ...(heard.length > 0 ? { answering: heard } : {})
+            ...(heard.length > 0 ? { answering: heard, heardIn: 'room' as const } : {})
           }
         };
       }
@@ -1263,6 +1408,15 @@ export class Seat {
         const heard = this.answering(state, botId, channel);
         // Under a possible Spy the mouth is not handed a house number to avoid saying; it is handed nothing at all.
         const hushed = spyMayListen(view, board);
+        /**
+         * Names, never bare numbers. "you want 1 dead" was read by the model as
+         * a count, and a human mafioso who had just typed "Don't kill max" was
+         * told "Max will get the single death tonight, thanks" while the knife
+         * was moving off Max (`J6D7G`).
+         */
+        const called = (house: number): string => nameAt(state, house);
+        const leftAlone = spared.filter((house) => house !== aim).map(called);
+        const sparing = leftAlone.length > 0 ? `, and tell them you are leaving ${leftAlone.join(' and ')} alone` : '';
         return {
           ...EMPTY,
           say: shop,
@@ -1273,14 +1427,14 @@ export class Seat {
               ? `answer your own family privately, but a SPY MAY BE LISTENING to this room: use NO name, NO house number and NO role, whatever you were asked, ${ask ? (heeded ? 'agree to what they asked' : 'turn down what they asked') : 'acknowledge them and say nothing specific'}`
               : ask
                 ? heeded
-                  ? `agree to what your own family just asked for, privately: they want ${ask.slot} dead tonight, and that is where the knife goes`
-                  : `turn down what your own family just asked for, privately: they want ${ask.slot} dead tonight and you want ${aim === null ? 'to hear more first' : String(aim)}${verdict?.reason ? `, because ${REFUSAL_WHY[verdict.reason]}` : ''}. Say the reason.`
+                  ? `agree to what your own family just asked for, privately: they want ${called(ask.slot)} dead tonight, and that is where the knife goes`
+                  : `turn down what your own family just asked for, privately: they want ${called(ask.slot)} dead tonight and you want ${aim === null ? 'to hear more first' : `${called(aim)} instead`}${verdict?.reason ? `, because ${REFUSAL_WHY[verdict.reason]}` : ''}. Say the reason.`
                 : heard.length > 0
-                  ? `answer your own family, privately, about tonight: you want ${aim === null ? 'to hear what they think' : `${aim} dead`}`
+                  ? `answer your own family, privately, about tonight: you want ${aim === null ? 'to hear what they think' : `${called(aim)} dead`}${sparing}`
                   : `tell your own family, privately, what you want done tonight. Say this and only this: "${shop}"`,
             mood: moodOf(mind.brain.personality),
             fallback: shop,
-            ...(heard.length > 0 ? { answering: heard } : {})
+            ...(heard.length > 0 ? { answering: heard, heardIn: 'room' as const } : {})
           }
         };
       }
@@ -1589,8 +1743,17 @@ export class Seat {
        * is a coin flip in the first place. This is the *vote* being reconsidered,
        * which is the part that was missing.
        */
-      if (ballot.skip) return { ...EMPTY, skipVote: true };
-      return { ...EMPTY, targetSlot: ballot.slot };
+      /**
+       * Silent, but not empty-handed: an aside `decideDay` chose on this turn
+       * still goes out. It is written onto the brain the moment it is chosen,
+       * and this branch used to drop it, so the re-vote waves that follow every
+       * line a person types spent the one whisper each seat would ever send. Ten
+       * live games, three revealed sashes alive for a day or more, and not one
+       * whisper.
+       */
+      const aside = day.whisper ? { whisper: day.whisper } : {};
+      if (ballot.skip) return { ...EMPTY, skipVote: true, ...aside };
+      return { ...EMPTY, targetSlot: ballot.slot, ...aside };
     }
 
     /**
@@ -1790,10 +1953,76 @@ export class Seat {
         claim.kind === 'kill-claim' ||
         (claim.worked === true && (claim.kind === 'accuse' || claim.kind === 'clear' || claim.kind === 'sighting'))
     );
-    if ((heatRow?.votesAgainst ?? 0) >= 1 && view.trial === null && !bestCard) {
-      const wagonLine = this.answerWagon(state, botId, view, board, heatRow?.votesAgainst ?? 1);
-      // Whoever put the rope round this seat's neck, in their own words.
-      const heard = this.answering(state, botId, 'day');
+    const votesOnMe = heatRow?.votesAgainst ?? 0;
+
+    /**
+     * Asked what it is, and this time it says. See `roleAnswer`.
+     *
+     * Ahead of the wagon, because a person asking the seat a direct question is
+     * the thing most worth answering, and a badge is also the best answer a
+     * wagon can get. Filed like any role claim, so the board can hold the seat
+     * to it.
+     */
+    if (task === 'react' && view.trial === null) {
+      const toldMe = this.saidTo(state, botId, 'day');
+      const askedMe = toldMe.map((message) => this.quoted(state, botId, message));
+      const answer = this.roleAnswer(state, botId, mind, board, toldMe, { privately: false, votesOnMe });
+      if (answer) {
+        const said = say(spokenLocale(state))(
+          vary('mafia.bot.askedRole', 3, botId + ':asked:' + state.day, { role: ROLE.name(answer) })
+        );
+        return {
+          say: said,
+          intent: {
+            act: `answer the question: say you are the ${say('en')(ROLE.name(answer))}`,
+            mood: moodOf(mind.brain.personality),
+            fallback: said,
+            answering: askedMe
+          },
+          urgent: true,
+          targetSlot: ballot.slot,
+          skipVote: ballot.skip,
+          verdict: null,
+          claim: { kind: 'role-claim', slot: null, role: answer },
+          jailSlot: day.jailSlot,
+          revealMayor: day.revealMayor,
+          whisper: day.whisper
+        };
+      }
+    }
+    // Whoever put the rope round this seat's neck, in their own words.
+    const toldOnWagon = votesOnMe >= 1 && view.trial === null && !bestCard ? this.saidTo(state, botId, 'day') : [];
+    const today = mind.pushedBack?.day === state.day ? mind.pushedBack : null;
+    const pushedAt = today?.votes ?? 0;
+    // Only a sentence it has not already answered earns another push-back; the same words stay said all day.
+    const newest = toldOnWagon.at(-1)?.id ?? 0;
+    const heardOnWagon =
+      newest > (today?.heard ?? 0) ? toldOnWagon.map((message) => this.quoted(state, botId, message)) : [];
+    /**
+     * Once per wagon, not once per turn. See `BotMind.pushedBack`: a seat that
+     * has already objected to these voters has something else to say, or
+     * nothing, until the wagon grows or a person speaks to it.
+     */
+    /**
+     * And only a few seats a day across the whole table, unless a person is the
+     * one asking: twenty seats each objecting once is still twenty objections.
+     */
+    const roomForIt = heardOnWagon.length > 0 || this.minds.countToday(state, 'push-back') < PUSH_BACKS_PER_DAY;
+    if (
+      votesOnMe >= 1 &&
+      view.trial === null &&
+      !bestCard &&
+      roomForIt &&
+      (votesOnMe > pushedAt || heardOnWagon.length > 0)
+    ) {
+      this.minds.countToday(state, 'push-back', true);
+      mind.pushedBack = {
+        day: state.day,
+        votes: Math.max(votesOnMe, pushedAt),
+        heard: Math.max(newest, today?.heard ?? 0)
+      };
+      const wagonLine = this.answerWagon(state, botId, view, board, votesOnMe);
+      const asked = heardOnWagon.find((line) => asksSomething(line.text));
 
       /**
        * The wagon, by name.
@@ -1814,15 +2043,19 @@ export class Seat {
       const named =
         wagon.length > 1 ? `${wagon.slice(0, -1).join(', ')} and ${wagon[wagon.length - 1]}` : (wagon[0] ?? null);
 
+      const pushBack = named
+        ? `push back at ${named}, ${wagon.length > 1 ? 'who are' : 'who is'} voting for you, and demand they say what you actually did`
+        : 'push back at the room';
+      // A question first gets its answer, and the record is what the answer is made of.
+      const record = asked ? this.publicRecord(state, board, me.slot) : [];
       return {
         say: wagonLine,
         intent: {
-          act: named
-            ? `push back at ${named}, ${wagon.length > 1 ? 'who are' : 'who is'} voting for you, and demand they say what you actually did`
-            : 'push back at the room',
+          act: asked ? `answer ${asked.who}'s question, then ${pushBack}` : pushBack,
           mood: moodOf(mind.brain.personality),
           fallback: wagonLine,
-          ...(heard.length > 0 ? { answering: heard } : {})
+          ...(heardOnWagon.length > 0 ? { answering: heardOnWagon } : {}),
+          ...(record.length > 0 ? { record } : {})
         },
         urgent: true,
         targetSlot: ballot.slot,
@@ -2051,6 +2284,9 @@ export class Seat {
       };
     }
 
+    // A reaction exists because a person said something; this is it, and a question in it is answered from the record.
+    const reacting = task === 'react' ? this.answering(state, botId, 'day') : [];
+    const askedMe = reacting.some((heard) => asksSomething(heard.text));
     return {
       say: line ?? remark,
       intent:
@@ -2060,8 +2296,8 @@ export class Seat {
               ...(reason ? { because: say('en')(reason) } : {}),
               mood: moodOf(mind.brain.personality),
               fallback: line,
-              // A reaction exists because a person said something; this is it.
-              ...(task === 'react' ? { answering: this.answering(state, botId, 'day') } : {}),
+              ...(reacting.length > 0 ? { answering: reacting } : {}),
+              ...(askedMe ? { record: this.publicRecord(state, board, me.slot) } : {}),
               ...(votedLabel && voting !== null ? { vote: { slot: voting, label: votedLabel } } : {})
             }
           : undefined,
@@ -2130,6 +2366,11 @@ export class Seat {
   }
 
   answering(state: MafiaState, botId: string, room: string): { who: string; text: string }[] {
+    return this.saidTo(state, botId, room).map((message) => this.quoted(state, botId, message));
+  }
+
+  /** The lines `answering` quotes, as the chat holds them. */
+  private saidTo(state: MafiaState, botId: string, room: string): ChatMessage[] {
     const self = state.players[botId];
     if (!self) return [];
 
@@ -2155,8 +2396,7 @@ export class Seat {
      * This is the same rule `readRoom` already states: yesterday's argument was
      * settled by yesterday's corpse.
      */
-    const span = state.phase === 'night' ? state.config.nightMs : state.config.dayMs;
-    const since = state.phaseStartedAt ?? (state.phaseEndsAt ?? 0) - span;
+    const since = phaseWindow(state);
 
     const lines = state.chat.messages.filter(
       (message) =>
@@ -2169,16 +2409,146 @@ export class Seat {
     );
     if (lines.length === 0) return [];
 
-    const named = new RegExp(
-      `(?<![0-9])${self.slot}(?![0-9])|${self.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
-      'i'
+    /**
+     * Only the lines that were said *to* this seat, which is not every line.
+     *
+     * This used to fall back to the last two things any person said whenever
+     * nothing had named this seat, and the mouth was then told they had been
+     * said "to you or about you". So every seat that spoke after a person
+     * replied to that person: on `9RVWV` a player wrote "I got converted to
+     * citizen" and the Mason Leader, busy arguing with somebody else, answered
+     * "Citizenship's a nice start, Max"; a question put to the seat on the
+     * stand was answered forty seconds later by the next seat on it, "Max, I
+     * didn't jail anyone", to which the only possible reply was "I never asked
+     * you anything". Ten lines like that in one game, in seven games of ten.
+     *
+     * A room with two people in it is the exception, and the team rooms with
+     * it: a cell, a whisper, a lodge or a family is a room where everything said
+     * is said to whoever is listening. In the square a line is this seat's when
+     * it names the seat (fuzzily, so "Aragon" still reaches Aragorn), when it
+     * was typed at this seat's own trial and names nobody, or when it names
+     * nobody and comes straight after this seat's own line, which is what a
+     * reply is. Everything else is the room's, and the room's lines are context.
+     */
+    if (room === 'day') {
+      const seats = Object.values(state.players).map((player) => ({ slot: player.slot, name: player.name }));
+      const trial = state.trial?.accusedId === botId ? state.trial : null;
+      const square = state.chat.messages.filter((message) => message.channel === room && !!message.authorId);
+      const addressed = (message: ChatMessage): boolean => {
+        const hits = seatHits(message.text, seats).filter(
+          (hit) => hit.slot !== state.players[message.authorId ?? '']?.slot
+        );
+        if (hits.some((hit) => hit.slot === self.slot)) return true;
+        if (hits.length > 0) return false;
+        if (trial && message.at >= (trial.openedAt ?? since)) return true;
+        const before = square.filter((other) => other.id < message.id && other.authorId !== message.authorId);
+        const previous = before[before.length - 1];
+        return previous?.authorId === botId && message.at - previous.at <= REPLY_GAP_MS;
+      };
+      return lines.filter(addressed).slice(-2);
+    }
+    return lines.slice(-2);
+  }
+
+  /**
+   * What this seat has already said about itself in front of the whole room.
+   *
+   * The material a question to it can be answered from without inventing
+   * anything: its badge, if it has named one, and the nights it has accounted
+   * for. All of it public, so handing it to the mouth leaks nothing, and all of
+   * it already said, so repeating it cannot contradict the seat.
+   */
+  publicRecord(state: MafiaState, board: PublicInfo, slot: number): string[] {
+    const nameOf = (house: number): string => nameAt(state, house);
+    const mine = board.claims.filter((claim) => claim.claimerSlot === slot);
+    const lines: string[] = [];
+    const badge = [...mine].reverse().find((claim) => claim.kind === 'role-claim' && claim.claimedRole)?.claimedRole;
+    lines.push(
+      badge
+        ? `You have said in public that you are the ${say('en')(ROLE.name(badge))}.`
+        : 'You have not said what your role is.'
     );
-    const mine = lines.filter((message) => named.test(message.text));
-    return (mine.length > 0 ? mine : lines).slice(-2).map((message) => ({
+    for (const claim of mine) {
+      if (claim.kind !== 'account') continue;
+      const night = claim.night ?? Math.max(1, claim.day - 1);
+      lines.push(
+        claim.account === 'home'
+          ? `Night ${night}: you said you stayed home.`
+          : `Night ${night}: you said you went to ${nameOf(claim.targetSlot)}.`
+      );
+    }
+    return lines.slice(0, 5);
+  }
+
+  /**
+   * Whether a seat asked its role outside the stand says it, and what it says.
+   *
+   * The stand was the only place a bot ever named its badge, so "what's your
+   * role?" asked in the square or in a whisper got a shrug every single time,
+   * which is not how a table plays: people do answer, now and then, and some of
+   * them lie. The odds are `ROLE_ANSWER`'s, and then who is asking moves them:
+   * a seat keeps its badge from somebody voting it or accusing it, tells it more
+   * readily to somebody who vouched for it, and leans on how far it trusts the
+   * asker, publicly (`trustOf`) and from what that voice has been worth in
+   * private (`BotMind.privateTrust`).
+   *
+   * Town tells the truth (its dealt badge, the one its record is made of);
+   * everybody else answers with the mask it would wear on the stand, pinned the
+   * same way, so the story it tells here is the story it tells there. Stable per
+   * question: the same line asked again, on the same day, is the same roll.
+   */
+  private roleAnswer(
+    state: MafiaState,
+    botId: string,
+    mind: BotMind,
+    board: PublicInfo,
+    told: ChatMessage[],
+    where: { privately: boolean; votesOnMe: number }
+  ): RoleId | null {
+    const self = state.players[botId];
+    const asked = [...told].reverse().find((message) => asksRole(message.text));
+    const asker = asked?.authorId ? state.players[asked.authorId] : null;
+    if (!self?.role || !asked || !asker) return null;
+    // Said already in the square: the record answers it (see `publicRecord`).
+    if (
+      !where.privately &&
+      board.claims.some((claim) => claim.kind === 'role-claim' && claim.claimerSlot === self.slot)
+    ) {
+      return null;
+    }
+
+    const said = (kind: ClaimKind): boolean =>
+      board.claims.some(
+        (claim) =>
+          claim.kind === kind &&
+          claim.claimerSlot === asker.slot &&
+          claim.targetSlot === self.slot &&
+          claim.day >= state.day - 1
+      );
+    const hostile = state.votes[asker.playerId] === botId || said('accuse');
+    const regard = trustOf(asker.slot, board) + (mind.privateTrust.get(asker.slot) ?? 0);
+    const trust =
+      (hostile ? ROLE_ANSWER.hostile : 1) *
+      (said('clear') ? ROLE_ANSWER.friendly : 1) *
+      Math.min(ROLE_ANSWER.regardCeiling, Math.max(ROLE_ANSWER.regardFloor, 1 + ROLE_ANSWER.perRegard * regard));
+    const base = where.privately
+      ? ROLE_ANSWER.whisper
+      : ROLE_ANSWER.square + (where.votesOnMe >= ROLE_ANSWER.pressedAt ? ROLE_ANSWER.pressed : 0);
+    const odds = Math.min(ROLE_ANSWER.cap, base * trust);
+    if (seededRoll(botId + ':asked:' + state.day + ':' + asked.text) >= odds) return null;
+
+    const town = ROLES[self.role].faction === 'town';
+    const initiated = self.role === 'mason' && self.roleBefore ? self.roleBefore : null;
+    return town ? (initiated ?? self.role) : this.maskOf(state, botId, mind);
+  }
+
+  /** A person's line as a model is shown it: through the seat's own eyes, screened and clipped. */
+  private quoted(state: MafiaState, botId: string, message: ChatMessage): { who: string; text: string } {
+    return {
       who: this.heardAs(state, botId, message).name,
       // Quoted back to a model, so screened; the room still sees the original.
       text: clip(screen(message.text).text.replace(/\s+/g, ' ').trim(), 160)
-    }));
+    };
   }
 
   /**
@@ -4021,8 +4391,9 @@ export class Seat {
       Object.values(state.players).find((player) => player.slot === slot)?.name ?? String(slot);
     const salt = botId + ':lodge:' + state.day;
 
-    if (self.role === 'mason-leader' && recruit !== null && recruit !== me.slot) {
-      return t(vary('mafia.bot.lodge.recruit', 3, salt, { who: nameOf(recruit) }));
+    if (self.role === 'mason-leader') {
+      const said = this.knockLine(state, botId, board, recruit, nameOf, salt);
+      if (said) return said;
     }
 
     /**
@@ -4051,6 +4422,77 @@ export class Seat {
       );
     }
     return null;
+  }
+
+  /**
+   * What the Master tells the lodge about its door: last night's, the brothers' request, tonight's.
+   *
+   * Three things the lodge used to be told one way or not at all:
+   *
+   *  - **What last night's knock found.** Nothing was ever said about it, so a
+   *    door that stayed shut (a killer, a neutral, a town power) was a finding
+   *    only the Master held, and it died with him. Said once, at the first word
+   *    of the next night, and filed in the lodge as a doubt about that house.
+   *  - **What became of a brother's request.** See `steerKnock`.
+   *  - **What tonight's knock is for.** Every knock went out as "X joins us
+   *    tonight. Do not put them on the stand", including the ones the policy
+   *    aims at its top suspect to see whether the door opens, so the lodge was
+   *    told to shield the seat its Master doubted most (`9RVWV`, a Mass
+   *    Murderer). A test is now said as a test.
+   */
+  private knockLine(
+    state: MafiaState,
+    botId: string,
+    board: PublicInfo,
+    recruit: number | null,
+    nameOf: (slot: number) => string,
+    salt: string
+  ): string | null {
+    const self = state.players[botId];
+    const mind = this.minds.mind(state, botId);
+    if (!self || !mind) return null;
+    const t = say(spokenLocale(state));
+    const parts: string[] = [];
+
+    const last = mind.named?.night === state.day - 1 ? mind.named.slot : null;
+    if (last !== null && mind.reportedKnock !== state.day - 1) {
+      const seat = Object.values(state.players).find((player) => player.slot === last);
+      if (seat?.alive && isMason(seat)) {
+        parts.push(t(vary('mafia.bot.lodge.joined', 3, salt, { who: nameOf(last) })));
+      } else if (seat?.alive && (self.refused ?? []).includes(last)) {
+        parts.push(t(vary('mafia.bot.lodge.shut', 3, salt, { who: nameOf(last) })));
+        this.minds.record(state, botId, 'hint', last, { room: 'mason' });
+      }
+      mind.reportedKnock = state.day - 1;
+    }
+
+    const asked = mind.knockAsk?.night === state.day ? mind.knockAsk : null;
+    if (asked && !(asked.kind === 'ask' && asked.granted && asked.slot === recruit)) {
+      const key = asked.kind === 'spare' ? 'mafia.bot.lodge.spared' : ASK_ANSWER[asked.why ?? 'declined'];
+      parts.push(t(vary(key, 3, salt, { who: nameOf(asked.slot) })));
+    }
+
+    if (recruit !== null && recruit !== self.slot) {
+      const granted = asked?.kind === 'ask' && asked.granted && asked.slot === recruit;
+      // The policy's own rule, so the lodge is told what the knock really is. See `knockIsTest`.
+      const brothers = new Set(
+        Object.values(state.players)
+          .filter((player) => player.alive && player.playerId !== botId && isMason(player))
+          .map((player) => player.slot)
+      );
+      const testing = !granted && knockIsTest(self, board, recruit, brothers);
+      parts.push(
+        t(
+          vary(
+            granted ? 'mafia.bot.lodge.asked' : testing ? 'mafia.bot.lodge.test' : 'mafia.bot.lodge.recruit',
+            3,
+            salt,
+            { who: nameOf(recruit) }
+          )
+        )
+      );
+    }
+    return parts.length > 0 ? parts.join(' ') : null;
   }
 
   private familyKnife(state: MafiaState, botId: string): number | null {
@@ -4270,16 +4712,73 @@ export class Seat {
     refusals.push({ day: state.day, slot, upTo });
   }
 
-  private familyAsk(state: MafiaState, botId: string, view: MafiaView): RoomAsks | null {
+  /**
+   * The Mason Leader's knock, steered by the lodge.
+   *
+   * A brother's house becomes the knock when the door can still open: not a
+   * brother already, not a door that has stayed shut to this lodge, and a
+   * house the power can reach tonight. A person's request is granted on those
+   * terms alone; another bot's goes through the same willingness as a family's
+   * (see `willHeed`). A house a brother refused is left alone whenever there is
+   * anywhere else to knock. Whatever happened to the request is kept on the
+   * mind, so the line in the lodge can say it.
+   */
+  private steerKnock(
+    state: MafiaState,
+    botId: string,
+    view: MafiaView,
+    mind: BotMind,
+    aim: NightAim,
+    rng: () => number
+  ): number | null {
+    const { aimable: targets, chosen: decided, board, brain, allies } = aim;
     const self = state.players[botId];
-    const family = self ? playerFamily(self) : null;
+    if (!self) return decided;
+    const room = this.teamAsk(state, botId, view, 'mason');
+    const shut = new Set(self.refused ?? []);
+    const spared = new Set((room?.spared ?? []).map((entry) => entry.slot));
+    const elsewhere = targets.filter((target) => !spared.has(target) && !allies.has(target));
+    const own =
+      decided !== null && spared.has(decided) && elsewhere.length > 0
+        ? decideNightTarget(self, brain, board, elsewhere, 'recruit', new Set(allies), self.intel, rng)
+        : decided;
+
+    const ask = room?.ask ?? null;
+    if (ask) {
+      const why = !targets.includes(ask.slot) || allies.has(ask.slot) ? 'reach' : shut.has(ask.slot) ? 'shut' : null;
+      const granted =
+        why === null &&
+        (ask.human || willHeed(mind, ask.fromSlot, seededRoll(botId + ':knock:' + state.day + ':' + ask.slot), false));
+      mind.knockAsk = { night: state.day, slot: ask.slot, kind: 'ask', granted, why };
+      if (granted) return ask.slot;
+    } else if (decided !== null && spared.has(decided) && own !== decided) {
+      mind.knockAsk = { night: state.day, slot: decided, kind: 'spare', granted: true, why: null };
+    }
+    const promised =
+      mind.named?.night === state.day && targets.includes(mind.named.slot) && !spared.has(mind.named.slot)
+        ? mind.named.slot
+        : null;
+    return promised ?? own;
+  }
+
+  /**
+   * What a living teammate asked for tonight, in a family's room or in the lodge.
+   *
+   * The lodge was never read: only a killing hand took the override, so the one
+   * room where a person sits *with* the Mason Leader was a room the Leader could
+   * not hear. On `9RVWV` a brother answered the night's pick with "no", "not
+   * him" and "go for hulk", and the knock went to the seat he had refused, a
+   * Mass Murderer, announced as a brother to protect.
+   */
+  private teamAsk(state: MafiaState, botId: string, view: MafiaView, family: string | null): RoomAsks | null {
+    const self = state.players[botId];
     if (!self || !family || state.phase !== 'night') return null;
 
     // Only what a living brother said, and only tonight. A dead teammate's
     // last request is not an order, and the room's own reasoning is not news.
-    const since = (state.phaseEndsAt ?? 0) - state.config.nightMs;
+    const since = phaseWindow(state);
     const mates = new Set([self.slot, ...(view.me?.teammates ?? []).map((mate) => mate.slot)]);
-    const read = readRoom(state, family, since, mates);
+    const read = readRoom(state, family, since, mates, self.slot);
 
     /**
      * The model's reading of the same room, when it has one and it is current.
@@ -4673,7 +5172,13 @@ export class Seat {
       }
     }
 
-    const powerKey = ROLES[dealt].nightAction === 'vest' ? 'onVest' : 'onAlert';
+    /**
+     * The Veteran's porch for the Veteran only. Every other seat whose power keeps it home (a Jailor, a
+     * Coroner, an Amnesiac) wrote "Night 11: alert, and I stayed in" (`9RVWV`), which is the one badge it
+     * does not hold, read out from its own will.
+     */
+    const powerAction = ROLES[dealt].nightAction;
+    const powerKey = powerAction === 'vest' ? 'onVest' : powerAction === 'alert' ? 'onAlert' : 'atHome';
 
     const going = !honest
       ? []
@@ -4769,14 +5274,17 @@ export class Seat {
      * powers are gone and the reveal still shows the new badge — and it stops
      * the audit silently destroying evidence the town had already paid for.
      */
-    const changed = self.roleBefore != null && self.roleBefore !== self.role;
+    /**
+     * How the badge changed, read off the seat's own history of rewrites rather
+     * than guessed from the badge. See `willStory`.
+     */
+    const story = honest ? willStory(self) : null;
     const roleLine = !signed
       ? null
-      : changed
+      : story
         ? t(
-            // The lodge is not an Auditor: a Sheriff taken in by the Masons says so, not that it was audited.
-            vary(self.role === 'mason' ? 'mafia.bot.will.initiated' : 'mafia.bot.will.audited', 3, botId + ':will', {
-              was: ROLE.name(signed),
+            vary(`mafia.bot.will.${story.key}`, 3, botId + ':will', {
+              was: ROLE.name(story.was ?? signed),
               now: ROLE.name(self.role)
             })
           )

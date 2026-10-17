@@ -54,6 +54,8 @@ The LLM never writes to `mind.brain`, `mind.mask`, `mind.notes`, or a vote direc
 | Night | keeper with a captive, then the prisoner | `night` in the cell room | 5 to 15 percent, then 35 to 50 percent |
 | Night | Crier | `night` on the square | 30 to 70 percent |
 | Night | each family room (mafia, triad, cult, mason) | leader, then one other seat | 5 to 30 percent, then 35 to 60 percent |
+
+A person's line in a family room or the lodge is answered by the seat holding the room's power (the knife, or the Mason Leader's knock), and that seat re-runs its night first, so the request is acted on even after its scheduled turns have passed (`answerPrivately`, bots.ts).
 | Day 1 | every bot | `greet` (never a model) | 5 to 60 percent |
 | Day 2+ | every bot, if no trial yet today | silent `revote` wave | 150 ms plus 420 ms per seat plus jitter |
 | Day 2+ | every bot | `day` | 20 to 50 percent of daylight; a second `day` with probability 0.4 at 50 to 85 percent |
@@ -106,7 +108,7 @@ The mouth sees no board, no roster, no roles, no rules of Mafia. The system prom
 1. `You are ${name}. Your number at this table is ${slot}. You are ${mood}.` where mood comes from `moodOf(personality)` (seat.ts): taciturn (claimRate < 0.3), impulsive (aggression > 0.7), smooth (deceit > 0.6), agreeable (herd > 0.7), calm (aggression < 0.3), else dry and a little sarcastic.
 2. `You have decided to: ${intent.act}.` and `Because: ${intent.because}`.
 3. `Your vote today is against ${label}. This is already cast.` when there is a vote.
-4. `ANSWER THIS. Somebody just said, to you or about you:` plus the last 3 human lines aimed at it (`answering()`, seat.ts, each screened and clipped to 160 chars).
+4. `ANSWER THIS. This was just said to you:` plus the last human lines said to it (`answering()`, seat.ts, each screened and clipped to 160 chars). In the square that means a line naming the seat (fuzzy), an unnamed line during its own trial, or an unnamed line right after its own; in a cell, a whisper or a team room, every line.
 5. `YOUR OWN RECORD.` plus the seat's will, only on the stand.
 6. The last 4 lines in the room (the 2 latest human lines plus the 2 latest of anybody), rendered with names, never numbers.
 7. `YOU ALREADY SAID THIS TODAY.` plus its own last 2 lines.

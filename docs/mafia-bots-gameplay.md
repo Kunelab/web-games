@@ -65,7 +65,25 @@ Every bot seat gets its own personality when the game starts. In the headless be
 | deceit | 0.4 | Scales every lying appetite: fake accusations, fake claims, the "I am the Jester" gambit, fake "somebody poisoned me" lines (8 percent times (0.5 plus deceit)). A mafioso with deceit above 0.55 is "cold" and boards a doomed brother's wagon 70 percent of the time instead of 20. A Consigliere with a finding wears a Sheriff or Investigator badge with chance 0.4 plus half its deceit. An Executioner accuses its target with probability equal to its deceit. |
 | courage | 0.5 | Night nerve only. Lowers the Vigilante's shooting bar (2.2 minus 0.7 times courage), the Jailor's execution bar (2.3 minus courage), the Mafia keeper's execution bar (1.2 minus 0.4 times courage), and raises the Veteran's alert chance and lowers the Survivor's vest caution. |
 
-Each appetite is the default plus or minus up to 0.2, clamped to 0..1.
+Each appetite is the seat's starting value plus or minus up to 0.2, clamped to 0..1. On a live table the starting values come from the character the seat is cast as (below); in the benchmark they are the defaults unless the run passes `--cast`.
+
+### The cast of characters
+
+A live bot is cast as one of nine characters, drawn from its own seeded roll off the bot's id. A character sets where the five appetites start, sometimes a quirk, and a voice: the temperament its lines are written in and how it types. The cast averages out to the defaults, so a mixed table plays near the balance the benchmark measured while each seat plays away from it.
+
+| Character | Starts at (aggression, herd, claim rate, deceit, courage) | Quirk | Voice |
+| --- | --- | --- | --- |
+| Hothead | 0.85, 0.35, 0.8, 0.45, 0.8 | | hot-headed and combative; short punchy lines |
+| Analyst | 0.3, 0.2, 0.75, 0.3, 0.5 | press 0.3 | calm, reasons from who said what and when |
+| Follower | 0.45, 0.85, 0.65, 0.35, 0.4 | late switch 0.3 | easygoing, backs a good point |
+| Quiet | 0.3, 0.55, 0.4, 0.35, 0.45 | stonewall 0.2 | a few words, lowercase, no full stop (applied to phrasebook lines too) |
+| Smooth | 0.4, 0.45, 0.7, 0.8, 0.5 | | friendly, plausible, never pinned down |
+| Joker | 0.5, 0.5, 0.7, 0.45, 0.55 | | teases but makes the point |
+| Paranoid | 0.65, 0.25, 0.7, 0.35, 0.55 | press 0.4 | questions motives and timing |
+| Veteran | the defaults | | dry, a little sarcastic |
+| Earnest | 0.35, 0.6, 0.85, 0.25, 0.45 | | wants the town to win, a little anxious |
+
+Before the cast, every live bot started at the defaults, and no rolled seat could reach any of the thresholds that picked a voice, so every bot in every game spoke as "dry, a little sarcastic".
 
 ### The three temperament coefficients (each rolled flat between 0.6 and 1.4)
 
@@ -73,9 +91,9 @@ Each appetite is the default plus or minus up to 0.2, clamped to 0..1.
 - **Suspicion** scales how far another seat's voting record moves you. A seat that hanged killers or spared them has a public trust meter; a bot with suspicion 1.4 reads that meter 40 percent larger in both directions before it is capped.
 - **Haste** decides how soon an investigative role speaks. The base patience is 0.15 on days 1 and 2, 0.4 on day 3, 0.7 on day 4, then 1, multiplied by haste; the speak chance is claim rate times patience. A finding nobody is voting on yet goes out, without the badge, on the first day the speak chance (times 1.4 when the seat holds two or more findings) reaches 0.35: day four for an average seat (claim rate 0.7, haste 1), day three for a hasty one (1.4), day five for a slow one (0.6). A hasty seat also confirms a wagon on its suspect from the first vote, a careful one (haste under 1) from the second.
 
-### The four quirks (zero for every bot)
+### The four quirks
 
-These exist so the benchmark can seat a "people-shaped" player. Bots never have them; the benchmark's human-shaped profile has stonewall 0.45, waffle 0.25, late switch 0.6, press 0.5.
+These exist so the benchmark can seat a "people-shaped" player, whose profile has stonewall 0.45, waffle 0.25, late switch 0.6, press 0.5. A few characters carry a mild one (see the cast above); no bot ever waffles.
 
 - **Stonewall**: chance to ignore a question aimed at you today.
 - **Waffle**: chance to volunteer a new account of last night that contradicts the one already given (home becomes visited, or the reverse).
@@ -96,7 +114,7 @@ Each role has an agenda: town, family (Mafia, Triad, Cult), butcher (solo killer
 - A family seat's appetite for feeding a brother to the room opens past desperation 0.5.
 - A Jester's meter runs backwards: it climbs when nobody is looking at him, and every wagon on him counts as zero pressure.
 
-*Where in the code:* `sim/policies.ts` (`Personality`, `Temperament`, `Quirks`, `DEFAULT_PROFILE`, `HUMAN_PROFILE`, `makePersonality`, `styleOf`, `feelPressure`, `losingClock`), `social.ts` (`agendaOf`, `advanceDesperation`, `stanceOf`), `apps/back/src/mafia/bot-mind.ts` (`seededRng`).
+*Where in the code:* `sim/characters.ts` (`CHARACTERS`, `castCharacter`), `sim/policies.ts` (`Personality`, `Temperament`, `Quirks`, `DEFAULT_PROFILE`, `HUMAN_PROFILE`, `makePersonality`, `styleOf`, `feelPressure`, `losingClock`), `social.ts` (`agendaOf`, `advanceDesperation`, `stanceOf`), `apps/back/src/mafia/bot-mind.ts` (`seededRng`).
 
 ---
 
@@ -262,6 +280,8 @@ Each time a bot takes a turn during the day it runs the same routine: decide whe
 
 - **Asking.** From day two, with probability half its seek-information appetite (a town seat: between 27 and 43 percent per turn), it asks a random seat that has neither been asked nor accounted for itself. If everyone has been asked, only a "press" quirk makes it ask a dodger again.
 - **Answering.** A seat asked today answers once. A town seat answers honestly with probability equal to its honesty appetite; honest and it went somewhere and its claimed badge is one that leaves home, it says where it went; otherwise it says it stayed home. A seat that is not town answers in its mask (section 3, consistency), and never names the house it attacked. Staying home is the comfortable lie, and only a Lookout, Detective or Spy sighting can prove it false; naming the wrong house is caught the same way when the sighting names its doorstep.
+- **Asked its role, off the stand.** A person asking a seat "what's your role?" (named, in the square, or in a whisper; the same reading of the question as the parser's, `asksRole`) gets the badge now and then: 15 percent in the square, 30 with at least two votes on the seat, 30 in a whisper. Who is asking moves it: halved for an asker voting or accusing the seat, times 1.5 for one who vouched for it, and times 0.6 to 1.4 by the seat's public and private trust in the asker. Capped at 60 percent, one roll per question. Town says its dealt badge; everybody else says the mask it would wear on the stand. A square answer is filed as a role claim. A seat that already claimed in public restates that claim instead (`roleAnswer`, `ROLE_ANSWER`, `publicRecord`, seat.ts).
+- **Whispering.** From day two a seat may whisper its role to a revealed Mayor or Marshall, once: town the truth, everybody else (Jester and Executioner included) only the badge it already claimed in public. The silent re-vote turns used to choose this aside and drop it, so no bot had ever whispered on a live table.
 - **Demanding reasons.** With at least one vote on it, and with probability 0.6 plus 0.3 times its push appetite, it asks an accuser that has given no reason (no hint, sighting, relay or denial about it) to explain. An accuser that never answers has its accusation heard at half from the next day.
 
 ### Deciding whom to accuse
@@ -427,7 +447,8 @@ A Sheriff, Investigator, Detective, Consigliere, Administrator, Agent or Informa
 - **Bus Driver**: swaps the house the knife is most likely headed for with the most suspicious other seat if that suspicion reaches 1.2, else a random other. With an empty board the first stop can be its own house.
 - **Amnesiac**: remembers a dead town role with a night power with probability 0.8; otherwise a coin flip between a random corpse and nothing.
 - **Auditor**: audits the top suspect if it reaches 1.5; otherwise a random house 40 percent of the time.
-- **Cultist, Mason Leader**: a random legal house not already refused.
+- **Cultist**: a random legal house not already refused.
+- **Mason Leader**: never a brother, never a door that already stayed shut (a promoted Master inherits the dead Master's list), never a seat known to hold a badge the lodge cannot take. It grows by default, knocking on the seat the room trusts most (the least doubted among equals), and tests a suspect only when its suspicion, read without dice, reaches 2.5 (lodge of one or two) or 2 (three or more), since a shut door means a killer, a neutral or a town power. The line that announces the knock uses the same rule (`knockIsTest`), so a recruitment is never called a test. A brother's request in the lodge is the knock when that door can still open (a person's always, a bot's through `willHeed`), and a house a brother refuses ("not him", or a bare "no" after the Master names it) is left alone. In the lodge the Master says which it is ("I am testing X tonight" or "I am bringing X in"), what became of the request, and, at the first word of the next night, whether last night's door opened; a shut door is filed in the lodge as a doubt about that seat.
 - **Lover, Beguiler, Deceiver, Disguiser, Actress, Diva, Heartbreaker**: a random house.
 
 *Where in the code:* `sim/policies.ts` (`decideNightTarget`, `decideSecondTarget`, `pickRanked`, `credibleClaimersRanked`, `likelyTargets`, `friendlySeats`, `unclashedTargets`, `familyKnife`, `familySpent`, `FAMILY_AIM`, `alertTonight`, `vestTonight`, `cellProves`, the keeper block of `decideDay`), `sim/beliefs.ts` (`surestSuspect`), `engine.ts` (`legalNightAction`, the family kill resolution), `apps/back/src/mafia/seat.ts` (`familyAsk`, the jail-execute block of `play`), `apps/back/src/mafia/bot-mind.ts` (`willHeed`).

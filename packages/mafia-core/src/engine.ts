@@ -839,7 +839,7 @@ export function setLastWill(
  * until somebody happened to vote again.
  */
 function openTrial(state: MafiaState, target: MafiaPlayer, now: number): void {
-  state.trial = { accusedId: target.playerId, ballots: {} };
+  state.trial = { accusedId: target.playerId, ballots: {}, openedAt: now };
   state.votes = {};
   state.trialsToday += 1;
   if (marshallActive(state)) {
@@ -994,7 +994,7 @@ export function callCourt(
   if (tied) return { ok: false, error: NO.courtSplit() };
 
   judge.charges -= 1;
-  state.trial = { accusedId, ballots: {}, court: true };
+  state.trial = { accusedId, ballots: {}, court: true, openedAt: now };
   state.stage = "judgement";
   state.votes = {};
   state.trialsToday += 1;
@@ -1888,6 +1888,15 @@ function promoteCarriers(state: MafiaState): void {
   ) {
     const master = lodge.sort((left, right) => left.slot - right.slot)[0];
     changeRole(state, master, "mason-leader", "promoted");
+    /**
+     * And the doors the old Master already found shut. They were kept on his
+     * seat, so they went into the ground with him and the new Master knocked on
+     * them again: `9RVWV` spent two nights on the same Mafioso, one per Master.
+     */
+    for (const fallen of Object.values(state.players)) {
+      if (fallen.alive || fallen.role !== "mason-leader") continue;
+      for (const slot of fallen.refused ?? []) noteRefused(master, slot);
+    }
     notify(master, NOTE.promoted("mason-leader"));
   }
 
@@ -4041,6 +4050,12 @@ function resolveNight(state: MafiaState, rng: () => number): Announcement[] {
       let audited: RoleId | null = null;
       // The same seat the cult may not have. See `keepsItsRole`.
       if (keepsItsRole(target)) audited = null;
+      // Nor a brother of the lodge. An audit used to strip a Mason down to a
+      // Citizen like any other town badge, and the brothers were never told:
+      // the Mason who had sat in the lodge with the audited seat for five
+      // nights then called it a liar in the square (`9RVWV`). The lodge's door
+      // locks from the inside: the audit fails, and the Auditor keeps its charge.
+      else if (isMason(target)) audited = null;
       else if (targetDef.faction === "town") audited = "citizen";
       else if (
         targetDef.faction === "mafia" &&

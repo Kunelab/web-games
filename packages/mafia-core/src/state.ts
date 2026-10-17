@@ -419,6 +419,19 @@ export interface MafiaPlayer {
    */
   roleBefore?: RoleId | null;
   /**
+   * Every badge this seat has been handed since the deal, and why, oldest first.
+   *
+   * `roleBefore` keeps the dealt badge and nothing else, so everything that
+   * needed the *path* guessed it: a Marshall initiated into the lodge and then
+   * promoted to Mason Leader signed its will "An Auditor made me the Mason
+   * Leader" (`9RVWV`), because the only rewrite with a sentence of its own was
+   * the audit. The reason is what the sentence is made of, so it is kept.
+   *
+   * Absent on a seat that was never rewritten and on persisted tables from
+   * before this existed.
+   */
+  roleHistory?: { day: number; from: RoleId | null; to: RoleId; why: RoleChange }[];
+  /**
    * The night somebody came for this seat and it lived, and what held.
    *
    * The single most valuable thing a town seat can say out loud, and until now
@@ -584,6 +597,15 @@ export interface TrialState {
   ballots: Record<string, 'guilty' | 'innocent'>;
   /** The judge's exceptional court: no defense, and his ballot counts triple. */
   court?: boolean;
+  /**
+   * When the accused was put on the stand.
+   *
+   * What makes an unnamed "who else did you jail?" a question to *this*
+   * accused: the line belongs to the trial it was typed during. Without it a
+   * seat put on the stand later in the day inherited every question asked of
+   * the previous one. Optional for tables persisted before it existed.
+   */
+  openedAt?: number;
 }
 
 /** One attack and what became of it. See `MafiaState.nightLog`. */
@@ -1017,6 +1039,7 @@ const KEEPS_DEALT_BADGE: ReadonlySet<RoleChange> = new Set<RoleChange>(['initiat
  */
 export function changeRole(state: MafiaState, seat: MafiaPlayer, to: RoleId, why: RoleChange): void {
   if (KEEPS_DEALT_BADGE.has(why) && seat.roleBefore == null) seat.roleBefore = seat.role;
+  (seat.roleHistory ??= []).push({ day: state.day, from: seat.role, to, why });
   if (isKeeper(seat) && !KEEPER_ROLES.has(to) && state.captives) delete state.captives[seat.playerId];
   deal(seat, to);
 }

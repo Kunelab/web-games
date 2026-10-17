@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import { addMafiaBot, createMafiaGame, joinMafia, startMafia, type MafiaState } from 'mafia-core';
 
-import { HEARD_FORMAT, readHeard, type DroppedClaim } from './ear.js';
+import { HEARD_FORMAT, hearingPrompt, readHeard, type DroppedClaim } from './ear.js';
 
 /**
  * What the ear is allowed to put on the claims board.
@@ -127,7 +127,7 @@ describe('what the ear files', () => {
       roles(state),
       new Set(),
       dropped,
-      'night 3 I watched 3 and somebody went in',
+      'night 3 I watched 3 and somebody went in'
     );
     assert.equal(filed.length, 1, `wrongly dropped: ${JSON.stringify(dropped)}`);
   });
@@ -316,3 +316,56 @@ describe('the ear held against the instant reader', () => {
 function expectedId(state: MafiaState, slot: number): string {
   return Object.values(state.players).find((player) => player.slot === slot)!.playerId;
 }
+
+describe('the roster the ear is handed', () => {
+  /**
+   * `9RVWV`: the listen prompt, written in English, told the model a seat "says
+   * they are the Franc-maçon", because the square hands over the role's French
+   * catalogue name. The prompt names roles in its own language.
+   */
+  it('names a claimed badge in English, the language of the prompt', () => {
+    const state = table();
+    const them = Object.values(state.players).find((player) => player.isBot)!;
+    const prompt = hearingPrompt(state, [], {
+      claimed: [{ slot: them.slot, role: 'Franc-maçon' }],
+      onTrial: null,
+      mostVoted: null
+    });
+    assert.ok(prompt.includes(`${them.slot} ${them.name}, says they are the Mason`), prompt);
+    assert.ok(!prompt.includes('Franc-maçon'));
+  });
+});
+
+describe('what a question the ear heard asks about', () => {
+  /**
+   * `9RVWV`, 1566s and 2023s: "what is your role jon ?" and, with Jack Torrance
+   * on the stand, "your role ?". The model files a question; the instant
+   * reader of the same line says it was about the role, and the board keeps
+   * that, because a seat asked for its role that answers with its night has
+   * dodged.
+   */
+  it('files the question, named or on the stand', () => {
+    const state = table();
+    const me = Object.values(state.players).find((player) => !player.isBot)!;
+    const them = Object.values(state.players).find((player) => player.isBot && player.alive)!;
+    const ask = (line: string) =>
+      readHeard(
+        state,
+        { claims: [{ speaker: me.slot, kind: 'question', about: them.slot, role: null, source: null, ailment: null }] },
+        roles(state),
+        new Set(),
+        [],
+        line,
+        [{ slot: me.slot, text: line }]
+      );
+
+    assert.deepEqual(ask(`what is your role ${them.name} ?`), [
+      { claimerId: me.playerId, kind: 'question', targetSlot: them.slot }
+    ]);
+    assert.equal(ask(`${them.name} where were you last night`)[0]?.kind, 'question');
+    // Unaddressed, and nobody on the stand: the model's question stands.
+    assert.deepEqual(ask('your role ?'), [{ claimerId: me.playerId, kind: 'question', targetSlot: them.slot }]);
+    state.trial = { accusedId: them.playerId, ballots: {} };
+    assert.equal(ask('your role ?')[0]?.kind, 'question');
+  });
+});

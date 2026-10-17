@@ -1,5 +1,6 @@
 export { ACTION, FACTION, NO, refusalOf, ROLE, SLOT, type DeathSource } from './messages.js';
 export {
+  CREATES,
   ROLES,
   SELF_FIRES,
   wearableMask,
@@ -102,6 +103,7 @@ export {
   parityPressure,
   provenLiar,
   suspicion,
+  knockIsTest,
   suspicionParts,
   stolenBadge,
   trustOf,
@@ -112,7 +114,15 @@ export {
   type PublicInfo
 } from './sim/policies.js';
 export { testimonyOf } from './sim/testimony.js';
-export { BotTable } from './sim/table.js';
+export { BotTable, type NightAim } from './sim/table.js';
+export {
+  CHARACTERS,
+  castCharacter,
+  castProfile,
+  type Character,
+  type CharacterId,
+  type Voice
+} from './sim/characters.js';
 export { deductions, strongest, type Deduction } from './sim/deduce.js';
 
 export { rank, caseFor, defenceFor, type Reason } from './sim/ranking.js';

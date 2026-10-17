@@ -10,6 +10,7 @@ import { MafiaBotDriver } from './bots.js';
 import type { Decision } from './seat.js';
 import { chainOver, fakeEndpoints, silentLog, slots } from './chain-fakes.js';
 import type { Intent } from './mouth.js';
+import { seatAlone } from './seat-fakes.js';
 
 /**
  * What a family is allowed to say to itself.
@@ -115,5 +116,61 @@ describe('a plan said in the family room', () => {
   /** And a seat has no licence in somebody else's family room. */
   it('is thrown away in a family room that is not this seat own', async () => {
     assert.equal(await saidIn('triad', false), FALLBACK);
+  });
+});
+
+/**
+ * `J6D7G`: a person in the family typed "Don't kill max". The knife moved, and
+ * the Godfather's line still said "Max will get the single death tonight",
+ * because the act it was handed read "you want 1 dead".
+ */
+describe('a house the family was asked to leave alone', () => {
+  it('is left alone, and said to be left alone, by name', () => {
+    const state = createMafiaGame({ code: 'FAM2', hostToken: 'h', hostUserId: null, now: 0 });
+    joinMafia(state, 'Xavier', 'tok-human', 'human');
+    for (let index = 0; index < 8; index++) addMafiaBot(state, `tok${index}`, `bot${index}`, () => 0.3);
+    startMafia(state, 1000, () => 0.5);
+    for (const player of Object.values(state.players)) player.role = 'citizen';
+    const human = state.players.human;
+    human.role = 'blackmailer';
+    const godfather = playerBySlot(state, human.slot === 2 ? 3 : 2)!;
+    godfather.role = 'godfather';
+    const max = Object.values(state.players).find((player) => player.isBot && player !== godfather)!;
+    max.name = 'Max';
+    state.phase = 'night';
+    state.stage = null;
+    state.day = 3;
+    state.phaseStartedAt = 100_000;
+    state.phaseEndsAt = 100_000 + state.config.nightMs;
+    state.chat.messages.push(
+      {
+        id: 70_001,
+        channel: 'mafia',
+        authorId: godfather.playerId,
+        authorName: godfather.name,
+        text: 'Max tonight.',
+        at: 101_000
+      } as (typeof state.chat.messages)[number],
+      {
+        id: 70_002,
+        channel: 'mafia',
+        authorId: human.playerId,
+        authorName: 'Xavier',
+        text: "Don't kill max",
+        at: 102_000
+      } as (typeof state.chat.messages)[number]
+    );
+
+    const { seat, minds } = seatAlone({ rng: () => 0.5 });
+    minds.mind(state, godfather.playerId)!.named = { night: state.day, slot: max.slot };
+    const knife = seat.play(state, godfather.playerId, 'night').targetSlot;
+    assert.notEqual(knife, max.slot, 'the knife went where the family was asked not to');
+
+    state.nightActions[godfather.playerId] = {
+      targetId: playerBySlot(state, knife!)!.playerId
+    } as (typeof state.nightActions)[string];
+    const act = seat.play(state, godfather.playerId, 'night', 'mafia').intent?.act ?? '';
+    assert.match(act, /leaving Max alone/, act);
+    assert.doesNotMatch(act, /\bwant \d+ dead\b/, act);
   });
 });

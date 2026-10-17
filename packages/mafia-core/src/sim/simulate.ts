@@ -37,6 +37,7 @@ import { rank } from './ranking.js';
 import { Probe, type ProbeChoice } from './probe.js';
 import { Scenarios } from './scenarios.js';
 import { BotTable, type NightAim } from './table.js';
+import { castCharacter, castProfile } from './characters.js';
 import { testimonyOf } from './testimony.js';
 import type { Tally } from './report.js';
 
@@ -142,6 +143,12 @@ export interface SimOptions {
   humans?: number;
   /** What those seats play like. Defaults to `HUMAN_PROFILE`. */
   humanProfile?: Partial<Personality>;
+  /**
+   * Bots drawn from `CHARACTERS`, the way the live tables seat them, rather than
+   * all rolled around `profile`. Off by default so every number measured before
+   * the cast existed is still measured the same way.
+   */
+  cast?: boolean;
   /**
    * Called once per trial, as it opens. See `TrialAutopsy`.
    *
@@ -297,6 +304,14 @@ export interface SimResult {
   /** The second scoreboard, when `SimOptions.report` asked for it. See `Probe`. */
   report?: Tally;
   /**
+   * Every town seat's play, by the character it was cast as, when `SimOptions.cast` is on.
+   *
+   * Town only, because a mafioso voting a townsperson guilty is the mafioso doing
+   * its job: the question this answers is whether a character makes the town
+   * play worse, which is the thing a person sitting next to it would notice.
+   */
+  cast?: CastSeat[];
+  /**
    * What the table did with the person at it. See `SimOptions.humans`.
    *
    * Not a balance measurement. Win rates say nothing about whether a game was
@@ -335,6 +350,22 @@ export interface SimResult {
     botAccusations: number;
     botFollowed: number;
   };
+}
+
+/** One town seat's game, for `SimResult.cast`. */
+export interface CastSeat {
+  character: string;
+  won: boolean;
+  survived: boolean;
+  /** Trial ballots on a townsperson, guilty and innocent. */
+  guiltyOnTown: number;
+  innocentOnTown: number;
+  /** Trial ballots on a killer or a family member. */
+  guiltyOnEvil: number;
+  innocentOnEvil: number;
+  /** Accusations it said out loud, by who they were aimed at. */
+  accusedTown: number;
+  accusedEvil: number;
 }
 
 /** mulberry32: tiny, fast, good enough for dice. */
@@ -426,7 +457,14 @@ export function simulateGame(options: SimOptions): SimResult {
    * The table's bots, drawn in seating order so the personalities are part of
    * the seed. The same object the live driver drives: see `BotTable`.
    */
-  const table = new BotTable(state, (player) => makePersonality(player.isBot ? profile : humanProfile, rng));
+  const castAs = new Map<string, string>();
+  const table = new BotTable(state, (player) => {
+    if (!player.isBot) return makePersonality(humanProfile, rng);
+    if (!options.cast) return makePersonality(profile, rng);
+    const character = castCharacter(rng);
+    castAs.set(player.playerId, character.id);
+    return makePersonality(castProfile(character, profile), rng);
+  });
 
   for (const player of players) {
     player.obsessionSlotHint = player.obsessionId ? (state.players[player.obsessionId]?.slot ?? null) : null;
@@ -900,7 +938,8 @@ export function simulateGame(options: SimOptions): SimResult {
   const voteHistory = [...table.closings()];
   probe?.end(claims, voteHistory);
   const result = tally(state, options, claims, voteHistory, strikes);
-  return probe ? { ...result, report: probe.tally } : result;
+  const cast = options.cast ? { cast: castReport(state, castAs, claims, result.winner) } : {};
+  return probe ? { ...result, ...cast, report: probe.tally } : { ...result, ...cast };
 }
 
 function tally(
@@ -983,6 +1022,42 @@ function tally(
     aliveAtEnd: players.filter((player) => player.alive).map((player) => ({ slot: player.slot, role: player.role! })),
     human: humanReport(players, claims, voteHistory)
   };
+}
+
+/** How each cast town seat played. See `SimResult.cast`. */
+function castReport(
+  state: MafiaState,
+  castAs: ReadonlyMap<string, string>,
+  claims: readonly Claim[],
+  winner: SimResult['winner']
+): CastSeat[] {
+  const evilAt = (playerId: string): boolean => {
+    const role = state.players[playerId]?.role;
+    return !!role && isEvilRole(role);
+  };
+  const evilSlot = (slot: number): boolean => {
+    const seat = Object.values(state.players).find((player) => player.slot === slot);
+    return !!seat?.role && isEvilRole(seat.role);
+  };
+  return Object.values(state.players)
+    .filter((player) => castAs.has(player.playerId) && player.role && roleDef(player.role).faction === 'town')
+    .map((player) => {
+      const on = (evil: boolean, ballot: 'guiltyIds' | 'innocentIds'): number =>
+        state.trialLog.filter((trial) => evilAt(trial.accusedId) === evil && trial[ballot].includes(player.playerId))
+          .length;
+      const accusations = claims.filter((claim) => claim.kind === 'accuse' && claim.claimerSlot === player.slot);
+      return {
+        character: castAs.get(player.playerId)!,
+        won: winner === 'town',
+        survived: player.alive,
+        guiltyOnTown: on(false, 'guiltyIds'),
+        innocentOnTown: on(false, 'innocentIds'),
+        guiltyOnEvil: on(true, 'guiltyIds'),
+        innocentOnEvil: on(true, 'innocentIds'),
+        accusedTown: accusations.filter((claim) => !evilSlot(claim.targetSlot)).length,
+        accusedEvil: accusations.filter((claim) => evilSlot(claim.targetSlot)).length
+      };
+    });
 }
 
 /** What the square did with the people at it. See `SimResult.human`. */
