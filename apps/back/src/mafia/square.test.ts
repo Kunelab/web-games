@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { roleNamed, seatHits, selfClaim } from './asks.js';
-import { nightNamed, readSquare, type Seat } from './square.js';
+import { nightNamed, readSquare, utterance, type Seat } from './square.js';
 
 /** A table with the awkward names on it: an accent, a two-worder, a short one. */
 const SEATS: Seat[] = [
@@ -630,5 +630,429 @@ describe('the afternoon the reader got backwards', () => {
 
   it('still reads a house that is only a number', () => {
     assert.deepEqual(filed('4 is town', 5), [{ kind: 'clear', targetSlot: 4 }]);
+  });
+});
+
+/**
+ * Lines the October games misread, each lifted verbatim from its trace.
+ *
+ * Every one of these reached the board as something the person had not said:
+ * a question about somebody else's vote filed as an accusation of both seats in
+ * it, a duration read as a house, a role name read as a vouch because it
+ * starts with "town", and a person explaining how their badge *changed* filed
+ * as still wearing the old one.
+ */
+describe('the October misreads', () => {
+  /** Every claim of every kind, as `kind(role):slot`, so an assertion reads like the line did. */
+  const read = (text: string, speaker: number, table: Seat[]): string[] =>
+    readSquare(text, speaker, table)
+      .map(
+        (claim) =>
+          claim.kind +
+          (claim.claimedRole ? '(' + claim.claimedRole + ')' : '') +
+          (claim.deniedRole ? '(' + claim.deniedRole + ')' : '') +
+          (claim.targetSlot === speaker ? '' : ':' + String(claim.targetSlot))
+      )
+      .sort();
+
+  /** `55USN`, 1590s: Keeper asking James Bond about his ballot. Filed as an accusation of both. */
+  it("reads a question about somebody else's vote as a question, not a verdict", () => {
+    const table: Seat[] = [
+      { slot: 1, name: 'Sardine' },
+      { slot: 11, name: 'James Bond' },
+      { slot: 12, name: 'Keeper' }
+    ];
+    const filed = read('James Bond??? why do you vote guilty on sardine?', 12, table);
+    assert.ok(!filed.some((claim) => claim.startsWith('accuse')), `filed ${JSON.stringify(filed)}`);
+    assert.deepEqual(filed, ['question:11']);
+  });
+
+  /** `P6TJ9`, 653s: asking the room for the case against Big Boss. Filed as accusing him. */
+  it("reads a request for somebody's case as no verdict at all", () => {
+    const table: Seat[] = [
+      { slot: 1, name: 'Sardine' },
+      { slot: 7, name: 'Big Boss' }
+    ];
+    assert.deepEqual(read('What are the reasons for "Big boss" to be mafia ?', 1, table), []);
+  });
+
+  /** And the plain accusations a "why" can sit next to are still accusations. */
+  it('still hears an accusation that answers its own why', () => {
+    assert.deepEqual(read('7 is mafia, why else would he lie?', 3, SEATS), ['accuse:7']);
+    assert.deepEqual(read('why are you voting 4? 7 is mafia', 3, SEATS), ['accuse:7']);
+  });
+
+  /** `J6D7G`, 641s: a person explaining the Arsonist's clock, filed as an accusation of house 2. */
+  it('reads a number of days as a duration, not a house', () => {
+    const table: Seat[] = [
+      { slot: 1, name: 'Max' },
+      { slot: 2, name: 'Tony Soprano' },
+      { slot: 5, name: 'Edward Elric' }
+    ];
+    assert.deepEqual(read('Arsonist take 2 day to kill', 1, table), []);
+    assert.deepEqual(seatHits('it takes 2 nights', table), []);
+    // A night *number* after a house is still a house: "checked 5 night 2".
+    assert.deepEqual(
+      seatHits('i checked 5 night 2', table).map((hit) => hit.slot),
+      [5]
+    );
+  });
+
+  /** `J6D7G`, 1100s: "night 5 ?" filed as a question to house 5. */
+  it('reads a number right after a night or a day as that night', () => {
+    const table: Seat[] = [
+      { slot: 1, name: 'Max' },
+      { slot: 5, name: 'Edward Elric' }
+    ];
+    assert.deepEqual(read('night 5 ?', 1, table), []);
+    assert.deepEqual(seatHits('N5 I was home, day 5 I voted', table), []);
+    assert.deepEqual(seatHits('nuit 5', table), []);
+    // "maison n°5" is a house, whatever the n in front of it.
+    assert.deepEqual(
+      seatHits('maison n°5', table).map((hit) => hit.slot),
+      [5]
+    );
+  });
+
+  /**
+   * `WJBJK`, 742s: Xavier denying Fantasio's crier claim, filed as a *clearing* of
+   * Fantasio because "town crier" starts with "town".
+   */
+  it('reads "he can\'t be town crier" as the denial it is', () => {
+    const table: Seat[] = [
+      { slot: 1, name: 'Xavier' },
+      { slot: 10, name: 'Fantasio' },
+      { slot: 16, name: 'Hachiman' }
+    ];
+    const filed = read("I still saying that Fantasio claimed town crier. And he can't be town crier", 1, table);
+    assert.ok(!filed.includes('clear:10'), 'a role name is not a vouch');
+    assert.deepEqual(filed, ['counter-claim(crier):10']);
+    // Nobody named, nobody denied.
+    assert.deepEqual(read("he can't be town crier", 1, table), []);
+    // And a crier claim reported is not a clearing either.
+    assert.deepEqual(read('Fantasio claimed town crier', 1, table), []);
+  });
+
+  /**
+   * `9RVWV`: Max, a Mason turned Citizen by the Auditor, telling his old lodge
+   * what happened. The reader filed him as a Mason on the first line, and the
+   * lodge went on counter-claiming the Citizen he actually was.
+   */
+  it('files the role a person says they are now, not the one they had', () => {
+    const table: Seat[] = [
+      { slot: 1, name: 'Max' },
+      { slot: 24, name: 'Aragorn' }
+    ];
+    const claim = (text: string) => readSquare(text, 1, table).find((entry) => entry.kind === 'role-claim');
+    assert.deepEqual(claim('Aragon I was mason with you before turning into a citizen'), {
+      kind: 'role-claim',
+      targetSlot: 1,
+      claimedRole: 'citizen'
+    });
+    // The Auditor named here is who did it, not a badge he ever wore.
+    assert.deepEqual(claim('no an auditor changed me to citizen'), {
+      kind: 'role-claim',
+      targetSlot: 1,
+      claimedRole: 'citizen'
+    });
+    assert.equal(claim('I got converted to citizen')?.claimedRole, 'citizen');
+    assert.equal(claim('now I am citizen')?.claimedRole, 'citizen');
+    assert.equal(claim('maintenant je suis citoyen')?.claimedRole, 'citizen');
+  });
+
+  it('still reads a past-tense confession when nothing says the badge changed', () => {
+    const table: Seat[] = [{ slot: 1, name: 'Max' }];
+    const claim = readSquare('I was the poisoner', 1, table).find((entry) => entry.kind === 'role-claim');
+    assert.equal(claim?.claimedRole, 'poisoner');
+    // "now" with no role after it changes nothing.
+    assert.equal(
+      readSquare('I am the sheriff now', 1, table).find((entry) => entry.kind === 'role-claim')?.claimedRole,
+      'sheriff'
+    );
+  });
+});
+
+/**
+ * Every human line typed in the day channel of the eleven September and October
+ * traces, read again through this reader with each game's own roster, and
+ * judged against what the person meant. These are the readings that were wrong
+ * in a way a bot would act on: a question nobody heard as one, a vote call read
+ * as nothing, an accusation of the seat the mafia had *attacked*, a night that
+ * happened to somebody else filed as the speaker's own. Lines verbatim, game
+ * code and second given for each.
+ */
+describe('the corpus read', () => {
+  /** Every claim of every kind, as `kind(role):slot`. */
+  const read = (text: string, speaker: number, table: Seat[], options: Parameters<typeof readSquare>[3] = {}) =>
+    readSquare(text, speaker, table, options)
+      .map(
+        (claim) =>
+          claim.kind +
+          (claim.claimedRole ? '(' + claim.claimedRole + ')' : '') +
+          (claim.deniedRole ? '(' + claim.deniedRole + ')' : '') +
+          (claim.ailment ? '(' + claim.ailment + ')' : '') +
+          (claim.urge ? '(' + claim.urge + ')' : '') +
+          (claim.targetSlot === speaker ? '' : ':' + String(claim.targetSlot))
+      )
+      .sort();
+
+  const RVWV: Seat[] = [
+    { slot: 1, name: 'Max' },
+    { slot: 10, name: 'Jon Snow' },
+    { slot: 12, name: 'Hulk' },
+    { slot: 13, name: 'Remy' },
+    { slot: 21, name: 'Diddy Kong' },
+    { slot: 23, name: 'Jack Torrance' },
+    { slot: 24, name: 'Aragorn' }
+  ];
+  const USN: Seat[] = [
+    { slot: 1, name: 'Sardine' },
+    { slot: 3, name: 'Pinocchio' },
+    { slot: 5, name: 'Jon Snow' },
+    { slot: 10, name: 'Minnie' },
+    { slot: 11, name: 'James Bond' },
+    { slot: 12, name: 'Keeper' },
+    { slot: 21, name: 'Ares' }
+  ];
+
+  /**
+   * `9RVWV`, 1566s and 1580s; `P6TJ9`, 662s; `55USN`, 392s. Max asked Jon Snow
+   * for his role twice and the first was read as nothing at all ("jon" is three
+   * letters, and a guess needed four); Keeper's "I want to know your role" had
+   * no question mark and was read as nothing either.
+   */
+  it("hears a question about somebody's role, and says that is what it is about", () => {
+    assert.deepEqual(read('what is your role jon ?', 1, RVWV), ['question:10']);
+    assert.deepEqual(read("what's your role jon", 1, RVWV), ['question:10']);
+    assert.deepEqual(read('10 your role ?', 1, RVWV), ['question:10']);
+    assert.deepEqual(read('Hulk what is your role?', 1, RVWV), ['question:12']);
+    assert.deepEqual(
+      read('Hypnos I want to know your role', 11, [
+        { slot: 11, name: 'Keeper' },
+        { slot: 23, name: 'Hypnos' }
+      ]),
+      ['question:23']
+    );
+    assert.deepEqual(read('Minie what is your role? you claimed to be roleblock on night 2?', 12, USN), [
+      'question:10'
+    ]);
+    // A fragment that is only the house, then the question, as `utterance` joins them.
+    assert.deepEqual(read('10. your role ?', 1, RVWV), ['question:10']);
+  });
+
+  it('hears the same question in French', () => {
+    assert.deepEqual(read("c'est quoi ton rôle Hulk", 1, RVWV), ['question:12']);
+    assert.deepEqual(read("Hulk t'es quoi ?", 1, RVWV), ['question:12']);
+    assert.deepEqual(read('quel est ton rôle Hulk ?', 1, RVWV), ['question:12']);
+    assert.deepEqual(read('Hulk, quel est ton rôle', 1, RVWV), ['question:12']);
+  });
+
+  /**
+   * `9RVWV`, 2023s and 1469s; `BQ75Z`, 327s. "your role ?" typed at the seat on
+   * the stand, naming nobody: the caller says who that is, and without it the
+   * line is about nobody, as before.
+   */
+  it('puts an unaddressed question to the seat on trial, and to nobody otherwise', () => {
+    assert.deepEqual(read('your role ?', 1, RVWV, { onTrial: 23 }), ['question:23']);
+    assert.deepEqual(read('your role ?', 1, RVWV), []);
+    assert.deepEqual(read('What is your role ?', 1, RVWV, { onTrial: 10 }), ['question:10']);
+    assert.deepEqual(read('who else did you jail ?', 1, RVWV, { onTrial: 23 }), ['question:23']);
+    // The accused is not asking themselves, and a line with no "you" in it asks nobody.
+    assert.deepEqual(read('your role ?', 23, RVWV, { onTrial: 23 }), []);
+    assert.deepEqual(read('did someone heal him ?', 1, RVWV, { onTrial: 23 }), []);
+    assert.deepEqual(read('I never asked you anything', 1, RVWV, { onTrial: 10 }), []);
+  });
+
+  it('marks a question about the night as one', () => {
+    assert.deepEqual(read('Gordon Freeman what did you do last night?', 11, [{ slot: 17, name: 'Gordon Freeman' }]), [
+      'question:17'
+    ]);
+    assert.deepEqual(read('Hulk where were you last night', 1, RVWV), ['question:12']);
+    // A bare "7?" is a question too.
+    assert.deepEqual(read('12?', 1, RVWV), ['question:12']);
+  });
+
+  /** `9RVWV`, 451s and 834s; 347s. Vouches and vote calls, which were already right and must stay so. */
+  it('still reads a vouch as a clearing and a vote call as an accusation', () => {
+    assert.deepEqual(read('Aragorn is safe I can vouch for him', 1, RVWV), ['clear:24']);
+    assert.deepEqual(read('Remy is safe, Aragorn is safe, they are town', 1, RVWV), ['clear:13', 'clear:24']);
+    assert.deepEqual(read("let's vote 21 and see what he have to say", 1, RVWV), ['accuse:21', 'urge(vote)']);
+  });
+
+  /**
+   * `9RVWV`, 1125s; `55USN`, 1757s and 1798s. Three people asking for a seat to
+   * be put on the stand, in the three ways people say it, and none of them was
+   * read as anything, because none of them says "vote".
+   */
+  it('hears a call to put somebody on trial', () => {
+    assert.deepEqual(read("Let's bring Hulk to trial and see what he have to say", 1, RVWV), ['accuse:12']);
+    assert.deepEqual(read("So we were right, Keeper is indeed Mason, let's get 11 now please", 1, USN), ['accuse:11']);
+    assert.deepEqual(read('Obviously just try 11 now', 1, USN), ['accuse:11']);
+    assert.deepEqual(read('votez 12', 1, RVWV), ['accuse:12']);
+    // Telling somebody what *they* did is not a call.
+    assert.deepEqual(read('you tried Keeper and you were wrong', 1, USN), []);
+    // And a seat that is on trial is not being accused by the sentence that says so.
+    assert.deepEqual(read('Hulk is on trial', 1, RVWV), []);
+  });
+
+  /**
+   * `BQ75Z`, 938s. "Donald Duck and Dumbledore are the two last mafia" accused
+   * Dumbledore and nobody else, because " and " ends a clause and Donald Duck's
+   * half of the sentence was empty.
+   */
+  it('gives every house in "X and Y are mafia" the verdict', () => {
+    const table: Seat[] = [
+      { slot: 1, name: "J'aime La B1te" },
+      { slot: 12, name: 'Donald Duck' },
+      { slot: 21, name: 'Dumbledore' }
+    ];
+    assert.deepEqual(read('Donald Duck and Dumbledore are the two last mafia', 1, table), ['accuse:12', 'accuse:21']);
+    assert.deepEqual(read('Hulk et Remy sont mafia', 1, RVWV), ['accuse:12', 'accuse:13']);
+    assert.deepEqual(read('vote 12 and 13', 1, RVWV), ['accuse:12', 'accuse:13']);
+    // A house with its own verdict keeps it, and a comma is an address, not an "and".
+    assert.deepEqual(read('vote 12, 13 is town', 1, RVWV), ['accuse:12', 'clear:13']);
+    assert.deepEqual(read('Hulk, Remy is lying', 1, RVWV), ['accuse:13']);
+    // Two houses offered as alternatives are neither accused.
+    assert.deepEqual(read('between 12 and 13 one is lying', 1, RVWV), []);
+  });
+
+  /**
+   * `55USN`, 1279s, 1311s and 1449s. Sardine reasoning about *other* seats'
+   * nights, filed as Sardine surviving an attack and Sardine being healed,
+   * because "I" was somewhere else in the line.
+   */
+  it('does not give the speaker a night that happened to somebody they named', () => {
+    assert.deepEqual(read('I am Spy. 3 and 11 survived mafia twice', 1, USN), ['role-claim(spy)']);
+    assert.deepEqual(read("I don't know what 11 is but if nobody healed him...", 1, USN), []);
+    assert.deepEqual(read('I am Town. 11 survived 2 attack', 1, USN), []);
+    assert.deepEqual(read('I think 11 stayed home', 1, USN), []);
+    // The speaker's own night, with a house in it, is still theirs.
+    assert.deepEqual(read('11 tried to kill me', 1, USN), ['accuse:11', 'ailing(survived)']);
+    assert.deepEqual(read('Keeper, I was poisoned', 1, USN), ['ailing(poison)']);
+    assert.deepEqual(read('the doctor healed me, 11 is lying', 1, USN), ['accuse:11', 'ailing(healed)']);
+  });
+
+  /**
+   * `55USN`, 1435s: a Spy's notes, "N2 Mafia attacked 3", filed as an accusation
+   * of house 3, the seat the same notes call clean.
+   */
+  it('does not accuse the seat the mafia attacked', () => {
+    assert.deepEqual(read('N2 Mafia attacked 3. 3 and 12 are clean.', 1, USN), ['clear:12', 'clear:3']);
+    assert.deepEqual(read('N5 Mafia want to kill 11', 1, USN), []);
+    assert.deepEqual(read('11 was target twice by mafia and still alive', 1, USN), []);
+  });
+
+  /**
+   * `55USN`, 1456s and 1648s: the house in one sentence, the verdict in the next,
+   * with a pronoun between them. Only when the utterance names one house.
+   */
+  it('reads a verdict passed on "he" when only one house was named', () => {
+    assert.deepEqual(read("11 survived 2 attack. He didn't even role claim. He is evil", 1, USN), ['accuse:11']);
+    assert.deepEqual(read('I can cofirm Keeper is Mason. He is town', 1, USN), ['clear:12']);
+    assert.deepEqual(read("Hulk m'a accusé. il ment", 1, RVWV), ['accuse:12']);
+    // Already judged, or somebody else's words, or two houses to choose from: nothing more.
+    assert.deepEqual(read('Hulk is lying about me. He is jester', 1, RVWV), ['accuse:12']);
+    assert.deepEqual(read('Hulk said he is town', 1, RVWV), []);
+    assert.deepEqual(read('Hulk accused Remy. He is lying', 1, RVWV), []);
+  });
+
+  /**
+   * Found while reading the corpus back, not typed at a real table: the same
+   * reader, wrong on sentences one step away from the ones above.
+   */
+  it('reads no verdict into a relay, a guess between two houses, or a question about a vote', () => {
+    assert.deepEqual(read('Remy said Hulk is mafia', 1, RVWV), []);
+    assert.deepEqual(read('he said Hulk is mafia', 1, RVWV), []);
+    assert.deepEqual(read('Hulk or Remy is mafia', 1, RVWV), []);
+    assert.deepEqual(read('who did you vote Hulk?', 1, RVWV), []);
+    assert.deepEqual(read('Hulk who did you vote for?', 1, RVWV), ['question:12']);
+    // The speaker's own word, said in the past tense, is still theirs.
+    assert.deepEqual(read('I said Hulk is mafia', 1, RVWV), ['accuse:12']);
+    assert.deepEqual(read('not Hulk or Remy', 1, RVWV), ['clear:12']);
+  });
+
+  it('does not read a doctor claim as the doctor having visited', () => {
+    assert.deepEqual(read('I am the doctor, Hulk is town and he is my friend', 1, RVWV), [
+      'clear:12',
+      'role-claim(doctor)'
+    ]);
+    assert.deepEqual(read('the doctor saved me last night', 1, RVWV), ['ailing(healed)']);
+  });
+
+  it('hears "let\'s get rid of" as a call', () => {
+    assert.deepEqual(read("let's get rid of Hulk", 1, RVWV), ['accuse:12']);
+  });
+
+  /** `55USN`, 1645s: a Mason vouching for his brother. */
+  it('reads a confirmation of somebody as a clearing', () => {
+    assert.deepEqual(read('I can cofirm Keeper is Mason', 1, USN), ['clear:12']);
+    assert.deepEqual(read('can you confirm Keeper?', 1, USN), ['question:12']);
+  });
+
+  /** `55USN`, 996s; `P6TJ9`, 705s; `9RVWV`, 564s. */
+  it('hears "I want to hear X" as a question and "weird" as suspicion', () => {
+    assert.deepEqual(read('I want to hear jon snow defence', 12, USN), ['question:5']);
+    assert.deepEqual(
+      read('I want to hear Hypnos', 11, [
+        { slot: 11, name: 'Keeper' },
+        { slot: 23, name: 'Hypnos' }
+      ]),
+      ['question:23']
+    );
+    assert.deepEqual(read('I still think 21 is weird', 1, RVWV), ['accuse:21']);
+  });
+
+  /** `JP2RE`, 304s: "I am sherriff", typed on the stand and read as nothing. */
+  it('reads the role names people misspell', () => {
+    assert.deepEqual(read('I am sherriff', 1, RVWV), ['role-claim(sheriff)']);
+    assert.deepEqual(read('I am the jailer', 1, RVWV), ['role-claim(jailor)']);
+    assert.deepEqual(read('je suis docteur', 1, RVWV), ['role-claim(doctor)']);
+    assert.deepEqual(read('je suis maçon', 1, RVWV), ['role-claim(mason)']);
+  });
+
+  it('reads the common French shapes', () => {
+    assert.deepEqual(read('je vote 12', 1, RVWV), ['accuse:12']);
+    assert.deepEqual(read('12 est suspect', 1, RVWV), ['accuse:12']);
+    assert.deepEqual(read('pas 12', 1, RVWV), ['clear:12']);
+    // Nobody named, nobody to pin it on.
+    assert.deepEqual(read('il ment', 1, RVWV), []);
+    assert.deepEqual(read('pas lui', 1, RVWV), []);
+  });
+
+  /** A three-letter first name is a name, unless it is also an ordinary word. */
+  it('reads a short first name, and not a common word that happens to start a name', () => {
+    const table: Seat[] = [
+      { slot: 10, name: 'Jon Snow' },
+      { slot: 24, name: 'Big Boss' },
+      { slot: 23, name: 'Son Goku' }
+    ];
+    assert.deepEqual(
+      seatHits('jon where were you', table).map((hit) => hit.slot),
+      [10]
+    );
+    assert.deepEqual(seatHits('big mistake', table), []);
+    assert.deepEqual(seatHits('il a dit son rôle', table), []);
+  });
+
+  /**
+   * `P6TJ9`, 990s: a Private Investigator's whole will, typed as one line, and
+   * cut to its last 320 characters, which cut off "I am Private Investigator".
+   */
+  it('never cuts the line just typed', () => {
+    const will =
+      'I am Private Investigator. N1 visit 15, Thorin is clean as of N1. N2 visit 21. "Lucky Luke pries into other people’s lives. At this table that means: Sheriff, Private Investigator, Detective, Consigliere, Administrator." N3 visit 11, Keeper is clean as of N3. N4 visit 17, Lisa Simpson is clean as of N4. N5 visit 23, Godfather. N6 visit';
+    const said = utterance(
+      [
+        { authorId: 'a', text: 'I am private investagor', at: 1000 },
+        { authorId: 'a', text: will, at: 4000 }
+      ],
+      'a',
+      4000
+    );
+    assert.ok(said.startsWith('I am Private Investigator'), said.slice(0, 40));
+    assert.deepEqual(
+      readSquare(said, 1, [{ slot: 1, name: 'Sardine' }]).map((claim) => claim.claimedRole),
+      ['investigator']
+    );
   });
 });

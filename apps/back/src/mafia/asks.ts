@@ -319,7 +319,34 @@ const NUMBER_CUE =
  * person names a seat.
  */
 const A_COUNT = /\b(?:there (?:is|are|was|were)|we have|il y a|on a|reste|restent)\s+$/i;
-const COUNTED = /^\s*(?:random|slots?|places?|seats? left|roles?|town slot|of them)\b/i;
+/**
+ * And a length of time is a count too.
+ *
+ * "Arsonist take 2 day to kill" is a person explaining the Arsonist's clock,
+ * and it reached the board as an accusation of house 2 (`J6D7G`, 641s), because
+ * "kill" was the nearest word the reader knew. A number sitting on "day",
+ * "nights" or "jours" is how long something takes.
+ *
+ * Except when another number follows, because then the word is a *marker* and
+ * the number in front of it is the house the marker dates: "I checked 5 night
+ * 2" is a check on house 5, and it is the shape a will is written in.
+ */
+const COUNTED =
+  /^\s*(?:random|slots?|places?|seats? left|roles?|town slot|of them|(?:days?|nights?|jours?|nuits?|turns?|tours?)(?!\s*\d))\b/i;
+
+/**
+ * A number that dates something rather than naming a house.
+ *
+ * "night 5 ?" is a person asking about night five, and the reader filed it as a
+ * question put to house 5 (`J6D7G`, 1100s); house 5 then answered a question
+ * nobody had asked it. Every will in this game opens its entries the same way,
+ * "N1: …", "N2: …", so the same rule was also reading a house 1 and a house 2
+ * into every dead Sheriff's notes.
+ *
+ * Only the marker directly in front, so "night 3, 7 was out" still names house
+ * 7. And not "n°", which is how French writes *number*: "maison n°5" is a house.
+ */
+const DATED = /(?:\b(?:n|d|nights?|nuits?|days?|jours?))\s*$/i;
 
 /** Words too common to be read as a misspelt name. */
 const NOT_A_NAME = new Set([
@@ -384,6 +411,52 @@ const NOT_A_NAME = new Set([
 ]);
 
 /**
+ * Three-letter words that open a name in the bot roster and mean something else.
+ *
+ * See the short-name pass in `seatHits`. "doc" is a role, "son" is French for
+ * *his*, the rest are English a person types in passing.
+ */
+const COMMON_SHORT = new Set([
+  'big',
+  'son',
+  'doc',
+  'van',
+  'mad',
+  'sub',
+  'pac',
+  'man',
+  'mr',
+  'the',
+  'one',
+  'red',
+  'old',
+  'new',
+  'top',
+  'mon',
+  'ton',
+  'les',
+  'des',
+  'une',
+  'qui',
+  'pas',
+  'not',
+  'and',
+  'you',
+  'all',
+  'its',
+  'his',
+  'her',
+  'him',
+  'who',
+  'why',
+  'how',
+  'yes',
+  'non',
+  'oui',
+  'est'
+]);
+
+/**
  * One mistake apart, where a mistake includes two letters swapped.
  *
  * Plain edit distance calls "aragron" two mistakes away from "Aragorn" and
@@ -443,8 +516,9 @@ export function seatHits(text: string, seats: readonly { slot: number; name: str
     for (const match of line.matchAll(new RegExp(`(?<![0-9])${digits}(?![0-9])`, 'g'))) {
       if (match.index === undefined) continue;
       const end = match.index + digits.length;
-      // A tally, not a seat. See `A_COUNT`.
-      if (A_COUNT.test(line.slice(Math.max(0, match.index - 14), match.index)) || COUNTED.test(line.slice(end))) {
+      // A tally or a date, not a seat. See `A_COUNT` and `DATED`.
+      const runUp = line.slice(Math.max(0, match.index - 14), match.index);
+      if (A_COUNT.test(runUp) || DATED.test(runUp) || COUNTED.test(line.slice(end))) {
         continue;
       }
       hits.push({ slot: seat.slot, who: seat.name, at: match.index, end, exact: true });
@@ -491,6 +565,37 @@ export function seatHits(text: string, seats: readonly { slot: number; name: str
         hits.push({ slot: seat.slot, who: seat.name, at, end: at + word.length, exact: false });
         break;
       }
+    }
+  }
+
+  /**
+   * A three-letter first name, typed as a word on its own.
+   *
+   * "what is your role jon ?" was a question put to Jon Snow, and the reader
+   * heard nobody, because a guess needs four letters and "jon" has three
+   * (`9RVWV`, 1566s). Four is the right floor for a *guess*; this is not one,
+   * it is the first word of the name exactly as the roster spells it, which is
+   * what a person calls somebody by. Only the first word, only a seat that has
+   * a second one, only when no other seat answers to the same word, and never
+   * a word that is ordinary English or French first: "big mistake" is not Big
+   * Boss and "son rôle" is not Son Goku.
+   */
+  for (const seat of seats) {
+    const first = fold(seat.name).split(/[^\p{L}\p{N}]+/u);
+    if (first.length < 2 || first[0].length !== 3 || COMMON_SHORT.has(first[0])) continue;
+    const word = first[0];
+    const shared = seats.some(
+      (other) =>
+        other !== seat &&
+        fold(other.name)
+          .split(/[^\p{L}\p{N}]+/u)
+          .includes(word)
+    );
+    if (shared) continue;
+    for (const match of line.matchAll(new RegExp(`(?<![\\p{L}\\p{N}])${word}(?![\\p{L}\\p{N}])`, 'gu'))) {
+      const at = match.index;
+      if (at === undefined || hits.some((hit) => at < hit.end && hit.at < at + word.length)) continue;
+      hits.push({ slot: seat.slot, who: seat.name, at, end: at + word.length, exact: false });
     }
   }
 
@@ -620,13 +725,24 @@ function roleNames(): { name: string; role: RoleId }[] {
   return ROLE_NAMES;
 }
 
-/** The abbreviations a table actually types, per role. */
+/**
+ * The abbreviations a table actually types, per role.
+ *
+ * And the misspellings, when one is common enough to cost a claim. "I am
+ * sherriff" was typed on the stand by a man arguing for his life (`JP2RE`,
+ * 304s) and read as nothing; "jailer" is how half of English spells the
+ * jailor; and a French player says "docteur" and "maçon" long before they say
+ * "Médecin" or "Franc-maçon", which are the names the catalogue gives.
+ */
 const ROLE_NICKNAMES: Partial<Record<RoleId, string[]>> = {
   'serial-killer': ['sk'],
   godfather: ['gf'],
   veteran: ['vet'],
   vigilante: ['vig', 'vigi'],
-  doctor: ['doc', 'medic'],
+  doctor: ['doc', 'medic', 'docteur'],
+  sheriff: ['sherriff', 'sherrif'],
+  jailor: ['jailer'],
+  mason: ['macon'],
   bodyguard: ['bg'],
   executioner: ['exe', 'exec'],
   consigliere: ['consig'],
@@ -770,11 +886,35 @@ export function roleNamedAt(text: string, pick: 'first' | 'last' = 'first'): { r
  * Newest first, and only since the moment the caller names: yesterday's
  * argument was settled by yesterday's corpse.
  */
+/**
+ * A refusal with no house in it, which refers to the last house somebody put forward.
+ *
+ * "no", "not him", "pas lui": what a person types in reply to a pick, and the
+ * reader needed a house in the same line to know what was refused, so on
+ * `9RVWV` three of those in a row, said straight after the Master named a Mass
+ * Murderer as tonight's recruit, changed nothing. Only a line that is nothing
+ * but the refusal: "no idea", "no, 7 was home" and "not sure" are other
+ * sentences, and "no go to jon snow" names a house and is read as before.
+ */
+const BARE_REFUSAL =
+  /^\s*(?:no+|nope|nah|non|never|jamais|no way|hell no|absolutely not|surtout pas|dont|don'?t|not (?:him|her|them|that one|this one)|pas (?:lui|elle|ca|celui-?la|celle-?la))(?:[\s,.!]+(?:no+|non|not (?:him|her|them)|pas (?:lui|elle)|please|stp|svp))*[\s.!]*$/i;
+
+/** A line that is nothing but a refusal, pointing back at whatever was last put forward. See `BARE_REFUSAL`. */
+export function refusesBare(text: string): boolean {
+  return BARE_REFUSAL.test(fold(text));
+}
+
 export function readRoom(
   state: MafiaState,
   room: string,
   since: number,
-  exclude: ReadonlySet<number> = new Set()
+  exclude: ReadonlySet<number> = new Set(),
+  /**
+   * The seat doing the reading. Its own lines are what the others answer ("not
+   * him" refers back to them), and never a request it makes of itself: a
+   * Master's "Tonight I initiate X" read back as somebody asking for X.
+   */
+  listener: number | null = null
 ): RoomAsks {
   const lines = state.chat.messages.filter((message) => {
     if (message.channel !== room || message.at < since || !message.authorId) return false;
@@ -795,7 +935,8 @@ export function readRoom(
     if (!from) continue;
     const role = selfClaim(message.text);
     if (role) claimed = { role, fromSlot: from.slot };
-    for (const mention of mentions(message.text, seats)) {
+    const found = mentions(message.text, seats);
+    for (const mention of found) {
       said.push({
         kind: mention.kind,
         slot: mention.slot,
@@ -804,7 +945,13 @@ export function readRoom(
         human: !from.isBot
       });
     }
+    if (found.length === 0 && refusesBare(message.text)) {
+      const proposed = [...said].reverse().find((entry) => entry.kind === 'target' && entry.fromSlot !== from.slot);
+      if (proposed) said.push({ ...proposed, kind: 'spare', fromSlot: from.slot, human: !from.isBot });
+    }
   }
+  // Heard, so a refusal can point back at them, and then set aside: see `listener`.
+  const others = said.filter((entry) => entry.fromSlot !== listener);
 
   /**
    * The last house asked for that nobody has since taken back.
@@ -815,12 +962,12 @@ export function readRoom(
    * request it refers to.
    */
   let ask: RoomAsk | null = null;
-  for (let index = said.length - 1; index >= 0 && ask === null; index--) {
-    const entry = said[index];
+  for (let index = others.length - 1; index >= 0 && ask === null; index--) {
+    const entry = others[index];
     if (entry.kind !== 'target') continue;
-    const revoked = said.slice(index + 1).some((later) => later.kind === 'spare' && later.slot === entry.slot);
+    const revoked = others.slice(index + 1).some((later) => later.kind === 'spare' && later.slot === entry.slot);
     if (!revoked) ask = entry;
   }
 
-  return { ask, spared: said.filter((entry) => entry.kind === 'spare'), claimed };
+  return { ask, spared: others.filter((entry) => entry.kind === 'spare'), claimed };
 }

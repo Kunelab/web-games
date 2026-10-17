@@ -57,6 +57,7 @@ import {
   clip,
   EMPTY,
   hashCode,
+  phaseWindow,
   saidFields,
   Seat,
   vary,
@@ -78,7 +79,7 @@ import {
 } from './ear.js';
 import { JURY_FORMAT, JURY_RULES, juryPrompt, readJury, type JuryLean } from './jury.js';
 import { MOUTH_FORMAT, mouthPrompt, mouthRules, readLine, type Intent } from './mouth.js';
-import { nightNamed, readSquare, utterance, type SquareClaim } from './square.js';
+import { nightNamed, readSquare, standSlot, utterance, type SquareClaim } from './square.js';
 import { fumble, protectedWords, punctuates, unpunctuated } from './typos.js';
 
 /**
@@ -1661,7 +1662,9 @@ export class MafiaBotDriver {
       author.playerId,
       message.at
     );
-    const filed = readSquare(said || message.text, author.slot, seats);
+    // The seat on the stand, which is who an unaddressed "your role ?" is put to.
+    const accused = standSlot(state);
+    const filed = readSquare(said || message.text, author.slot, seats, accused === null ? {} : { onTrial: accused });
 
     /**
      * Written down even when it read nothing.
@@ -2243,8 +2246,19 @@ export class MafiaBotDriver {
         claimedRole: read.claimed.role
       });
     }
-    if (read.ask) this.minds.record(state, author.playerId, 'accuse', read.ask.slot, { room });
-    for (const spare of read.spared) this.minds.record(state, author.playerId, 'clear', spare.slot, { room });
+    /**
+     * In the lodge the words mean the other thing. A house named there is a door
+     * somebody wants opened, which is trust and not an accusation, and a house
+     * refused there is a seat a brother does not want let in, which is doubt and
+     * not a reprieve. Read the family way, "go for hulk" filed the speaker as
+     * accusing Hulk and "not him" cleared the Mass Murderer it was refusing.
+     */
+    if (room === 'mason') {
+      for (const spare of read.spared) this.minds.record(state, author.playerId, 'hint', spare.slot, { room });
+    } else {
+      if (read.ask) this.minds.record(state, author.playerId, 'accuse', read.ask.slot, { room });
+      for (const spare of read.spared) this.minds.record(state, author.playerId, 'clear', spare.slot, { room });
+    }
 
     // The instant reading of a private room, which is what the knife acts on
     // when no model answers in time.
@@ -2300,7 +2314,11 @@ export class MafiaBotDriver {
      * voice is better than none, so this is a preference and not a filter.
      */
     const knives = candidates.filter((player) => legalNightAction(state, player.playerId)?.type === 'kill');
-    const pool = knives.length > 0 && (room === 'mafia' || room === 'triad' || room === 'cult') ? knives : candidates;
+    // The lodge's equivalent of the knife: the Master, who is the one seat that can open a door.
+    const masters = candidates.filter((player) => legalNightAction(state, player.playerId)?.type === 'recruit');
+    const family = room === 'mafia' || room === 'triad' || room === 'cult';
+    const hands = family ? knives : room === 'mason' ? masters : [];
+    const pool = hands.length > 0 ? hands : candidates;
 
     // One voice, not a chorus: four bots answering one line is worse than none.
     const speaker = pool[Math.floor(this.rng() * pool.length)];
@@ -2311,6 +2329,18 @@ export class MafiaBotDriver {
       key,
       this.clock.after(1500 + this.rng() * 2000, () => {
         this.privateTimers.delete(key);
+        /**
+         * The hand acts on what it was told before it answers it.
+         *
+         * A turn held in a room only talks; the night's power is submitted by the
+         * seat's own scheduled turns, the last of which lands somewhere before
+         * two thirds of the night. A request typed after that was answered in
+         * the room ("as you asked") and then not done, because nothing was going
+         * to look at the night again. So the seats holding the room's power run
+         * their night once more, here, and the line that follows reads the order
+         * they have just committed.
+         */
+        if (state.phase === 'night') for (const hand of hands) this.decide(code, hand.playerId, 'night');
         this.decide(code, speaker.playerId, 'night', room);
       })
     );
@@ -3092,8 +3122,15 @@ export class MafiaBotDriver {
      * argument as context and replied to that instead of to the person in front
      * of it. A reply that ignores what was just said is not a reply.
      */
+    /**
+     * And only from this day or night. The same rule `answering` has always kept:
+     * with no window, a lodge was still being shown a "not him" from three nights
+     * back, and a square on day nine was shown "Hi" from day one, as the latest thing
+     * anybody had said.
+     */
+    const since = phaseWindow(state);
     const square = state.chat.messages.filter(
-      (message) => message.channel === room && message.authorId && message.authorId !== botId
+      (message) => message.channel === room && message.authorId && message.authorId !== botId && message.at >= since
     );
     const human = square.filter((message) => state.players[message.authorId ?? '']?.isBot === false).slice(-2);
     const recent = [...new Set([...human, ...square.slice(-2)])]
@@ -3110,14 +3147,18 @@ export class MafiaBotDriver {
      * pays a full request to be told to be quiet.
      */
     const mine = state.chat.messages
-      .filter((message) => message.channel === room && message.authorId === botId && message.text)
+      .filter((message) => message.channel === room && message.authorId === botId && message.text && message.at >= since)
       .slice(-2)
       .map((message) => message.text);
 
     const answer = await this.askChain(
       {
         system: mouthRules(tongue),
-        user: mouthPrompt({ name: self.name, slot: self.slot }, { ...intent, said: mine }, recent),
+        user: mouthPrompt(
+          { name: self.name, slot: self.slot, habit: this.minds.mind(state, botId)?.brain.personality.voice?.habit },
+          { ...intent, said: mine },
+          recent
+        ),
         format: MOUTH_FORMAT,
         formatName: 'mouth',
         // One short line. The ceiling is for a model that decides to explain
@@ -3466,7 +3507,14 @@ export class MafiaBotDriver {
          * applied, after the floor has passed the line: the room's
          * no-verbatim-repeats check still compares what the seat meant to say.
          */
-        const typed = punctuates(botId) ? text : unpunctuated(text);
+        /**
+         * And the character's own way of typing, which the phrasebook lines never
+         * carried: when no model is up, every line is a phrasebook line, and the
+         * quiet seat said its few words in the same tidy capitals as everybody.
+         */
+        const lowercase = this.minds.mind(state, botId)?.brain.personality.voice?.lowercase === true;
+        const stopped = punctuates(botId) && !lowercase ? text : unpunctuated(text);
+        const typed = lowercase ? stopped.toLowerCase() : stopped;
         const posted = this.hooks.chat(
           code,
           botId,
@@ -3971,7 +4019,9 @@ export class MafiaBotDriver {
     const mind = this.minds.mind(state, botId);
     if (!me || !mind) return EMPTY;
 
-    const persona = `Your character: ${me.name}, number ${me.slot}. Temperament: ${PERSONAS[hashCode(botId) % PERSONAS.length]}.`;
+    // The same person the policy is playing, when it was cast as one; the old hash otherwise.
+    const voice = mind.brain.personality.voice;
+    const persona = `Your character: ${me.name}, number ${me.slot}. Temperament: ${voice ? `${voice.mood}. ${voice.habit}` : PERSONAS[hashCode(botId) % PERSONAS.length]}.`;
     /**
      * The table's spoken language — English unless a lone human wants otherwise
      * (see `spokenLocale`) — and it renders the briefing as well as instructing

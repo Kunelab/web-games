@@ -72,6 +72,9 @@ const humanProfile = process.argv.includes('--humains-comme-bots')
  * anybody held was nothing at all.
  */
 const autopsying = process.argv.includes('--autopsy');
+
+/** `--cast`: bots drawn from the cast of characters, as on a live table. See `CHARACTERS`. */
+const cast = process.argv.includes('--cast');
 const trials: TrialAutopsy[] = [];
 const autopsy = autopsying ? (trial: TrialAutopsy) => trials.push(trial) : undefined;
 
@@ -297,6 +300,7 @@ for (const players of playerCounts) {
           profile,
           humans,
           humanProfile,
+          cast,
           autopsy,
           calibrate,
           report: reportingAny,
@@ -312,6 +316,7 @@ for (const players of playerCounts) {
           profile,
           humans,
           humanProfile,
+          cast,
           autopsy,
           calibrate,
           report: reportingAny,
@@ -333,6 +338,7 @@ for (const players of playerCounts) {
           profile,
           humans,
           humanProfile,
+          cast,
           autopsy,
           calibrate,
           report: reportingAny,

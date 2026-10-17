@@ -137,7 +137,7 @@ export const rolesFr: TranslationOf<typeof rolesEn> = {
   'mafia.role.judge.desc':
     'Peut convoquer un tribunal d’exception : jugement immédiat, sans défense, et sa voix compte triple. Gagne si la ville perd.',
   'mafia.role.auditor.name': 'Contrôleur fiscal',
-  'mafia.role.auditor.desc': 'Réduit un joueur à néant administratif : son rôle est dissous. Gagne si la ville perd.',
+  'mafia.role.auditor.desc': 'Réduit un joueur à néant administratif : son rôle est dissous. La loge des francs-maçons lui échappe. Gagne si la ville perd.',
   'mafia.role.witch.name': 'Sorcière',
   'mafia.role.witch.desc':
     'Chaque nuit, envoûte un joueur et détourne son geste vers une autre maison. Gagne si la Ville ne gagne pas, et qu’elle respire encore.',

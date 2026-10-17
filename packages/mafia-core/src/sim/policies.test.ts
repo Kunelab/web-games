@@ -26,6 +26,7 @@ import {
   losingClock,
   makeBrain,
   parityPressure,
+  stolenBadge,
   rivalThreat,
   EVEN_TEMPERAMENT,
   steadyVote,
@@ -602,6 +603,48 @@ const HERD_HALF = {
   courage: 0.5,
   temperament: EVEN_TEMPERAMENT,
 };
+
+describe("a badge the table makes as it goes", () => {
+  /**
+   * `9RVWV`: a Lookout initiated into the lodge, later audited, tells the room
+   * "I was mason with you before turning into a citizen". The dealt Mason and
+   * the dealt Citizen each read that as their badge being stolen, because the
+   * deal held one of each, and said so in front of the whole square.
+   */
+  const dealt = (entries: [RoleId, number][]): PublicInfo => ({
+    ...toPublicInfo(table(["mason", "lookout", "citizen", "mason-leader", "auditor"]), [], []),
+    dealCopies: new Map(entries),
+  });
+
+  it("has no ceiling on a badge something dealt can hand out", () => {
+    const info = dealt([["mason", 1], ["mason-leader", 1], ["citizen", 1], ["auditor", 1]]);
+    assert.equal(copiesOf(info, "mason"), Number.POSITIVE_INFINITY);
+    assert.equal(copiesOf(info, "citizen"), Number.POSITIVE_INFINITY);
+    // The maker itself is still one of a kind.
+    assert.equal(copiesOf(info, "mason-leader"), 1);
+  });
+
+  it("still counts the deal when nothing at the table makes more", () => {
+    const info = dealt([["mason", 1], ["citizen", 1]]);
+    assert.equal(copiesOf(info, "mason"), 1);
+    assert.equal(copiesOf(info, "citizen"), 1);
+  });
+
+  it("does not read a recruit's claim as a stolen badge", () => {
+    const state = table(["mason", "lookout", "citizen", "mason-leader", "auditor"]);
+    const mason = playerBySlot(state, 1);
+    if (!mason) throw new Error("the table is missing a seat");
+    const claims = [claim({ claimerSlot: 2, targetSlot: 2, kind: "role-claim", claimedRole: "mason" })];
+    const info = {
+      ...toPublicInfo(state, claims, []),
+      dealCopies: new Map<RoleId, number>([["mason", 1], ["mason-leader", 1]]),
+    };
+    assert.equal(stolenBadge(2, mason, info), null);
+
+    const lone = { ...info, dealCopies: new Map<RoleId, number>([["mason", 1]]) };
+    assert.equal(stolenBadge(2, mason, lone), "mason");
+  });
+});
 
 describe("two seats claiming one unique role", () => {
   /**

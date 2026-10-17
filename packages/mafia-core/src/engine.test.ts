@@ -3777,27 +3777,59 @@ describe("a seat that becomes something else", () => {
 
   /**
    * The will is signed from the badge a seat was dealt, so a Sheriff taken into
-   * the lodge and then audited still has a Sheriff's nights to account for.
-   * Only the first rewrite records it: a seat rewritten twice was dealt once.
+   * the lodge and then promoted to its Master still has a Sheriff's nights to
+   * account for. Only the first rewrite records it: a seat rewritten twice was
+   * dealt once. The history keeps both steps, and why each happened.
    */
   it("keeps the badge it was dealt through a second rewrite", () => {
+    const state = table(
+      ["mason-leader", "citizen", "sheriff", "citizen", "citizen", "godfather", "mafioso"],
+      3,
+    );
+    const master = bySlot(state, 1);
+    const sheriff = bySlot(state, 3);
+
+    toNight(state);
+    setNightAction(state, master.playerId, sheriff.slot);
+    toDawn(state);
+    assert.equal(sheriff.role, "mason", "initiated into the lodge");
+    assert.equal(sheriff.roleBefore, "sheriff");
+
+    // The Master is gone, and the lodge elects its eldest brother.
+    master.alive = false;
+    toNight(state);
+    toDawn(state);
+    assert.equal(sheriff.role, "mason-leader", "and promoted to run it");
+    assert.equal(sheriff.roleBefore, "sheriff", "the first badge survives");
+    assert.deepEqual(
+      sheriff.roleHistory?.map((step) => [step.from, step.to, step.why]),
+      [
+        ["sheriff", "mason", "initiated"],
+        ["mason", "mason-leader", "promoted"],
+      ],
+    );
+  });
+
+  /** `9RVWV`: an audit took a brother out of the lodge, and the lodge never knew. */
+  it("cannot audit a brother out of the lodge", () => {
     const state = table(
       ["mason-leader", "auditor", "sheriff", "citizen", "citizen", "godfather", "mafioso"],
       3,
     );
+    const auditor = bySlot(state, 2);
     const sheriff = bySlot(state, 3);
 
     toNight(state);
     setNightAction(state, bySlot(state, 1).playerId, sheriff.slot);
     toDawn(state);
-    assert.equal(sheriff.role, "mason", "initiated into the lodge");
-    assert.equal(sheriff.roleBefore, "sheriff");
+    assert.equal(sheriff.role, "mason");
 
+    const charges = auditor.charges;
     toNight(state);
-    setNightAction(state, bySlot(state, 2).playerId, sheriff.slot);
+    setNightAction(state, auditor.playerId, sheriff.slot);
     toDawn(state);
-    assert.equal(sheriff.role, "citizen", "and audited out of it");
-    assert.equal(sheriff.roleBefore, "sheriff", "the first badge survives");
+    assert.equal(sheriff.role, "mason", "still in the lodge");
+    assert.equal(auditor.charges, charges, "and the failed audit costs nothing");
   });
 
   it("starts with nothing to remember", () => {

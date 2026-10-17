@@ -15,12 +15,14 @@
  *     pnpm --filter back trace latest           # summarise the newest
  *     pnpm --filter back trace latest --talk    # ...and print the conversation
  *     pnpm --filter back trace mafia-2026-… --raw chat,parse
+ *     pnpm --filter back trace --audit [file|dir …] [--verbose]   # what went wrong, per game
  */
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 import { traceDir } from '../env.js';
 import { emptyStats, foldTrace, renderStats } from '../mafia/table-stats.js';
+import { auditTrace, renderAudit, type GameAudit } from './audit.js';
 
 /* eslint-disable no-console */
 
@@ -72,7 +74,11 @@ async function files(): Promise<{ name: string; at: number; size: number }[]> {
 }
 
 async function read(name: string): Promise<Line[]> {
-  const body = await readFile(join(traceDir, name), 'utf8');
+  return readPath(join(traceDir, name));
+}
+
+async function readPath(path: string): Promise<Line[]> {
+  const body = await readFile(path, 'utf8');
   const lines: Line[] = [];
   for (const row of body.split('\n')) {
     if (!row.trim()) continue;
@@ -284,9 +290,54 @@ function talk(lines: Line[]): void {
   }
 }
 
+/**
+ * `--audit` — the fault classes of `audit.ts`, one row per game.
+ *
+ * Takes files, directories, or names out of the trace directory, and with none
+ * of those audits every trace in it. A relative path is read against the
+ * directory the command was started from, which under `pnpm --filter` is
+ * `apps/back`, so an absolute one is the safe thing to type.
+ */
+async function auditMode(args: string[], rows: { name: string }[]): Promise<void> {
+  const wanted = args.filter((arg) => !arg.startsWith('--'));
+  const paths: string[] = [];
+  for (const arg of wanted.length > 0 ? wanted : [traceDir]) {
+    const path = resolve(arg);
+    const info = await stat(path).catch(() => null);
+    if (info?.isDirectory()) {
+      const names = (await readdir(path)).filter((name) => name.endsWith('.jsonl')).sort();
+      paths.push(...names.map((name) => join(path, name)));
+    } else if (info) {
+      paths.push(path);
+    } else {
+      const found = rows.filter((row) => row.name.includes(arg)).map((row) => join(traceDir, row.name));
+      if (found.length === 0) console.error(`no trace matching "${arg}"`);
+      paths.push(...found);
+    }
+  }
+  const games: GameAudit[] = [];
+  for (const path of paths) {
+    const code = /([A-Z0-9]{5})\.jsonl$/.exec(basename(path))?.[1] ?? basename(path);
+    const game = auditTrace(await readPath(path), code);
+    if (game) games.push(game);
+  }
+  if (games.length === 0) {
+    console.error('no games to audit');
+    process.exitCode = 1;
+    return;
+  }
+  console.log(renderAudit(games, args.includes('--verbose')));
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const rows = await files().catch(() => []);
+
+  if (args.includes('--audit')) {
+    await auditMode(args, rows);
+    return;
+  }
+
   const wanted = args.find((arg) => !arg.startsWith('--'));
 
   if (!wanted) {

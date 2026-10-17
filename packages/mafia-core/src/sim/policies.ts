@@ -1,7 +1,9 @@
 import type { DeathSource } from '../messages.js';
 import type { NightActionType, RoleId } from '../roles.js';
+import type { CharacterId, Voice } from './characters.js';
 import {
   CORPSE_ONLY,
+  CREATES,
   duelBeats,
   ENDGAME_SEATS,
   familyOf,
@@ -164,6 +166,16 @@ export interface Personality {
   temperament: Temperament;
   /** The people-shaped habits. Absent, as for every bot, means none. See `Quirks`. */
   quirks?: Quirks;
+  /**
+   * Which character this seat was cast as, and how it comes across.
+   *
+   * Words for the mouth and nothing the policy reads: `mood` is the
+   * temperament a line is written in, `habit` how the person types. Absent on
+   * the bench's uncast seats, which talk the way they always did. See
+   * `CHARACTERS`.
+   */
+  character?: CharacterId;
+  voice?: Voice;
 }
 
 /** The average player: every meter at exactly its face value. */
@@ -813,7 +825,9 @@ export function makePersonality(profile: Personality, rng: () => number): Person
     courage: jitter(profile.courage),
     temperament: { nerve: coefficient(), suspicion: coefficient(), haste: coefficient() },
     // Carried through untouched: a habit is a habit, not a meter to roll.
-    quirks: profile.quirks ?? NO_QUIRKS
+    quirks: profile.quirks ?? NO_QUIRKS,
+    ...(profile.character ? { character: profile.character } : {}),
+    ...(profile.voice ? { voice: profile.voice } : {})
   };
 }
 
@@ -840,7 +854,19 @@ export function copiesOf(info: PublicInfo, role: RoleId): number {
    */
   const capped = roleDef(role).unique ? 1 : Number.POSITIVE_INFINITY;
   const counted = info.dealCopies?.get(role);
+  /**
+   * And no count at all for a badge something dealt can hand out. The deal is
+   * how many seats *started* with it; a lodge or an Auditor at the table makes
+   * more every night. See `CREATES`.
+   */
+  if (counted !== undefined && capped > 1 && madeAtThisTable(info.dealCopies!, role)) return capped;
   return counted === undefined ? capped : Math.min(capped, counted);
+}
+
+function madeAtThisTable(dealt: ReadonlyMap<RoleId, number>, role: RoleId): boolean {
+  return (Object.entries(CREATES) as [RoleId, readonly RoleId[]][]).some(
+    ([maker, made]) => made.includes(role) && (dealt.get(maker) ?? 0) > 0
+  );
 }
 
 export function isEvilRole(role: RoleId): boolean {
@@ -4071,7 +4097,13 @@ export function worthWhispering(
    * author. A villain with no claim yet has nothing to reinforce, so it keeps
    * its mouth shut and picks a face in the square like everybody else.
    */
-  const role: RoleId | null = evil ? said : self.role;
+  /**
+   * Only the town whispers the truth. A Jester whispering "Jester" to the Mayor
+   * throws away the one hanging it plays for, and an Executioner naming itself
+   * hands its target a reason to be spared; both lie the way an evil does.
+   */
+  const honest = roleDef(self.role).faction === 'town';
+  const role: RoleId | null = evil || !honest ? said : self.role;
   if (role === null) return null;
 
   /**
@@ -5427,7 +5459,18 @@ export function decideDay(
           info.aliveSlots.includes(claim.claimerSlot) &&
           !alreadyClaimed(info, self.slot, claim.claimerSlot, 'counter-claim')
       );
-      if (thief && myRole && roleDef(myRole).faction === 'town' && worthContesting(thief.claimerSlot, myRole)) {
+      /**
+       * And only a badge nobody else can be wearing. "You are not the Mason, I am" said to a recruit was the
+       * whole lodge calling its own brother a liar, because a second holder of a shared badge is not a thief.
+       * `stolenBadge` has always asked this; the spoken half did not.
+       */
+      if (
+        thief &&
+        myRole &&
+        roleDef(myRole).faction === 'town' &&
+        copiesOf(info, myRole) === 1 &&
+        worthContesting(thief.claimerSlot, myRole)
+      ) {
         publish(thief.claimerSlot, 'counter-claim', undefined, undefined, undefined, { deniedRole: myRole });
       }
 
@@ -8384,12 +8427,22 @@ export function decideNightTarget(
       const any = legalTargets.filter((slot) => !teammates.has(slot) && slot !== self.slot);
       return any[Math.floor(rng() * any.length)] ?? random();
     }
-    const scored = open
-      .map((slot) => ({ slot, doubt: suspicion(slot, self, info, rng) }))
-      .sort((left, right) => right.doubt - left.doubt);
-    const best = scored[0];
-    if (best && best.doubt >= 1) return best.slot;
-    const warmest = [...open].sort((left, right) => trustOf(right, info) - trustOf(left, info))[0];
+    // The test, when there is a seat worth one; the lodge's growth otherwise. See `knockIsTest`.
+    const suspect = [...open].sort(
+      (left, right) => suspicion(right, self, info, STEADY) - suspicion(left, self, info, STEADY)
+    )[0];
+    if (suspect !== undefined && knockIsTest(self, info, suspect, teammates)) return suspect;
+    /**
+     * The seat the lodge would most like to have: the most trusted, and among
+     * equals the least doubted. Trust alone tied most of an early table at zero
+     * and let seat order pick, which on a real table was the room's top suspect
+     * knocked on as a "recruitment".
+     */
+    const warmest = [...open].sort(
+      (left, right) =>
+        trustOf(right, info) - trustOf(left, info) ||
+        suspicion(left, self, info, STEADY) - suspicion(right, self, info, STEADY)
+    )[0];
     return warmest ?? null;
   }
 
@@ -8408,6 +8461,34 @@ export function decideNightTarget(
   // Everything else (swap, imitate, hide, charm, control): honest mischief.
   return random();
 }
+
+/** Dice that always land in the middle, for a reading two callers have to agree on. */
+const STEADY = (): number => 0.5;
+
+/**
+ * Whether a Mason Leader's knock on this house is a test rather than a recruitment.
+ *
+ * Growing is the power's job; testing is what it can do on the side. Any doubt
+ * at all used to buy the test, so on the live tables 28 knocks in 71 went to
+ * killers' doors and the lodge stayed two or three brothers for the whole game.
+ * Only a strong suspect is worth a night, and a lodge of one or two, which needs
+ * members more than findings, wants a stronger one still.
+ *
+ * One rule for the policy that picks the door and the line that announces it,
+ * read without dice, so the lodge is never told "testing" about a recruitment.
+ */
+export function knockIsTest(
+  self: MafiaPlayer,
+  info: PublicInfo,
+  slot: number,
+  teammates: ReadonlySet<number>
+): boolean {
+  const bar = teammates.size + 1 <= 2 ? KNOCK_TEST_BAR.small : KNOCK_TEST_BAR.grown;
+  return suspicion(slot, self, info, STEADY) >= bar;
+}
+
+/** How much doubt a knock has to carry to be a test. See `knockIsTest`. */
+export const KNOCK_TEST_BAR = { small: 2.5, grown: 2 } as const;
 
 /**
  * The second house of a two-target order: the Witch's destination, the Bus

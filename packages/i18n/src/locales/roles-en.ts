@@ -143,7 +143,7 @@ export const rolesEn = {
     'Can call an exceptional court: immediate judgement, no defence, and their voice counts triple. Wins if the town loses.',
   'mafia.role.auditor.name': 'Auditor',
   'mafia.role.auditor.desc':
-    'Reduces a player to administrative nothing: their role is dissolved. Wins if the town loses.',
+    'Reduces a player to administrative nothing: their role is dissolved. The Masons\' lodge is beyond its reach. Wins if the town loses.',
   'mafia.role.witch.name': 'Witch',
   'mafia.role.witch.desc':
     'Each night, bewitches a player and diverts their deed to another house. Wins if the Town does not, and she is still breathing.',

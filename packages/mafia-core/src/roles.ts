@@ -784,7 +784,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     faction: 'neutral',
     nightAction: 'audit',
     charges: 3,
-    description: 'Réduit un joueur à néant administratif : son rôle est dissous. Gagne si la ville perd.',
+    description: 'Réduit un joueur à néant administratif : son rôle est dissous. La loge des francs-maçons lui échappe. Gagne si la ville perd.',
     investigated: L.ink
   }),
   witch: def({
@@ -967,6 +967,28 @@ export function duelBeats(mine: RoleId, theirs: RoleId): boolean {
   // Two knives: the one that bounces loses.
   return !!them.nightImmune && !me.nightImmune;
 }
+
+/**
+ * The badges a seat can be handed mid-game, by the role that hands them out.
+ *
+ * A deal counts one Mason and one Citizen, and the board used to believe it:
+ * on `9RVWV` a player recruited into the lodge and later audited told the room
+ * what had happened to them, and the dealt Mason answered "Max isn't the Mason,
+ * I am, so one of us is lying", the dealt Citizen said the same of the Citizen,
+ * and the player was jailed for it. Both badges were being made at that table
+ * every night. Wherever the maker was dealt, what it makes can be worn by more
+ * seats than were dealt it.
+ *
+ * Promotions are not here: an heir takes a badge whose last holder is dead, so
+ * no two living seats hold it. Nor is the Amnesiac, whose borrowed badge is
+ * announced to the whole town when it is taken.
+ */
+export const CREATES: Partial<Record<RoleId, readonly RoleId[]>> = {
+  'mason-leader': ['mason'],
+  auditor: ['citizen', 'mafioso', 'enforcer', 'scumbag'],
+  cultist: ['cultist', 'witch-doctor'],
+  executioner: ['jester']
+};
 
 /** The family a role belongs to, or null for town and neutrals. */
 export function familyOf(role: RoleId): FamilyId | null {
