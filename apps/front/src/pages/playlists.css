@@ -232,6 +232,10 @@
     grid-template-columns: minmax(0, 1fr) auto;
   }
 }
+/* What will be played sits above the room's options, not against them. */
+.editor-section + .launch-layout {
+  margin-top: var(--space-5);
+}
 
 .qr-card {
   background: #ffffff;
@@ -274,4 +278,39 @@
   border: 1px solid var(--accent);
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
+}
+
+/* ------------------------------------------------- launch: what will be played */
+
+/* The endless mode's setup pieces (blindtest.css), laid out inside a section. */
+.pl-source {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.pl-source-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+.pl-source-genres-head {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+}
+.pl-source-genres-head h3 {
+  margin: 0;
+  font-size: var(--text-base);
+}
+.pl-source-label {
+  margin: 0 0 0.4rem;
+  font-weight: 600;
+}
+.pl-source-windows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: var(--space-4);
 }

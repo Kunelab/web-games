@@ -1,5 +1,5 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { sessionConfigSchema } from 'game-core';
+import { genreWindowSchema, selectByGenre, sessionConfigSchema } from 'game-core';
 import { z } from 'zod';
 
 import { frontOrigin } from '../env.js';
@@ -81,7 +81,18 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         body: z.object({
           playlistId: z.coerce.number().int().positive(),
-          config: sessionConfigSchema.partial().optional()
+          config: sessionConfigSchema.partial().optional(),
+          /**
+           * The genres the host kept, each with its difficulty window.
+           *
+           * Absent plays the whole playlist, which is every quick match and every
+           * launch from before the screen asked. Present, it is the list of what
+           * stays: a genre the playlist gained while the host was choosing is one
+           * they never saw, so it is not dealt either. See `selectByGenre`.
+           */
+          genres: z.array(genreWindowSchema).max(1000).optional(),
+          /** Stop after this many rounds, a random slice when shuffled. Absent plays them all. */
+          maxRounds: z.coerce.number().int().min(1).max(1000).optional()
         })
       }
     },
@@ -95,12 +106,18 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
         return reply.code(400).send({ message: 'Cette playlist est vide' });
       }
 
+      const items = request.body.genres ? selectByGenre(playlist.items, request.body.genres) : playlist.items;
+      if (items.length === 0) {
+        return reply.code(400).send({ message: 'Aucun média de cette playlist ne correspond à ces genres' });
+      }
+
       const state = await app.games.create({
         playlistId: playlist.id,
         playlistName: playlist.name ?? 'Partie',
         hostUserId: request.currentUser.id,
-        items: playlist.items,
-        config: request.body.config
+        items,
+        config: request.body.config,
+        maxRounds: request.body.maxRounds
       });
 
       if (state.order.length === 0) {

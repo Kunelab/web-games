@@ -14,6 +14,12 @@ import { PublicSwitch } from '../ui/PublicSwitch';
 import { RoomDoor } from '../ui/RoomDoor';
 import { ShareLink } from '../ui/ShareLink';
 import { BlindtestSource, type BlindtestDraw } from './BlindtestSource';
+import { hasChoices, OPEN_FILTER, playlistSelection, type PlaylistFilter } from './playlist-selection';
+import { PlaylistSource } from './PlaylistSource';
+// The section cards (`editor-section`) are drawn by the library's sheet. Without
+// it they rendered bare whenever this screen was opened directly rather than
+// reached through the editor, which had already loaded it.
+import './library.css';
 import './playlists.css';
 
 /** What this room will be played on. */
@@ -59,6 +65,8 @@ export default function Launch({ source = 'playlist' }: { source?: LaunchSource 
    * effect from looping.
    */
   const [draw, setDraw] = useState<BlindtestDraw | null>(null);
+  /** The playlist side's equivalent: which genres, how hard, how long. See `PlaylistSource`. */
+  const [filter, setFilter] = useState<PlaylistFilter>(OPEN_FILTER);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [started, setStarted] = useState<{
@@ -73,7 +81,7 @@ export default function Launch({ source = 'playlist' }: { source?: LaunchSource 
     try {
       const session = isBlindtest
         ? draw && { ...(await api.blindtestCreate({ ...draw, config })), skipped: [] }
-        : await api.startSession(playlistId, config);
+        : await api.startSession(playlistId, config, playlistSelection(playlist.data?.items ?? [], filter));
       if (!session) return;
       // The host token proves ownership over the socket, and it must survive a
       // refresh of the host screen, so it goes in sessionStorage keyed by code.
@@ -99,10 +107,10 @@ export default function Launch({ source = 'playlist' }: { source?: LaunchSource 
   }
 
   /** What this room is playing, in the reader's words. Also the unnamed room's name. */
-  const subject = isBlindtest
-    ? t(msg('launch.blindtest'))
-    : (playlist.data?.name ?? t(msg('launch.backPlaylist')));
+  const subject = isBlindtest ? t(msg('launch.blindtest')) : (playlist.data?.name ?? t(msg('launch.backPlaylist')));
   const ready = playlist.data ? playlist.data.items.length - playlist.data.notReadyCount : 0;
+  /** What the filter keeps of the playlist: the start button's count on this side. */
+  const kept = playlist.data ? playlistSelection(playlist.data.items, filter).kept : 0;
 
   if (started) {
     const url = joinUrl(started.code);
@@ -211,6 +219,15 @@ export default function Launch({ source = 'playlist' }: { source?: LaunchSource 
         <div className="editor-section">
           <h2 className="editor-section-title">{t(msg('launch.blindtest.source'))}</h2>
           <BlindtestSource onChange={setDraw} />
+        </div>
+      )}
+
+      {/* A quiz of twenty with one category and no difficulty has nothing to
+          narrow, and is not asked. */}
+      {!isBlindtest && playlist.data && hasChoices(playlist.data.items) && (
+        <div className="editor-section">
+          <h2 className="editor-section-title">{t(msg('launch.filter.title'))}</h2>
+          <PlaylistSource items={playlist.data.items} value={filter} onChange={setFilter} />
         </div>
       )}
 
@@ -389,13 +406,14 @@ export default function Launch({ source = 'playlist' }: { source?: LaunchSource 
 
           {error && <p className="field-error">{error}</p>}
 
-          {/* Dead until there is something to play: an empty playlist on one
-              side, and on the other a set of genres the catalogue cannot fill. */}
+          {/* Dead until there is something to play: an empty playlist or a
+              filter that keeps none of it on one side, and on the other a set of
+              genres the catalogue cannot fill. */}
           <Button
             variant="primary"
             size="lg"
             busy={starting}
-            disabled={isBlindtest ? draw === null : ready === 0}
+            disabled={isBlindtest ? draw === null : kept === 0}
             onClick={() => void start()}
           >
             {t(msg('launch.create'))}

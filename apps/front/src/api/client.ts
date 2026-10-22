@@ -1,4 +1,4 @@
-import type { AnswerField, FieldMeta, FinalAward, KindTiming, Readiness, SessionConfig } from 'game-core';
+import type { AnswerField, FieldMeta, FinalAward, GenreWindow, KindTiming, Readiness, SessionConfig } from 'game-core';
 import type { Currency, LobbyCard, LobbyGame, LockerView, ShopItem } from 'lobby-core';
 import type { MafiaState } from 'mafia-core';
 
@@ -102,6 +102,18 @@ export interface AuthUser {
    * rather than from the client.
    */
   role?: string;
+}
+
+/** What a media list does with the rows the endless blind test generated. */
+export type GeneratedFilter = 'include' | 'exclude' | 'only';
+
+/**
+ * Whether a row is one the endless blind test generated: an ownerless blind
+ * test, the same test the server lists them by. Only an admin ever sees one in a
+ * library; a member's lists hold their own rows alone.
+ */
+export function isGenerated(item: Pick<MediaItem, 'user_id' | 'kind'>): boolean {
+  return item.user_id === null && item.kind === 'blindtest';
 }
 
 /** Mirrors MediaView on the server. */
@@ -326,19 +338,27 @@ export const api = {
    */
   reportBug: (report: { area: string; message: string; page?: string; gameCode?: string }) =>
     request<{ id: number; message: string }>('/bugs', { method: 'POST', body: report }),
-  listBugs: (status?: 'new' | 'seen' | 'closed') =>
-    request<BugReport[]>(`/bugs${status ? `?status=${status}` : ''}`),
+  listBugs: (status?: 'new' | 'seen' | 'closed') => request<BugReport[]>(`/bugs${status ? `?status=${status}` : ''}`),
   setBugStatus: (id: number, status: 'new' | 'seen' | 'closed') =>
     request<{ message: string }>(`/bugs/${id}`, { method: 'PATCH', body: { status } }),
   deleteBug: (id: number) => request<void>(`/bugs/${id}`, { method: 'DELETE' }),
 
   /* media */
   kinds: () => request<KindDescriptor[]>('/media/kinds'),
-  listMedia: (query: { kind?: string; category?: string; search?: string } = {}) => {
+  listMedia: (
+    query: {
+      kind?: string;
+      category?: string;
+      search?: string;
+      /** The rows the endless blind test generated: kept, set aside, or alone. */
+      generated?: GeneratedFilter;
+    } = {}
+  ) => {
     const params = new URLSearchParams();
     if (query.kind) params.set('kind', query.kind);
     if (query.category) params.set('category', query.category);
     if (query.search) params.set('search', query.search);
+    if (query.generated) params.set('generated', query.generated);
     const suffix = params.toString();
     return request<MediaItem[]>(`/media${suffix ? `?${suffix}` : ''}`);
   },
@@ -394,8 +414,19 @@ export const api = {
   deletePlaylist: (id: number) => request<void>(`/playlists/${id}`, { method: 'DELETE' }),
 
   /* play */
-  startSession: (playlistId: number, config?: Partial<SessionConfig>) =>
-    request<StartedSession>('/play/sessions', { method: 'POST', body: { playlistId, config } }),
+  /**
+   * `selection` is what the launch screen kept: the genres with their difficulty
+   * windows, and a length. Absent plays the whole playlist.
+   */
+  startSession: (
+    playlistId: number,
+    config?: Partial<SessionConfig>,
+    selection: { genres?: GenreWindow[]; maxRounds?: number } = {}
+  ) =>
+    request<StartedSession>('/play/sessions', {
+      method: 'POST',
+      body: { playlistId, config, genres: selection.genres, maxRounds: selection.maxRounds }
+    }),
   /**
    * Plays one library item on its own, so its author can hear what players will.
    *

@@ -1,4 +1,5 @@
 import { msg } from 'i18n';
+import { useRef } from 'react';
 import { Link } from 'react-router';
 
 import { api, type Playlist } from '../../api/client';
@@ -6,8 +7,10 @@ import { gameEntry } from '../../app/games';
 import { kindColor, kindName } from '../../app/kinds';
 import { useAuth } from '../../hooks/useAuth';
 import { useAsync } from '../../hooks/useAsync';
+import { CARD_PAGE_SIZE, usePaged } from '../../hooks/usePaged';
 import { useT } from '../../i18n/locale-context';
 import { Badge, Button, EmptyState, Loading } from '../../ui';
+import { Pagination } from '../../ui/Pagination';
 import './menu.css';
 
 /**
@@ -94,6 +97,8 @@ function Shelf({
   playlists: Playlist[];
 }) {
   const t = useT();
+  const paged = usePaged(playlists, CARD_PAGE_SIZE);
+  const gridRef = useRef<HTMLDivElement>(null);
   return (
     <section className="guide-section">
       <h2>{title}</h2>
@@ -101,8 +106,8 @@ function Shelf({
       {playlists.length === 0 ? (
         <EmptyState title={empty} action={action} />
       ) : (
-        <div className="menu-grid">
-          {playlists.map((playlist) => {
+        <div className="menu-grid" ref={gridRef}>
+          {paged.pageItems.map((playlist) => {
             const ready = playlist.items.length - playlist.notReadyCount;
             return (
               <Link
@@ -130,6 +135,15 @@ function Shelf({
           })}
         </div>
       )}
+      <Pagination
+        page={paged.page}
+        pageCount={paged.pageCount}
+        start={paged.start}
+        shown={paged.pageItems.length}
+        total={paged.total}
+        onPage={paged.setPage}
+        anchor={gridRef}
+      />
     </section>
   );
 }

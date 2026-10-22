@@ -1,13 +1,15 @@
 import { msg } from 'i18n';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { api, type Playlist } from '../api/client';
 import { kindColor, kindName } from '../app/kinds';
 import { useAsync } from '../hooks/useAsync';
 import { useAuth } from '../hooks/useAuth';
+import { CARD_PAGE_SIZE, usePaged } from '../hooks/usePaged';
 import { useT } from '../i18n/locale-context';
 import { Badge, Button, CopyIcon, Dialog, EmptyState, Field, IconButton, Input, Loading, Tag } from '../ui';
+import { Pagination } from '../ui/Pagination';
 import './playlists.css';
 
 export default function Playlists() {
@@ -274,71 +276,84 @@ function PlaylistGrid({
   onDelete?: (playlist: Playlist) => void;
 }) {
   const t = useT();
+  const paged = usePaged(playlists, CARD_PAGE_SIZE);
+  const gridRef = useRef<HTMLUListElement>(null);
   return (
-    <ul className="playlist-grid">
-      {playlists.map((playlist) => {
-        const playable = playlist.items.length - playlist.notReadyCount;
+    <>
+      <ul className="playlist-grid" ref={gridRef}>
+        {paged.pageItems.map((playlist) => {
+          const playable = playlist.items.length - playlist.notReadyCount;
 
-        return (
-          <li className="playlist-card" key={playlist.id}>
-            <div className="playlist-card-head">
-              <Link to={`/playlists/${playlist.id}`} className="playlist-name">
-                {playlist.name ?? t(msg('pl.untitled'))}
-              </Link>
-              <span className="playlist-card-actions">
-                <IconButton
-                  icon={<CopyIcon />}
-                  label={t(msg('pl.duplicate', { name: playlist.name ?? '' }))}
-                  disabled={duplicating !== null}
-                  onClick={() => onDuplicate(playlist)}
-                />
-                {onDelete && (
+          return (
+            <li className="playlist-card" key={playlist.id}>
+              <div className="playlist-card-head">
+                <Link to={`/playlists/${playlist.id}`} className="playlist-name">
+                  {playlist.name ?? t(msg('pl.untitled'))}
+                </Link>
+                <span className="playlist-card-actions">
                   <IconButton
-                    icon={<TrashIcon />}
-                    label={t(msg('pl.deleteOne', { name: playlist.name ?? '' }))}
-                    onClick={() => onDelete(playlist)}
+                    icon={<CopyIcon />}
+                    label={t(msg('pl.duplicate', { name: playlist.name ?? '' }))}
+                    disabled={duplicating !== null}
+                    onClick={() => onDuplicate(playlist)}
                   />
-                )}
-              </span>
-            </div>
-
-            <p className="playlist-meta">
-              {playlist.items.length === 0
-                ? t(msg('pl.emptyMeta'))
-                : t(msg('pl.mediaCount', { count: playlist.items.length }))}
-              {playlist.owner && ` · ${playlist.owner.login ?? ''}`}
-              {playlist.public && t(msg('pl.publicMeta'))}
-            </p>
-
-            {Object.keys(playlist.kindCounts).length > 0 && (
-              <div className="playlist-kinds">
-                {Object.entries(playlist.kindCounts).map(([kind, count]) => (
-                  <Tag key={kind} dotColor={kindColor(kind)}>
-                    {t(kindName(kind))} {count}
-                  </Tag>
-                ))}
+                  {onDelete && (
+                    <IconButton
+                      icon={<TrashIcon />}
+                      label={t(msg('pl.deleteOne', { name: playlist.name ?? '' }))}
+                      onClick={() => onDelete(playlist)}
+                    />
+                  )}
+                </span>
               </div>
-            )}
 
-            <div className="playlist-card-foot">
-              {playlist.notReadyCount > 0 ? (
-                <Badge tone="warn">{t(msg('pl.toFinish', { count: playlist.notReadyCount }))}</Badge>
-              ) : playlist.items.length > 0 ? (
-                <Badge tone="ok">{t(msg('pl.ready'))}</Badge>
-              ) : (
-                <span />
+              <p className="playlist-meta">
+                {playlist.items.length === 0
+                  ? t(msg('pl.emptyMeta'))
+                  : t(msg('pl.mediaCount', { count: playlist.items.length }))}
+                {playlist.owner && ` · ${playlist.owner.login ?? ''}`}
+                {playlist.public && t(msg('pl.publicMeta'))}
+              </p>
+
+              {Object.keys(playlist.kindCounts).length > 0 && (
+                <div className="playlist-kinds">
+                  {Object.entries(playlist.kindCounts).map(([kind, count]) => (
+                    <Tag key={kind} dotColor={kindColor(kind)}>
+                      {t(kindName(kind))} {count}
+                    </Tag>
+                  ))}
+                </div>
               )}
 
-              <Link to={`/playlists/${playlist.id}/lancer`}>
-                <Button variant="primary" size="sm" disabled={playable === 0}>
-                  {t(msg('pl.launch'))}
-                </Button>
-              </Link>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
+              <div className="playlist-card-foot">
+                {playlist.notReadyCount > 0 ? (
+                  <Badge tone="warn">{t(msg('pl.toFinish', { count: playlist.notReadyCount }))}</Badge>
+                ) : playlist.items.length > 0 ? (
+                  <Badge tone="ok">{t(msg('pl.ready'))}</Badge>
+                ) : (
+                  <span />
+                )}
+
+                <Link to={`/playlists/${playlist.id}/lancer`}>
+                  <Button variant="primary" size="sm" disabled={playable === 0}>
+                    {t(msg('pl.launch'))}
+                  </Button>
+                </Link>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <Pagination
+        page={paged.page}
+        pageCount={paged.pageCount}
+        start={paged.start}
+        shown={paged.pageItems.length}
+        total={paged.total}
+        onPage={paged.setPage}
+        anchor={gridRef}
+      />
+    </>
   );
 }
 

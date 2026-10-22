@@ -52,14 +52,17 @@ export interface BlindtestDraw {
   replayShare: number;
 }
 
-function DifficultySlider({
+export function DifficultySlider({
   min,
   max,
-  onChange
+  onChange,
+  labels = { min: 'Difficulté minimale', max: 'Difficulté maximale' }
 }: {
   min: number;
   max: number;
   onChange: (next: { min: number; max: number }) => void;
+  /** What each thumb is read out as. The launch screen passes its own words. */
+  labels?: { min: string; max: string };
 }) {
   /**
    * Two range inputs stacked, rather than a drag-handle widget.
@@ -83,7 +86,7 @@ function DifficultySlider({
         min={0}
         max={100}
         value={min}
-        aria-label="Difficulté minimale"
+        aria-label={labels.min}
         onChange={(event) => onChange({ min: Number(event.target.value), max })}
       />
       <input
@@ -91,7 +94,7 @@ function DifficultySlider({
         min={0}
         max={100}
         value={max}
-        aria-label="Difficulté maximale"
+        aria-label={labels.max}
         onChange={(event) => onChange({ min, max: Number(event.target.value) })}
       />
     </div>

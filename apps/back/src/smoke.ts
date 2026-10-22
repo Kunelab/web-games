@@ -605,6 +605,61 @@ check('codes are case-insensitive', lowercase.statusCode === 200, lowercase.stat
 const missing = await app.inject({ method: 'GET', url: '/api/play/sessions/ZZZZZ' });
 check('an unknown code is 404', missing.statusCode === 404, missing.statusCode);
 
+/**
+ * The launch screen's genres and length, on a playlist of its own: an easy clip
+ * filed under "metal" and a quiz with no category, which a room may keep either
+ * of. The quiz has no difficulty, so no window ever drops it.
+ */
+const easyMetal = JSON.parse(
+  (
+    await app.inject({
+      method: 'POST',
+      url: '/api/media',
+      headers,
+      payload: {
+        kind: 'blindtest',
+        title: 'Du hast',
+        category: 'metal',
+        answers: [{ key: 'title', label: 'Titre', value: 'Du hast', points: 3 }],
+        payload: { code: 'W3q8Od5qJio', startGuess: 10, endGuess: 20, startReveal: 30, endReveal: 40, difficulty: 20 }
+      }
+    })
+  ).body
+) as MediaView;
+const genrePlaylist = JSON.parse(
+  (
+    await app.inject({
+      method: 'POST',
+      url: '/api/playlists',
+      headers,
+      payload: { name: 'genres', mediaIds: [easyMetal.id, quizItem.id] }
+    })
+  ).body
+) as { id: number };
+const startWith = (body: Record<string, unknown>) =>
+  app.inject({ method: 'POST', url: '/api/play/sessions', headers, payload: { playlistId: genrePlaylist.id, ...body } });
+const totalOf = (response: { body: string }) => (JSON.parse(response.body) as { total?: number }).total;
+
+const metalOnly = await startWith({ genres: [{ category: 'metal', difficultyMin: 0, difficultyMax: 100 }] });
+check('a room can keep one genre', totalOf(metalOnly) === 1, metalOnly.body);
+const uncategorised = await startWith({ genres: [{ category: '', difficultyMin: 50, difficultyMax: 100 }] });
+check('the media with no genre are a genre of their own', totalOf(uncategorised) === 1, uncategorised.body);
+const tooHard = await startWith({ genres: [{ category: 'metal', difficultyMin: 50, difficultyMax: 100 }] });
+check('a clip outside its window is not dealt', tooHard.statusCode === 400, tooHard.body);
+const noGenre = await startWith({ genres: [{ category: 'jazz' }] });
+check('a set of genres the playlist does not have cannot start', noGenre.statusCode === 400, noGenre.statusCode);
+const oneRound = await startWith({ maxRounds: 1 });
+check('a room can be cut to a length', totalOf(oneRound) === 1, oneRound.body);
+for (const extra of [metalOnly, uncategorised, oneRound]) {
+  await app.inject({
+    method: 'DELETE',
+    url: `/api/play/sessions/${(JSON.parse(extra.body) as { code: string }).code}`,
+    headers
+  });
+}
+await app.inject({ method: 'DELETE', url: `/api/playlists/${genrePlaylist.id}`, headers });
+await app.inject({ method: 'DELETE', url: `/api/media/${easyMetal.id}`, headers });
+
 const emptyPlaylist = await app.inject({
   method: 'POST',
   url: '/api/playlists',
@@ -1551,6 +1606,21 @@ const memberEdit = await app.inject({
   payload: { kind: 'blindtest', title: 'détourné', answers: [], payload: blindtest.defaultPayload, timing: null }
 });
 check('and cannot edit one', memberEdit.statusCode === 404, memberEdit.statusCode);
+
+/** An admin's library lists them, and can set them aside or keep only them. */
+const smokeAdmin = { id: 0, login: 'smoke-admin', role: 'admin' };
+const onlyGenerated = await mediaService.list(smokeAdmin, { generated: 'only' });
+check(
+  'an admin can list only the generated rows',
+  onlyGenerated.some((row) => row.id === kept?.id) && onlyGenerated.every((row) => row.user_id === null),
+  onlyGenerated.length
+);
+const withoutGenerated = await mediaService.list(smokeAdmin, { generated: 'exclude' });
+check(
+  'or everything but them',
+  !withoutGenerated.some((row) => row.id === kept?.id) && withoutGenerated.some((row) => row.id === blindItem.id),
+  withoutGenerated.length
+);
 
 /**
  * The same song under a different upload is the same song.

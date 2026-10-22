@@ -1,13 +1,17 @@
 import { msg } from 'i18n';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
-import { api, type MediaItem } from '../api/client';
+import { api, isGenerated, type GeneratedFilter, type MediaItem } from '../api/client';
 import { kindColor, kindName } from '../app/kinds';
 import { fieldText } from '../forms/fieldText';
 import { useAsync } from '../hooks/useAsync';
+import { isAdmin, useAuth } from '../hooks/useAuth';
+import { usePaged } from '../hooks/usePaged';
 import { useLocale } from '../i18n/locale-context';
 import { Badge, Button, Chip, CopyIcon, Dialog, EmptyState, IconButton, Input, Loading, Tag } from '../ui';
+import { GeneratedFilterChips } from '../ui/GeneratedFilterChips';
+import { Pagination } from '../ui/Pagination';
 import './library.css';
 
 /**
@@ -21,13 +25,24 @@ export default function Library() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const { t, locale } = useLocale();
+  const { user } = useAuth();
 
   const kind = params.get('type') ?? '';
   const search = params.get('q') ?? '';
+  /**
+   * The generated catalogue, in the URL like the other filters. Absent keeps
+   * it, so a member, whose library never holds any, has nothing to carry.
+   */
+  const generatedParam = params.get('generated');
+  const generated: GeneratedFilter =
+    generatedParam === 'exclude' || generatedParam === 'only' ? generatedParam : 'include';
   const [searchDraft, setSearchDraft] = useState(search);
 
   const kinds = useAsync(() => api.kinds(), []);
-  const media = useAsync(() => api.listMedia({ kind: kind || undefined, search: search || undefined }), [kind, search]);
+  const media = useAsync(
+    () => api.listMedia({ kind: kind || undefined, search: search || undefined, generated }),
+    [kind, search, generated]
+  );
 
   /**
    * What the confirm dialog is about: one row, or a whole selection.
@@ -46,6 +61,10 @@ export default function Library() {
    * stale copies. Anything ticked and then filtered out of view stays ticked —
    * which is why the bar says how many there are, and why "select all" says
    * "shown".
+   *
+   * Shown means the page on screen, not every page of the filter. Ticking rows
+   * nobody has looked at is how a delete takes the whole generated catalogue
+   * with it; a selection that spans pages is built one page at a time.
    */
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [importOpen, setImportOpen] = useState(false);
@@ -140,9 +159,12 @@ export default function Library() {
   }
 
   const items = media.data ?? [];
+  const paged = usePaged(items, undefined, `${kind}|${search}|${generated}`);
+  const listRef = useRef<HTMLUListElement>(null);
+  const filtered = Boolean(search || kind || generated !== 'include');
   const notReady = items.filter((item) => !item.readiness.ready).length;
   const selectedItems = items.filter((item) => selected.has(item.id));
-  const allShownSelected = items.length > 0 && items.every((item) => selected.has(item.id));
+  const allShownSelected = paged.pageItems.length > 0 && paged.pageItems.every((item) => selected.has(item.id));
   const many = (pendingDelete?.length ?? 0) > 1;
 
   return (
@@ -208,6 +230,13 @@ export default function Library() {
             </Chip>
           ))}
         </div>
+
+        {isAdmin(user) && (
+          <GeneratedFilterChips
+            value={generated}
+            onChange={(next) => setParam('generated', next === 'include' ? '' : next)}
+          />
+        )}
       </div>
 
       {/*
@@ -226,7 +255,7 @@ export default function Library() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setSelected(new Set([...selected, ...items.map((item) => item.id)]))}
+              onClick={() => setSelected(new Set([...selected, ...paged.pageItems.map((item) => item.id)]))}
             >
               {t(msg('lib.selectAll'))}
             </Button>
@@ -247,9 +276,9 @@ export default function Library() {
 
       {!media.loading && items.length === 0 && (
         <EmptyState
-          title={t(msg(search || kind ? 'lib.noResults' : 'lib.empty'))}
+          title={t(msg(filtered ? 'lib.noResults' : 'lib.empty'))}
           action={
-            search || kind ? (
+            filtered ? (
               <Button
                 variant="secondary"
                 onClick={() => {
@@ -266,13 +295,13 @@ export default function Library() {
             )
           }
         >
-          <p>{t(msg(search || kind ? 'lib.noMatch' : 'lib.whatIsMedia'))}</p>
+          <p>{t(msg(filtered ? 'lib.noMatch' : 'lib.whatIsMedia'))}</p>
         </EmptyState>
       )}
 
       {items.length > 0 && (
-        <ul className="media-list">
-          {items.map((item) => (
+        <ul className="media-list" ref={listRef}>
+          {paged.pageItems.map((item) => (
             <li key={item.id} className="media-row">
               <span className="kind-bar" style={{ background: kindColor(item.kind) }} aria-hidden="true" />
 
@@ -292,6 +321,7 @@ export default function Library() {
                   {t(kindName(item.kind))}
                   {item.category ? ` · ${item.category}` : ''}
                   {item.date ? ` · ${item.date.slice(0, 4)}` : ''}
+                  {isGenerated(item) && t(msg('lib.generatedMeta'))}
                 </span>
               </Link>
 
@@ -333,6 +363,16 @@ export default function Library() {
           ))}
         </ul>
       )}
+
+      <Pagination
+        page={paged.page}
+        pageCount={paged.pageCount}
+        start={paged.start}
+        shown={paged.pageItems.length}
+        total={paged.total}
+        onPage={paged.setPage}
+        anchor={listRef}
+      />
 
       <Dialog
         open={pendingDelete !== null}
