@@ -11,13 +11,15 @@ import {
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import {
   api,
+  isGenerated,
   type BlindtestGenre,
   type DuplicateReason,
+  type GeneratedFilter,
   type GenreFlagReason,
   type MediaItem,
   type Playlist
@@ -26,7 +28,10 @@ import { isAdmin, useAuth } from '../hooks/useAuth';
 import { useT } from '../i18n/locale-context';
 import { kindColor, kindName } from '../app/kinds';
 import { useAsync } from '../hooks/useAsync';
+import { PAGE_SIZE, usePaged } from '../hooks/usePaged';
 import { Badge, Button, Chip, Dialog, Field, IconButton, Input, Loading, Select, Switch } from '../ui';
+import { GeneratedFilterChips } from '../ui/GeneratedFilterChips';
+import { Pagination } from '../ui/Pagination';
 import './library.css';
 import './playlists.css';
 
@@ -42,6 +47,8 @@ import './playlists.css';
 function PlaylistPreview({ playlist }: { playlist: Playlist }) {
   const t = useT();
   const items = playlist.items ?? [];
+  const paged = usePaged(items);
+  const listRef = useRef<HTMLUListElement>(null);
 
   return (
     <section className="pl-panel">
@@ -52,8 +59,8 @@ function PlaylistPreview({ playlist }: { playlist: Playlist }) {
       {items.length === 0 ? (
         <p className="pl-panel-empty">{t(msg('ple.addFromLibrary'))}</p>
       ) : (
-        <ul className="pl-list">
-          {items.map((item) => (
+        <ul className="pl-list" ref={listRef}>
+          {paged.pageItems.map((item) => (
             <li className="pl-row" key={item.id}>
               <span className="pl-row-title">{item.title}</span>
               <Badge>{t(kindName(item.kind))}</Badge>
@@ -61,6 +68,15 @@ function PlaylistPreview({ playlist }: { playlist: Playlist }) {
           ))}
         </ul>
       )}
+      <Pagination
+        page={paged.page}
+        pageCount={paged.pageCount}
+        start={paged.start}
+        shown={paged.pageItems.length}
+        total={paged.total}
+        onPage={paged.setPage}
+        anchor={listRef}
+      />
     </section>
   );
 }
@@ -144,9 +160,7 @@ export default function PlaylistEditor() {
             </Button>
           </div>
         </div>
-        <p className="field-hint">
-          {t(msg('ple.readOnlyHint', { owner: playlist.data.owner?.login ?? '-' }))}
-        </p>
+        <p className="field-hint">{t(msg('ple.readOnlyHint', { owner: playlist.data.owner?.login ?? '-' }))}</p>
         <PlaylistPreview playlist={playlist.data} />
       </>
     );
@@ -258,6 +272,11 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   const [order, setOrder] = useState<number[]>(playlist.items.map((item) => item.id));
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState('');
+  /** The generated catalogue in the library panel: admin only, see `GeneratedFilterChips`. */
+  const [generatedFilter, setGeneratedFilter] = useState<GeneratedFilter>('include');
+  /** Narrows the playlist's own list once it runs to several pages. */
+  const [chosenSearch, setChosenSearch] = useState('');
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   /** The entry whose duplicate flag the admin is settling, by id. */
@@ -510,8 +529,33 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
     if (chosenIds.has(item.id) || deletedIds.has(item.id)) return false;
     if (kindFilter && item.kind !== kindFilter) return false;
     if (search && !item.title.toLowerCase().includes(search.toLowerCase())) return false;
+    if (generatedFilter === 'exclude' && isGenerated(item)) return false;
+    if (generatedFilter === 'only' && !isGenerated(item)) return false;
     return true;
   });
+  const availablePaged = usePaged(available, undefined, `${search}|${kindFilter}|${generatedFilter}`);
+  const availableRef = useRef<HTMLUListElement>(null);
+
+  /**
+   * Whether a row in the playlist carries a curation flag, so the admin can
+   * look at those alone. Paging the catalogue scattered them across dozens of
+   * pages that used to be one long scroll.
+   */
+  const isFlagged = (item: MediaItem) => dupById.has(item.id) || genreFlagById.has(item.id) || legacyIds.has(item.id);
+  const flagCount = chosen.filter(isFlagged).length;
+  /**
+   * The playlist's own list, narrowed. Reordering still works on the result:
+   * a row dropped on another takes that row's place in the whole order.
+   */
+  const shownChosen = chosen.filter((item) => {
+    if (chosenSearch && !item.title.toLowerCase().includes(chosenSearch.toLowerCase())) return false;
+    if (flaggedOnly && curating && !isFlagged(item)) return false;
+    return true;
+  });
+  const chosenPaged = usePaged(shownChosen, undefined, `${chosenSearch}|${flaggedOnly}`);
+  const chosenRef = useRef<HTMLUListElement>(null);
+  /** Position of each row in the whole playlist, which a narrowed list no longer tells. */
+  const positionOf = new Map(order.map((mediaId, index) => [mediaId, index]));
 
   const sensors = useSensors(
     // A small distance threshold so a tap still counts as a click on the row.
@@ -635,8 +679,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
           <header className="pl-panel-head">
             <h2 className="pl-panel-title">{t(msg('ple.inPlaylist'))}</h2>
             <span className="pl-panel-count">
-              {chosen.length} ·{' '}
-              {notReady > 0 ? t(msg('pl.toFinish', { count: notReady })) : t(msg('ple.allReady'))}
+              {chosen.length} · {notReady > 0 ? t(msg('pl.toFinish', { count: notReady })) : t(msg('ple.allReady'))}
               {dupById.size > 0 && <> · {t(msg('ple.duplicate.count', { count: dupById.size }))}</>}
               {genreFlagById.size > 0 && <> · {t(msg('ple.genre.count', { count: genreFlagById.size }))}</>}
               {legacyIds.size > 0 && <> · {t(msg('ple.genre.legacyCount', { count: legacyIds.size }))}</>}
@@ -658,8 +701,33 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
             </div>
           )}
 
+          {/*
+            Offered once the list runs past a page, which no hand-built quiz
+            does and the shared catalogue does many times over.
+          */}
+          {(chosen.length > PAGE_SIZE || chosenSearch) && (
+            <div style={{ padding: 'var(--space-3) var(--space-4)' }} className="stack-3">
+              <Input
+                type="search"
+                value={chosenSearch}
+                placeholder={t(msg('ple.searchPlaylist'))}
+                aria-label={t(msg('ple.searchPlaylistLabel'))}
+                onChange={(event) => setChosenSearch(event.target.value)}
+              />
+              {curating && (flagCount > 0 || flaggedOnly) && (
+                <div className="filters">
+                  <Chip active={flaggedOnly} onClick={() => setFlaggedOnly(!flaggedOnly)}>
+                    {t(msg('ple.flaggedOnly'))} {flagCount}
+                  </Chip>
+                </div>
+              )}
+            </div>
+          )}
+
           {chosen.length === 0 ? (
             <p className="pl-panel-empty">{t(msg('ple.addFromLibrary'))}</p>
+          ) : shownChosen.length === 0 ? (
+            <p className="pl-panel-empty">{t(msg('ple.noMatchInPlaylist'))}</p>
           ) : (
             <DndContext
               sensors={sensors}
@@ -667,13 +735,18 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
               modifiers={[restrictToVerticalAxis]}
               onDragEnd={handleDragEnd}
             >
-              <SortableContext items={order} strategy={verticalListSortingStrategy}>
-                <ul className="pl-items">
-                  {chosen.map((item, index) => (
+              {/* Only this page's rows are sortable: a row is dragged within the
+                  page it is on, and keeps its place in the whole order. */}
+              <SortableContext
+                items={chosenPaged.pageItems.map((item) => item.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <ul className="pl-items" ref={chosenRef}>
+                  {chosenPaged.pageItems.map((item) => (
                     <SortableRow
                       key={item.id}
                       item={item}
-                      index={index}
+                      index={positionOf.get(item.id) ?? 0}
                       canEdit={mayEditMedia(item)}
                       category={categoryOf(item)}
                       categoryLabel={curating ? genreName(categoryOf(item)) : undefined}
@@ -689,6 +762,15 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
               </SortableContext>
             </DndContext>
           )}
+          <Pagination
+            page={chosenPaged.page}
+            pageCount={chosenPaged.pageCount}
+            start={chosenPaged.start}
+            shown={chosenPaged.pageItems.length}
+            total={chosenPaged.total}
+            onPage={chosenPaged.setPage}
+            anchor={chosenRef}
+          />
         </section>
 
         <section className="pl-panel">
@@ -721,6 +803,8 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
               ))}
             </div>
 
+            {admin && <GeneratedFilterChips value={generatedFilter} onChange={setGeneratedFilter} />}
+
             {/* Offered only when it would do something more than the row buttons
                 already do: for one item it is the same press with a longer walk. */}
             {available.length > 1 && (
@@ -746,8 +830,8 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
               )}
             </p>
           ) : (
-            <ul className="pl-items">
-              {available.map((item) => (
+            <ul className="pl-items" ref={availableRef}>
+              {availablePaged.pageItems.map((item) => (
                 <li className="pl-item" key={item.id}>
                   <span />
                   <span className="pl-item-bar" style={{ background: kindColor(item.kind) }} aria-hidden="true" />
@@ -756,6 +840,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                     <span className="pl-item-meta">
                       {t(kindName(item.kind))}
                       {item.category ? ` · ${item.category}` : ''}
+                      {isGenerated(item) && t(msg('lib.generatedMeta'))}
                       {!item.readiness.ready && t(msg('ple.unfinishedMeta'))}
                     </span>
                   </span>
@@ -768,6 +853,15 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
               ))}
             </ul>
           )}
+          <Pagination
+            page={availablePaged.page}
+            pageCount={availablePaged.pageCount}
+            start={availablePaged.start}
+            shown={availablePaged.pageItems.length}
+            total={availablePaged.total}
+            onPage={availablePaged.setPage}
+            anchor={availableRef}
+          />
         </section>
       </div>
 

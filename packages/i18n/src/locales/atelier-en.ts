@@ -41,7 +41,7 @@ export const atelierEn = {
      chosen, so its labels never have to describe an empty selection. */
   "lib.select": "Select {title}",
   "lib.selected": "{count} selected",
-  "lib.selectAll": "Select all shown",
+  "lib.selectAll": "Select this page",
   "lib.clearSelection": "Clear",
   "lib.deleteSelected": "Delete the selection",
   "lib.deleteManyTitle": "Delete {count} media?",
@@ -61,6 +61,18 @@ export const atelierEn = {
   "lib.import.doneUnfinished":
     "{count} media imported, {unfinished} of them to finish.",
   "lib.import.failed": "The import failed.",
+
+  "lib.generated.label": "Generated catalogue",
+  "lib.generated.include": "Included",
+  "lib.generated.exclude": "Left out",
+  "lib.generated.only": "Only",
+  "lib.generatedMeta": " · generated",
+
+  "pager.label": "Pages",
+  "pager.range": "{from}–{to} of {total}",
+  "pager.prev": "Previous",
+  "pager.next": "Next",
+  "pager.page": "Page {page}",
 
   /* ------------------------------- the playlists ---------------------------- */
   "pl.title": "Playlists",
@@ -313,6 +325,10 @@ export const atelierEn = {
   "ple.nothingLeft":
     "Everything is already in the playlist, or nothing matched.",
   "ple.unfinishedMeta": " · to finish",
+  "ple.searchPlaylist": "Search the playlist…",
+  "ple.searchPlaylistLabel": "Search the playlist",
+  "ple.flaggedOnly": "Flagged only",
+  "ple.noMatchInPlaylist": "Nothing in the playlist matches.",
   "ple.add": "Add {title}",
   "ple.move": "Move {title}, position {position}",
   "ple.remove": "Remove {title}",
@@ -403,6 +419,28 @@ export const atelierEn = {
   "launch.buzzerWindow.hint":
     "How long the buzzer is held. Short keeps pressing early a gamble.",
   "launch.attempts.hint": "How many wrong answers before a field locks.",
+  "launch.filter.title": "What will be played",
+  "launch.filter.kept": "media kept out of {total}",
+  "launch.filter.genres": "Genres",
+  "launch.filter.selectAll": "Select all",
+  "launch.filter.selectNone": "Clear all",
+  "launch.filter.categories": "Categories",
+  "launch.filter.noGenre": "No genre",
+  "launch.filter.difficulty": "Difficulty",
+  "launch.filter.difficultyMin": "Lowest difficulty",
+  "launch.filter.difficultyMax": "Highest difficulty",
+  "launch.filter.difficultyMinOf": "Lowest difficulty, {genre}",
+  "launch.filter.difficultyMaxOf": "Highest difficulty, {genre}",
+  "launch.filter.difficulty.hint":
+    "Only blind tests carry a difficulty, from 0 for the best known to 100. Media without one stay in the game whatever the setting.",
+  "launch.filter.perGenre": "Set the difficulty genre by genre",
+  "launch.filter.perGenre.hint": "Every genre kept then gets its own range.",
+  "launch.filter.empty": "No media matches these settings. Keep more genres or widen the difficulty.",
+  "launch.length": "Length",
+  "launch.length.all": "The whole selection ({count})",
+  "launch.length.rounds": "{count} rounds",
+  "launch.length.hint":
+    "With random order the rounds are drawn from the media kept; otherwise they are the first ones in the playlist.",
   "launch.create": "Create the game",
   "launch.howOral": "How it is played",
   "launch.howOral.1":

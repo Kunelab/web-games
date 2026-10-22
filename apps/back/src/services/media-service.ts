@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, like, or, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, like, not, or, type SQL } from 'drizzle-orm';
 import {
   answerFieldSchema,
   getMediaKind,
@@ -121,13 +121,28 @@ export interface MediaQuery {
   kind?: string;
   category?: string;
   search?: string;
+  /** What to do with the rows the endless blind test generated. See `generatedRows`. */
+  generated?: 'include' | 'exclude' | 'only';
 }
 
 export const mediaQuerySchema = z.object({
   kind: z.string().max(40).optional(),
   category: z.string().max(80).optional(),
-  search: z.string().max(120).optional()
+  search: z.string().max(120).optional(),
+  generated: z.enum(['include', 'exclude', 'only']).optional()
 });
+
+/**
+ * The rows the endless blind test generated: ownerless blind tests.
+ *
+ * The same test `blindtest-library` reads its catalogue with, and for the same
+ * reason: nobody owns those rows, which is the whole of their permission model.
+ * Only an admin's library lists them at all, and there they arrive by the
+ * thousand, so this is what lets the admin set them aside or look at nothing else.
+ */
+function generatedRows(): SQL | undefined {
+  return and(isNull(media.user_id), eq(media.kind, 'blindtest'));
+}
 
 export const mediaService = {
   async list(user: SessionUser, query: MediaQuery = {}): Promise<MediaView[]> {
@@ -143,6 +158,12 @@ export const mediaService = {
       // Escaped so a literal % or _ in the search box is not a wildcard.
       const needle = `%${query.search.replace(/[%_\\]/g, (match) => `\\${match}`)}%`;
       filters.push(or(like(media.title, needle), like(media.category, needle)));
+    }
+    if (query.generated === 'exclude') {
+      const generated = generatedRows();
+      if (generated) filters.push(not(generated));
+    } else if (query.generated === 'only') {
+      filters.push(generatedRows());
     }
 
     const rows = await db

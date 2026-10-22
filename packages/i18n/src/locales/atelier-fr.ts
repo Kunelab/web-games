@@ -36,7 +36,7 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
 
   "lib.select": "Sélectionner {title}",
   "lib.selected": "{count} sélectionné(s)",
-  "lib.selectAll": "Tout sélectionner",
+  "lib.selectAll": "Sélectionner la page",
   "lib.clearSelection": "Désélectionner",
   "lib.deleteSelected": "Supprimer la sélection",
   "lib.deleteManyTitle": "Supprimer {count} médias ?",
@@ -56,6 +56,18 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "lib.import.doneUnfinished":
     "{count} médias importés, dont {unfinished} à compléter.",
   "lib.import.failed": "L’import a échoué.",
+
+  "lib.generated.label": "Catalogue généré",
+  "lib.generated.include": "Inclus",
+  "lib.generated.exclude": "Exclu",
+  "lib.generated.only": "Seul",
+  "lib.generatedMeta": " · généré",
+
+  "pager.label": "Pages",
+  "pager.range": "{from}–{to} sur {total}",
+  "pager.prev": "Précédente",
+  "pager.next": "Suivante",
+  "pager.page": "Page {page}",
 
   /* -------------------------------- les playlists --------------------------- */
   "pl.title": "Playlists",
@@ -298,6 +310,10 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.addMedia": "Ajouter un média",
   "ple.nothingLeft": "Tout est déjà dans la playlist, ou aucun résultat.",
   "ple.unfinishedMeta": " · à compléter",
+  "ple.searchPlaylist": "Rechercher dans la playlist…",
+  "ple.searchPlaylistLabel": "Rechercher dans la playlist",
+  "ple.flaggedOnly": "À vérifier seulement",
+  "ple.noMatchInPlaylist": "Aucun média de la playlist ne correspond.",
   "ple.add": "Ajouter {title}",
   "ple.move": "Déplacer {title}, position {position}",
   "ple.remove": "Retirer {title}",
@@ -390,6 +406,28 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
     "Durée pendant laquelle le buzzer est tenu. Court, pour que buzzer trop tôt reste un pari.",
   "launch.attempts.hint":
     "Nombre de mauvaises réponses avant qu’un champ se bloque.",
+  "launch.filter.title": "Ce qui sera joué",
+  "launch.filter.kept": "médias retenus sur {total}",
+  "launch.filter.genres": "Genres",
+  "launch.filter.selectAll": "Tout sélectionner",
+  "launch.filter.selectNone": "Tout désélectionner",
+  "launch.filter.categories": "Catégories",
+  "launch.filter.noGenre": "Sans genre",
+  "launch.filter.difficulty": "Difficulté",
+  "launch.filter.difficultyMin": "Difficulté minimale",
+  "launch.filter.difficultyMax": "Difficulté maximale",
+  "launch.filter.difficultyMinOf": "Difficulté minimale, {genre}",
+  "launch.filter.difficultyMaxOf": "Difficulté maximale, {genre}",
+  "launch.filter.difficulty.hint":
+    "Seuls les blind tests portent une difficulté, de 0 pour les plus connus à 100. Les médias qui n’en ont pas restent dans la partie, quel que soit le réglage.",
+  "launch.filter.perGenre": "Régler la difficulté genre par genre",
+  "launch.filter.perGenre.hint": "Chaque genre gardé a alors sa propre fourchette.",
+  "launch.filter.empty": "Aucun média ne correspond à ces réglages. Gardez plus de genres ou élargissez la difficulté.",
+  "launch.length": "Longueur",
+  "launch.length.all": "Toute la sélection ({count})",
+  "launch.length.rounds": "{count} manches",
+  "launch.length.hint":
+    "En ordre aléatoire, les manches sont tirées au hasard parmi les médias retenus ; sinon ce sont les premières de la playlist.",
   "launch.create": "Créer la partie",
   "launch.howOral": "Comment ça se joue",
   "launch.howOral.1":

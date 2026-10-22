@@ -37,6 +37,7 @@ export {
 } from './media/registry.js';
 
 export { mediaReadiness, partitionPlayable, type Readiness } from './media/readiness.js';
+export { genreKeyOf, genreWindowSchema, mediaDifficulty, selectByGenre, type GenreWindow } from './media/selection.js';
 
 export { blindtest, blindtestPayloadSchema, type BlindtestPayload } from './media/kinds/blindtest.js';
 export { quiz, quizPayloadSchema, type QuizPayload } from './media/kinds/quiz.js';
