@@ -814,8 +814,26 @@ export function registerRealtime(
 
         // Any may land on its own: an answer that was right with a window
         // that was not is the commonest correction of them.
+        const startBefore = (round?.payload as { startGuess?: unknown } | undefined)?.startGuess;
         const fixedAnswers = correctAnswers(state, fields);
         const fixedClip = correctPayloadNumbers(state, clip);
+
+        /**
+         * How far a host moved a clip, by genre.
+         *
+         * The generated windows are placed by a per-genre convention wherever
+         * there are no lyrics to measure, and a convention that is consistently
+         * early shows up here as hosts consistently pushing the start later.
+         */
+        if (fixedClip && round && typeof startBefore === 'number' && typeof clip.startGuess === 'number') {
+          const shift = Math.round(clip.startGuess - startBefore);
+          if (shift !== 0) {
+            app.log.info(
+              { code: state.code, genre: games.roundCategory(state), from: startBefore, to: clip.startGuess, shift },
+              'host moved a clip'
+            );
+          }
+        }
         if (!fixedAnswers && !fixedClip && !refiled && !genreFix) return;
 
         // The shared copy second: a correction that cannot be stored has still

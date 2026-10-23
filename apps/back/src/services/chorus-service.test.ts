@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  ANIME_THEME_PROFILE,
   DIALOGUE_PROFILE,
+  FILM_SCORE_PROFILE,
+  SERIES_THEME_PROFILE,
   THEME_PROFILE,
   VOCAL_PROFILE,
   alignsWith,
@@ -151,7 +154,7 @@ describe('clipWindow', () => {
     assert.ok(plan.startGuess >= 60, JSON.stringify(plan));
   });
 
-  it('still opens an anime opening or a film theme on its intro', () => {
+  it('still opens a classical theme on its intro', () => {
     // Those uploads start on the music; the caution is for sung music videos.
     const plan = clipWindow(91, { difficulty: 10, profile: THEME_PROFILE, random: always(0.1) });
     assert.equal(plan.angle, 'intro');
@@ -197,5 +200,53 @@ describe('clipWindow', () => {
       assert.equal(plan.angle, 'intro');
       assert.equal(plan.source, 'profile');
     }
+  });
+});
+
+describe('clipWindow, for films, series and anime', () => {
+  it('never opens a long film cue on its first seconds, not even an easy round', () => {
+    for (const roll of [0, 0.3, 0.6, 0.99]) {
+      // A Topic upload, which starts on the recording: still the wrong place for a score.
+      const plan = clipWindow(300, {
+        difficulty: 10,
+        profile: FILM_SCORE_PROFILE,
+        upload: 'topic',
+        random: always(roll)
+      });
+      assert.notEqual(plan.angle, 'intro');
+      // A third to a half of the way into a suite.
+      assert.ok(plan.startGuess >= 90 && plan.startGuess <= 150, JSON.stringify(plan));
+    }
+  });
+
+  it('starts an extended series theme a third to a half of the way in, as late as 2:30', () => {
+    const start = (duration: number, roll: number) =>
+      clipWindow(duration, { difficulty: 80, profile: SERIES_THEME_PROFILE, random: always(roll) }).startGuess;
+    assert.ok(start(300, 0) >= 90 && start(300, 0.99) <= 150, `${start(300, 0)} to ${start(300, 0.99)}`);
+    assert.equal(start(420, 0.99), 150);
+  });
+
+  it('starts a title sequence just past its logo', () => {
+    const plan = clipWindow(60, { difficulty: 30, profile: SERIES_THEME_PROFILE, random: always(0.5) });
+    assert.ok(plan.startGuess >= 3 && plan.startGuess <= 8, JSON.stringify(plan));
+  });
+
+  it('opens a TV-length anime opening at its top', () => {
+    const plan = clipWindow(90, { difficulty: 10, profile: ANIME_THEME_PROFILE, random: always(0.1) });
+    assert.equal(plan.angle, 'intro');
+    assert.ok(plan.startGuess <= 8, JSON.stringify(plan));
+  });
+
+  it('lets an instrumental be heard eight seconds longer than a song', () => {
+    const film = clipWindow(150, { difficulty: 50, profile: FILM_SCORE_PROFILE, random: always(0.5) });
+    assert.equal(film.endGuess - film.startGuess, 28);
+    const song = clipWindow(200, { difficulty: 50, random: always(0.5) });
+    assert.equal(song.endGuess - song.startGuess, 20);
+  });
+
+  it('gives a sung theme whose chorus was found the standard window, on the chorus', () => {
+    const plan = clipWindow(180, { chorus, difficulty: 50, profile: SERIES_THEME_PROFILE, random: always(0.5) });
+    assert.equal(plan.source, 'chorus');
+    assert.equal(plan.endGuess - plan.startGuess, 20);
   });
 });

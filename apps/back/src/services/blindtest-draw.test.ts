@@ -35,6 +35,7 @@ const { db } = await import('../db/index.js');
 const { media } = await import('../db/schema.js');
 const { dealRounds, emptyHistory } = await import('./blindtest-draw.js');
 const { catalogue } = await import('./catalogue-service.js');
+type PoolEntry = import('./blindtest-catalog.js').PoolEntry;
 
 const GENRE = 'rap-us';
 const EMPTY_GENRE = 'rock';
@@ -153,5 +154,73 @@ describe('dealing while the pools are cold', () => {
 
     assert.equal(dealt, STALLED);
     assert.deepEqual(waitedFor, [EMPTY_GENRE]);
+  });
+});
+
+/** A metal track in a pool, scored 50 until enriched. */
+function poolEntry(index: number): PoolEntry {
+  return {
+    videoId: `metal${String(index).padStart(6, '0')}`,
+    trackKey: `band ${index}::song ${index}`,
+    title: `Song ${index}`,
+    artist: `Band ${index}`,
+    work: '',
+    titleAliases: [],
+    artistAliases: [],
+    workAliases: [],
+    year: 2001,
+    yearVerified: false,
+    views: 100_000,
+    durationSeconds: 200,
+    channel: 'Band - Topic',
+    restriction: { embeddable: true, ageRestricted: false, privacyStatus: 'public', uploadStatus: 'processed' },
+    difficulty: 50,
+    modelDifficulty: 50,
+    recognised: true,
+    seedFame: null,
+    fame: null,
+    seedWikidataId: null,
+    song: '',
+    songArtist: '',
+    videoTitle: `Band ${index} - Song ${index}`,
+    trackSeconds: null,
+    upload: 'topic',
+    hintFraction: null,
+    chorus: null,
+    enriched: false,
+    genreId: 'metal',
+    answerShape: 'artist-title'
+  };
+}
+
+describe('dealing from a pool whose difficulties move once enriched', () => {
+  afterEach(() => {
+    mock.restoreAll();
+  });
+
+  it('keeps looking while there is something left, after several picks turn out too hard', async () => {
+    const pool = Array.from({ length: 8 }, (_, index) => poolEntry(index));
+    let enriched = 0;
+    mock.method(catalogue, 'cachedPool', () => pool);
+    mock.method(catalogue, 'warm', () => undefined);
+    mock.method(catalogue, 'extend', () => undefined);
+    // The first five the draw enriches turn out to be deep cuts, far outside 0 to 60.
+    mock.method(catalogue, 'enrich', async (entries: PoolEntry[]) => {
+      for (const entry of entries) {
+        if (entry.enriched) continue;
+        entry.enriched = true;
+        enriched += 1;
+        if (enriched <= 5) entry.difficulty = 97;
+      }
+    });
+
+    const dealt = await dealRounds(
+      { genreIds: ['metal'], difficultyMin: 0, difficultyMax: 60, region: 'FR', replayShare: 0 },
+      emptyHistory(),
+      1
+    );
+
+    assert.equal(dealt.length, 1);
+    assert.ok(((dealt[0]?.payload as { difficulty?: number }).difficulty ?? 100) <= 60);
   });
 });

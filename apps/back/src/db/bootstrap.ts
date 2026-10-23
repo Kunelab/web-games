@@ -300,6 +300,30 @@ const statements = [
     "day" TEXT PRIMARY KEY,
     "searches" INTEGER NOT NULL DEFAULT 0
   )`,
+  // What the outside catalogues said about a track or a work, kept for months.
+  // See schema.ts.
+  `CREATE TABLE IF NOT EXISTS "BlindtestFame" (
+    "key" TEXT PRIMARY KEY,
+    "facts" TEXT NOT NULL,
+    "expires_at" TEXT NOT NULL
+  )`,
+  // How each genre's fame figures spread, which a difficulty is measured against.
+  `CREATE TABLE IF NOT EXISTS "BlindtestCalibration" (
+    "genre_id" TEXT NOT NULL,
+    "signal" TEXT NOT NULL,
+    "mean" REAL NOT NULL,
+    "sd" REAL NOT NULL,
+    "samples" INTEGER NOT NULL DEFAULT 0,
+    "fitted_at" TEXT NOT NULL,
+    PRIMARY KEY ("genre_id", "signal")
+  )`,
+  // How often each catalogue round was played, and how often anybody found it.
+  `CREATE TABLE IF NOT EXISTS "BlindtestRoundStats" (
+    "code" TEXT PRIMARY KEY,
+    "plays" INTEGER NOT NULL DEFAULT 0,
+    "found" INTEGER NOT NULL DEFAULT 0,
+    "last_played_at" TEXT
+  )`,
   `CREATE INDEX IF NOT EXISTS "Media_user_id_idx" ON "Media" ("user_id")`,
   `CREATE INDEX IF NOT EXISTS "Media_kind_idx" ON "Media" ("kind")`,
   `CREATE INDEX IF NOT EXISTS "Media_category_idx" ON "Media" ("category")`,

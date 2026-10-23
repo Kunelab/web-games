@@ -187,7 +187,7 @@ export function chorusFromLyrics(lyrics: SyncedLyrics): ChorusInfo | null {
  * `spread` is deliberate variety rather than sloppiness: drawing the same track
  * twice in a month should not ask the identical question.
  */
-export interface ClipProfile {
+export interface ClipPlacement {
   anchor: number;
   spread: number;
   /** Never start before this: logos, silence, a slow fade in. */
@@ -198,9 +198,42 @@ export interface ClipProfile {
    * Whether this kind of music is usually uploaded as a music video, with a
    * scene, a skit or a spoken intro before the song starts. Such an upload is
    * never opened on its intro unless the recording's length says where the
-   * music begins. Openings, film themes and game tracks start on the music.
+   * music begins.
    */
   sceneBeforeMusic?: boolean;
+  /**
+   * Whether the opening bars are the wrong question altogether.
+   *
+   * A film cue or a game track builds up to its theme: its first seconds are
+   * ambience, a logo sting or a fade, even on an upload that starts right on the
+   * recording. Such a round never takes the intro angle, and an easy one is
+   * aimed where the theme is instead.
+   */
+  noIntro?: boolean;
+}
+
+export interface ClipProfile extends ClipPlacement {
+  /**
+   * How long the room hears on a window placed by this profile rather than by
+   * the lyrics. Longer for instrumentals: a theme takes more bars to recognise
+   * than a sung line does. A window found from the lyrics is always the
+   * standard length.
+   */
+  guessSeconds?: number;
+  /** And on the intro angle. */
+  introSeconds?: number;
+  /** No lyrics to look up, ever: classical, film scores, game music. */
+  instrumental?: boolean;
+  /**
+   * Different placements by the length of the upload, shortest first.
+   *
+   * The same genre is uploaded in very different cuts. A series opening of
+   * forty seconds is the theme from its first note, while the four-minute
+   * extended version of the same theme takes a minute to get there; a film's
+   * main title is two minutes and its suite is eight. The first band the
+   * upload fits in replaces the profile's own placement.
+   */
+  bands?: (Partial<ClipPlacement> & { upTo: number })[];
 }
 
 /** Sung music: skip the intro, land somewhere around the first chorus. */
@@ -212,15 +245,98 @@ export const VOCAL_PROFILE: ClipProfile = {
   sceneBeforeMusic: true
 };
 
+/** How much longer the room hears an instrumental: eight seconds over the twenty. */
+const INSTRUMENTAL_GUESS_SECONDS = 28;
+const INSTRUMENTAL_INTRO_SECONDS = 26;
+
 /**
  * Instrumental themes: the statement comes early and the piece is usually built
  * to be recognised from its opening bars, so aiming a third of the way in walks
- * straight past the thing being asked about.
+ * straight past the thing being asked about. Classical, today.
  */
-export const THEME_PROFILE: ClipProfile = { anchor: 0.18, spread: 0.07, minStart: 5, maxStart: 55 };
+export const THEME_PROFILE: ClipProfile = {
+  anchor: 0.18,
+  spread: 0.07,
+  minStart: 5,
+  maxStart: 55,
+  instrumental: true,
+  guessSeconds: INSTRUMENTAL_GUESS_SECONDS,
+  introSeconds: INSTRUMENTAL_INTRO_SECONDS
+};
+
+/**
+ * Anime openings and endings.
+ *
+ * Mostly uploaded at TV length, a minute and a half of creditless opening that
+ * is the song from its first second, where the top is the right place. A
+ * longer upload is the full song or its music video, with a scene before it
+ * and the first chorus around a fifth of the way in.
+ */
+export const ANIME_THEME_PROFILE: ClipProfile = {
+  anchor: 0.22,
+  spread: 0.05,
+  minStart: 12,
+  maxStart: 75,
+  sceneBeforeMusic: true,
+  bands: [{ upTo: 100, anchor: 0.03, spread: 0.02, minStart: 0, maxStart: 8, sceneBeforeMusic: false }]
+};
+
+/**
+ * The cuts a film, series or game theme is uploaded in, by length.
+ *
+ * Under a minute and forty it is the title sequence itself, and the theme starts
+ * a few seconds in, after the logo. Up to three minutes it is one cue, with the
+ * theme a sixth to a third of the way through. Longer is a suite or an extended
+ * version, which takes its time: a third to a half of the way.
+ */
+const SCREEN_BANDS: ClipProfile['bands'] = [
+  { upTo: 100, anchor: 0.05, spread: 0.03, minStart: 3, maxStart: 8 },
+  { upTo: 180, anchor: 0.22, spread: 0.07, minStart: 8, maxStart: 50 }
+];
+
+/** Film scores: a main title builds to its theme, so never the first seconds. */
+export const FILM_SCORE_PROFILE: ClipProfile = {
+  anchor: 0.4,
+  spread: 0.1,
+  minStart: 30,
+  maxStart: 150,
+  sceneBeforeMusic: true,
+  noIntro: true,
+  instrumental: true,
+  guessSeconds: INSTRUMENTAL_GUESS_SECONDS,
+  introSeconds: INSTRUMENTAL_INTRO_SECONDS,
+  bands: SCREEN_BANDS
+};
+
+/** Game music: the same cuts as a film's, the same build-up. */
+export const GAME_THEME_PROFILE: ClipProfile = { ...FILM_SCORE_PROFILE };
+
+/**
+ * Series openings: a title sequence is the theme from its first bars, past the
+ * channel's logo, while an extended version builds like a film cue. Sung as
+ * often as not, so the lyrics are looked up when the song is known.
+ */
+export const SERIES_THEME_PROFILE: ClipProfile = {
+  anchor: 0.4,
+  spread: 0.1,
+  minStart: 30,
+  maxStart: 150,
+  sceneBeforeMusic: true,
+  guessSeconds: INSTRUMENTAL_GUESS_SECONDS,
+  introSeconds: INSTRUMENTAL_INTRO_SECONDS,
+  bands: SCREEN_BANDS
+};
 
 /** Dialogue: the whole clip is the scene, so start at the top and stay there. */
 export const DIALOGUE_PROFILE: ClipProfile = { anchor: 0, spread: 0, minStart: 0, maxStart: 4 };
+
+/** The placement a profile gives an upload of this length. */
+export function placementFor(profile: ClipProfile, durationSeconds: number): ClipPlacement {
+  const band = profile.bands?.find((candidate) => durationSeconds <= candidate.upTo);
+  if (!band) return profile;
+  const { upTo: _upTo, ...placement } = band;
+  return { ...profile, ...placement };
+}
 
 /* --------------------------------------------------------------- the window */
 
@@ -432,6 +548,7 @@ const MUSIC_MARGIN = 3;
 export function clipWindow(durationSeconds: number, options: ClipOptions = {}): ClipPlan {
   const random = options.random ?? Math.random;
   const profile = options.profile ?? VOCAL_PROFILE;
+  const place = placementFor(profile, durationSeconds);
   const difficulty = options.difficulty ?? 50;
   const upload = options.upload ?? 'video';
 
@@ -461,11 +578,14 @@ export function clipWindow(durationSeconds: number, options: ClipOptions = {}): 
   /**
    * The intro only where the start of the video is known to be the start of the
    * music: an audio upload, a video whose extra has been measured, or a genre
-   * whose uploads are not music videos in the first place.
+   * whose uploads are not music videos in the first place. And never on music
+   * whose opening bars are not its theme, which an easy round of a film score
+   * would otherwise be dealt: five seconds of a logo and a slow fade, asked as
+   * the easy question.
    */
-  const introSafe = !profile.sceneBeforeMusic || upload !== 'video' || extra !== null;
+  const introSafe = !place.sceneBeforeMusic || upload !== 'video' || extra !== null;
   let angle = pickAngle(difficulty, chorus !== null, random());
-  if (angle === 'intro' && !introSafe) angle = chorus ? 'chorus' : 'verse';
+  if (angle === 'intro' && (!introSafe || place.noIntro)) angle = chorus ? 'chorus' : 'verse';
 
   let at: number;
   let source: HighlightSource;
@@ -477,10 +597,10 @@ export function clipWindow(durationSeconds: number, options: ClipOptions = {}): 
     source = 'chorus';
   } else if (angle === 'verse' && chorus) {
     const found = verseStart(chorus, durationSeconds);
-    at = found ?? Math.round(durationSeconds * profile.anchor);
+    at = found ?? Math.round(durationSeconds * place.anchor);
     source = found === null ? 'profile' : 'chorus';
   } else if (angle === 'intro') {
-    at = Math.max(profile.minStart, musicFrom);
+    at = Math.max(place.minStart, musicFrom);
     source = chorus ? 'chorus' : 'profile';
   } else if (options.hintFraction != null && Number.isFinite(options.hintFraction)) {
     // Clamped hard: a hint is allowed to steer, never to point off the end.
@@ -488,10 +608,25 @@ export function clipWindow(durationSeconds: number, options: ClipOptions = {}): 
     at = Math.round(durationSeconds * fraction);
     source = 'hint';
   } else {
-    const wander = (random() * 2 - 1) * profile.spread;
-    at = Math.round(durationSeconds * (profile.anchor + wander));
+    const wander = (random() * 2 - 1) * place.spread;
+    at = Math.round(durationSeconds * (place.anchor + wander));
     source = 'profile';
   }
+
+  /**
+   * How long the room hears it.
+   *
+   * A window found from the lyrics lands on a sung line, which is recognised in
+   * a few words. One placed by the profile is placed by convention, and on an
+   * instrumental the theme takes more bars to come round: those get the
+   * profile's own, longer, length.
+   */
+  const guessLength =
+    angle === 'intro'
+      ? (profile.introSeconds ?? INTRO_SECONDS)
+      : source === 'chorus'
+        ? GUESS_SECONDS
+        : (profile.guessSeconds ?? GUESS_SECONDS);
 
   /**
    * The profile's bounds apply to guesses, not to measurements.
@@ -504,12 +639,11 @@ export function clipWindow(durationSeconds: number, options: ClipOptions = {}): 
    * served the easiest thing in the track.
    */
   if (angle !== 'intro') {
-    const ceiling = source === 'chorus' ? durationSeconds : profile.maxStart + musicFrom;
-    at = Math.max(profile.minStart, Math.min(at, ceiling, Math.max(0, durationSeconds - GUESS_SECONDS - 2)));
+    const ceiling = source === 'chorus' ? durationSeconds : place.maxStart + musicFrom;
+    at = Math.max(place.minStart, Math.min(at, ceiling, Math.max(0, durationSeconds - guessLength - 2)));
   }
 
   // Never before the music, and early enough for both windows to end inside it.
-  const guessLength = angle === 'intro' ? INTRO_SECONDS : GUESS_SECONDS;
   at = Math.max(at, musicFrom);
   at = Math.min(at, Math.max(musicFrom, musicUntil - guessLength - REVEAL_SECONDS));
 

@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { frontOrigin } from '../env.js';
 import { loadAssetOnce, resolveAsset } from '../game/assets.js';
+import { withoutHiddenDuplicates } from '../services/blindtest-duplicates.js';
 import { mediaService } from '../services/media-service.js';
 import { playlistService } from '../services/playlist-service.js';
 import { resultsService } from '../services/results-service.js';
@@ -106,7 +107,9 @@ const playRoutes: FastifyPluginAsyncZod = async (app) => {
         return reply.code(400).send({ message: 'Cette playlist est vide' });
       }
 
-      const items = request.body.genres ? selectByGenre(playlist.items, request.body.genres) : playlist.items;
+      // A possible duplicate waits for an admin before it is dealt; see `duplicatesToHide`.
+      const playable = await withoutHiddenDuplicates(playlist.items);
+      const items = request.body.genres ? selectByGenre(playable, request.body.genres) : playable;
       if (items.length === 0) {
         return reply.code(400).send({ message: 'Aucun média de cette playlist ne correspond à ces genres' });
       }

@@ -1,12 +1,14 @@
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
-import { getMediaKind, normalizeAnswer } from 'game-core';
+import { changedByHand, getMediaKind, normalizeAnswer, withHandEdits, type BlindtestPayload } from 'game-core';
 
 import { cleanAliases } from '../game/session.js';
 
 import { db } from '../db/index.js';
-import { media, playlistItems, playlists, type MediaRow } from '../db/schema.js';
+import { blindtestRoundStats, media, playlistItems, playlists, type MediaRow } from '../db/schema.js';
 import { libraryVideoCodesIn } from './blindtest-catalog.js';
 import type { DrawHistory } from './blindtest-draw.js';
+import { hiddenDuplicates } from './blindtest-duplicates.js';
+import { forgetRoundOutcomes } from './blindtest-stats.js';
 import { toMediaView, type MediaView } from './media-service.js';
 
 /**
@@ -305,6 +307,7 @@ export async function correctLibraryRound(
    * refused whole. Unlike the live round, the stored copy keeps no separate
    * timing — `resolveTiming` derives it from the payload on every read — so
    * correcting the window here is the whole of the fix for every future room.
+   * What was moved is marked as a person's, so a rescoring leaves it alone.
    */
   const patch: Record<string, number> = {};
   for (const [key, value] of Object.entries(numbers)) {
@@ -312,11 +315,15 @@ export async function correctLibraryRound(
   }
 
   let payload = view.payload;
+  /** Whether the round itself changed: what it asks the room to recognise, or how hard it says that is. */
+  let rejudged = false;
   if (Object.keys(patch).length > 0) {
     const merged = { ...((payload ?? {}) as Record<string, unknown>), ...patch };
     const parsed = getMediaKind('blindtest').payloadSchema.safeParse(merged);
     if (parsed.success && JSON.stringify(parsed.data) !== JSON.stringify(payload)) {
-      payload = parsed.data;
+      const moved = changedByHand(payload, parsed.data);
+      payload = withHandEdits(payload, parsed.data as BlindtestPayload);
+      rejudged = moved.difficulty || moved.timing;
       changed = true;
     }
   }
@@ -343,6 +350,8 @@ export async function correctLibraryRound(
       last_modified: new Date().toISOString()
     })
     .where(eq(media.id, row.id));
+
+  if (rejudged) await forgetRoundOutcomes(code);
 
   return true;
 }
@@ -401,6 +410,9 @@ export async function purgeLibraryRound(code: string): Promise<boolean> {
  * replayed round is an ordinary library item, so it needs no saving, restores
  * after a restart like any other, and cannot be filed a second time.
  *
+ * A row flagged as a possible duplicate of an older one sits out until an admin
+ * settles the flag; see `duplicatesToHide`.
+ *
  * `dealt` is every media id the session has already handed out, and it is the
  * hard half of "never the same song twice in one evening". The track key below
  * is the soft half: it spans both sources, so a song the catalogue supplied
@@ -417,10 +429,11 @@ export async function replayFromLibrary(
   if (count <= 0) return [];
 
   const wanted = new Set(genreIds);
-  const pool = (await libraryRows())
-    .map(toMediaView)
+  const rows = (await libraryRows()).map(toMediaView);
+  const hidden = await hiddenDuplicates(rows).catch(() => new Set<number>());
+  const pool = rows
     .filter((item) => item.readiness.ready && wanted.has(item.category ?? ''))
-    .filter((item) => !dealt.has(item.id))
+    .filter((item) => !dealt.has(item.id) && !hidden.has(item.id))
     .filter((item) => {
       const rating = (item.payload as { difficulty?: unknown } | null)?.difficulty;
       if (typeof rating !== 'number') return true;
@@ -464,9 +477,11 @@ export async function countLibrary(
 ): Promise<Map<string, number>> {
   const wanted = new Set(genreIds);
   const counts = new Map<string, number>();
-  for (const item of (await libraryRows()).map(toMediaView)) {
+  const rows = (await libraryRows()).map(toMediaView);
+  const hidden = await hiddenDuplicates(rows).catch(() => new Set<number>());
+  for (const item of rows) {
     const genreId = item.category ?? '';
-    if (!wanted.has(genreId) || !item.readiness.ready) continue;
+    if (!wanted.has(genreId) || !item.readiness.ready || hidden.has(item.id)) continue;
     const rating = (item.payload as { difficulty?: unknown } | null)?.difficulty;
     if (typeof rating === 'number' && (rating < difficulty.min || rating > difficulty.max)) continue;
     counts.set(genreId, (counts.get(genreId) ?? 0) + 1);
@@ -494,4 +509,40 @@ export async function listLibrary(): Promise<MediaView[]> {
     .orderBy(asc(playlistItems.order_num));
 
   return rows.map((entry) => toMediaView(entry.row));
+}
+
+/* ------------------------------------------------------- how it went */
+
+/** Rated at most this easy, played at least this often, and never found: worth a look. */
+const REVIEW_MAX_DIFFICULTY = 40;
+const REVIEW_MIN_PLAYS = 2;
+
+export interface ReviewFlag {
+  mediaId: number;
+  difficulty: number;
+  plays: number;
+}
+
+/**
+ * Catalogue rounds rated easy that no room has ever found.
+ *
+ * Either the number is wrong, and the round is harder than its fame says, or
+ * the clip is: a window that opens on a logo or a spoken intro is unanswerable
+ * however famous the song. Both are an admin's to fix from the editor, and
+ * either fix settles the flag, since a harder number takes the round out of it
+ * and a found round takes it out for good.
+ */
+export async function findReviewFlags(): Promise<ReviewFlag[]> {
+  const stats = new Map((await db.select().from(blindtestRoundStats)).map((row) => [row.code, row]));
+  const flags: ReviewFlag[] = [];
+  for (const item of await listLibrary()) {
+    const code = videoCodeOf(item.payload);
+    const row = code ? stats.get(code) : undefined;
+    const difficulty = (item.payload as { difficulty?: unknown } | null)?.difficulty;
+    if (!row || typeof difficulty !== 'number') continue;
+    if (row.found === 0 && row.plays >= REVIEW_MIN_PLAYS && difficulty <= REVIEW_MAX_DIFFICULTY) {
+      flags.push({ mediaId: item.id, difficulty, plays: row.plays });
+    }
+  }
+  return flags;
 }

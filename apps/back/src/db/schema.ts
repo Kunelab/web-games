@@ -615,6 +615,58 @@ export const blindtestSearchLedger = sqliteTable('BlindtestSearchLedger', {
   searches: integer('searches').notNull().default(0)
 });
 
+/**
+ * What the outside catalogues said about one track or one work.
+ *
+ * A difficulty is scored from Deezer, Wikipedia, Last.fm, AniList and TMDB, and
+ * a song's fame does not move between two evenings, so each answer is kept for
+ * months. Keyed by what was asked (`music:artist::title`, `work:kind:name`,
+ * normalised), so two uploads of one song are looked up once. See `blindtest-fame`.
+ */
+export const blindtestFame = sqliteTable('BlindtestFame', {
+  key: text('key').primaryKey(),
+  /** JSON: `FameFacts`. */
+  facts: text('facts').notNull(),
+  /** Months after the lookup, or a day when one of its requests failed. */
+  expires_at: text('expires_at').notNull()
+});
+
+/**
+ * How one genre's fame figures spread, on a log scale.
+ *
+ * A difficulty is a distance from the genre's own middle, because a room that
+ * picked metal on purpose knows Metallica: the same Deezer fan count that is
+ * famous for metal is ordinary for pop. Fitted over the shared catalogue by the
+ * rescoring script, one row per signal, plus `composite` for the blend itself.
+ * A genre with no rows falls back on the defaults in `blindtest-difficulty`.
+ */
+export const blindtestCalibration = sqliteTable(
+  'BlindtestCalibration',
+  {
+    genre_id: text('genre_id').notNull(),
+    signal: text('signal').notNull(),
+    mean: real('mean').notNull(),
+    sd: real('sd').notNull(),
+    samples: integer('samples').notNull().default(0),
+    fitted_at: text('fitted_at').notNull()
+  },
+  (table) => [primaryKey({ columns: [table.genre_id, table.signal] })]
+);
+
+/**
+ * How often a catalogue round was played and how often anybody found it.
+ *
+ * Keyed by the video id, which a correction never changes and which a round
+ * dealt from a search already has before it is filed. Feeds the admin's
+ * "rated easy, and nobody ever finds it" flag.
+ */
+export const blindtestRoundStats = sqliteTable('BlindtestRoundStats', {
+  code: text('code').primaryKey(),
+  plays: integer('plays').notNull().default(0),
+  found: integer('found').notNull().default(0),
+  last_played_at: text('last_played_at')
+});
+
 export type MediaRow = typeof media.$inferSelect;
 export type GameResultRow = typeof gameResults.$inferSelect;
 export type NewMediaRow = typeof media.$inferInsert;

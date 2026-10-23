@@ -50,8 +50,9 @@ export default function Launch({ source = 'playlist' }: { source?: LaunchSource 
 
   // Never asked for on the generated side: there is no playlist to fetch, and
   // `useAsync` is given something that resolves rather than a conditional hook.
+  // Asked for as a game would deal it, so the counts below are the room's.
   const playlist = useAsync(
-    () => (isBlindtest ? Promise.resolve(null) : api.getPlaylist(playlistId)),
+    () => (isBlindtest ? Promise.resolve(null) : api.getPlaylist(playlistId, { forPlay: true })),
     [playlistId, isBlindtest]
   );
 

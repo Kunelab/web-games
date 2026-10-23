@@ -809,8 +809,11 @@ export interface GenreOracle {
    * `clipWindow`.
    */
   tracks: Map<string, { fame: number; duration: number | null }>;
-  /** Any normalised name of a work to the work. */
-  works: Map<string, { names: string[]; fame: number; year: number | null }>;
+  /**
+   * Any normalised name of a work to the work, with its Wikidata item when the
+   * seed came from Wikidata, so its fame is looked up by id rather than by name.
+   */
+  works: Map<string, { names: string[]; fame: number; year: number | null; wikidataId?: string | null }>;
   /**
    * Names the seeds also file on another shelf: David Guetta under pop and
    * electro, Fargo under films and series. The seeds cannot settle those, so
@@ -833,6 +836,8 @@ export function buildOracle(
     fame: number;
     year: number | null;
     duration?: number | null;
+    source?: string;
+    source_key?: string;
   }[]
 ): GenreOracle {
   const oracle: GenreOracle = { artists: new Map(), tracks: new Map(), works: new Map(), contested: new Set() };
@@ -844,7 +849,13 @@ export function buildOracle(
       oracle.tracks.set(trackOracleKey(seed.artist, seed.title), { fame: seed.fame, duration: seed.duration ?? null });
       continue;
     }
-    const work = { names: [seed.title, ...seed.aliases], fame: seed.fame, year: seed.year };
+    const work = {
+      names: [seed.title, ...seed.aliases],
+      fame: seed.fame,
+      year: seed.year,
+      wikidataId:
+        seed.source === 'wikidata' && seed.source_key && /^Q\d+$/.test(seed.source_key) ? seed.source_key : null
+    };
     for (const name of work.names) {
       const key = normalizeAnswer(name);
       if (key && !oracle.works.has(key)) oracle.works.set(key, work);
@@ -1292,7 +1303,9 @@ export function createSeedStock({
         aliases: blindtestSeeds.aliases,
         fame: blindtestSeeds.fame,
         year: blindtestSeeds.year,
-        duration: blindtestSeeds.duration
+        duration: blindtestSeeds.duration,
+        source: blindtestSeeds.source,
+        source_key: blindtestSeeds.source_key
       })
       .from(blindtestSeeds)
       .where(eq(blindtestSeeds.genre_id, genreId))

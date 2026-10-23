@@ -400,7 +400,9 @@ export const api = {
 
   /* playlists */
   listPlaylists: () => request<Playlist[]>('/playlists'),
-  getPlaylist: (id: number) => request<Playlist>(`/playlists/${id}`),
+  /** `forPlay` leaves out what a game would not deal: possible duplicates awaiting review. */
+  getPlaylist: (id: number, options: { forPlay?: boolean } = {}) =>
+    request<Playlist>(`/playlists/${id}${options.forPlay ? '?forPlay=1' : ''}`),
   createPlaylist: (body: { name: string; public?: boolean; mediaIds?: number[] }) =>
     request<Playlist>('/playlists', { method: 'POST', body }),
   updatePlaylist: (
@@ -558,7 +560,12 @@ export const api = {
       groups: { reason: DuplicateReason; mediaIds: number[] }[];
       /** The direct comparisons behind the groups: what each entry actually collides with. */
       pairs: { a: number; b: number; reason: DuplicateReason }[];
+      /** Left out of every game until their flags are settled: the newer of each pair. */
+      hidden: number[];
     }>('/blindtest/library/duplicates'),
+  /** Catalogue rounds rated easy that no room has found yet. Admin only. */
+  blindtestReviewFlags: () =>
+    request<{ flags: { mediaId: number; difficulty: number; plays: number }[] }>('/blindtest/library/review'),
   /** Settles every flag raised against one entry: "these are not duplicates". */
   blindtestDismissDuplicate: (mediaId: number) =>
     request<{ dismissed: number }>('/blindtest/library/duplicates/dismiss', {

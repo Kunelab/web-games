@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  duplicatesToHide,
   findDuplicatePairs,
   findDuplicatePairsFor,
   groupPairs,
@@ -131,5 +132,42 @@ describe('findDuplicatePairs and groupPairs', () => {
     const items = [item(1, 'Queen', 'Halo'), item(2, 'ABBA', 'Dancing Queen')];
     assert.deepEqual(findDuplicatePairs(items), []);
     assert.deepEqual(groupPairs([]), []);
+  });
+});
+
+describe('duplicatesToHide', () => {
+  it('plays the oldest of a pair and leaves the newer out', () => {
+    assert.deepEqual([...duplicatesToHide([7, 3], [{ a: 7, b: 3, reason: 'same-track' }])], [7]);
+  });
+
+  it('keeps both ends of a chain whose ends share nothing', () => {
+    // A≈B and B≈C: B is a second A, but nothing says C is.
+    const hidden = duplicatesToHide(
+      [1, 2, 3],
+      [
+        { a: 1, b: 2, reason: 'similar' },
+        { a: 2, b: 3, reason: 'similar' }
+      ]
+    );
+    assert.deepEqual([...hidden], [2]);
+  });
+
+  it('hides every newer copy of a song saved three times', () => {
+    const hidden = duplicatesToHide(
+      [5, 9, 12],
+      [
+        { a: 5, b: 9, reason: 'same-video' },
+        { a: 5, b: 12, reason: 'same-video' },
+        { a: 9, b: 12, reason: 'same-video' }
+      ]
+    );
+    assert.deepEqual(
+      [...hidden].sort((a, b) => a - b),
+      [9, 12]
+    );
+  });
+
+  it('hides nothing once a pair is settled, since a settled pair is no longer passed in', () => {
+    assert.equal(duplicatesToHide([1, 2], []).size, 0);
   });
 });

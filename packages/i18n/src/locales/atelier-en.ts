@@ -47,7 +47,8 @@ export const atelierEn = {
   "lib.deleteManyTitle": "Delete {count} media?",
   "lib.deleteManyDesc": "This cannot be undone.",
   "lib.usedNowhereMany": "None of them is in a playlist.",
-  "lib.willBeRemovedMany": "They will be removed from {count} playlist(s) between them.",
+  "lib.willBeRemovedMany":
+    "They will be removed from {count} playlist(s) between them.",
   "lib.import.title": "Import a YouTube playlist",
   "lib.import.desc":
     "Every video becomes a blind test. The title and the artist are guessed from the video title, so read them over afterwards.",
@@ -345,17 +346,28 @@ export const atelierEn = {
   "ple.duplicate.clear": "Not duplicates",
   "ple.duplicate.delete": "Delete this media",
   "ple.duplicate.cancel": "Cancel",
+  "ple.duplicate.hiddenMeta": " · left out of games",
+  "ple.duplicate.hidden":
+    "This entry sits out of every game until the flag is settled: the older entry plays instead.",
+  /* ------- rounds rated easy that no room ever finds (admin) ------- */
+  "ple.review.count": "{count} never found",
+  "ple.review.badge": "Never found",
+  "ple.review.flag":
+    "{title}: rated {difficulty}, and nobody found it in {plays} games. The difficulty or the clip probably needs a look.",
   /* ---------- genres in question in the generated-rounds catalogue (admin) ---------- */
   "ple.genre.flag": "Genre to check: {title}",
   "ple.genre.count": "{count} genre(s) to check",
   "ple.genre.title": "Genre to check",
-  "ple.genre.unknownGenre": "This genre no longer exists: no game can deal this entry.",
+  "ple.genre.unknownGenre":
+    "This genre no longer exists: no game can deal this entry.",
   "ple.genre.wrongShape":
     "This genre does not expect this kind of answer: a work where the entry has an artist and a title, or the other way round.",
-  "ple.genre.labelDisagrees": "The question names another genre, such as “Movie” on an anime opening.",
+  "ple.genre.labelDisagrees":
+    "The question names another genre, such as “Movie” on an anime opening.",
   "ple.genre.seedElsewhere":
     "The reference catalogues (Deezer, AniList, Wikidata) file this artist or work under another genre, never this one.",
-  "ple.genre.artistElsewhere": "Every other entry by this artist is in another genre.",
+  "ple.genre.artistElsewhere":
+    "Every other entry by this artist is in another genre.",
   "ple.genre.legacyFlag": "Old label: {title}",
   "ple.genre.legacyBadge": "Old label",
   "ple.genre.legacyCount": "{count} old label(s)",
@@ -369,7 +381,8 @@ export const atelierEn = {
   "ple.genre.apply": "Apply",
   "ple.genre.dismiss": "The genre is right",
   "ple.genre.cancel": "Cancel",
-  "ple.catalogueName": "The shared catalogue keeps its name: the endless blind test finds it by it.",
+  "ple.catalogueName":
+    "The shared catalogue keeps its name: the endless blind test finds it by it.",
   /* ------------------------- opening a room from a playlist ----------------- */
   "launch.failed": "The launch failed.",
   "launch.backPlaylist": "Playlist",
@@ -435,7 +448,8 @@ export const atelierEn = {
     "Only blind tests carry a difficulty, from 0 for the best known to 100. Media without one stay in the game whatever the setting.",
   "launch.filter.perGenre": "Set the difficulty genre by genre",
   "launch.filter.perGenre.hint": "Every genre kept then gets its own range.",
-  "launch.filter.empty": "No media matches these settings. Keep more genres or widen the difficulty.",
+  "launch.filter.empty":
+    "No media matches these settings. Keep more genres or widen the difficulty.",
   "launch.length": "Length",
   "launch.length.all": "The whole selection ({count})",
   "launch.length.rounds": "{count} rounds",

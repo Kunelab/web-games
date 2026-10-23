@@ -152,6 +152,11 @@ export interface RoundState {
    * "not the catalogue's", which is the safe way round.
    */
   catalogue?: boolean;
+  /**
+   * Set once this round's play has been counted in the catalogue's statistics,
+   * so the several transitions a reveal goes through count it once.
+   */
+  statsRecorded?: boolean;
 }
 
 /**

@@ -55,8 +55,13 @@ export interface Annotation {
   artist: string;
   answer: string;
   aliases: string[];
-  /** 0 easy to 100 obscure, as a party-game question rather than as a view count. */
-  difficulty: number;
+  /**
+   * 0 easy to 100 obscure, for a player who picked this genre on purpose. Null
+   * when the model gave none, which is not the same as a middling 50.
+   */
+  difficulty: number | null;
+  /** False when the model does not know the artist or the work at all. */
+  recognised: boolean;
   confidence: number;
   /**
    * Roughly where the recognisable part sits, as a fraction of the track.
@@ -70,6 +75,13 @@ export interface Annotation {
   hookFraction: number | null;
   /** False when the model judges this outside the genre it was drawn for. */
   fitsGenre: boolean;
+  /**
+   * For a work, the song the clip plays when the title names it: an anime
+   * opening's song and its singer, a series' theme. Empty otherwise. It is what
+   * lets a sung theme have its chorus found from the lyrics like any song.
+   */
+  song: string;
+  songArtist: string;
 }
 
 /**
@@ -80,6 +92,12 @@ export interface Annotation {
  * the doubtful ones costs nothing that matters.
  */
 const MIN_CONFIDENCE = 0.75;
+
+/**
+ * Below this a theme position is a guess about a track the model has never
+ * heard, and a guess placed the window as confidently as a measurement would.
+ */
+const MIN_HOOK_CONFIDENCE = 0.9;
 
 /** Titles per request. Large enough to be cheap, small enough to stay coherent. */
 const BATCH_SIZE = 25;
@@ -92,10 +110,13 @@ const annotationSchema = z.object({
       artist: z.string().default(''),
       answer: z.string().default(''),
       aliases: z.array(z.string()).default([]),
-      difficulty: z.number().min(0).max(100).default(50),
+      difficulty: z.number().min(0).max(100).nullable().default(null),
+      recognised: z.boolean().default(true),
       confidence: z.number().min(0).max(1).default(0),
       hookFraction: z.number().nullable().default(null),
-      fitsGenre: z.boolean().default(true)
+      fitsGenre: z.boolean().default(true),
+      song: z.string().default(''),
+      songArtist: z.string().default('')
     })
   )
 });
@@ -116,9 +137,12 @@ const RESPONSE_SCHEMA = {
           answer: { type: 'string' },
           aliases: { type: 'array', items: { type: 'string' } },
           difficulty: { type: 'number' },
+          recognised: { type: 'boolean' },
           confidence: { type: 'number' },
           hookFraction: { type: 'number' },
-          fitsGenre: { type: 'boolean' }
+          fitsGenre: { type: 'boolean' },
+          song: { type: 'string' },
+          songArtist: { type: 'string' }
         },
         required: [
           'index',
@@ -127,9 +151,12 @@ const RESPONSE_SCHEMA = {
           'answer',
           'aliases',
           'difficulty',
+          'recognised',
           'confidence',
           'hookFraction',
-          'fitsGenre'
+          'fitsGenre',
+          'song',
+          'songArtist'
         ]
       }
     }
@@ -145,10 +172,12 @@ For each numbered title, decide:
 - for "work", the answer is the WORK, never the song title. An anime opening is answered with the anime it opens, NOT the band or the song. If you cannot tell which work it belongs to, use kind "reject" rather than answering with the song.
 - artist: only for "music". Empty otherwise. Do NOT repeat the artist inside the answer: the artist and the track are separate fields.
 - aliases: other names a player might reasonably type. Leave empty rather than invent one.
-- difficulty: 0 if almost everyone at a party would name it, 100 if only an enthusiast would. Judge the ANSWER's fame, not the video's view count.
+- difficulty: how hard it is for a French player who picked this genre on purpose. 0 when every fan of the genre names it at once (Bob Marley in reggae, "Enter Sandman" in metal), 100 when only a specialist would. A hit known only in its own country is hard for a French room. Judge the ANSWER's fame, not the video's view count.
+- recognised: false when you do not know this artist or this work at all. Then difficulty is at least 80.
 - confidence: 0 to 1, how sure you are the answer is right.
 - fitsGenre: false when the track does not belong to the genre named below. A search for one genre returns neighbours, and a pop hit in a rap round is a bug.
-- hookFraction: for INSTRUMENTAL pieces only, roughly where the recognisable theme sits as a fraction of the track (0 = the very start, 0.5 = halfway). Many themes state themselves in the first seconds. Use 0 for anything sung.
+- hookFraction: for INSTRUMENTAL pieces only, and only when you know the piece well, roughly where its recognisable theme sits as a fraction of the track (0 = the very start, 0.5 = halfway). Use 0 when you are not sure, and for anything sung.
+- song and songArtist: for "work" only, the song the clip plays and who sings it, when the title names them (an anime opening's song, a series' theme song). Empty otherwise, and empty rather than guessed.
 - some lines say what the search was for. That is a hint, never a fact: a search also returns other videos. Answer with what the title actually names, and use the hint only to settle a title that could name several things.
 
 Answer in French where the work has a well-known French name. Reply with json.`;
@@ -293,9 +322,18 @@ async function annotateBatch(
         answer: item.answer,
         aliases: plausibleAliases(item.answer, item.aliases),
         difficulty: item.difficulty,
+        recognised: item.recognised,
         confidence: item.confidence,
-        hookFraction: item.hookFraction !== null && item.hookFraction > 0 ? item.hookFraction : null,
-        fitsGenre: item.fitsGenre
+        hookFraction:
+          item.hookFraction !== null &&
+          item.hookFraction > 0 &&
+          item.confidence >= MIN_HOOK_CONFIDENCE &&
+          item.recognised
+            ? item.hookFraction
+            : null,
+        fitsGenre: item.fitsGenre,
+        song: item.kind === 'work' ? item.song.trim() : '',
+        songArtist: item.kind === 'work' ? item.songArtist.trim() : ''
       });
     }
 

@@ -6,6 +6,7 @@ import type { LobbyCard } from 'lobby-core';
 import { db } from '../db/index.js';
 import { indexCatalogueEntry } from '../services/blindtest-duplicates.js';
 import { rememberPlayedRound } from '../services/blindtest-library.js';
+import { recordRoundOutcome } from '../services/blindtest-stats.js';
 import { dealRounds, reserveEphemeralIdsBelow, type DrawHistory } from '../services/blindtest-draw.js';
 import { mediaService, type MediaView } from '../services/media-service.js';
 import { resultsService } from '../services/results-service.js';
@@ -18,6 +19,7 @@ import {
   closeAnswers,
   createSession,
   expireBuzzWindow,
+  libraryCodeOf,
   nextDeadline,
   openAnswers,
   relabelAnswers,
@@ -269,6 +271,12 @@ export class GameManager {
     // carry: it stores the answers and payload, not the librarian-facing title.
     const item = state.round ? this.mediaBySession.get(state.code)?.get(state.round.mediaId) : undefined;
     return toSessionView(state, playerId, isHost, this.viewContext(state), item?.title ?? '', item?.category ?? null);
+  }
+
+  /** The genre of the round on screen, as its item carries it. */
+  roundCategory(state: SessionState): string | null {
+    const item = state.round ? this.mediaBySession.get(state.code)?.get(state.round.mediaId) : undefined;
+    return item?.category ?? null;
   }
 
   /**
@@ -704,6 +712,29 @@ export class GameManager {
     }
 
     this.keepGeneratedRound(state);
+    this.countCatalogueRound(state);
+  }
+
+  /**
+   * Counts a catalogue round's play, and whether anybody found it.
+   *
+   * What lets the admin see the rounds rated easy that no room ever names; see
+   * `findReviewFlags`. Once per round, at its reveal, and only where answers
+   * were typed: an oral game scores nothing, so it says nothing about who knew
+   * the song, and a rehearsal is not a room.
+   */
+  private countCatalogueRound(state: SessionState): void {
+    const round = state.round;
+    if (!round || round.phase !== 'reveal' || !round.scored || round.statsRecorded) return;
+    if (state.config.oral || state.rehearsal || Object.keys(state.players).length === 0) return;
+    const code = libraryCodeOf(round);
+    if (!code) return;
+
+    round.statsRecorded = true;
+    const found = round.submissions.some((submission) => submission.correct);
+    void recordRoundOutcome(code, found).catch((error: unknown) => {
+      this.log.warn({ err: error, code: state.code }, 'could not count a catalogue round');
+    });
   }
 
   /**

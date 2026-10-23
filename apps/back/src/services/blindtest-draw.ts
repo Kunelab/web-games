@@ -22,7 +22,8 @@ import { blindtest, mediaReadiness, resolveTiming, type AnswerField } from 'game
 
 import type { MediaView } from './media-service.js';
 import { clipWindow } from './chorus-service.js';
-import { genreById, profileFor, sourceGenreFor, type Genre, type PoolEntry } from './blindtest-catalog.js';
+import { fameOf, genreById, profileFor, sourceGenreFor, type Genre, type PoolEntry } from './blindtest-catalog.js';
+import { bellTarget } from './blindtest-difficulty.js';
 import { catalogueKeys, replayFromLibrary } from './blindtest-library.js';
 import { catalogue } from './catalogue-service.js';
 import { playableIn } from './youtube-service.js';
@@ -70,6 +71,19 @@ const ARTIST_WINDOW_MAX = 2;
  * draw rather than a lookup.
  */
 const TARGET_SHORTLIST = 12;
+
+/**
+ * How many picks one draw may find outside the window before it stops.
+ *
+ * An entry's difficulty is provisional until `enrich` has asked the catalogues
+ * how famous it is, and the real number can land outside the room's window. The
+ * round then tries another rather than deal a household name to a room that
+ * asked for deep cuts, for as long as the pool has candidates. This bounds only
+ * the time: each miss is an enrichment, and a draw runs inside a playing round.
+ * Counted per draw, not per round, so a few misses never end the evening while
+ * the pool still holds something that fits.
+ */
+const MAX_MISSES = 24;
 
 /**
  * Below this many rounds left for the room, a genre asks for more.
@@ -321,7 +335,11 @@ function toMediaView(entry: PoolEntry, difficultyTarget: number): MediaView {
      * as the pool allowed. Stored on the item, so it survives into the shared
      * catalogue and can be argued with at the reveal.
      */
-    difficulty: Math.round(entry.difficulty)
+    difficulty: Math.round(entry.difficulty),
+    difficultyBy: 'auto' as const,
+    timingBy: 'auto' as const,
+    /** What the number was scored from, so a later rescoring need not ask again. */
+    fame: fameOf(entry)
   };
 
   const item = { kind: 'blindtest', timing: null, payload };
@@ -433,16 +451,20 @@ export async function drawRounds(
    */
   const catalogued = await catalogueKeys().catch(() => ({ codes: new Set<string>(), tracks: new Set<string>() }));
 
+  /** Entries whose real difficulty, once enriched, fell outside the window. */
+  const missed = new Set<PoolEntry>();
+  let misses = 0;
+
   for (let round = 0; round < count; round++) {
-    const target = Math.round(
-      settings.difficultyMin + Math.random() * Math.max(0, settings.difficultyMax - settings.difficultyMin)
-    );
+    // Aimed on the same bell the catalogue is scored on; see `bellTarget`.
+    const target = bellTarget(settings.difficultyMin, settings.difficultyMax);
 
     const remaining = buckets.map((bucket) => ({
       genre: bucket.genre,
       entries: bucket.entries.filter(
         // By recording as well as by video: see `catalogueKeys` for the twin.
         (entry) =>
+          !missed.has(entry) &&
           !catalogued.codes.has(entry.videoId) &&
           !catalogued.tracks.has(entry.trackKey) &&
           eligible(entry, bucket.genre, settings, history)
@@ -466,22 +488,37 @@ export async function drawRounds(
       }
     }
 
-    const usable = remaining.filter((bucket) => bucket.entries.length > 0);
-
-    const bucket = pickGenre(usable);
-    if (!bucket) break;
-
-    const entry = pickForTarget(bucket.entries, target);
-    if (!entry) break;
+    let usable = remaining.filter((bucket) => bucket.entries.length > 0);
 
     /**
      * Enrichment happens here, for one entry, rather than for the pool.
      *
-     * This is the only await inside the loop and it is why the whole draw runs
-     * during a round that is already playing. A chorus lookup is about 300ms, so
-     * even a top-up of three costs under a second of a thirty second window.
+     * These are the only awaits inside the loop and they are why the whole draw
+     * runs during a round that is already playing. A chorus lookup is about
+     * 300ms and the fame lookups are cached for months, so even a top-up of
+     * three costs a second or two of a thirty second window.
+     *
+     * The window is checked again afterwards, since enrichment is what turns the
+     * provisional difficulty into the real one.
      */
-    await catalogue.enrich([entry]);
+    let entry: PoolEntry | null = null;
+    while (entry === null && misses < MAX_MISSES) {
+      const bucket = pickGenre(usable);
+      if (!bucket) break;
+      const picked = pickForTarget(bucket.entries, target);
+      if (!picked) break;
+      await catalogue.enrich([picked]);
+      if (eligible(picked, bucket.genre, settings, history)) {
+        entry = picked;
+      } else {
+        misses += 1;
+        missed.add(picked);
+        usable = usable
+          .map((candidate) => ({ ...candidate, entries: candidate.entries.filter((other) => other !== picked) }))
+          .filter((candidate) => candidate.entries.length > 0);
+      }
+    }
+    if (!entry) break;
 
     history.playedTracks.add(entry.trackKey);
     if (entry.artist) history.recentArtists.push(entry.artist.toLowerCase());
