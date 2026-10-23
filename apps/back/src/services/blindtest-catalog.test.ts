@@ -3,6 +3,7 @@ import { after, describe, it } from 'node:test';
 
 import { openDb } from '../db/open.js';
 import { createCatalogue, type CatalogueSources, type PoolEntry } from './blindtest-catalog.js';
+import { noFameSources } from './blindtest-fame.js';
 import type { Annotation, Candidate } from './blindtest-llm.js';
 import type { VideoFacts } from './youtube-service.js';
 
@@ -65,6 +66,8 @@ interface World {
   anilist?: Series[];
   compositions?: Work[];
   clips?: Clip[];
+  /** Whether MusicBrainz knows every recording's release year. */
+  years?: boolean;
 }
 
 /**
@@ -155,7 +158,11 @@ function fakeSources(world: World = {}) {
       }
     },
     lyrics: async () => null,
-    aliases: { musicbrainz: async () => null, anilist: async () => null },
+    aliases: {
+      musicbrainz: async () => (world.years ? { aliases: [], year: 1995 } : null),
+      anilist: async () => null
+    },
+    fame: noFameSources,
     async annotate(candidates) {
       return new Map(candidates.map((candidate) => [candidate.videoId, reading(candidate, clips)]));
     }
@@ -186,9 +193,12 @@ function reading(candidate: Candidate, clips: Clip[]): Annotation {
     answer,
     aliases: [],
     difficulty: 50,
+    recognised: true,
     confidence: 0.9,
     hookFraction: null,
     fitsGenre: true,
+    song: '',
+    songArtist: '',
     ...clips.find((clip) => clip.id === candidate.videoId)?.read
   };
 }
@@ -392,5 +402,27 @@ describe('a seed harvest', () => {
 
     assert.deepEqual(answered, [2, 2]);
     assert.equal(calls.sparql, 1);
+  });
+});
+
+describe("an era facet's pool", () => {
+  it('checks the release year of its most viewed entries first', async () => {
+    // A hundred uploads, the most viewed last in the order the search returned them.
+    const clips: Clip[] = Array.from({ length: 100 }, (_, index) => ({
+      id: `c${index}`,
+      title: `Artist ${index} - Song ${index}`,
+      views: (index + 1) * 1000,
+      everywhere: true
+    }));
+    const { catalogue } = catalogueOver({ clips, years: true });
+
+    const pool = await catalogue.poolFor('rap-us');
+    const mostViewed = [...pool].sort((left, right) => right.views - left.views).slice(0, 10);
+
+    assert.deepEqual(
+      mostViewed.filter((entry) => !entry.yearVerified).map((entry) => entry.title),
+      [],
+      'the famous tracks are the ones an era facet must not misfile'
+    );
   });
 });

@@ -3,6 +3,47 @@ import { z } from 'zod';
 import { defineKind } from '../kind-definition.js';
 
 /**
+ * What an automatic difficulty was worked out from.
+ *
+ * Kept on the item so the number can be worked out again, by a later version
+ * of the scoring or for a genre whose calibration moved, without asking every
+ * outside service a second time. Every figure is the raw one, on the source's
+ * own scale, and nullable: null is "not known", which the scoring treats very
+ * differently from a zero ("looked, and there is nothing").
+ */
+export const blindtestFameSchema = z.object({
+  /** YouTube views of this upload, and what kind of upload it is. */
+  views: z.number().nullish(),
+  upload: z.enum(['topic', 'audio', 'video']).nullish(),
+  /** Deezer's own popularity figure for the track, 0 to a million. */
+  deezerRank: z.number().nullish(),
+  /** Fans of the artist on Deezer. */
+  deezerFans: z.number().nullish(),
+  /** Listeners of the track on Last.fm. */
+  lastfmListeners: z.number().nullish(),
+  /** How many Wikipedia languages have an article on the artist or the work. */
+  wikiLanguages: z.number().nullish(),
+  /** Views of the French and English articles over the last sixty days. */
+  frPageviews: z.number().nullish(),
+  enPageviews: z.number().nullish(),
+  /** AniList users with the anime on their list. */
+  anilistMembers: z.number().nullish(),
+  /** Votes on TMDB, for a film or a series. */
+  tmdbVotes: z.number().nullish(),
+  /** 0 to 1 within the genre's seed harvest, 1 the most famous. */
+  seedFame: z.number().nullish(),
+  /** The language model's own difficulty, and whether it knew the answer at all. */
+  model: z.number().nullish(),
+  recognised: z.boolean().nullish(),
+  /** Whether the outside catalogues were asked, so a missing figure means "nothing there". */
+  looked: z.boolean().optional(),
+  /** The catalogues' ids for what was found, so a later lookup need not search again. */
+  ids: z.record(z.string(), z.string()).optional()
+});
+
+export type BlindtestFame = z.infer<typeof blindtestFameSchema>;
+
+/**
  * The original game: a clip plays, players name it.
  *
  * YouTube hosts the media, so nothing here is stored except the id and the two
@@ -53,7 +94,18 @@ export const blindtestPayloadSchema = z
      * judgement". Every reader tests for a number, so the two empties behave
      * alike.
      */
-    difficulty: z.number().int().min(0).max(100).nullish()
+    difficulty: z.number().int().min(0).max(100).nullish(),
+    /**
+     * Who set the difficulty and who set the clip window: the automatic scoring,
+     * or a person.
+     *
+     * A person's number is never overwritten by a later rescoring. Absent on
+     * rows saved before this existed, which a rescoring treats as automatic.
+     */
+    difficultyBy: z.enum(['auto', 'human']).optional(),
+    timingBy: z.enum(['auto', 'human']).optional(),
+    /** The evidence an automatic difficulty came from. See `blindtestFameSchema`. */
+    fame: blindtestFameSchema.optional()
   })
   .refine((payload) => payload.endGuess > payload.startGuess, {
     message: 'La fin du extrait doit être après le début',
@@ -65,6 +117,40 @@ export const blindtestPayloadSchema = z
   });
 
 export type BlindtestPayload = z.infer<typeof blindtestPayloadSchema>;
+
+const CLIP_KEYS = ['startGuess', 'endGuess', 'startReveal', 'endReveal'] as const;
+
+/** Whether a save moved the difficulty, and whether it moved the clip window. */
+export function changedByHand(previous: unknown, next: unknown): { difficulty: boolean; timing: boolean } {
+  const before = (previous && typeof previous === 'object' ? previous : {}) as Record<string, unknown>;
+  const after = (next && typeof next === 'object' ? next : {}) as Record<string, unknown>;
+  return {
+    difficulty: (after.difficulty ?? null) !== (before.difficulty ?? null),
+    timing: CLIP_KEYS.some((key) => after[key] !== before[key])
+  };
+}
+
+/**
+ * A payload a person saved, with what they changed marked as theirs.
+ *
+ * The draw and the rescoring write the difficulty and the clip window as
+ * automatic, and a rescoring never overwrites a person's. So a save that moves
+ * either marks it `human`, and one that leaves it alone keeps whatever it was.
+ * The evidence the difficulty was scored from is kept too, since an editor
+ * that does not show it would otherwise drop it on every save.
+ */
+export function withHandEdits(previous: unknown, next: BlindtestPayload): BlindtestPayload {
+  const before = (previous && typeof previous === 'object' ? previous : {}) as Partial<BlindtestPayload>;
+  const merged: BlindtestPayload = { ...next };
+  if (merged.fame === undefined && before.fame !== undefined) merged.fame = before.fame;
+
+  const changed = changedByHand(previous, next);
+  const difficultyBy = changed.difficulty ? 'human' : (next.difficultyBy ?? before.difficultyBy);
+  const timingBy = changed.timing ? 'human' : (next.timingBy ?? before.timingBy);
+  if (difficultyBy) merged.difficultyBy = difficultyBy;
+  if (timingBy) merged.timingBy = timingBy;
+  return merged;
+}
 
 /** The timing schema's own bounds, so a derived duration cannot fall outside them. */
 const MIN_ANSWER_MS = 3_000;

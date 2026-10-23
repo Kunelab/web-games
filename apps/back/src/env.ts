@@ -106,6 +106,17 @@ const envSchema = z.object({
   GOOGLE_API_KEY: blankIsUnset(),
 
   /**
+   * Last.fm and TMDB, for how famous a generated round's answer is.
+   *
+   * Both optional and both free (a Last.fm API account, a TMDB API key or read
+   * access token). Without them the difficulty is scored from Deezer, Wikipedia
+   * and AniList alone, which need no key. TMDB's terms ask for a credit line
+   * wherever its data is shown.
+   */
+  LASTFM_API_KEY: blankIsUnset(),
+  TMDB_API_KEY: blankIsUnset(),
+
+  /**
    * The country a blind test is played in, as an ISO 3166-1 alpha-2 code.
    *
    * Licensing on YouTube is per territory, and the failure it causes is silent:

@@ -42,7 +42,8 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "lib.deleteManyTitle": "Supprimer {count} médias ?",
   "lib.deleteManyDesc": "C’est irréversible.",
   "lib.usedNowhereMany": "Aucun n’est utilisé dans une playlist.",
-  "lib.willBeRemovedMany": "Ils seront retirés de {count} playlist(s) au total.",
+  "lib.willBeRemovedMany":
+    "Ils seront retirés de {count} playlist(s) au total.",
   "lib.import.title": "Importer une playlist YouTube",
   "lib.import.desc":
     "Chaque vidéo devient un blind test. Le titre et l’artiste sont devinés à partir du titre de la vidéo, donc à relire ensuite.",
@@ -330,17 +331,28 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.duplicate.clear": "Ce ne sont pas des doublons",
   "ple.duplicate.delete": "Supprimer ce média",
   "ple.duplicate.cancel": "Annuler",
+  "ple.duplicate.hiddenMeta": " · écarté des parties",
+  "ple.duplicate.hidden":
+    "Cette entrée est écartée des parties tant que le doublon n’est pas réglé : l’entrée la plus ancienne est jouée à sa place.",
+  /* ------- manches notées faciles que personne ne trouve (admin) ------- */
+  "ple.review.count": "{count} jamais trouvée(s)",
+  "ple.review.badge": "Jamais trouvée",
+  "ple.review.flag":
+    "{title} : notée {difficulty}, et personne ne l’a trouvée en {plays} parties. La difficulté ou l’extrait est sans doute à revoir.",
   /* ---------- genres in question in the generated-rounds catalogue (admin) ---------- */
   "ple.genre.flag": "Genre à vérifier : {title}",
   "ple.genre.count": "{count} genre(s) à vérifier",
   "ple.genre.title": "Genre à vérifier",
-  "ple.genre.unknownGenre": "Ce genre n’existe plus : aucune partie ne peut tirer cette entrée.",
+  "ple.genre.unknownGenre":
+    "Ce genre n’existe plus : aucune partie ne peut tirer cette entrée.",
   "ple.genre.wrongShape":
     "Ce genre n’attend pas ce type de réponse : une œuvre là où l’entrée a un artiste et un titre, ou l’inverse.",
-  "ple.genre.labelDisagrees": "La question posée nomme un autre genre, par exemple « Film » sur un opening d’anime.",
+  "ple.genre.labelDisagrees":
+    "La question posée nomme un autre genre, par exemple « Film » sur un opening d’anime.",
   "ple.genre.seedElsewhere":
     "Les catalogues de référence (Deezer, AniList, Wikidata) rangent cet artiste ou cette œuvre dans un autre genre, jamais dans celui-ci.",
-  "ple.genre.artistElsewhere": "Toutes les autres entrées de cet artiste sont dans un autre genre.",
+  "ple.genre.artistElsewhere":
+    "Toutes les autres entrées de cet artiste sont dans un autre genre.",
   "ple.genre.legacyFlag": "Ancien libellé : {title}",
   "ple.genre.legacyBadge": "Ancien libellé",
   "ple.genre.legacyCount": "{count} ancien(s) libellé(s)",
@@ -354,7 +366,8 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.genre.apply": "Appliquer",
   "ple.genre.dismiss": "Le genre est correct",
   "ple.genre.cancel": "Annuler",
-  "ple.catalogueName": "Le catalogue commun garde son nom : le blind test infini le retrouve ainsi.",
+  "ple.catalogueName":
+    "Le catalogue commun garde son nom : le blind test infini le retrouve ainsi.",
   /* --------------------- ouvrir un salon depuis une playlist ---------------- */
   "launch.failed": "Le lancement a échoué.",
   "launch.backPlaylist": "Playlist",
@@ -421,8 +434,10 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "launch.filter.difficulty.hint":
     "Seuls les blind tests portent une difficulté, de 0 pour les plus connus à 100. Les médias qui n’en ont pas restent dans la partie, quel que soit le réglage.",
   "launch.filter.perGenre": "Régler la difficulté genre par genre",
-  "launch.filter.perGenre.hint": "Chaque genre gardé a alors sa propre fourchette.",
-  "launch.filter.empty": "Aucun média ne correspond à ces réglages. Gardez plus de genres ou élargissez la difficulté.",
+  "launch.filter.perGenre.hint":
+    "Chaque genre gardé a alors sa propre fourchette.",
+  "launch.filter.empty":
+    "Aucun média ne correspond à ces réglages. Gardez plus de genres ou élargissez la difficulté.",
   "launch.length": "Longueur",
   "launch.length.all": "Toute la sélection ({count})",
   "launch.length.rounds": "{count} manches",

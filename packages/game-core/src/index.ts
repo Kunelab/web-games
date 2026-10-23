@@ -39,7 +39,15 @@ export {
 export { mediaReadiness, partitionPlayable, type Readiness } from './media/readiness.js';
 export { genreKeyOf, genreWindowSchema, mediaDifficulty, selectByGenre, type GenreWindow } from './media/selection.js';
 
-export { blindtest, blindtestPayloadSchema, type BlindtestPayload } from './media/kinds/blindtest.js';
+export {
+  blindtest,
+  changedByHand,
+  blindtestFameSchema,
+  blindtestPayloadSchema,
+  withHandEdits,
+  type BlindtestFame,
+  type BlindtestPayload
+} from './media/kinds/blindtest.js';
 export { quiz, quizPayloadSchema, type QuizPayload } from './media/kinds/quiz.js';
 export { imageReveal, imageRevealPayloadSchema, type ImageRevealPayload } from './media/kinds/image-reveal.js';
 export { imageMemory, imageMemoryPayloadSchema, type ImageMemoryPayload } from './media/kinds/image-memory.js';

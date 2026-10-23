@@ -322,8 +322,29 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   const isCatalogue = playlist.user_id === null && playlist.name === EVERYTHING_PLAYLIST_NAME;
   const curating = admin && isCatalogue;
   const duplicates = useAsync(
-    () => (curating ? api.blindtestDuplicates() : Promise.resolve({ groups: [], pairs: [] })),
+    () => (curating ? api.blindtestDuplicates() : Promise.resolve({ groups: [], pairs: [], hidden: [] })),
     [curating, playlistId]
+  );
+  /** The newer side of each unsettled pair, which no game deals until it is settled. */
+  const hiddenIds = useMemo(
+    () => new Set((duplicates.data?.hidden ?? []).filter((mediaId) => !deletedIds.has(mediaId))),
+    [duplicates.data, deletedIds]
+  );
+
+  /**
+   * Rounds rated easy that no room has found, admin only, on the catalogue
+   * only: the same rule as the duplicates, for the same reason.
+   */
+  const review = useAsync(
+    () => (curating ? api.blindtestReviewFlags() : Promise.resolve({ flags: [] })),
+    [curating, playlistId]
+  );
+  const reviewById = useMemo(
+    () =>
+      new Map(
+        (review.data?.flags ?? []).filter((flag) => !deletedIds.has(flag.mediaId)).map((flag) => [flag.mediaId, flag])
+      ),
+    [review.data, deletedIds]
   );
 
   /**
@@ -541,7 +562,8 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
    * look at those alone. Paging the catalogue scattered them across dozens of
    * pages that used to be one long scroll.
    */
-  const isFlagged = (item: MediaItem) => dupById.has(item.id) || genreFlagById.has(item.id) || legacyIds.has(item.id);
+  const isFlagged = (item: MediaItem) =>
+    dupById.has(item.id) || genreFlagById.has(item.id) || legacyIds.has(item.id) || reviewById.has(item.id);
   const flagCount = chosen.filter(isFlagged).length;
   /**
    * The playlist's own list, narrowed. Reordering still works on the result:
@@ -683,6 +705,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
               {dupById.size > 0 && <> · {t(msg('ple.duplicate.count', { count: dupById.size }))}</>}
               {genreFlagById.size > 0 && <> · {t(msg('ple.genre.count', { count: genreFlagById.size }))}</>}
               {legacyIds.size > 0 && <> · {t(msg('ple.genre.legacyCount', { count: legacyIds.size }))}</>}
+              {reviewById.size > 0 && <> · {t(msg('ple.review.count', { count: reviewById.size }))}</>}
             </span>
           </header>
 
@@ -751,6 +774,8 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                       category={categoryOf(item)}
                       categoryLabel={curating ? genreName(categoryOf(item)) : undefined}
                       duplicate={curating ? dupById.get(item.id) : undefined}
+                      hiddenInGames={curating && hiddenIds.has(item.id)}
+                      review={curating ? reviewById.get(item.id) : undefined}
                       onShowDuplicate={() => setDupTargetId(item.id)}
                       genreFlag={curating ? genreFlagById.get(item.id) : undefined}
                       legacyLabel={curating && legacyIds.has(item.id)}
@@ -891,6 +916,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
         }
       >
         <p className="dialog-desc">{t(msg('ple.duplicate.explains'))}</p>
+        {dupTarget && hiddenIds.has(dupTarget.id) && <p className="dialog-desc">{t(msg('ple.duplicate.hidden'))}</p>}
         {dupInfo && (
           <ul className="pl-dup-list">
             {dupInfo.partners.map((partner) => (
@@ -964,6 +990,8 @@ function SortableRow({
   category,
   categoryLabel,
   duplicate,
+  hiddenInGames = false,
+  review,
   onShowDuplicate,
   genreFlag,
   legacyLabel = false,
@@ -978,6 +1006,10 @@ function SortableRow({
   /** The genre by name, on the catalogue only. */
   categoryLabel?: string;
   duplicate?: DuplicateInfo;
+  /** The newer side of an unsettled duplicate: no game deals it until it is settled. */
+  hiddenInGames?: boolean;
+  /** Rated easy and never found by any room. */
+  review?: { difficulty: number; plays: number };
   onShowDuplicate?: () => void;
   genreFlag?: GenreFlagInfo;
   /** Still asking for "a film, series or game". */
@@ -1013,10 +1045,23 @@ function SortableRow({
         <span className="pl-item-meta">
           {t(kindName(item.kind))}
           {categoryLabel ? ` · ${categoryLabel}` : shownCategory ? ` · ${shownCategory}` : ''}
+          {hiddenInGames && t(msg('ple.duplicate.hiddenMeta'))}
         </span>
       </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
         {!item.readiness.ready && <Badge tone="warn">{t(msg('lib.unfinished'))}</Badge>}
+        {/*
+          Rated easy, and no room has ever named it: the number or the clip is
+          wrong. A badge with its reason on hover, fixed from the media editor
+          behind the pencil, like any other correction.
+        */}
+        {review && (
+          <span
+            title={t(msg('ple.review.flag', { title: item.title, difficulty: review.difficulty, plays: review.plays }))}
+          >
+            <Badge tone="warn">{t(msg('ple.review.badge'))}</Badge>
+          </span>
+        )}
         {/*
           An entry from before each genre named its work, still asking the room
           for "a film, series or game". A badge and not an icon, because it is

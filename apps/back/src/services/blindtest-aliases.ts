@@ -90,6 +90,8 @@ export interface AliasLookup {
   year: number | null;
   /** The recording's length, when the source has one. MusicBrainz does; AniList does not. */
   durationSeconds?: number | null;
+  /** The credited artist's MusicBrainz id, which Wikidata knows them by. */
+  artistMbid?: string | null;
 }
 
 /**
@@ -142,6 +144,7 @@ const musicbrainzSchema = z.object({
           .array(
             z.object({
               artist: z.object({
+                id: z.string().optional(),
                 name: z.string(),
                 aliases: z.array(z.object({ name: z.string() })).optional()
               })
@@ -196,6 +199,7 @@ export async function musicbrainzAliases(artist: string, title: string): Promise
   return {
     aliases: usable(artist, candidates),
     year: Number.isFinite(year) ? year : null,
-    durationSeconds: best.length ? Math.round(best.length / 1000) : null
+    durationSeconds: best.length ? Math.round(best.length / 1000) : null,
+    artistMbid: credited?.id ?? null
   };
 }

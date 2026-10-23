@@ -30,6 +30,7 @@ import type { GameManager } from '../game/manager.js';
 import type { MafiaManager } from '../mafia/manager.js';
 import { catalogAvailable } from '../services/blindtest-catalog.js';
 import { dealRounds, emptyHistory } from '../services/blindtest-draw.js';
+import { withoutHiddenDuplicates } from '../services/blindtest-duplicates.js';
 import { catalogue } from '../services/catalogue-service.js';
 import { playlistService } from '../services/playlist-service.js';
 import type { CodeRegistry } from '../tables/codes.js';
@@ -97,9 +98,7 @@ export interface QuickJoinInput {
   name: string;
 }
 
-export type QuickJoinOutcome =
-  | { ok: true; lobby: QuickLobby; specs: QuickOptionSpec[] }
-  | { ok: false; error: Msg };
+export type QuickJoinOutcome = { ok: true; lobby: QuickLobby; specs: QuickOptionSpec[] } | { ok: false; error: Msg };
 
 /** A game started by a quick room, waiting for its players to arrive. */
 interface Boarding {
@@ -632,7 +631,7 @@ export class QuickplayManager {
           playlistName: playlist.name ?? 'Partie rapide',
           // Nobody hosts this one. The playlist still has an owner; the game does not.
           hostUserId: null,
-          items: playlist.items,
+          items: await withoutHiddenDuplicates(playlist.items),
           config: quizConfig(settings),
           maxRounds: quizRounds(settings.length)
         });

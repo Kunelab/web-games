@@ -5,7 +5,10 @@ import {
   mediaReadiness,
   resolveTiming,
   timingSchema,
+  changedByHand,
+  withHandEdits,
   type AnswerField,
+  type BlindtestPayload,
   type KindTiming,
   type MediaInput,
   type Readiness
@@ -15,6 +18,7 @@ import { z } from 'zod';
 import { db } from '../db/index.js';
 import { media, playlistItems, type MediaRow } from '../db/schema.js';
 import type { SessionUser } from '../types/fastify.js';
+import { forgetRoundOutcomes } from './blindtest-stats.js';
 import { copyName } from './copy-name.js';
 import { ownerFilter } from './ownership.js';
 
@@ -283,6 +287,28 @@ export const mediaService = {
   },
 
   async update(id: number, input: MediaInput, user: SessionUser): Promise<MediaView | undefined> {
+    /**
+     * A blind test's difficulty or clip moved by hand is marked as a person's,
+     * so the rescoring leaves it alone. See `withHandEdits`.
+     */
+    let payload = input.payload;
+    /** A clip or difficulty moved: the round's play counts describe the old one. */
+    let rejudgedCode: string | null = null;
+    if (input.kind === 'blindtest') {
+      const [current] = await db
+        .select({ kind: media.kind, payload: media.payload })
+        .from(media)
+        .where(and(eq(media.id, id), ownerFilter(media.user_id, user)))
+        .limit(1);
+      if (current?.kind === 'blindtest') {
+        const previous = safeJson(current.payload);
+        const moved = changedByHand(previous, input.payload);
+        payload = withHandEdits(previous, input.payload as BlindtestPayload);
+        const code = (payload as { code?: unknown }).code;
+        if ((moved.difficulty || moved.timing) && typeof code === 'string' && code) rejudgedCode = code;
+      }
+    }
+
     await db
       .update(media)
       .set({
@@ -291,12 +317,13 @@ export const mediaService = {
         category: input.category ?? null,
         date: input.date ?? null,
         answers: JSON.stringify(input.answers),
-        payload: JSON.stringify(input.payload),
+        payload: JSON.stringify(payload),
         timing: input.timing ? JSON.stringify(input.timing) : null,
         last_modified: new Date().toISOString()
       })
       .where(and(eq(media.id, id), ownerFilter(media.user_id, user)));
 
+    if (rejudgedCode) await forgetRoundOutcomes(rejudgedCode);
     return this.getById(id, user);
   },
 

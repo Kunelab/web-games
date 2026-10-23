@@ -33,14 +33,34 @@
  * an evening.
  */
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { normalizeAnswer, splitArtistTitle } from 'game-core';
+import { normalizeAnswer, splitArtistTitle, type BlindtestFame } from 'game-core';
 
 import type { Clock } from '../clock.js';
 import type { Db } from '../db/open.js';
-import { media } from '../db/schema.js';
+import { blindtestCalibration, media } from '../db/schema.js';
 import { env } from '../env.js';
 import type { AliasLookup } from './blindtest-aliases.js';
 import {
+  resolveCalibration,
+  scoreDifficulty,
+  type Calibration,
+  type CalibrationKey,
+  type FameAudience,
+  type Scale
+} from './blindtest-difficulty.js';
+import {
+  animeThemeFor,
+  lookupFame,
+  themeSlotOf,
+  type FameFacts,
+  type FameSources,
+  type WorkKind
+} from './blindtest-fame.js';
+import {
+  ANIME_THEME_PROFILE,
+  FILM_SCORE_PROFILE,
+  GAME_THEME_PROFILE,
+  SERIES_THEME_PROFILE,
   THEME_PROFILE,
   VOCAL_PROFILE,
   uploadKind,
@@ -172,6 +192,15 @@ export interface Genre {
    * beyond its name. Only where the general instructions would read it wrong.
    */
   modelNote?: string;
+  /**
+   * Whose fame makes a round easy: `fr` for the French genres, where a rapper
+   * famous in France and unknown abroad is a household name to the room.
+   * Everywhere else French or worldwide fame counts, whichever is higher. See
+   * `blindtest-difficulty`.
+   */
+  fameAudience?: FameAudience;
+  /** What a work genre's answers are, for looking their fame up. */
+  workKind?: WorkKind;
 }
 
 export interface Section {
@@ -207,6 +236,7 @@ export const GENRES: Genre[] = [
     label: 'Rap français',
     section: 'rap',
     answerShape: 'artist-title',
+    fameAudience: 'fr',
     queries: ['rap français clip officiel', 'rap fr classique morceau', 'rappeur français titre officiel'],
     playlists: [{ playlistId: 'PL39z-AAkkatsDhv2Fkr-efPk34iQvtAHW' }],
     seeds: [
@@ -329,6 +359,7 @@ export const GENRES: Genre[] = [
     label: 'Chanson française',
     section: 'chanson',
     answerShape: 'artist-title',
+    fameAudience: 'fr',
     queries: ['chanson française clip officiel', 'variété française titre officiel', 'chanson francaise classique'],
     seeds: [
       {
@@ -392,6 +423,8 @@ export const GENRES: Genre[] = [
     section: 'anime',
     answerShape: 'work',
     workLabel: 'field.work.animeOpening',
+    workKind: 'anime',
+    profile: ANIME_THEME_PROFILE,
     queries: ['anime opening official', 'anime opening full', 'anime op creditless'],
     seeds: [{ kind: 'anilist' }],
     seedSuffix: 'opening',
@@ -404,6 +437,8 @@ export const GENRES: Genre[] = [
     section: 'anime',
     answerShape: 'work',
     workLabel: 'field.work.animeEnding',
+    workKind: 'anime',
+    profile: ANIME_THEME_PROFILE,
     queries: ['anime ending official', 'anime ending full'],
     seeds: [{ kind: 'anilist' }],
     seedSuffix: 'ending',
@@ -418,6 +453,8 @@ export const GENRES: Genre[] = [
     section: 'ecrans',
     answerShape: 'work',
     workLabel: 'field.work.film',
+    workKind: 'film',
+    profile: FILM_SCORE_PROFILE,
     queries: ['movie soundtrack main theme', 'film score official soundtrack', 'bande originale film thème'],
     seeds: [{ kind: 'wikidata', types: ['Q11424'], minLinks: 40, dateProperty: 'P577', requireComposer: true }],
     seedSuffix: 'soundtrack theme',
@@ -429,6 +466,8 @@ export const GENRES: Genre[] = [
     section: 'ecrans',
     answerShape: 'work',
     workLabel: 'field.work.series',
+    workKind: 'series',
+    profile: SERIES_THEME_PROFILE,
     queries: ['tv series opening theme', 'série générique officiel', 'tv show intro theme song'],
     seeds: [{ kind: 'wikidata', types: ['Q5398426', 'Q581714'], minLinks: 20, dateProperty: 'P580' }],
     seedSuffix: 'opening theme',
@@ -442,6 +481,8 @@ export const GENRES: Genre[] = [
     section: 'jeux',
     answerShape: 'work',
     workLabel: 'field.work.game',
+    workKind: 'game',
+    profile: GAME_THEME_PROFILE,
     queries: ['video game soundtrack main theme', 'game ost official', 'videogame music theme'],
     seeds: [{ kind: 'wikidata', types: ['Q7889'], minLinks: 20, dateProperty: 'P577' }],
     seedSuffix: 'OST theme',
@@ -534,6 +575,11 @@ export function sourceGenreFor(genre: Genre): Genre {
   return genreById.get(genre.facetOf) ?? genre;
 }
 
+/** Whose fame counts in this genre; a facet's is its parent's. */
+export function audienceOf(genre: Genre): FameAudience {
+  return sourceGenreFor(genre).fameAudience ?? 'any';
+}
+
 /* ------------------------------------------------------------------ entries */
 
 /**
@@ -589,15 +635,28 @@ export interface PoolEntry {
   durationSeconds: number;
   channel: string;
   restriction: VideoFacts['restriction'];
-  /** 0 (household name) to 100 (deep cut). See `scoreDifficulty`. */
+  /** 0 (household name) to 100 (deep cut). See `blindtest-difficulty`. */
   difficulty: number;
   /**
-   * The two other opinions `difficulty` is blended from, kept so the pool can
-   * be re-ranked when an extension adds entries: the model's, and the fame of
-   * the seed this entry matched, when it matched one.
+   * What `difficulty` is scored from besides the views: the model's opinion and
+   * whether it knew the answer at all, the fame of the seed this entry matched
+   * when it matched one, and what the outside catalogues said, once `enrich`
+   * has asked them.
    */
   modelDifficulty: number | null;
+  recognised: boolean | null;
   seedFame: number | null;
+  fame: FameFacts | null;
+  /** The Wikidata item of the work's seed, when it came from Wikidata. */
+  seedWikidataId: string | null;
+  /**
+   * For a work, the song its clip plays, when the model read it off the title.
+   * A sung theme then has its chorus found like any song's. Empty otherwise.
+   */
+  song: string;
+  songArtist: string;
+  /** The video's own title, which says which opening it is ("OP 3"). */
+  videoTitle: string;
   /**
    * The recording's length in seconds, when a catalogue says: the seed's, the
    * lyrics source's or MusicBrainz's, filled in that order. Against the video's
@@ -766,42 +825,107 @@ function trackKeyFor(artist: string, title: string, work: string): string {
  */
 
 /**
- * Popularity turned into a difficulty, within this genre.
+ * Everything an entry's difficulty is scored from, in the shape a catalogue
+ * row keeps it.
  *
- * View count is the only fame signal that arrives free with the metadata, and it
- * is a good one for music. It is a poor one for anime and film, where a hugely
- * viewed edit can carry an obscure work, which is exactly the gap the language
- * model annotation fills. Blended rather than switched, so a genre with no
- * annotation still gets a usable spread.
- *
- * A matched seed adds a third opinion: its rank in a catalogue's own popularity
- * figures, which knows a famous song from a famous upload. Weighted like the
- * model's, and absent for a deep cut the catalogue never listed.
+ * The difficulty used to be a rank of the views within one pool, which said
+ * how an upload did against whatever else one search returned: a band nobody
+ * has heard of could top a small pool and be dealt as easy. It is now scored
+ * from what the catalogues know, against the genre's own spread; see
+ * `blindtest-difficulty`. Until `enrich` has asked them, the views, the model
+ * and the seed's rank stand in.
  */
-function scoreDifficulty(rank: number, total: number, annotated: number | null, seedFame: number | null): number {
-  // 0 for the most viewed in the pool, 100 for the least.
-  const byViews = total <= 1 ? 50 : Math.round((rank / (total - 1)) * 100);
-  let sum = byViews * 3;
-  let weight = 3;
-  if (annotated !== null) {
-    sum += annotated * 2;
-    weight += 2;
-  }
-  if (seedFame !== null) {
-    sum += (1 - seedFame) * 100 * 2;
-    weight += 2;
-  }
-  return Math.round(sum / weight);
-}
-
-/** Difficulty is a rank within the pool, so it is assigned to the whole pool at once. */
-function rankDifficulty(entries: PoolEntry[]): void {
-  // Most viewed first, so rank 0 is the household name.
-  entries.sort((left, right) => right.views - left.views);
-  entries.forEach((entry, index) => {
-    entry.difficulty = scoreDifficulty(index, entries.length, entry.modelDifficulty, entry.seedFame);
+export function fameOf(entry: PoolEntry): BlindtestFame {
+  return fameFromFacts(entry.fame, {
+    views: entry.views,
+    upload: entry.upload,
+    seedFame: entry.seedFame,
+    model: entry.modelDifficulty,
+    recognised: entry.recognised
   });
 }
+
+/** The catalogues' facts and the round's own figures, as one record. */
+export function fameFromFacts(
+  facts: FameFacts | null,
+  own: Pick<BlindtestFame, 'views' | 'upload' | 'seedFame' | 'model' | 'recognised'>
+): BlindtestFame {
+  return {
+    ...own,
+    deezerRank: facts?.deezerRank ?? null,
+    deezerFans: facts?.deezerFans ?? null,
+    lastfmListeners: facts?.lastfmListeners ?? null,
+    wikiLanguages: facts?.wikiLanguages ?? null,
+    frPageviews: facts?.frPageviews ?? null,
+    enPageviews: facts?.enPageviews ?? null,
+    anilistMembers: facts?.anilistMembers ?? null,
+    tmdbVotes: facts?.tmdbVotes ?? null,
+    looked: facts !== null,
+    ...(facts && Object.keys(facts.ids).length > 0 ? { ids: facts.ids } : {})
+  };
+}
+
+/**
+ * The song a work's clip plays, when it can be told.
+ *
+ * The one the model read off the video's title first, then the anime theme the
+ * title names by its slot ("OP 3"), then a series' theme song as Wikidata has
+ * it. A sung theme placed from its lyrics lands on its chorus; without them the
+ * window is placed by the genre's convention, which is a guess.
+ */
+export function themeSongOf(
+  entry: Pick<PoolEntry, 'song' | 'songArtist' | 'videoTitle' | 'fame'>,
+  genre: Genre
+): { title: string; artist: string } | null {
+  if (entry.song && entry.songArtist) return { title: entry.song, artist: entry.songArtist };
+  const themes = entry.fame?.themes;
+  if (themes && themes.length > 0) {
+    const theme = animeThemeFor(themes, themeSlotOf(entry.videoTitle), genre.id === 'anime-ed' ? 'ED' : 'OP');
+    const artist = theme?.artists[0];
+    if (theme && artist) return { title: theme.song, artist };
+  }
+  return entry.fame?.themeSong ?? null;
+}
+
+/** Each genre's spread as the rescoring script last fitted it. See `BlindtestCalibration`. */
+export function readCalibrations(db: Db): Map<string, Partial<Record<CalibrationKey, Scale>>> {
+  const fitted = new Map<string, Partial<Record<CalibrationKey, Scale>>>();
+  for (const row of db.select().from(blindtestCalibration).all()) {
+    const scales = fitted.get(row.genre_id) ?? {};
+    scales[row.signal as CalibrationKey] = { mean: row.mean, sd: row.sd };
+    fitted.set(row.genre_id, scales);
+  }
+  return fitted;
+}
+
+/** Replaces every stored spread with these, in one transaction. */
+export function writeCalibrations(
+  db: Db,
+  fitted: ReadonlyMap<string, Partial<Record<CalibrationKey, Scale & { samples?: number }>>>,
+  now: Date = new Date()
+): void {
+  db.transaction((tx) => {
+    tx.delete(blindtestCalibration).run();
+    for (const [genreId, scales] of fitted) {
+      for (const [signal, scale] of Object.entries(scales)) {
+        if (!scale) continue;
+        tx.insert(blindtestCalibration)
+          .values({
+            genre_id: genreId,
+            signal,
+            mean: scale.mean,
+            sd: scale.sd,
+            samples: scale.samples ?? 0,
+            fitted_at: now.toISOString()
+          })
+          .run();
+      }
+    }
+  });
+}
+
+/** How often a running server reads the spreads again, so a rescoring reaches it. */
+const CALIBRATION_TTL_MS = 10 * 60 * 1000;
 
 /* --------------------------------------------------------------- the filler */
 
@@ -870,6 +994,7 @@ function toEntry(
   let trackSeconds: number | null = null;
   let seedNames: string[] = [];
   let seedYear: number | null = null;
+  let seedWikidataId: string | null = null;
 
   if (genre.answerShape === 'artist-title') {
     if (annotationRan && !annotation) return null;
@@ -945,6 +1070,7 @@ function toEntry(
       seedFame = seedWork.fame;
       seedNames = seedWork.names;
       seedYear = seedWork.year;
+      seedWikidataId = seedWork.wikidataId ?? null;
     }
   }
 
@@ -967,9 +1093,16 @@ function toEntry(
     durationSeconds: facts.durationSeconds,
     channel: facts.channel,
     restriction: facts.restriction,
+    // Scored once the pool is known, against its genre's spread; see `rescore`.
     difficulty: 50,
     modelDifficulty: annotation?.difficulty ?? null,
+    recognised: annotation?.recognised ?? null,
     seedFame,
+    fame: null,
+    seedWikidataId,
+    song: annotation?.song ?? '',
+    songArtist: annotation?.songArtist ?? '',
+    videoTitle: rawTitle,
     trackSeconds,
     upload: uploadKind(facts.channel, rawTitle),
     hintFraction: annotation?.hookFraction ?? null,
@@ -1058,6 +1191,8 @@ export interface CatalogueSources {
     musicbrainz(artist: string, title: string): Promise<AliasLookup | null>;
     anilist(work: string): Promise<AliasLookup | null>;
   };
+  /** How famous an answer is: Deezer, Wikipedia, Last.fm, AniList, TMDB. See `blindtest-fame`. */
+  fame: FameSources;
   /**
    * A model's reading of each candidate's title, by video id. Empty when no model
    * answered. `checkpoint` is called between batches and throws to stop the run.
@@ -1199,6 +1334,36 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
   const extendedAt = new Map<string, number>();
   /** The last extension anywhere; see `EXTEND_GLOBAL_GAP_MS`. */
   let lastExtensionAt = 0;
+
+  /** Each genre's spread, read from the database now and then. See `readCalibrations`. */
+  let calibrations: { at: number; fitted: ReturnType<typeof readCalibrations> } | null = null;
+
+  function calibrationFor(genre: Genre): Calibration {
+    if (!calibrations || clock.now() - calibrations.at >= CALIBRATION_TTL_MS) {
+      let fitted: ReturnType<typeof readCalibrations>;
+      try {
+        fitted = readCalibrations(db);
+      } catch {
+        fitted = new Map();
+      }
+      calibrations = { at: clock.now(), fitted };
+    }
+    return resolveCalibration(calibrations.fitted, sourceGenreFor(genre).id, genre.answerShape);
+  }
+
+  /**
+   * Scores entries against their genre's spread.
+   *
+   * Per entry rather than as a rank over the pool, so an entry's number does
+   * not move when an extension brings others in, and a pool of obscure uploads
+   * is not given an easy end of its own.
+   */
+  function rescore(genre: Genre, entries: PoolEntry[]): void {
+    const context = { shape: genre.answerShape, audience: audienceOf(genre), calibration: calibrationFor(genre) };
+    for (const entry of entries) {
+      entry.difficulty = scoreDifficulty(fameOf(entry), context);
+    }
+  }
 
   /**
    * What to search for.
@@ -1406,8 +1571,9 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
    * a fair fallback for a pool that lives a day and a poor thing to file for good.
    * So a run the model did not read keeps nothing, and hands its seeds back.
    *
-   * Difficulty is not a rank here: a rank among one search's results says
-   * nothing. The model's opinion and the seed's fame decide it, around the middle.
+   * Scored provisionally here, from the model and the seed; the prefill
+   * enriches each round before filing it, which is when the catalogues are
+   * asked and the number becomes the real one.
    */
   async function searchForCatalogue(genreId: string, budget: number): Promise<CatalogueSearch | null> {
     const genre = genreById.get(genreId);
@@ -1422,9 +1588,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
       return { entries: [], spent: built.spent, modelDown };
     }
 
-    for (const entry of built.entries) {
-      entry.difficulty = scoreDifficulty(0, 1, entry.modelDifficulty, entry.seedFame);
-    }
+    rescore(genre, built.entries);
     return { entries: built.entries, spent: built.spent, modelDown };
   }
 
@@ -1442,12 +1606,20 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
    * need it, rather than after selection when it is far too late to filter on.
    * Bounded and serialised because MusicBrainz asks anonymous callers for about a
    * request a second and this is the one place that would otherwise flood it.
+   *
+   * The most viewed first, which are the famous tracks a facet most needs in its
+   * right decade. The pool was once sorted by views as a side effect of ranking
+   * its difficulty, and the check relied on that order without saying so; when
+   * the ranking went, it was checking whichever eighty the search listed first.
    */
   async function verifyYears(genre: Genre, entries: PoolEntry[], checkpoint: () => void): Promise<void> {
     if (!GENRES.some((other) => other.facetOf === genre.id)) return;
-    for (const entry of entries.slice(0, YEAR_CHECK_LIMIT)) {
-      // Eighty serialised lookups at roughly a second each: the same reason the
-      // annotation can be cut short applies here, for the same abandoned room.
+    const mostViewed = [...entries].sort((left, right) => right.views - left.views);
+    for (const entry of mostViewed.slice(0, YEAR_CHECK_LIMIT)) {
+      // Eighty serialised enrichments, each a MusicBrainz lookup and the fame
+      // lookups (cached for months, so slow only the first time): the same
+      // reason the annotation can be cut short applies here, for the same
+      // abandoned room.
       checkpoint();
       await enrich([entry]);
     }
@@ -1515,9 +1687,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     );
     thinSources.push(...built.thinSources);
 
-    // Difficulty is a rank *within this pool*, so it can only be assigned once the
-    // pool is known.
-    rankDifficulty(built.entries);
+    rescore(genre, built.entries);
     await verifyYears(genre, built.entries, checkpoint);
 
     return { entries: built.entries, fetchedAt: clock.now(), thinSources, spent: built.spent };
@@ -1579,8 +1749,8 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
       // Replaced by a fresh fill while this was out: that pool has its own.
       if (pools.get(key) !== pool) return;
       const known = new Set(pool.entries.map((entry) => entry.trackKey));
+      rescore(source, built.entries);
       pool.entries.push(...built.entries.filter((entry) => !known.has(entry.trackKey)));
-      rankDifficulty(pool.entries);
     })()
       .catch(() => undefined)
       .finally(() => extending.delete(key));
@@ -1697,66 +1867,98 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
    * Three lookups run together per entry and all three are best-effort. A track
    * that comes back with nothing still plays; it simply plays from its genre's
    * profile rather than from its chorus, and accepts fewer spellings.
+   *
+   * Then the catalogues that know how famous the answer is (see `blindtest-fame`,
+   * cached for months), which is when the entry's difficulty becomes the real
+   * one, and for a work the song its clip plays, whose lyrics place a sung theme
+   * the way they place any song.
    */
   async function enrich(entries: PoolEntry[]): Promise<void> {
     await Promise.all(
       entries.map(async (entry) => {
         if (entry.enriched) return;
         entry.enriched = true;
+        const genre = genreById.get(entry.genreId);
 
         if (entry.answerShape === 'artist-title' && entry.artist && entry.title) {
-          // No lyrics, so no chorus to find: an instrumental genre skips the lookup
-          // and plays from its profile and the model's estimate of the theme.
-          const genre = genreById.get(entry.genreId);
-          const sung = !genre || profileFor(genre) !== THEME_PROFILE;
-          const [chorus, catalogued] = await Promise.all([
-            sung ? sources.lyrics(entry.artist, entry.title) : Promise.resolve(null),
-            sources.aliases.musicbrainz(entry.artist, entry.title)
-          ]);
-          entry.chorus = chorus;
-          // The recording's length, for keeping the clip inside the music, when the
-          // seed did not give one. (`clipWindow` prefers the lyrics source's own
-          // anyway when it shifts the chorus timings, since those belong to it.)
-          entry.trackSeconds ??= chorus?.trackDuration ?? catalogued?.durationSeconds ?? null;
-          if (catalogued) {
-            // MusicBrainz returns names for the *artist*, so they go on the artist.
-            entry.artistAliases = [...new Set([...entry.artistAliases, ...catalogued.aliases])];
-            /**
-             * The catalogue's release year wins over YouTube's.
-             *
-             * A YouTube publication date is when somebody uploaded the video, which
-             * for a Topic upload of a back catalogue is the day the label bulk
-             * loaded it. Trusting it puts half of the sixties in the 2010s and
-             * makes every era facet wrong.
-             */
-            if (catalogued.year) {
-              entry.year = catalogued.year;
-              entry.yearVerified = true;
-            }
-          }
-          return;
+          await enrichTrack(entry, genre);
+        } else if (entry.answerShape === 'work' && entry.work) {
+          await enrichWork(entry, genre);
         }
-
-        /**
-         * AniList for anime only.
-         *
-         * It used to be asked about every work, and it answers whatever it is
-         * asked: a search for a film or a game returns the nearest anime, whose
-         * titles then became accepted answers and whose year filed the film under
-         * the wrong decade. Films, series and games get theirs from their seeds.
-         */
-        if (entry.answerShape === 'work' && entry.work && genreById.get(entry.genreId)?.section === 'anime') {
-          const catalogued = await sources.aliases.anilist(entry.work);
-          if (catalogued) {
-            entry.workAliases = [...new Set([...entry.workAliases, ...catalogued.aliases])];
-            if (catalogued.year) {
-              entry.year = catalogued.year;
-              entry.yearVerified = true;
-            }
-          }
-        }
+        if (genre) rescore(genre, [entry]);
       })
     );
+  }
+
+  async function enrichTrack(entry: PoolEntry, genre: Genre | undefined): Promise<void> {
+    // No lyrics, so no chorus to find: an instrumental genre skips the lookup
+    // and plays from its profile and the model's estimate of the theme.
+    const sung = !genre || !profileFor(genre).instrumental;
+    const [chorus, catalogued] = await Promise.all([
+      sung ? sources.lyrics(entry.artist, entry.title) : Promise.resolve(null),
+      sources.aliases.musicbrainz(entry.artist, entry.title)
+    ]);
+    entry.chorus = chorus;
+    // The recording's length, for keeping the clip inside the music, when the
+    // seed did not give one. (`clipWindow` prefers the lyrics source's own
+    // anyway when it shifts the chorus timings, since those belong to it.)
+    entry.trackSeconds ??= chorus?.trackDuration ?? catalogued?.durationSeconds ?? null;
+    if (catalogued) {
+      // MusicBrainz returns names for the *artist*, so they go on the artist.
+      entry.artistAliases = [...new Set([...entry.artistAliases, ...catalogued.aliases])];
+      /**
+       * The catalogue's release year wins over YouTube's.
+       *
+       * A YouTube publication date is when somebody uploaded the video, which
+       * for a Topic upload of a back catalogue is the day the label bulk
+       * loaded it. Trusting it puts half of the sixties in the 2010s and
+       * makes every era facet wrong.
+       */
+      if (catalogued.year) {
+        entry.year = catalogued.year;
+        entry.yearVerified = true;
+      }
+    }
+
+    entry.fame = await lookupFame(
+      db,
+      sources.fame,
+      { shape: 'artist-title', artist: entry.artist, title: entry.title, artistMbid: catalogued?.artistMbid ?? null },
+      { now: clock.now() }
+    );
+  }
+
+  async function enrichWork(entry: PoolEntry, genre: Genre | undefined): Promise<void> {
+    /**
+     * AniList for anime only.
+     *
+     * It used to be asked about every work, and it answers whatever it is
+     * asked: a search for a film or a game returns the nearest anime, whose
+     * titles then became accepted answers and whose year filed the film under
+     * the wrong decade. Films, series and games get theirs from their seeds.
+     */
+    if (genre?.section === 'anime') {
+      const catalogued = await sources.aliases.anilist(entry.work);
+      if (catalogued) {
+        entry.workAliases = [...new Set([...entry.workAliases, ...catalogued.aliases])];
+        if (catalogued.year) {
+          entry.year = catalogued.year;
+          entry.yearVerified = true;
+        }
+      }
+    }
+
+    const kind = genre ? sourceGenreFor(genre).workKind : undefined;
+    if (!genre || !kind) return;
+    entry.fame = await lookupFame(
+      db,
+      sources.fame,
+      { shape: 'work', kind, work: entry.work, names: entry.workAliases, wikidataId: entry.seedWikidataId },
+      { now: clock.now() }
+    );
+
+    const song = themeSongOf(entry, genre);
+    if (song) entry.chorus = await sources.lyrics(song.artist, song.title);
   }
 
   function status(): PoolStatus[] {

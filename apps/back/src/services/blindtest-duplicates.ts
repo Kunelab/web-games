@@ -416,11 +416,111 @@ function livePairs(present: ReadonlySet<number>, dismissed: ReadonlySet<string>)
  * A and C may share nothing, and naming C as A's duplicate with the group's
  * headline reason would be a claim no comparison made.
  */
-export async function findLibraryDuplicates(): Promise<{ groups: DuplicateGroup[]; pairs: DuplicatePair[] }> {
+export async function findLibraryDuplicates(): Promise<{
+  groups: DuplicateGroup[];
+  pairs: DuplicatePair[];
+  /** The entries a game leaves out until their flags are settled. See `duplicatesToHide`. */
+  hidden: number[];
+}> {
   const items = (await listLibrary()).map(toDuplicateItem);
   syncDuplicateIndex(items);
-  const live = livePairs(new Set(items.map((item) => item.id)), await dismissedPairKeys());
-  return { groups: groupPairs(live), pairs: live };
+  const ids = items.map((item) => item.id);
+  const live = livePairs(new Set(ids), await dismissedPairKeys());
+  return { groups: groupPairs(live), pairs: live, hidden: [...duplicatesToHide(ids, live)] };
+}
+
+/* -------------------------------------------------- hidden until reviewed */
+
+/**
+ * Which entries a game leaves out while their duplicate flags are unsettled.
+ *
+ * A flag waiting for an admin is a song the room may hear twice in one
+ * evening, so until somebody has looked, one entry of each is played and its
+ * twins are not. Settling the flag either way is what brings an entry back:
+ * "these are not duplicates" dismisses the pair, and deleting one removes it.
+ * Nothing else is stored.
+ *
+ * Walked oldest first, keeping an entry unless it pairs with one already kept.
+ * The oldest is the one rooms have played and admins have corrected. And it is
+ * walked over the direct pairs, not the groups: in a chain A≈B≈C where only the
+ * neighbours look alike, A and C are both kept, because nothing says C is a
+ * second A.
+ */
+export function duplicatesToHide(ids: Iterable<number>, pairs: readonly DuplicatePair[]): Set<number> {
+  const partners = new Map<number, number[]>();
+  for (const pair of pairs) {
+    partners.set(pair.a, [...(partners.get(pair.a) ?? []), pair.b]);
+    partners.set(pair.b, [...(partners.get(pair.b) ?? []), pair.a]);
+  }
+
+  const kept = new Set<number>();
+  const hidden = new Set<number>();
+  for (const id of [...new Set(ids)].sort((left, right) => left - right)) {
+    if ((partners.get(id) ?? []).some((other) => kept.has(other))) hidden.add(id);
+    else kept.add(id);
+  }
+  return hidden;
+}
+
+/** What hiding needs of an item: enough to tell a catalogue entry, and to compare it again. */
+export interface HideableItem {
+  id: number;
+  kind: string;
+  user_id: number | null;
+  answers: { key: string; value: string }[];
+  payload: unknown;
+}
+
+/**
+ * Compares again the catalogue entries among these whose answers changed since
+ * they were last compared, before anything is hidden.
+ *
+ * The flags are otherwise brought up to date only when an admin opens the
+ * catalogue, so an entry corrected out of a pair at a reveal sat out every game
+ * until then, and one corrected into a pair played on. Unlike
+ * `syncDuplicateIndex` this forgets nothing: these may be one playlist's rows,
+ * not the whole catalogue.
+ */
+function refreshIndexFor(items: readonly HideableItem[]): void {
+  const entries = items
+    .filter((item) => item.user_id === null && item.kind === 'blindtest')
+    .map((item) => normalized(toDuplicateItem(item)));
+  if (entries.length === 0) return;
+
+  const indexed = new Map(
+    db
+      .select()
+      .from(blindtestDuplicateIndex)
+      .all()
+      .map((row) => [row.media_id, row])
+  );
+  const stale = entries.filter((entry) => !indexMatches(indexed.get(entry.id), entry));
+  if (stale.length === 0) return;
+
+  const staleIds = new Set(stale.map((entry) => entry.id));
+  const others = [...[...indexed.values()].map(asNormalized).filter((entry) => !staleIds.has(entry.id)), ...stale];
+  db.transaction((tx) => {
+    for (const entry of stale) reindex(tx, entry, others);
+  });
+}
+
+/** The entries among these that a game leaves out, from the flags compared afresh where they changed. */
+export async function hiddenDuplicates(items: readonly HideableItem[]): Promise<Set<number>> {
+  const present = new Set(items.map((item) => item.id));
+  if (present.size < 2) return new Set();
+  refreshIndexFor(items);
+  return duplicatesToHide(present, livePairs(present, await dismissedPairKeys()));
+}
+
+/**
+ * These items, less the duplicates a game leaves out.
+ *
+ * Best-effort: flags that cannot be read are a reason to play a possible twin,
+ * never a reason to refuse to start a game.
+ */
+export async function withoutHiddenDuplicates<T extends HideableItem>(items: readonly T[]): Promise<T[]> {
+  const hidden = await hiddenDuplicates(items).catch(() => new Set<number>());
+  return hidden.size === 0 ? [...items] : items.filter((item) => !hidden.has(item.id));
 }
 
 /**

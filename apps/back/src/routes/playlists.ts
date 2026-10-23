@@ -1,5 +1,7 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
+import { z } from 'zod';
 
+import { withoutHiddenDuplicates } from '../services/blindtest-duplicates.js';
 import { EVERYTHING_PLAYLIST_NAME } from '../services/blindtest-library.js';
 import { PLAYLIST_BODY_LIMIT, playlistInputSchema, playlistService } from '../services/playlist-service.js';
 import { idParamSchema } from './schemas.js';
@@ -19,13 +21,36 @@ const playlistRoutes: FastifyPluginAsyncZod = async (app) => {
     return playlistService.list(request.currentUser.id);
   });
 
-  app.get('/playlists/:id', { schema: { params: idParamSchema } }, async (request) => {
-    const playlist = await playlistService.getById(request.params.id, request.currentUser.id);
-    if (!playlist) {
-      throw app.httpErrors.notFound('Playlist introuvable');
+  /**
+   * One playlist, contents included.
+   *
+   * `forPlay` asks for what a game would deal: possible duplicates waiting for
+   * an admin are left out, so the launch screen counts the rounds the room will
+   * actually get. The editor asks without it and sees everything.
+   */
+  app.get(
+    '/playlists/:id',
+    {
+      schema: {
+        params: idParamSchema,
+        querystring: z.object({
+          forPlay: z
+            .string()
+            .optional()
+            .transform((value) => value === '1' || value === 'true')
+        })
+      }
+    },
+    async (request) => {
+      const playlist = await playlistService.getById(request.params.id, request.currentUser.id);
+      if (!playlist) {
+        throw app.httpErrors.notFound('Playlist introuvable');
+      }
+      if (!request.query.forPlay) return playlist;
+      const items = await withoutHiddenDuplicates(playlist.items);
+      return { ...playlist, items, notReadyCount: items.filter((item) => !item.readiness.ready).length };
     }
-    return playlist;
-  });
+  );
 
   // Both writes that take a list of ids get the body that list needs; see
   // `PLAYLIST_BODY_LIMIT`. Every other route keeps Fastify's 1 MiB.
