@@ -55,7 +55,7 @@ export interface RoundView {
    * The host has stopped the clock on this round.
    *
    * Sent as well as the null deadline because the two mean different things to
-   * a screen. A round with no deadline is ordinary — an oral game has none, and
+   * a screen. A round with no deadline is ordinary — a host-driven oral game has none, and
    * neither does a reveal waiting on the host — and drawing "paused" over every
    * one of those would be wrong. This says the clock was taken off the room
    * deliberately, which is worth a phone saying out loud: a player whose answer
@@ -320,6 +320,15 @@ export interface SessionView {
    */
   infinite?: boolean;
   /**
+   * True when at least one round of this game is a blind test.
+   *
+   * Sent from the lobby on, so a stage can build its clip player before the
+   * first round rather than at it. Building one is a script, an iframe and a
+   * player handshake, a second or two that otherwise came out of round one's
+   * listening time, with the clock already running.
+   */
+  blindtest?: boolean;
+  /**
    * True when the game is being played out loud with no phones.
    *
    * The one piece of the session config the screens genuinely need: a television
@@ -385,6 +394,9 @@ export const sessionConfigSchema = z.object({
    * exist to arbitrate between players stop applying: there is no answer deadline,
    * because the deadline exists to stop people typing, and a room talking to each
    * other does not need one. The host drives the pace from the television.
+   *
+   * Unless `autoAdvance` is on as well: then nobody is driving, and the answers
+   * get their deadline back, since it is the only thing left to close them.
    *
    * It is also the way to try a playlist out alone, which is why it must be
    * startable with nobody in the room at all.

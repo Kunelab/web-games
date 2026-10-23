@@ -19,6 +19,7 @@ import {
   expireBuzzWindow,
   joinSession,
   nextDeadline,
+  openAnswers,
   relabelAnswers,
   resolveBuzzRace,
   submitAnswer,
@@ -399,6 +400,51 @@ describe('a game the room left', () => {
     state.phase = 'finished';
 
     assert.equal(abandonIfEmpty(state, 1_000 + ABANDONED_ROOM_MS * 10), false);
+  });
+});
+
+/**
+ * Answers said out loud.
+ *
+ * Nobody types, so the answer deadline would only cut a talking room off, and
+ * the host closes the round instead. That is only true while somebody *is*
+ * hosting: a room that asked the game to run itself has nobody to close it, and
+ * a round with no deadline in a room like that never ends.
+ */
+describe('an oral game', () => {
+  it('leaves the answers to the host', () => {
+    const { state } = playing([], { buzzer: false, oral: true, autoAdvance: false });
+
+    assert.equal(state.round?.phaseEndsAt, null);
+    assert.equal(nextDeadline(state), null, 'nothing fires: the host closes it');
+  });
+
+  it('runs on its own when told to', () => {
+    const { state } = playing([], { buzzer: false, oral: true, autoAdvance: true });
+
+    assert.equal(state.round?.phaseEndsAt, 1_000 + 30_000, 'the answers close on time');
+    assert.deepEqual(nextDeadline(state), { at: 31_000, kind: 'phase' });
+
+    closeAnswers(state, 31_000);
+    assert.equal(state.round?.phase, 'reveal');
+    assert.equal(state.round?.phaseEndsAt, 31_000 + 5_000, 'and the reveal moves on');
+  });
+
+  it('times the answers after a study phase too', () => {
+    const item = media({ effectiveTiming: { studyMs: 10_000, answerMs: 30_000, revealMs: 5_000 } });
+    const state = createSession({
+      playlistName: 'Test',
+      playlistId: null,
+      hostUserId: null,
+      items: [item],
+      config: config({ buzzer: false, oral: true, autoAdvance: true }),
+      code: 'ABCDE'
+    });
+    advance(state, () => item, 1_000);
+    assert.equal(state.round?.phase, 'study');
+
+    openAnswers(state, 11_000);
+    assert.equal(state.round?.phaseEndsAt, 11_000 + 30_000);
   });
 });
 

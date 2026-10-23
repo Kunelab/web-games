@@ -83,6 +83,14 @@
   position: relative;
   min-height: 0;
 }
+/*
+ * The stage in the lobby, where it only holds the clip player being built.
+ * No box at all, so it takes no share of the lobby's space and adds no gap;
+ * the hidden player inside is positioned on its own and invisible either way.
+ */
+.host-stage.is-waiting {
+  display: contents;
+}
 
 /* The number that has to be readable from the sofa. */
 .host-timer {

@@ -138,14 +138,25 @@ export default function Player() {
        * Outside the round panel on purpose: it must survive the switch to the
        * reveal, where it stops being invisible and becomes the video everybody
        * was listening to.
+       *
+       * And mounted from the lobby on, in a game with blind tests in it, so the
+       * player is built while people are still arriving rather than in the first
+       * seconds of round one. A stage is told so in the lobby already: it is
+       * sent a `stageRound` of null where any other phone is sent none.
        */}
-      {session.phase === 'playing' && session.stageRound?.kind === 'blindtest' && (
-        <BlindtestAudio
-          code={(session.stageRound.payload as { code?: string }).code ?? ''}
-          payload={session.stageRound.payload}
-          phase={session.stageRound.phase}
-        />
-      )}
+      {(session.phase === 'lobby' || session.phase === 'playing') &&
+        session.blindtest &&
+        session.stageRound !== undefined && (
+          <BlindtestAudio
+            code={
+              session.stageRound?.kind === 'blindtest'
+                ? ((session.stageRound.payload as { code?: string }).code ?? '')
+                : ''
+            }
+            payload={session.stageRound?.payload}
+            phase={session.stageRound?.phase ?? ''}
+          />
+        )}
 
       {session.phase === 'playing' && session.round && (
         <RoundPanel

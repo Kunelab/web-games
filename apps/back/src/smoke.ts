@@ -1321,7 +1321,7 @@ section('oral mode');
     hostUserId: 1,
     items: playable,
     // Two separate things: `oral` takes the clock off the answers, `autoAdvance`
-    // decides whether the reveal moves on by itself. The launch form turns the
+    // decides whether the game moves on by itself. The launch form turns the
     // second one off when you pick the first, but the engine keeps them apart so a
     // hands-off run through a playlist stays possible.
     config: sessionConfigSchema.parse({ oral: true, autoAdvance: false }),
@@ -1351,9 +1351,10 @@ section('oral mode');
   check('the reveal waits for the host', oral.round?.phaseEndsAt === null);
   check('the reveal still carries the answers', (toRevealView(oral)?.answers.length ?? 0) > 0);
 
-  // The other half of that split: an oral game left on auto still advances itself,
-  // because taking the clock off the answers is not the same as taking it off the
-  // reveal.
+  // The other half of that split: an oral game left on auto still advances itself.
+  // Both of its clocks have to run for that, the answers' as well as the reveal's:
+  // nothing but a deadline closes the answers in a room nobody is driving, and
+  // with none the game sat on its first round for good.
   const auto = createSession({
     playlistName: 'oral auto',
     playlistId: playlistView.id,
@@ -1364,8 +1365,9 @@ section('oral mode');
   });
   advance(auto, (id) => playable.find((item) => item.id === id));
   if (auto.round?.phase === 'study') openAnswers(auto);
+  check('auto-advance puts the answers on a clock', auto.round?.phaseEndsAt != null, auto.round?.phaseEndsAt);
   closeAnswers(auto);
-  check('but auto-advance still governs the reveal', auto.round?.phaseEndsAt !== null);
+  check('and the reveal on one too', auto.round?.phaseEndsAt != null);
 }
 
 /* --------------------------------- CoronaZ -------------------------------- */

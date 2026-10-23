@@ -75,6 +75,14 @@ export function BlindtestAudio({
   phase,
   onUnplayable
 }: {
+  /**
+   * The clip, or '' while there is none to play.
+   *
+   * Empty is an ordinary state rather than a reason to unmount. The screens
+   * mount this from the lobby, so the player is built before round one instead
+   * of at it, and keep it through rounds of other kinds in a mixed playlist,
+   * so the next clip does not have to build it again.
+   */
   code: string;
   payload: unknown;
   phase: string;
@@ -91,8 +99,9 @@ export function BlindtestAudio({
   onUnplayable?: (reason: number) => void;
 }) {
   const t = useT();
-  const revealing = phase === 'reveal';
-  const window_ = payload as {
+  // Only a clip is ever shown: with none loaded, the frame holds whatever played last.
+  const revealing = phase === 'reveal' && code !== '';
+  const window_ = (payload ?? {}) as {
     startGuess?: number;
     endGuess?: number;
     startReveal?: number;
@@ -221,12 +230,25 @@ export function BlindtestAudio({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, start, end, ready, volume]);
 
+  /**
+   * And nothing to play stops whatever was playing.
+   *
+   * Unmounting used to do this, between a blind test and the picture round
+   * after it. The player stays now, so a clip whose window had not run out
+   * would carry on under the next round.
+   */
+  useEffect(() => {
+    if (code || !ready) return;
+    player.stopVideo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, ready]);
+
   return (
     <>
       <div className={revealing ? 'yt-visible' : 'yt-hidden'}>
         <YoutubePlayer />
       </div>
-      {silenced && (
+      {silenced && code && (
         /**
          * A sibling of the wrapper, not a child of it — and that is the whole
          * point of the fragment.

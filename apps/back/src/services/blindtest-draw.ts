@@ -23,7 +23,7 @@ import { blindtest, mediaReadiness, resolveTiming, type AnswerField } from 'game
 import type { MediaView } from './media-service.js';
 import { clipWindow } from './chorus-service.js';
 import { genreById, profileFor, sourceGenreFor, type Genre, type PoolEntry } from './blindtest-catalog.js';
-import { catalogueKeys } from './blindtest-library.js';
+import { catalogueKeys, replayFromLibrary } from './blindtest-library.js';
 import { catalogue } from './catalogue-service.js';
 import { playableIn } from './youtube-service.js';
 
@@ -357,7 +357,19 @@ function toMediaView(entry: PoolEntry, difficultyTarget: number): MediaView {
  * it. A short result is normal and means the room has exhausted what its settings
  * allow, which the caller handles by ending the run rather than by retrying.
  */
-export async function drawRounds(settings: DrawSettings, history: DrawHistory, count: number): Promise<MediaView[]> {
+export async function drawRounds(
+  settings: DrawSettings,
+  history: DrawHistory,
+  count: number,
+  /**
+   * False to come back empty rather than wait for a pool that is not in memory.
+   *
+   * For a caller with somewhere faster to turn, which is `dealRounds` whenever
+   * the room allows replays. The cold pools are still asked for, so the next
+   * draw finds them.
+   */
+  { waitForCold = true }: { waitForCold?: boolean } = {}
+): Promise<MediaView[]> {
   const drawn: MediaView[] = [];
 
   /**
@@ -396,6 +408,7 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
   }
 
   if (buckets.length === 0) {
+    if (!waitForCold) return drawn;
     for (const genre of cold) {
       const entries = await catalogue.poolFor(genre.id).catch(() => [] as PoolEntry[]);
       if (entries.length > 0) {
@@ -477,6 +490,82 @@ export async function drawRounds(settings: DrawSettings, history: DrawHistory, c
   }
 
   return drawn;
+}
+
+/** What a generated session deals from: the draw's settings, and how much is replayed. */
+export interface DealSettings extends DrawSettings {
+  /** 0 searches for every round, 1 replays only the shared catalogue. See `InfiniteState.replayShare`. */
+  replayShare: number;
+}
+
+/**
+ * The next rounds of a generated session, from the shared catalogue or from a search.
+ *
+ * The coin is tossed per call rather than per round, which at a lookahead of one
+ * is the same thing and stays honest if the lookahead ever grows.
+ *
+ * `dealt` is every media id the session has already handed out, so nothing comes
+ * round twice. The track key would very nearly do it — both sources share one —
+ * but "nearly" is not the promise. An admin correcting a row's artist between two
+ * rounds changes its key, and the session holding the old one would be free to
+ * play the same song again. The id cannot drift, so it is what the guarantee is
+ * made of; the key still does the rest of the work, which is keeping a *pool*
+ * draw off a song the catalogue already supplied.
+ *
+ * ## Never waiting on a pool that is still being built
+ *
+ * Pools live in memory for a day and are gone after every restart, and building
+ * one is searches and model calls: a minute or two. A draw over pools that were
+ * not there yet waited for one, and that minute landed wherever somebody was
+ * waiting on the round — a host who had pressed start, a quick match counting
+ * down, a room between two rounds of a game restored after a deploy. The
+ * catalogue answers in milliseconds. So in a room that allows replays at all, a
+ * draw that would have to wait gives way to the catalogue, and only waits when
+ * the catalogue has nothing for it either. The pools are asked for regardless,
+ * and the next draw finds them.
+ */
+export async function dealRounds(
+  settings: DealSettings,
+  history: DrawHistory,
+  wanted: number,
+  dealt: ReadonlySet<number> = new Set()
+): Promise<MediaView[]> {
+  const share = settings.replayShare;
+
+  const replay = async () =>
+    (
+      await replayFromLibrary(settings.genreIds, history, wanted, dealt, {
+        min: settings.difficultyMin,
+        max: settings.difficultyMax
+      }).catch(() => [] as MediaView[])
+    ).map(withGenreLabel);
+
+  const tossedReplay = share > 0 && Math.random() < share;
+  if (tossedReplay) {
+    const replayed = await replay();
+    if (replayed.length > 0) return replayed;
+  }
+
+  // Waits for a cold pool only when the catalogue has been asked already or may
+  // not be asked at all, since then there is nothing faster to fall back on.
+  const mayWait = tossedReplay || share <= 0;
+  const drawn = await drawRounds(settings, history, wanted, { waitForCold: mayWait });
+
+  /**
+   * A dry draw falls back on the catalogue rather than on silence.
+   *
+   * The draw comes back empty while a genre's extension is still out, once the
+   * day's search budget is spent, and now while the pools are still being built.
+   * A room that allowed replays at all would rather have one now. A room that
+   * asked for none gets none.
+   */
+  if (drawn.length > 0 || mayWait) return drawn;
+  const replayed = await replay();
+  if (replayed.length > 0) return replayed;
+
+  // The catalogue has nothing for these genres either, so the pool being built
+  // is the only source left, and it is worth the wait.
+  return drawRounds(settings, history, wanted);
 }
 
 /**
