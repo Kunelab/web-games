@@ -24,6 +24,7 @@ import {
   resolveBuzzRace,
   submitAnswer,
   toRoundView,
+  upcomingMediaId,
   type SessionState
 } from './session.js';
 
@@ -661,5 +662,30 @@ describe('a round the catalogue owns', () => {
     const { state } = playing(['Ana'], { buzzer: false }, media({ id: -3, kind: 'blindtest', payload }));
     state.round!.libraryPurged = true;
     assert.equal(libraryCodeOf(state.round!), undefined);
+  });
+});
+
+describe('the round a room will play next', () => {
+  it('is known from the start, in the order the room was dealt, and runs out with it', () => {
+    const items = [media({ id: 11 }), media({ id: 12 }), media({ id: 13 })];
+    const byId = (id: number) => items.find((item) => item.id === id);
+    const state = createSession({
+      playlistName: 'Test',
+      playlistId: null,
+      hostUserId: null,
+      items,
+      config: config({ shuffle: true }),
+      code: 'ABCDE'
+    });
+    joinSession(state, 'Ana', undefined);
+
+    // In the lobby the first round is next: there is time to prepare it.
+    const dealt: (number | null)[] = [upcomingMediaId(state)];
+    for (let round = 0; round < items.length; round++) {
+      advance(state, (id) => byId(id), 1_000);
+      dealt.push(upcomingMediaId(state));
+    }
+
+    assert.deepEqual(dealt, [...state.order, null]);
   });
 });

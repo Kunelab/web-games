@@ -154,6 +154,54 @@ describe('a song’s fame', () => {
     assert.equal(facts.deezerFans, 7_437);
   });
 
+  it('takes the most followed of two artists with the very same name', async () => {
+    // As Deezer has it: a two-fan namesake listed before the composer himself.
+    const { sources } = world({
+      deezerArtists: async () => [
+        { id: 419864812, name: 'Antonio Vivaldi', fans: 2 },
+        { id: 4081, name: 'Antonio Vivaldi', fans: 819_482 }
+      ]
+    });
+    const facts = await lookupFame(openDb().db, sources, {
+      shape: 'artist-title',
+      artist: 'Antonio Vivaldi',
+      title: "L'Été"
+    });
+    assert.equal(facts.deezerFans, 819_482);
+  });
+
+  it('reads a classical piece’s own Wikipedias, not its composer’s', async () => {
+    const { sources } = world({
+      deezerArtists: async () => [{ id: 4081, name: 'Antonio Vivaldi', fans: 819_482 }],
+      wikidataByClaim: async (property, value) => (property === 'P2722' && value === '4081' ? ['Q1340'] : []),
+      wikidataSearch: async (name) => (name === "L'Été" ? ['Q50', 'Q51'] : []),
+      wikidataEntities: async (ids) =>
+        ids.flatMap((id) => {
+          if (id === 'Q1340') return [entity('Q1340', { sitelinks: wikipedias(154, { fr: 'Antonio Vivaldi' }) })];
+          // A painting of that name, and the concerto, whose composer is Vivaldi.
+          if (id === 'Q50') return [entity('Q50', { claims: { P31: ['Q3305213'] }, sitelinks: wikipedias(80) })];
+          if (id === 'Q51') {
+            return [
+              entity('Q51', { claims: { P86: ['Q1340'] }, sitelinks: wikipedias(40, { fr: "L'Été (Vivaldi)" }) })
+            ];
+          }
+          return [];
+        }),
+      pageviews: async (_language, title) => (title === "L'Été (Vivaldi)" ? 9_000 : 70_000)
+    });
+
+    const facts = await lookupFame(openDb().db, sources, {
+      shape: 'artist-title',
+      artist: 'Antonio Vivaldi',
+      title: "L'Été",
+      piece: true
+    });
+
+    // Forty Wikipedias and the French one: the concerto's, not the composer's 155.
+    assert.deepEqual([facts.wikiLanguages, facts.frPageviews], [41, 9_000]);
+    assert.equal(facts.deezerFans, 819_482, 'the composer’s following still counts');
+  });
+
   it('knows a composer credited by surname, as a classical round credits them', async () => {
     const { sources } = world({
       deezerTracks: async () => [

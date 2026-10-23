@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import type { MediaView } from './media-service.js';
+import type { SessionUser } from '../types/fastify.js';
+
 /**
  * The shared catalogue's own bookkeeping, on a database of its own.
  *
@@ -28,8 +31,6 @@ const { recordRoundOutcome } = await import('./blindtest-stats.js');
 const { mediaService } = await import('./media-service.js');
 const { findLibraryDuplicates, withoutHiddenDuplicates } = await import('./blindtest-duplicates.js');
 const { listLibrary } = await import('./blindtest-library.js');
-type SessionUser = import('../types/fastify.js').SessionUser;
-type MediaView = import('./media-service.js').MediaView;
 
 /** Whether this catalogue entry is among the admin's flags. */
 async function flagged(mediaId: number | undefined): Promise<boolean> {

@@ -80,6 +80,27 @@ export interface RescorePlan {
   clip: ClipPlan | null;
 }
 
+/**
+ * The payload a plan gives a round: its new difficulty and the evidence for it,
+ * its new clip, each marked automatic. The very same object when the plan
+ * changes nothing, so a caller can tell there is nothing to save.
+ */
+export function applyPlan(
+  payload: Record<string, unknown>,
+  plan: RescorePlan,
+  fame: BlindtestFame | null
+): Record<string, unknown> {
+  let next = payload;
+  if (!plan.keepDifficulty && plan.score && fame) {
+    next = { ...next, difficulty: plan.score.difficulty, difficultyBy: 'auto', fame };
+  }
+  if (plan.clip) {
+    const { startGuess, endGuess, startReveal, endReveal } = plan.clip;
+    next = { ...next, startGuess, endGuess, startReveal, endReveal, timingBy: 'auto' };
+  }
+  return next;
+}
+
 /** Whether a round was written after it was filed. See the header. */
 export function editedSinceFiled(createdAt: string | null, lastModified: string | null): boolean {
   return createdAt !== null && lastModified !== null && lastModified !== createdAt;

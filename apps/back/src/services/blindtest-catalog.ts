@@ -33,7 +33,7 @@
  * an evening.
  */
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { normalizeAnswer, splitArtistTitle, type BlindtestFame } from 'game-core';
+import { normalizeAnswer, resolveTiming, splitArtistTitle, type BlindtestFame } from 'game-core';
 
 import type { Clock } from '../clock.js';
 import type { Db } from '../db/open.js';
@@ -41,10 +41,13 @@ import { blindtestCalibration, media } from '../db/schema.js';
 import { env } from '../env.js';
 import type { AliasLookup } from './blindtest-aliases.js';
 import {
+  POOLED_PREFIX,
+  fitCalibrations,
   resolveCalibration,
   scoreDifficulty,
   type Calibration,
   type CalibrationKey,
+  type CalibrationSample,
   type FameAudience,
   type Scale
 } from './blindtest-difficulty.js';
@@ -56,6 +59,7 @@ import {
   type FameSources,
   type WorkKind
 } from './blindtest-fame.js';
+import { applyPlan, editedSinceFiled, planRescore } from './blindtest-rescore.js';
 import {
   ANIME_THEME_PROFILE,
   FILM_SCORE_PROFILE,
@@ -201,6 +205,12 @@ export interface Genre {
   fameAudience?: FameAudience;
   /** What a work genre's answers are, for looking their fame up. */
   workKind?: WorkKind;
+  /**
+   * Whether a round's title is a piece famous in its own right, apart from its
+   * artist: classical, where the composer is everybody's and the piece is the
+   * question. See `FameTarget.piece`.
+   */
+  pieceFame?: boolean;
 }
 
 export interface Section {
@@ -557,7 +567,8 @@ export const GENRES: Genre[] = [
       'In this genre the ARTIST is the COMPOSER (Beethoven), never the orchestra, the conductor or the soloist. The answer is the piece by the name a French room knows it by ("La Lettre à Élise", "Symphonie n° 5", "Le Lac des cygnes"), without catalogue numbers, keys or movement numbers. Reject a compilation of several pieces.',
     queries: ['classical music masterpiece', 'musique classique célèbre', 'famous classical piece orchestra'],
     seeds: [{ kind: 'wikidata-compositions', minLinks: 8, bornBefore: 1915 }],
-    artistWeight: 'repertoire'
+    artistWeight: 'repertoire',
+    pieceFame: true
   }
 ];
 
@@ -924,6 +935,47 @@ export function writeCalibrations(
   });
 }
 
+/**
+ * Each genre's spread fitted again from the shared catalogue's rescored rounds.
+ *
+ * Rounds are rescored one at a time as rooms are about to play them (see
+ * `rescoreForPlay`), not all at once, so their spreads are refitted now and then
+ * from the rounds that carry their evidence. A genre with too few of those yet
+ * keeps the spread it had, from a whole run of the rescoring script or none, so
+ * a refit never throws a better spread away. Returns how many genres it fitted.
+ */
+export function refitCalibrations(db: Db): number {
+  const samples: CalibrationSample[] = [];
+  const rows = db
+    .select({ category: media.category, payload: media.payload })
+    .from(media)
+    .where(and(isNull(media.user_id), eq(media.kind, 'blindtest')))
+    .all();
+  for (const row of rows) {
+    const genre = row.category ? genreById.get(row.category) : undefined;
+    if (!genre) continue;
+    let fame: unknown;
+    try {
+      fame = (JSON.parse(row.payload) as { fame?: unknown }).fame;
+    } catch {
+      continue;
+    }
+    if (!fame || typeof fame !== 'object') continue;
+    const source = sourceGenreFor(genre);
+    samples.push({ genreId: source.id, shape: source.answerShape, audience: audienceOf(genre), fame });
+  }
+
+  const merged = readCalibrations(db);
+  let genres = 0;
+  for (const [key, scales] of fitCalibrations(samples)) {
+    if (Object.keys(scales).length === 0) continue;
+    merged.set(key, { ...merged.get(key), ...scales });
+    if (!key.startsWith(POOLED_PREFIX)) genres += 1;
+  }
+  writeCalibrations(db, merged);
+  return genres;
+}
+
 /** How often a running server reads the spreads again, so a rescoring reaches it. */
 const CALIBRATION_TTL_MS = 10 * 60 * 1000;
 
@@ -1206,6 +1258,19 @@ export interface CatalogueSources {
   ): Promise<Map<string, Annotation>>;
 }
 
+/** What rescoring a catalogue round reads of it: a `MediaView` has all of it. */
+export interface PlayableRound {
+  id: number;
+  kind: string;
+  user_id: number | null;
+  category: string | null;
+  timing: unknown;
+  answers: { key: string; value: string; aliases?: string[] }[];
+  payload: unknown;
+  created_at: string | null;
+  last_modified: string | null;
+}
+
 export interface CatalogueDeps {
   sources: CatalogueSources;
   /** Where the seeds and the day's search ledger live, and the shared catalogue a search must not repeat. */
@@ -1250,6 +1315,11 @@ export interface Catalogue {
   extend(genreId: string, window?: { min: number; max: number }): void;
   /** The per-track detail a round needs: its chorus, its other names, its real year. */
   enrich(entries: PoolEntry[]): Promise<void>;
+  /**
+   * A shared-catalogue round scored the current way, just before it is played,
+   * if it never was. Saved, so it is done once. See `rescoreForPlay` below.
+   */
+  rescoreForPlay<T extends PlayableRound>(item: T): Promise<T>;
   /** One seed search straight into rounds for the shared catalogue, within `budget` for the day. */
   searchForCatalogue(genreId: string, budget: number): Promise<CatalogueSearch | null>;
   /** Diagnostics for the setup screen and the logs. */
@@ -1923,7 +1993,13 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     entry.fame = await lookupFame(
       db,
       sources.fame,
-      { shape: 'artist-title', artist: entry.artist, title: entry.title, artistMbid: catalogued?.artistMbid ?? null },
+      {
+        shape: 'artist-title',
+        artist: entry.artist,
+        title: entry.title,
+        artistMbid: catalogued?.artistMbid ?? null,
+        piece: genre ? sourceGenreFor(genre).pieceFame : undefined
+      },
       { now: clock.now() }
     );
   }
@@ -1961,6 +2037,124 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     if (song) entry.chorus = await sources.lyrics(song.artist, song.title);
   }
 
+  /**
+   * A shared-catalogue round, rescored just before it is played.
+   *
+   * The catalogue held twenty thousand rounds scored the old way, and rescoring
+   * them all at once is hours of lookups. A round only needs its number when a
+   * room is about to hear it, and every room asks a round ahead: the endless
+   * mode deals the next one while the current one plays, and a playlist room
+   * knows its order from the start. So that is when it is done, once, and saved.
+   *
+   * Only a round nobody has judged: one without `difficultyBy`, and not written
+   * after it was filed (a correction from before hand edits were marked). A
+   * lookup with a failed request is not saved; the round plays with its old
+   * number and is tried again next time. Never throws: a round that cannot be
+   * rescored is played as it is.
+   */
+  async function rescoreForPlay<T extends PlayableRound>(item: T): Promise<T> {
+    try {
+      const payload = (item.payload ?? {}) as Record<string, unknown>;
+      if (item.kind !== 'blindtest' || item.user_id !== null || item.id <= 0) return item;
+      if (payload.difficultyBy !== undefined || editedSinceFiled(item.created_at, item.last_modified)) return item;
+      const genre = item.category ? genreById.get(item.category) : undefined;
+      const code = typeof payload.code === 'string' ? payload.code : '';
+      if (!genre || !code) return item;
+
+      const source = sourceGenreFor(genre);
+      const answer = (key: string) => item.answers.find((field) => field.key === key);
+      const facts = (await sources.youtube.facts([code]).catch(() => new Map<string, VideoFacts>())).get(code);
+      const oracle =
+        source.seeds && source.seeds.length > 0
+          ? stock.oracle(source.id, (other) => genreById.get(other)?.section === source.section)
+          : null;
+
+      let lookups: FameFacts;
+      let seedFame: number | null = null;
+      if (source.answerShape === 'artist-title') {
+        const artist = answer('artist')?.value ?? '';
+        const title = answer('title')?.value ?? '';
+        if (!artist || !title) return item;
+        seedFame = oracle?.tracks.get(trackOracleKey(artist, title))?.fame ?? null;
+        lookups = await lookupFame(
+          db,
+          sources.fame,
+          { shape: 'artist-title', artist, title, piece: source.pieceFame },
+          { now: clock.now() }
+        );
+      } else {
+        const work = answer('work')?.value ?? '';
+        if (!work || !source.workKind) return item;
+        const seed = oracle?.works.get(normalizeAnswer(work));
+        seedFame = seed?.fame ?? null;
+        lookups = await lookupFame(
+          db,
+          sources.fame,
+          {
+            shape: 'work',
+            kind: source.workKind,
+            work,
+            names: [...(answer('work')?.aliases ?? []), ...(seed?.names ?? [])],
+            wikidataId: seed?.wikidataId ?? null
+          },
+          { now: clock.now() }
+        );
+      }
+      if (lookups.partial) return item;
+
+      const upload = facts ? uploadKind(facts.channel, facts.title) : null;
+      const fame = fameFromFacts(lookups, {
+        views: facts?.views ?? null,
+        upload,
+        seedFame,
+        model: null,
+        recognised: null
+      });
+      const song =
+        source.answerShape === 'work' && facts
+          ? themeSongOf({ song: '', songArtist: '', videoTitle: facts.title, fame: lookups }, genre)
+          : null;
+      const chorus = song ? await sources.lyrics(song.artist, song.title) : null;
+
+      calibrationFor(genre);
+      const [plan] = planRescore(
+        [
+          {
+            id: item.id,
+            genre,
+            payload,
+            createdAt: item.created_at,
+            lastModified: item.last_modified,
+            fame,
+            durationSeconds: facts?.durationSeconds ?? null,
+            upload: upload ?? 'video',
+            chorus,
+            hintFraction: null
+          }
+        ],
+        { includeEdited: false, partial: true, retime: true, stored: calibrations?.fitted ?? new Map() }
+      ).rows;
+      if (!plan) return item;
+      const next = applyPlan(payload, plan, fame);
+      if (next === payload) return item;
+
+      // `last_modified` stays as it was: it is how a person's edit is told from this.
+      db.update(media)
+        .set({ payload: JSON.stringify(next) })
+        .where(eq(media.id, item.id))
+        .run();
+      const rescored = { ...item, payload: next };
+      return 'effectiveTiming' in item
+        ? {
+            ...rescored,
+            effectiveTiming: resolveTiming({ kind: item.kind, timing: item.timing, payload: next } as never)
+          }
+        : rescored;
+    } catch {
+      return item;
+    }
+  }
+
   function status(): PoolStatus[] {
     const now = clock.now();
     return [...pools.entries()].map(([genreId, pool]) => ({
@@ -1977,6 +2171,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     warm,
     extend,
     enrich,
+    rescoreForPlay,
     searchForCatalogue,
     status,
     harvest: (genreId) => {

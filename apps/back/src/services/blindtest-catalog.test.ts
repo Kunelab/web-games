@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 
+import { eq } from 'drizzle-orm';
+
 import { openDb } from '../db/open.js';
-import { createCatalogue, type CatalogueSources, type PoolEntry } from './blindtest-catalog.js';
-import { noFameSources } from './blindtest-fame.js';
+import { media } from '../db/schema.js';
+import {
+  createCatalogue,
+  readCalibrations,
+  refitCalibrations,
+  writeCalibrations,
+  type CatalogueSources,
+  type PoolEntry
+} from './blindtest-catalog.js';
+import { noFameSources, type FameSources } from './blindtest-fame.js';
 import type { Annotation, Candidate } from './blindtest-llm.js';
 import type { VideoFacts } from './youtube-service.js';
 
@@ -68,6 +78,8 @@ interface World {
   clips?: Clip[];
   /** Whether MusicBrainz knows every recording's release year. */
   years?: boolean;
+  /** What the fame catalogues answer. Nothing, by default. */
+  fame?: Partial<FameSources>;
 }
 
 /**
@@ -162,7 +174,7 @@ function fakeSources(world: World = {}) {
       musicbrainz: async () => (world.years ? { aliases: [], year: 1995 } : null),
       anilist: async () => null
     },
-    fame: noFameSources,
+    fame: { ...noFameSources, ...world.fame },
     async annotate(candidates) {
       return new Map(candidates.map((candidate) => [candidate.videoId, reading(candidate, clips)]));
     }
@@ -217,8 +229,9 @@ function fakeClock(start = Date.parse('2026-10-14T12:00:00Z')) {
 function catalogueOver(world: World = {}, options: { budget?: number } = {}) {
   const { sources, calls } = fakeSources(world);
   const clock = fakeClock();
-  const catalogue = createCatalogue({ sources, db: openDb(':memory:').db, clock, budget: options.budget ?? 95 });
-  return { catalogue, calls, clock };
+  const db = openDb(':memory:').db;
+  const catalogue = createCatalogue({ sources, db, clock, budget: options.budget ?? 95 });
+  return { catalogue, calls, clock, db };
 }
 
 const MINUTE = 60 * 1000;
@@ -424,5 +437,142 @@ describe("an era facet's pool", () => {
       [],
       'the famous tracks are the ones an era facet must not misfile'
     );
+  });
+});
+
+describe('a catalogue round about to be played', () => {
+  /** A round filed before difficulties were rescored: no marker, the database's own stamps. */
+  function fileRound(db: ReturnType<typeof openDb>['db'], payload: Record<string, unknown> = {}, stamps = {}) {
+    const [row] = db
+      .insert(media)
+      .values({
+        user_id: null,
+        kind: 'blindtest',
+        title: 'Bob Marley - Could You Be Loved',
+        category: 'reggae',
+        answers: JSON.stringify([
+          { key: 'title', label: 'field.title', value: 'Could You Be Loved', aliases: [], points: 3 },
+          { key: 'artist', label: 'field.artist', value: 'Bob Marley', aliases: [], points: 2 }
+        ]),
+        payload: JSON.stringify({
+          code: 'marley00001',
+          startGuess: 40,
+          endGuess: 60,
+          startReveal: 59,
+          endReveal: 71,
+          difficulty: 40,
+          ...payload
+        }),
+        ...stamps
+      })
+      .returning()
+      .all();
+    const stored = row;
+    return {
+      id: stored.id,
+      kind: stored.kind,
+      user_id: stored.user_id,
+      category: stored.category,
+      timing: null,
+      answers: JSON.parse(stored.answers) as { key: string; label: string; value: string; aliases: string[] }[],
+      payload: JSON.parse(stored.payload) as Record<string, unknown>,
+      created_at: stored.created_at,
+      last_modified: stored.last_modified
+    };
+  }
+
+  /** Bob Marley as the catalogues know him. */
+  const marley: Partial<FameSources> = {
+    deezerTracks: async () => [
+      { id: 7, title: 'Could You Be Loved', rank: 910_000, artist: { id: 719, name: 'Bob Marley & The Wailers' } }
+    ],
+    deezerArtist: async (id) => ({ id, name: 'Bob Marley & The Wailers', fans: 12_303_381 }),
+    wikidataByClaim: async () => [],
+    wikidataSearch: async () => ['Q409'],
+    wikidataEntities: async () => [
+      {
+        id: 'Q409',
+        labels: { en: 'Bob Marley' },
+        claims: { P434: ['x'] },
+        sitelinks: Object.fromEntries(
+          Array.from({ length: 150 }, (_, index) => [
+            `x${String.fromCharCode(97 + Math.floor(index / 26))}${String.fromCharCode(97 + (index % 26))}wiki`,
+            'x'
+          ])
+        )
+      }
+    ],
+    pageviews: async () => 80_000,
+    // No Last.fm key: no figure, which is an answer and not a failed request.
+    lastfmListeners: async () => null
+  };
+
+  it('is rescored, marked, and kept so, when it never was', async () => {
+    const { catalogue, db } = catalogueOver({ fame: marley });
+    const round = fileRound(db);
+
+    const played = await catalogue.rescoreForPlay(round);
+
+    assert.equal(played.payload.difficultyBy, 'auto');
+    assert.ok((played.payload.difficulty as number) <= 20, String(played.payload.difficulty));
+    const [saved] = db.select().from(media).where(eq(media.id, round.id)).all();
+    assert.deepEqual(JSON.parse(saved.payload), played.payload);
+  });
+
+  it('is played as it is, and tried again next time, when a lookup failed', async () => {
+    const { catalogue, db } = catalogueOver({ fame: { ...marley, deezerTracks: async () => undefined } });
+    const round = fileRound(db);
+    const played = await catalogue.rescoreForPlay(round);
+    assert.deepEqual([played.payload.difficulty, played.payload.difficultyBy], [40, undefined]);
+  });
+
+  it('is left as it is when a person set its difficulty', async () => {
+    const { catalogue, db } = catalogueOver({ fame: marley });
+    const round = fileRound(db, { difficulty: 70, difficultyBy: 'human' });
+    assert.equal((await catalogue.rescoreForPlay(round)).payload.difficulty, 70);
+  });
+
+  it('is left as it is when it was edited before hand edits were marked', async () => {
+    const { catalogue, db } = catalogueOver({ fame: marley });
+    const round = fileRound(db, {}, { created_at: '2026-10-01 20:00:00', last_modified: '2026-10-01T20:00:05.000Z' });
+    assert.equal((await catalogue.rescoreForPlay(round)).payload.difficulty, 40);
+  });
+});
+
+describe("each genre's spread, refitted from the rounds already rescored", () => {
+  /** A metal round rescored the current way, its evidence on it. */
+  function rescored(db: ReturnType<typeof openDb>['db'], index: number) {
+    db.insert(media)
+      .values({
+        user_id: null,
+        kind: 'blindtest',
+        title: `Band ${index} - Song ${index}`,
+        category: 'metal',
+        answers: '[]',
+        payload: JSON.stringify({
+          code: `metal${String(index).padStart(6, '0')}`,
+          startGuess: 40,
+          endGuess: 60,
+          startReveal: 59,
+          endReveal: 71,
+          difficulty: 50,
+          difficultyBy: 'auto',
+          fame: { looked: true, deezerFans: 1_000 * (index + 1), deezerRank: 100_000 + 10_000 * index, model: 50 }
+        })
+      })
+      .run();
+  }
+
+  it('fits a genre with enough of them, and keeps what it cannot fit as it was', () => {
+    const db = openDb(':memory:').db;
+    for (let index = 0; index < 40; index++) rescored(db, index);
+    // Saved earlier by a whole run of the script; no reggae round is rescored yet.
+    writeCalibrations(db, new Map([['reggae', { composite: { mean: -1, sd: 1 } }]]));
+
+    refitCalibrations(db);
+
+    const stored = readCalibrations(db);
+    assert.ok(stored.get('metal')?.composite, 'metal fitted');
+    assert.deepEqual(stored.get('reggae')?.composite, { mean: -1, sd: 1 });
   });
 });

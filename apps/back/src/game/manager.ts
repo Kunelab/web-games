@@ -8,6 +8,7 @@ import { indexCatalogueEntry } from '../services/blindtest-duplicates.js';
 import { rememberPlayedRound } from '../services/blindtest-library.js';
 import { recordRoundOutcome } from '../services/blindtest-stats.js';
 import { dealRounds, reserveEphemeralIdsBelow, type DrawHistory } from '../services/blindtest-draw.js';
+import { catalogue } from '../services/catalogue-service.js';
 import { mediaService, type MediaView } from '../services/media-service.js';
 import { resultsService } from '../services/results-service.js';
 import { TableHost, tableDeps, type Deadline, type TableOptions } from '../tables/host.js';
@@ -21,6 +22,7 @@ import {
   expireBuzzWindow,
   libraryCodeOf,
   nextDeadline,
+  upcomingMediaId,
   openAnswers,
   relabelAnswers,
   resolveBuzzRace,
@@ -106,6 +108,8 @@ export class GameManager {
   readonly tables: TableHost<SessionState, QuizRow>;
   /** Media snapshot per session, so a round is unaffected by later library edits. */
   private readonly mediaBySession = new Map<string, Map<number, MediaView>>();
+  /** Rounds being rescored ahead of their turn, by session and item, so each is asked once. */
+  private readonly preparing = new Set<string>();
   private listener: TransitionListener | null = null;
 
   constructor(
@@ -366,6 +370,8 @@ export class GameManager {
     });
 
     this.mediaBySession.set(state.code, new Map(options.items.map((item) => [item.id, item])));
+    // The first round, while the room is still in its lobby.
+    this.prepareUpcoming(state);
     return state;
   }
 
@@ -713,6 +719,38 @@ export class GameManager {
 
     this.keepGeneratedRound(state);
     this.countCatalogueRound(state);
+    this.prepareUpcoming(state);
+  }
+
+  /**
+   * Rescores the next round while this one plays, if it needs it.
+   *
+   * A shared-catalogue round scored the old way is scored the current way just
+   * before a room hears it (see `rescoreForPlay`), and a room's order is fixed
+   * when it is created, so the next one is known a round ahead: there is a whole
+   * round's time to do it. The rescored copy replaces this session's own, which
+   * is the one the next round is dealt from. If it is not back in time, the
+   * round plays as it was and is rescored for the next room.
+   */
+  private prepareUpcoming(state: SessionState): void {
+    const mediaId = upcomingMediaId(state);
+    if (mediaId === null || mediaId <= 0) return;
+    const item = this.mediaBySession.get(state.code)?.get(mediaId);
+    if (!item || item.kind !== 'blindtest' || item.user_id !== null) return;
+    if ((item.payload as { difficultyBy?: unknown } | null)?.difficultyBy !== undefined) return;
+
+    const key = `${state.code}:${mediaId}`;
+    if (this.preparing.has(key)) return;
+    this.preparing.add(key);
+    void catalogue
+      .rescoreForPlay(item)
+      .then((rescored) => {
+        if (rescored !== item) this.mediaBySession.get(state.code)?.set(mediaId, rescored);
+      })
+      .catch((error: unknown) => {
+        this.log.warn({ err: error, code: state.code }, 'could not rescore the next round');
+      })
+      .finally(() => this.preparing.delete(key));
   }
 
   /**

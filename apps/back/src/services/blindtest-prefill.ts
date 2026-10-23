@@ -1,7 +1,8 @@
 import type { FastifyBaseLogger } from 'fastify';
 
+import { db } from '../db/index.js';
 import { apiSlots, env } from '../env.js';
-import { GENRES, catalogAvailable } from './blindtest-catalog.js';
+import { GENRES, catalogAvailable, refitCalibrations } from './blindtest-catalog.js';
 import { catalogueRound } from './blindtest-draw.js';
 import { indexCatalogueEntry } from './blindtest-duplicates.js';
 import { countLibrary, libraryVideoCodes, rememberPlayedRound } from './blindtest-library.js';
@@ -192,6 +193,18 @@ export async function prefillCatalogue(log?: FastifyBaseLogger): Promise<Prefill
     { searches: report.searches, saved: report.saved, byGenre: report.byGenre, stopped: report.stopped },
     'blind test prefill finished'
   );
+
+  /**
+   * And each genre's spread, refitted from the rounds rescored since: the ones
+   * this run filed and the ones rooms played. Once a night, at an hour nobody
+   * plays, which is all a spread needs; see `refitCalibrations`.
+   */
+  try {
+    const genres = refitCalibrations(db);
+    log?.info({ genres }, 'blind test spreads refitted');
+  } catch (error) {
+    log?.warn({ err: error }, 'could not refit the blind test spreads');
+  }
   return report;
 }
 

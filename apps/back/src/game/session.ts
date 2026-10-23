@@ -1561,6 +1561,18 @@ export function libraryCodeOf(round: RoundState): string | undefined {
 }
 
 /**
+ * The item the room will play next, or null once there is none.
+ *
+ * Known from the start: the room's order is drawn once, shuffled or not, when
+ * it is created, so the next round is known a whole round ahead. In the lobby
+ * it is the first. That is the time to prepare it; see the manager's
+ * `prepareUpcoming`.
+ */
+export function upcomingMediaId(state: SessionState): number | null {
+  return state.order[state.currentRoundIndex + 1] ?? null;
+}
+
+/**
  * How hard the round was, if anybody has said.
  *
  * Read off the payload rather than kept on the round, so a correction made

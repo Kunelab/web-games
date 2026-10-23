@@ -569,13 +569,18 @@ export async function dealRounds(
 ): Promise<MediaView[]> {
   const share = settings.replayShare;
 
-  const replay = async () =>
-    (
-      await replayFromLibrary(settings.genreIds, history, wanted, dealt, {
-        min: settings.difficultyMin,
-        max: settings.difficultyMax
-      }).catch(() => [] as MediaView[])
-    ).map(withGenreLabel);
+  /**
+   * Rounds from the shared catalogue, each scored the current way if it never
+   * was. This deal happens a round ahead, while another one plays, which is
+   * what makes it the moment to do it; see `rescoreForPlay`.
+   */
+  const replay = async () => {
+    const replayed = await replayFromLibrary(settings.genreIds, history, wanted, dealt, {
+      min: settings.difficultyMin,
+      max: settings.difficultyMax
+    }).catch(() => [] as MediaView[]);
+    return (await Promise.all(replayed.map((item) => catalogue.rescoreForPlay(item)))).map(withGenreLabel);
+  };
 
   const tossedReplay = share > 0 && Math.random() < share;
   if (tossedReplay) {
