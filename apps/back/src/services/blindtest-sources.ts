@@ -184,18 +184,58 @@ function paced<T>(host: string, gapMs: number, run: () => Promise<T>): Promise<T
   return pause(slot - now).then(run);
 }
 
-/** A JSON GET; undefined when the request failed, which the lookups count as "unknown". */
+/**
+ * Requests to one host, one at a time, with a pause between the end of one and
+ * the start of the next.
+ *
+ * What Wikimedia asks of its API clients: in series, never in parallel. Spaced
+ * starts were not enough there: under an hour of load the answers slowed past
+ * the spacing, the requests piled up in parallel, and nine lookups in ten came
+ * back throttled, leaving their Wikipedia figures unknown.
+ */
+const turns = new Map<string, Promise<unknown>>();
+
+function inTurn<T>(host: string, gapMs: number, run: () => Promise<T>): Promise<T> {
+  const previous = turns.get(host) ?? Promise.resolve();
+  const next = previous.then(() => pause(gapMs)).then(run);
+  turns.set(
+    host,
+    next.catch(() => undefined)
+  );
+  return next;
+}
+
+/** How often a throttled request is tried in all, and the longest it waits for its turn. */
+const THROTTLED_ATTEMPTS = 3;
+const MAX_RETRY_WAIT_MS = 30_000;
+
+/**
+ * A JSON GET; undefined when the request failed, which the lookups count as "unknown".
+ *
+ * A 429 or a 503 is the service asking for patience, not saying no, so it is
+ * asked again after the wait it names (`Retry-After`, in seconds), a couple of
+ * times, before the figure is given up as unknown.
+ */
 async function getJson(
   url: URL,
   headers: Record<string, string> = {}
 ): Promise<{ status: number; body: unknown } | undefined> {
-  const response = await fetch(url, {
-    headers: { 'user-agent': FAME_USER_AGENT, accept: 'application/json', ...headers },
-    signal: AbortSignal.timeout(15_000)
-  }).catch(() => null);
-  if (!response) return undefined;
-  if (response.status >= 500 || response.status === 429) return undefined;
-  return { status: response.status, body: await response.json().catch(() => null) };
+  for (let attempt = 1; attempt <= THROTTLED_ATTEMPTS; attempt++) {
+    const response = await fetch(url, {
+      headers: { 'user-agent': FAME_USER_AGENT, accept: 'application/json', ...headers },
+      signal: AbortSignal.timeout(15_000)
+    }).catch(() => null);
+    if (!response) return undefined;
+    if (response.status === 429 || response.status === 503) {
+      if (attempt === THROTTLED_ATTEMPTS) return undefined;
+      const asked = Number(response.headers.get('retry-after'));
+      await pause(Math.min(MAX_RETRY_WAIT_MS, Number.isFinite(asked) && asked >= 0 ? asked * 1000 : 2_000 * attempt));
+      continue;
+    }
+    if (response.status >= 500) return undefined;
+    return { status: response.status, body: await response.json().catch(() => null) };
+  }
+  return undefined;
 }
 
 const deezerTrackPage = z.object({
@@ -248,7 +288,7 @@ const WIKIMEDIA_GAP_MS = 100;
 async function wikidataGet(params: Record<string, string>): Promise<unknown> {
   const url = new URL(WIKIDATA_API);
   for (const [key, value] of Object.entries({ format: 'json', ...params })) url.searchParams.set(key, value);
-  const answer = await paced('wikidata', WIKIDATA_GAP_MS, () => getJson(url));
+  const answer = await inTurn('wikidata', WIKIDATA_GAP_MS, () => getJson(url));
   return answer && answer.status === 200 ? answer.body : undefined;
 }
 
@@ -464,7 +504,7 @@ const fameSources: FameSources = {
     })) {
       url.searchParams.set(key, value);
     }
-    const answer = await paced(`${language}.wikipedia`, WIKIMEDIA_GAP_MS, () => getJson(url));
+    const answer = await inTurn(`${language}.wikipedia`, WIKIMEDIA_GAP_MS, () => getJson(url));
     if (!answer || answer.status !== 200) return undefined;
     const parsed = pageviewsSchema.safeParse(answer.body);
     const page = parsed.success ? parsed.data.query?.pages[0] : undefined;

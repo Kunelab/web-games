@@ -20,7 +20,13 @@ import type { FittedCalibration } from '../services/blindtest-difficulty.js';
 import { lookupFame, type FameFacts } from '../services/blindtest-fame.js';
 import { annotateCandidates, type Annotation } from '../services/blindtest-llm.js';
 import { buildOracle, trackOracleKey, type GenreOracle } from '../services/blindtest-seeds.js';
-import { editedSinceFiled, placedAgain, planRescore, type RescorePlan } from '../services/blindtest-rescore.js';
+import {
+  applyPlan,
+  editedSinceFiled,
+  placedAgain,
+  planRescore,
+  type RescorePlan
+} from '../services/blindtest-rescore.js';
 import { httpSources } from '../services/blindtest-sources.js';
 import { uploadKind, type ChorusInfo } from '../services/chorus-service.js';
 import { toMediaView, type MediaView } from '../services/media-service.js';
@@ -308,7 +314,7 @@ async function lookUp(rows: Row[], options: Options): Promise<void> {
         row.lookups = await lookupFame(
           db,
           httpSources.fame,
-          { shape: 'artist-title', artist: row.artist, title: row.title },
+          { shape: 'artist-title', artist: row.artist, title: row.title, piece: row.source.pieceFame },
           { refresh: options.refresh }
         );
       }
@@ -561,25 +567,9 @@ function save(rows: Row[], fitted: FittedCalibration | null): number {
   let written = 0;
   db.transaction((tx) => {
     for (const row of rows) {
-      const planned = row.plan;
-      if (!planned) continue;
-      const payload = { ...row.payload };
-      let changed = false;
-      if (!planned.keepDifficulty && planned.score && row.fame) {
-        payload.difficulty = planned.score.difficulty;
-        payload.difficultyBy = 'auto';
-        payload.fame = row.fame;
-        changed = true;
-      }
-      if (planned.clip) {
-        payload.startGuess = planned.clip.startGuess;
-        payload.endGuess = planned.clip.endGuess;
-        payload.startReveal = planned.clip.startReveal;
-        payload.endReveal = planned.clip.endReveal;
-        payload.timingBy = 'auto';
-        changed = true;
-      }
-      if (!changed) continue;
+      if (!row.plan) continue;
+      const payload = applyPlan(row.payload, row.plan, row.fame ?? null);
+      if (payload === row.payload) continue;
       // `last_modified` is left alone on purpose: it is how the next run tells
       // a person's edit from this one.
       tx.update(media)

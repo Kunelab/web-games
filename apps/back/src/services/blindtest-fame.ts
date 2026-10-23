@@ -135,6 +135,12 @@ export type FameTarget =
       title: string;
       /** The artist's MusicBrainz id, when the alias lookup found the recording. */
       artistMbid?: string | null;
+      /**
+       * Whether the title is a piece known in its own right, as in classical,
+       * where "L'Été" and an obscure cantata share a composer and not a fame.
+       * The Wikipedia figures are then the piece's; Deezer's stay the composer's.
+       */
+      piece?: boolean;
     }
   | {
       shape: 'work';
@@ -170,6 +176,8 @@ export interface FameFacts {
    * configured is asked again rather than kept for months without that figure.
    */
   asked?: OptionalSources;
+  /** Whether a request failed, leaving figures unknown that a retry may find. */
+  partial?: boolean;
 }
 
 function emptyFacts(): FameFacts {
@@ -358,6 +366,32 @@ async function artistByName(
   return { entity, empty: false };
 }
 
+/**
+ * A piece's own Wikidata item, by its name and its composer.
+ *
+ * A title alone finds the season, the painting and the film of that name; the
+ * piece is the one whose composer (P86) is the round's. Of several (the
+ * concerto and the cycle it belongs to), the one most Wikipedias cover.
+ */
+async function pieceByName(
+  title: string,
+  composerId: string,
+  sources: FameSources,
+  trace: Trace
+): Promise<{ entity: WikidataEntity | null; empty: boolean }> {
+  const ids = new Set<string>();
+  for (const language of ['fr', 'en'] as const) {
+    for (const id of (settle(trace, await sources.wikidataSearch(title, language)) ?? []).slice(0, 7)) ids.add(id);
+  }
+  if (ids.size === 0) return { entity: null, empty: true };
+  const entities = settle(trace, await sources.wikidataEntities([...ids])) ?? [];
+  const entity =
+    entities
+      .filter((candidate) => (candidate.claims.P86 ?? []).includes(composerId))
+      .sort((left, right) => wikipediaLanguages(right) - wikipediaLanguages(left))[0] ?? null;
+  return { entity, empty: false };
+}
+
 async function musicFame(
   target: Extract<FameTarget, { shape: 'artist-title' }>,
   sources: FameSources,
@@ -409,11 +443,14 @@ async function musicFame(
         continue;
       }
       if (artists.length > 0) answeredEmpty = false;
+      // The exact name first, then a credit that contains it; the most followed of
+      // either, since Deezer lists namesakes too: its first "Antonio Vivaldi" has
+      // two fans, the composer eight hundred thousand.
+      const mostFollowed = (hits: DeezerArtistHit[]) =>
+        [...hits].sort((left, right) => (right.fans ?? 0) - (left.fans ?? 0))[0];
       const artist =
-        artists.find((hit) => sameName(hit.name, credit)) ??
-        artists
-          .filter((hit) => sameArtist(hit.name, credit))
-          .sort((left, right) => (right.fans ?? 0) - (left.fans ?? 0))[0];
+        mostFollowed(artists.filter((hit) => sameName(hit.name, credit))) ??
+        mostFollowed(artists.filter((hit) => sameArtist(hit.name, credit)));
       if (artist) {
         artistId = artist.id;
         named = artist.name;
@@ -453,7 +490,15 @@ async function musicFame(
     if (own.entity && (!entity || wikipediaLanguages(own.entity) > wikipediaLanguages(entity))) entity = own.entity;
     absent = !entity && own.empty;
   }
-  await wikipediaFacts(entity, facts, sources, trace, absent);
+  if (target.piece) {
+    // Only a piece Wikidata files under this composer is this piece; without the
+    // composer's item nothing can be checked, and the figures stay unknown.
+    if (entity) facts.ids.composer = entity.id;
+    const piece = entity ? await pieceByName(target.title, entity.id, sources, trace) : null;
+    await wikipediaFacts(piece?.entity ?? null, facts, sources, trace, piece?.empty ?? false);
+  } else {
+    await wikipediaFacts(entity, facts, sources, trace, absent);
+  }
 
   const listeners = settle(trace, await sources.lastfmListeners(named ?? target.artist, target.title));
   if (listeners !== undefined) facts.lastfmListeners = listeners;
@@ -623,7 +668,7 @@ const PARTIAL_TTL_MS = 24 * 60 * 60 * 1000;
 
 export function fameKey(target: FameTarget): string {
   return target.shape === 'artist-title'
-    ? `music:${normalizeAnswer(target.artist)}::${bareTitle(target.title)}`
+    ? `${target.piece ? 'piece' : 'music'}:${normalizeAnswer(target.artist)}::${bareTitle(target.title)}`
     : `work:${target.kind}:${normalizeAnswer(target.work)}`;
 }
 
@@ -677,6 +722,7 @@ export async function lookupFame(
   }
 
   facts.asked = asked;
+  facts.partial = trace.failed;
   try {
     keep(db, key, facts, now + (trace.failed ? PARTIAL_TTL_MS : FAME_TTL_MS));
   } catch {

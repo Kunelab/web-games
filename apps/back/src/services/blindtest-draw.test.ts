@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
+import type { PoolEntry } from './blindtest-catalog.js';
+
 /**
  * Where the next round comes from when the pools are not there yet.
  *
@@ -35,22 +37,31 @@ const { db } = await import('../db/index.js');
 const { media } = await import('../db/schema.js');
 const { dealRounds, emptyHistory } = await import('./blindtest-draw.js');
 const { catalogue } = await import('./catalogue-service.js');
-type PoolEntry = import('./blindtest-catalog.js').PoolEntry;
 
 const GENRE = 'rap-us';
 const EMPTY_GENRE = 'rock';
 
+/**
+ * Names nothing would take for one another. "Artist 1 - Song 1" and "Artist 2 -
+ * Song 2" are a character apart in both fields, which the duplicate check
+ * rightly reads as one song typed twice, and a game leaves such twins out.
+ */
+const ARTISTS = ['Northern Lights', 'Paper Moons', 'Velvet Harbour'];
+const SONGS = ['Glass Garden', 'Midnight Ferry', 'Copper Sky'];
+
 /** A row of the shared catalogue: ownerless, playable, filed under `genre`. */
 function catalogueRow(index: number, genre = GENRE) {
+  const artist = ARTISTS[index - 1] ?? `Band ${index}`;
+  const song = SONGS[index - 1] ?? `Tune ${index}`;
   return {
     user_id: null,
     kind: 'blindtest',
-    title: `Artist ${index} - Song ${index}`,
+    title: `${artist} - ${song}`,
     category: genre,
     date: null,
     answers: JSON.stringify([
-      { key: 'title', label: 'field.title', value: `Song ${index}`, points: 3 },
-      { key: 'artist', label: 'field.artist', value: `Artist ${index}`, points: 2 }
+      { key: 'title', label: 'field.title', value: song, points: 3 },
+      { key: 'artist', label: 'field.artist', value: artist, points: 2 }
     ]),
     // A real-shaped video id: the kind refuses anything else, and a refused row is not playable.
     payload: JSON.stringify({
@@ -102,6 +113,8 @@ describe('dealing while the pools are cold', () => {
       waitedFor.push(genreId);
       return new Promise(() => undefined);
     });
+    // Rescoring asks the outside world too; these rounds are dealt as they are.
+    mock.method(catalogue, 'rescoreForPlay', async <T>(item: T) => item);
   });
 
   afterEach(() => {
@@ -140,6 +153,15 @@ describe('dealing while the pools are cold', () => {
     assert.equal(second.length, 1);
     assert.notEqual(first[0]?.id, second[0]?.id);
     assert.equal(history.playedTracks.size, 2);
+  });
+
+  it('deals a replayed round rescored, the way the catalogue now scores it', async () => {
+    mock.method(catalogue, 'rescoreForPlay', async <T extends { payload: unknown }>(item: T) => ({
+      ...item,
+      payload: { ...(item.payload as object), difficulty: 12, difficultyBy: 'auto' }
+    }));
+    const [dealt] = await dealRounds(settings({ replayShare: 1 }), emptyHistory(), 1);
+    assert.equal((dealt?.payload as { difficultyBy?: string }).difficultyBy, 'auto');
   });
 
   it('waits for them when the room asked for nothing but new songs', async () => {
