@@ -512,33 +512,44 @@ export default function Host() {
         </div>
       )}
 
-      {session.phase === 'playing' && round && (
-        <>
-          <div className="host-stage">
-            {/* Mounted only when this screen is the one presenting: with the
-                television being somebody's phone, playing the clip here as well
-                would put the same song in the room twice, a second apart. */}
-            {blindtestCode && isStage && (
-              <BlindtestAudio
-                code={blindtestCode}
-                payload={round.payload}
-                phase={round.phase}
-                /**
-                 * A clip that cannot play is not a round, so move on.
-                 *
-                 * Only the host does this, and only while guessing: the host owns
-                 * the clock, and letting every player screen advance on its own
-                 * error would race several skips against each other. On the
-                 * reveal the answer is already up, so there is nothing to rescue
-                 * and cutting it short would only look like a glitch.
-                 */
-                onUnplayable={() => {
-                  if (round.phase !== 'reveal') socket?.emit('host:advance', { hostToken });
-                }}
-              />
-            )}
+      {/*
+        The stage, from the lobby on.
 
-            {round.phase === 'reveal' ? (
+        In the lobby it is only a place for the clip player to be built: a
+        box-less wrapper with nothing visible in it. Building the player is a
+        script, an iframe and a handshake with YouTube, and done at the first
+        round it came out of that round's listening time, with the clock
+        already running. The wrapper is the same element once the game starts,
+        so the iframe inside it is never moved, which would reload it.
+      */}
+      {(session.phase === 'lobby' || (session.phase === 'playing' && round)) && (
+        <div className={round ? 'host-stage' : 'host-stage is-waiting'}>
+          {/* Mounted only when this screen is the one presenting: with the
+              television being somebody's phone, playing the clip here as well
+              would put the same song in the room twice, a second apart. And
+              kept through rounds of other kinds, so the next clip finds it built. */}
+          {isStage && session.blindtest && (
+            <BlindtestAudio
+              code={blindtestCode}
+              payload={round?.payload}
+              phase={round?.phase ?? ''}
+              /**
+               * A clip that cannot play is not a round, so move on.
+               *
+               * Only the host does this, and only while guessing: the host owns
+               * the clock, and letting every player screen advance on its own
+               * error would race several skips against each other. On the
+               * reveal the answer is already up, so there is nothing to rescue
+               * and cutting it short would only look like a glitch.
+               */
+              onUnplayable={() => {
+                if (round && round.phase !== 'reveal') socket?.emit('host:advance', { hostToken });
+              }}
+            />
+          )}
+
+          {round &&
+            (round.phase === 'reveal' ? (
               <div className="host-stage-content">
                 {/* The picture stays up next to its answer: on a reveal round the
                     thing everyone was staring at is the point of the moment. */}
@@ -644,9 +655,12 @@ export default function Host() {
                   <p className="host-buzz">🔔 {session.round.buzz.holderName}</p>
                 )}
               </div>
-            )}
-          </div>
+            ))}
+        </div>
+      )}
 
+      {session.phase === 'playing' && round && (
+        <>
           {/*
             Stopped, and saying so.
 

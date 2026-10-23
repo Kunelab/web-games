@@ -29,7 +29,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { GameManager } from '../game/manager.js';
 import type { MafiaManager } from '../mafia/manager.js';
 import { catalogAvailable } from '../services/blindtest-catalog.js';
-import { drawRounds, emptyHistory } from '../services/blindtest-draw.js';
+import { dealRounds, emptyHistory } from '../services/blindtest-draw.js';
 import { catalogue } from '../services/catalogue-service.js';
 import { playlistService } from '../services/playlist-service.js';
 import type { CodeRegistry } from '../tables/codes.js';
@@ -675,16 +675,18 @@ export class QuickplayManager {
    * already vetted instead of a search per round. A host who wants either of
    * those dials has the screen that has all of them.
    *
-   * One round is drawn before the room is sent anywhere. The lobby is waiting on
-   * this, so it has to be the cheap case — which it is, because `vote` warmed the
-   * pools the moment the room's vote landed here.
+   * One round is dealt before the room is sent anywhere. The lobby is waiting on
+   * this, so it has to be the cheap case. Usually it is, because `vote` warmed
+   * the pools the moment the room's vote landed here; when they are still being
+   * built, the round comes out of the catalogue rather than the room waiting for
+   * them (see `dealRounds`).
    */
   private async createInfiniteQuiz(settings: Record<string, string>): Promise<string> {
     const draw = quickBlindtestSettings();
-    // The draw writes what it used into the history, and the session carries it
+    // The deal writes what it used into the history, and the session carries it
     // on: without that, round two is free to play round one again.
     const history = emptyHistory();
-    const items = await drawRounds(draw, history, 1);
+    const items = await dealRounds({ ...draw, replayShare: QUICK_REPLAY_SHARE }, history, 1);
     if (items.length === 0) {
       throw new Error('the blind test catalogue had nothing playable');
     }

@@ -78,6 +78,10 @@ export default function Launch({ source = 'playlist' }: { source?: LaunchSource 
   async function start() {
     setStarting(true);
     setError(null);
+    // The screen this leads to, fetched alongside the room rather than after the
+    // host presses to open it. The router asks for the same chunk, so it is free
+    // by the time they do. A failure here costs nothing: the router fetches again.
+    void import('./Host').catch(() => undefined);
     try {
       const session = isBlindtest
         ? draw && { ...(await api.blindtestCreate({ ...draw, config })), skipped: [] }

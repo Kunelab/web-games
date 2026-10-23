@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { env } from '../env.js';
 import { GameManager } from '../game/manager.js';
 import { GENRES, SECTIONS, catalogAvailable, genreById } from '../services/blindtest-catalog.js';
-import { countAvailable, drawRounds, emptyHistory } from '../services/blindtest-draw.js';
+import { countAvailable, dealRounds, emptyHistory } from '../services/blindtest-draw.js';
 import { catalogueKeys, countLibrary } from '../services/blindtest-library.js';
 import { dismissDuplicateFlags, findLibraryDuplicates } from '../services/blindtest-duplicates.js';
 import {
@@ -187,16 +187,22 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
       }
 
       /**
-       * The song the setup screen already found, or one drawn now.
+       * The song the setup screen already found, or one dealt now.
        *
        * On the ordinary path the host has had the genre list open for a few
        * seconds and the opener is sitting in hand, so starting costs nothing.
-       * The draw below is the cold path: somebody who posted straight here, or
-       * whose choice changed in the last moment before pressing start.
+       * The deal below is the cold path: somebody who posted straight here, whose
+       * choice changed in the last moment before pressing start, or whose genres'
+       * pools are still being built — the first game after a restart, where the
+       * opener's own draw is still waiting on them. Dealt the way every later
+       * round is, so that wait goes to the shared catalogue instead of to the
+       * host; see `dealRounds`.
        */
       const reserved = takeOpener(request.currentUser.id, settings);
       const history = reserved?.history ?? emptyHistory();
-      const items = reserved ? [reserved.item] : await drawRounds(settings, history, INITIAL_ROUNDS);
+      const items = reserved
+        ? [reserved.item]
+        : await dealRounds({ ...settings, replayShare: request.body.replayShare }, history, INITIAL_ROUNDS);
 
       if (items.length === 0) {
         return reply.code(409).send({

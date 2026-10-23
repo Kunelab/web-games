@@ -242,6 +242,14 @@ export interface SessionState {
   /** Items excluded because they were incomplete, reported to the host. */
   skipped: { title: string; missing: string[] }[];
   /**
+   * Some round of this session is a blind test. See `SessionView.blindtest`.
+   *
+   * Settled when the order is, because the state keeps ids rather than items.
+   * Optional, so a session saved before it existed restores; the view falls
+   * back on `infinite` for those, which is the case that matters.
+   */
+  blindtest?: boolean;
+  /**
    * The device the media plays on, when the config says only one does.
    *
    * A player id, or null for the host screen — which is the default, and stays
@@ -393,6 +401,7 @@ export function createSession(options: CreateSessionOptions): SessionState {
     currentRoundIndex: -1,
     round: null,
     skipped: skipped.map((entry) => ({ title: entry.item.title, missing: entry.missing })),
+    blindtest: playable.some((item) => item.kind === 'blindtest'),
     lastActivityAt: now
   };
 }
@@ -538,6 +547,23 @@ export function abandonIfEmpty(state: SessionState, now = Date.now()): boolean {
 export type MediaLookup = (mediaId: number) => MediaView | undefined;
 
 /**
+ * Whether the answer phase runs on a clock.
+ *
+ * Always, except when the answers are spoken and the host is driving. The
+ * deadline exists to stop players typing after time is up, and with nobody
+ * typing it would only cut the room off mid-sentence, so in an oral game the
+ * host closes the round instead.
+ *
+ * Unless the host asked the game to run itself. An oral game left on
+ * auto-advance is a slideshow played to a room, and without an answer deadline
+ * it stopped on the first round and stayed there: the reveal's timer is what
+ * moves a game on, and nothing ever closed the answers to reach it.
+ */
+function answersTimed(config: SessionConfig): boolean {
+  return !config.oral || config.autoAdvance;
+}
+
+/**
  * Starts the next round, or finishes the session.
  *
  * The first phase depends on the kind: a memory panel opens with a study phase
@@ -568,11 +594,9 @@ export function advance(state: SessionState, lookup: MediaLookup, now = Date.now
   const timing = item.effectiveTiming;
   const opensWithStudy = timing.studyMs !== undefined && timing.studyMs > 0;
 
-  // Spoken answers are not on a clock. The answer deadline exists to stop players
-  // typing after time is up, and with nobody typing it would only cut the room off
-  // mid-sentence, so the host closes the round instead. A study phase keeps its
-  // timer: on a memory panel, "you have twenty seconds to look" is the game.
-  const answerEndsAt = state.config.oral ? null : now + timing.answerMs;
+  // A study phase keeps its timer whatever the answers do: on a memory panel,
+  // "you have twenty seconds to look" is the game. See `answersTimed` for the rest.
+  const answerEndsAt = answersTimed(state.config) ? now + timing.answerMs : null;
 
   state.phase = 'playing';
   state.currentRoundIndex = nextIndex;
@@ -789,9 +813,8 @@ export function openAnswers(state: SessionState, now = Date.now()): void {
 
   round.phase = 'answering';
   round.phaseStartAt = now;
-  // Same rule as when a round opens straight into answering: no clock when the
-  // answers are spoken.
-  round.phaseEndsAt = state.config.oral ? null : now + round.timing.answerMs;
+  // Same rule as when a round opens straight into answering.
+  round.phaseEndsAt = answersTimed(state.config) ? now + round.timing.answerMs : null;
   // A fresh buzzer: the study phase was for looking, and nobody may have raced
   // during it. Rebuilt rather than cleared so a restored round gets one too.
   if (state.config.buzzer) round.buzz = emptyBuzzState();
@@ -1697,6 +1720,7 @@ export function toSessionView(
     name: state.config.name,
     // Only when true, so every other game keeps the view it always had.
     ...(state.infinite ? { infinite: true } : {}),
+    ...(state.blindtest || state.infinite ? { blindtest: true } : {}),
     oral: state.config.oral,
     tvOnly: television.tvOnly,
     tvPlayerId: television.tvPlayerId,

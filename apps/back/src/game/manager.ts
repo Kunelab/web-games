@@ -5,8 +5,8 @@ import type { LobbyCard } from 'lobby-core';
 
 import { db } from '../db/index.js';
 import { indexCatalogueEntry } from '../services/blindtest-duplicates.js';
-import { rememberPlayedRound, replayFromLibrary } from '../services/blindtest-library.js';
-import { drawRounds, reserveEphemeralIdsBelow, withGenreLabel, type DrawHistory } from '../services/blindtest-draw.js';
+import { rememberPlayedRound } from '../services/blindtest-library.js';
+import { dealRounds, reserveEphemeralIdsBelow, type DrawHistory } from '../services/blindtest-draw.js';
 import { mediaService, type MediaView } from '../services/media-service.js';
 import { resultsService } from '../services/results-service.js';
 import { TableHost, tableDeps, type Deadline, type TableOptions } from '../tables/host.js';
@@ -431,72 +431,33 @@ export class GameManager {
    * turns up things nobody has heard, and the library earns its keep instead of
    * only accumulating.
    *
-   * Not a fallback. A replay is tried first on the rounds it wins the toss for,
-   * and a draw happens when it finds nothing — an empty catalogue, or a room
+   * Not only a fallback. A replay is tried first on the rounds it wins the toss
+   * for, and a draw happens when it finds nothing — an empty catalogue, or a room
    * whose genres it holds nothing for — so a new deployment behaves exactly as
-   * it did before, and fills up as it goes.
+   * it did before, and fills up as it goes. It is also what a draw gives way to
+   * while its pools are still being built; see `dealRounds`.
    *
    * The default only. Each room sets its own; see `InfiniteState.replayShare`.
    */
   static readonly REPLAY_SHARE = 0.5;
 
-  /**
-   * The next rounds, from the catalogue or from a search.
-   *
-   * The coin is tossed per top-up rather than per round, which at a lookahead of
-   * one is the same thing and stays honest if the lookahead ever grows.
-   */
+  /** The next rounds, from the catalogue or from a search. See `dealRounds`. */
   private async nextRounds(state: SessionState, history: DrawHistory, wanted: number): Promise<MediaView[]> {
     const infinite = state.infinite;
     if (!infinite) return [];
 
-    const share = infinite.replayShare ?? GameManager.REPLAY_SHARE;
-
-    /**
-     * Every media id this session has already dealt, so nothing comes round twice.
-     *
-     * The track key would very nearly do it — both sources share one — but
-     * "nearly" is not the promise. An admin correcting a row's artist between
-     * two rounds changes its key, and the session holding the old one would be
-     * free to play the same song again. The id cannot drift, so it is what the
-     * guarantee is made of; the key still does the rest of the work, which is
-     * keeping a *pool* draw off a song the catalogue already supplied.
-     */
-    const replay = async () =>
-      (
-        await replayFromLibrary(infinite.genreIds, history, wanted, new Set(state.order), {
-          min: infinite.difficultyMin,
-          max: infinite.difficultyMax
-        }).catch(() => [] as MediaView[])
-      ).map(withGenreLabel);
-
-    const tossedReplay = share > 0 && Math.random() < share;
-    if (tossedReplay) {
-      const replayed = await replay();
-      if (replayed.length > 0) return replayed;
-    }
-
-    const drawn = await drawRounds(
+    return dealRounds(
       {
         genreIds: infinite.genreIds,
         difficultyMin: infinite.difficultyMin,
         difficultyMax: infinite.difficultyMax,
-        region: infinite.region
+        region: infinite.region,
+        replayShare: infinite.replayShare ?? GameManager.REPLAY_SHARE
       },
       history,
-      wanted
+      wanted,
+      new Set(state.order)
     );
-
-    /**
-     * A dry draw falls back on the catalogue rather than on silence.
-     *
-     * The draw comes back empty while a genre's extension is still out, or
-     * once the day's search budget is spent, and before this the room simply
-     * waited for the next coin toss. A room that allowed replays at all would
-     * rather have one now. A room that asked for none gets none.
-     */
-    if (drawn.length > 0 || tossedReplay || share <= 0) return drawn;
-    return replay();
   }
 
   /** Whether this session should keep generating rounds. */
