@@ -532,6 +532,12 @@ function report(rows: Row[], unknown: MediaView[], missing: number | null, fitte
   }
   const failed = rows.filter((row) => row.failed).length;
   if (failed > 0) console.log(`  ${failed} with a lookup that failed, left as they were: run again to finish them`);
+  const unfound = rows.filter((row) => row.plan?.score?.unfound).length;
+  if (unfound > 0) {
+    console.log(
+      `  ${unfound} found in no catalogue, kept as they were and listed for the admin (a wrong answer, or a name)`
+    );
+  }
   console.log(`  ${unknown.length} with no known genre or no video, skipped`);
 
   console.log('\n== Difficulty by genre');

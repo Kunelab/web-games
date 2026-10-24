@@ -132,8 +132,6 @@ export function planRescore(
   const plans = rows.map((row): RescorePlan => {
     const edited = editedSinceFiled(row.createdAt, row.lastModified);
     const unmarked = (by: unknown) => by === undefined && edited && !options.includeEdited;
-    const keepDifficulty = row.payload.difficultyBy === 'human' || unmarked(row.payload.difficultyBy);
-    const keepTiming = row.payload.timingBy === 'human' || unmarked(row.payload.timingBy);
     const before = typeof row.payload.difficulty === 'number' ? row.payload.difficulty : null;
 
     const source = sourceGenreFor(row.genre);
@@ -141,9 +139,16 @@ export function planRescore(
       ? scoreBreakdown(row.fame, {
           shape: source.answerShape,
           audience: audienceOf(row.genre),
-          calibration: resolveCalibration(scales, source.id, source.answerShape)
+          calibration: resolveCalibration(scales, source.id, source.answerShape),
+          piece: source.pieceFame
         })
       : null;
+    // Found nowhere: no reason to replace a number with one made of what is left.
+    const keepDifficulty =
+      row.payload.difficultyBy === 'human' ||
+      unmarked(row.payload.difficultyBy) ||
+      (score?.unfound === true && before !== null);
+    const keepTiming = row.payload.timingBy === 'human' || unmarked(row.payload.timingBy);
     const difficulty = keepDifficulty ? before : (score?.difficulty ?? before);
 
     const clip =

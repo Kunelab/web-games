@@ -7,6 +7,7 @@ import { db } from '../db/index.js';
 import { indexCatalogueEntry } from '../services/blindtest-duplicates.js';
 import { rememberPlayedRound } from '../services/blindtest-library.js';
 import { recordRoundOutcome } from '../services/blindtest-stats.js';
+import { playCountsOf, recordPlay } from '../services/media-plays.js';
 import { dealRounds, reserveEphemeralIdsBelow, type DrawHistory } from '../services/blindtest-draw.js';
 import { catalogue } from '../services/catalogue-service.js';
 import { mediaService, type MediaView } from '../services/media-service.js';
@@ -342,6 +343,8 @@ export class GameManager {
 
     // Built whole inside the host's call, so the first save already has every
     // setting below in it. The code comes from the registry every game shares.
+    // Only a shuffle that favours the unheard asks; see `freshFirstOrder`.
+    const playCounts = config.shuffle && config.freshFirst ? playCountsOf(options.items) : undefined;
     const state = this.tables.create((code) => {
       const session = createSession({
         playlistId: options.playlistId,
@@ -349,6 +352,7 @@ export class GameManager {
         hostUserId: options.hostUserId,
         items: options.items,
         config,
+        playCounts,
         code
       });
 
@@ -719,6 +723,7 @@ export class GameManager {
 
     this.keepGeneratedRound(state);
     this.countCatalogueRound(state);
+    this.countPlay(state);
     this.prepareUpcoming(state);
   }
 
@@ -761,6 +766,20 @@ export class GameManager {
    * were typed: an oral game scores nothing, so it says nothing about who knew
    * the song, and a rehearsal is not a room.
    */
+  /**
+   * Counts a round as heard, once, at its reveal.
+   *
+   * In any game a room plays, spoken ones included, since the song was played
+   * either way; not in a rehearsal, which is the host listening alone. What a
+   * shuffle reads to deal the unheard first; see `freshFirstOrder`.
+   */
+  private countPlay(state: SessionState): void {
+    const round = state.round;
+    if (!round || round.phase !== 'reveal' || round.playCounted || state.rehearsal) return;
+    round.playCounted = true;
+    recordPlay({ id: round.mediaId, kind: round.kind, payload: round.payload });
+  }
+
   private countCatalogueRound(state: SessionState): void {
     const round = state.round;
     if (!round || round.phase !== 'reveal' || !round.scored || round.statsRecorded) return;

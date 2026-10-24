@@ -578,7 +578,8 @@ export async function findExtremeFlags(): Promise<ExtremeFlag[]> {
     const reason = extremeDoubt(payload.difficulty, payload.fame, {
       shape: source.answerShape,
       audience: audienceOf(genre),
-      calibration: resolveCalibration(calibrations, source.id, source.answerShape)
+      calibration: resolveCalibration(calibrations, source.id, source.answerShape),
+      piece: source.pieceFame
     });
     if (reason) flags.push({ mediaId: item.id, difficulty: payload.difficulty, reason });
   }

@@ -5,6 +5,7 @@ import { answerFieldSchema, sessionConfigSchema, type AnswerField, type SessionC
 
 import type { MediaView } from '../services/media-service.js';
 import {
+  freshFirstOrder,
   ABANDONED_ROOM_MS,
   BUZZ_ARBITRATION_MS,
   abandonIfEmpty,
@@ -687,5 +688,46 @@ describe('the round a room will play next', () => {
     }
 
     assert.deepEqual(dealt, [...state.order, null]);
+  });
+});
+
+describe('a shuffle that deals the unheard first', () => {
+  /** A seeded generator, so the statistics below are the same on every run. */
+  function seeded(seed: number): () => number {
+    let state = seed;
+    return () => {
+      state = (state * 1_103_515_245 + 12_345) % 2 ** 31;
+      return (state + 1) / (2 ** 31 + 1);
+    };
+  }
+  const ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+  it('keeps every item, once', () => {
+    const order = freshFirstOrder(ids, new Map([[3, 4]]), seeded(1));
+    assert.deepEqual(
+      [...order].sort((a, b) => a - b),
+      ids
+    );
+  });
+
+  it('nearly always puts what was played behind what never was, and still varies', () => {
+    const random = seeded(7);
+    const plays = new Map([[10, 3]]);
+    let positions = 0;
+    let firsts = new Set<number>();
+    for (let run = 0; run < 500; run++) {
+      const order = freshFirstOrder(ids, plays, random);
+      positions += order.indexOf(10);
+      firsts = firsts.add(order[0] ?? 0);
+    }
+    assert.ok(positions / 500 > 8, `played song at ${positions / 500} on average`);
+    assert.ok(firsts.size >= 8, 'still a shuffle: many different songs come first');
+  });
+
+  it('is a fair shuffle when nothing has been played', () => {
+    const random = seeded(3);
+    let positions = 0;
+    for (let run = 0; run < 2_000; run++) positions += freshFirstOrder(ids, new Map(), random).indexOf(10);
+    assert.ok(Math.abs(positions / 2_000 - 4.5) < 0.3, String(positions / 2_000));
   });
 });

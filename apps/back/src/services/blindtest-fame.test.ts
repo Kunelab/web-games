@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { sql } from 'drizzle-orm';
+
 import { openDb } from '../db/open.js';
 import {
   animeThemeFor,
   lookupFame,
   noFameSources,
   themeSlotOf,
+  workNameVariants,
   type FameSources,
   type WikidataEntity
 } from './blindtest-fame.js';
@@ -343,6 +346,72 @@ describe('a work’s fame', () => {
     assert.equal(facts.themes?.[0]?.song, 'Guren no Yumiya');
   });
 
+  it('finds an anime under a season and a translation in brackets', async () => {
+    const { sources } = world({
+      anilist: async (name) =>
+        name === 'My Hero Academia'
+          ? [{ id: 21459, popularity: 700_000, titles: ['Boku no Hero Academia', 'My Hero Academia'] }]
+          : []
+    });
+    const facts = await lookupFame(openDb().db, sources, {
+      shape: 'work',
+      kind: 'anime',
+      work: 'My Hero Academia (Boku no Hīrō Akademia) - Final Season'
+    });
+    assert.equal(facts.anilistMembers, 700_000);
+  });
+
+  it('will not score an answer with whichever anime AniList found nearest to it', async () => {
+    // A singer read off a Japanese video title as the anime: AniList still answers something.
+    const { sources } = world({ anilist: async () => [{ id: 9, popularity: 300_000, titles: ['Blue Lock'] }] });
+    const facts = await lookupFame(openDb().db, sources, { shape: 'work', kind: 'anime', work: 'Vicke Blanka' });
+    assert.equal(facts.anilistMembers, null, 'an answer AniList matched nothing to is unknown, not that anime');
+  });
+
+  it('follows a season no Wikipedia covers to the series every Wikipedia does', async () => {
+    const { sources } = world({
+      anilist: async () => [{ id: 329, popularity: 65_000, titles: ['Planetes'] }],
+      wikidataByClaim: async (property) => (property === 'P8729' ? ['Q900'] : []),
+      wikidataEntities: async (ids) =>
+        ids.map((id) =>
+          id === 'Q900'
+            ? entity('Q900', { claims: { P179: ['Q901'] } })
+            : entity(id, { sitelinks: wikipedias(25, { fr: 'Planetes' }) })
+        ),
+      pageviews: async () => 4_000
+    });
+    const facts = await lookupFame(openDb().db, sources, { shape: 'work', kind: 'anime', work: 'Planetes' });
+    assert.ok((facts.wikiLanguages ?? 0) >= 25, String(facts.wikiLanguages));
+    assert.equal(facts.ids.wikidata, 'Q901');
+  });
+
+  it('leaves the Wikipedias unknown, not zero, when nothing above the season is covered either', async () => {
+    const { sources } = world({
+      anilist: async () => [{ id: 1, popularity: 50_000, titles: ['Some Show'] }],
+      wikidataByClaim: async () => ['Q900'],
+      wikidataEntities: async (ids) => ids.map((id) => entity(id))
+    });
+    const facts = await lookupFame(openDb().db, sources, { shape: 'work', kind: 'anime', work: 'Some Show' });
+    assert.equal(facts.wikiLanguages, null);
+  });
+
+  it('asks again about a work looked up before it knew to try its other names', async () => {
+    const db = openDb().db;
+    let asked = 0;
+    const { sources } = world({
+      anilist: async () => {
+        asked += 1;
+        return [{ id: 2, popularity: 10_000, titles: ['Some Show'] }];
+      }
+    });
+    const target = { shape: 'work' as const, kind: 'anime' as const, work: 'Some Show' };
+    await lookupFame(db, sources, target);
+    db.run(sql`UPDATE BlindtestFame SET facts = json_remove(facts, '$.revision')`);
+    await lookupFame(db, sources, target);
+    await lookupFame(db, sources, target);
+    assert.equal(asked, 2);
+  });
+
   it('picks a film out of a name search by what it is, and asks TMDB by the id Wikidata has', async () => {
     const tmdbAsked: unknown[] = [];
     const { sources } = world({
@@ -407,6 +476,27 @@ describe('a work’s fame', () => {
       wikidataId: 'Q20'
     });
     assert.deepEqual(facts.themeSong, { title: "I'll Be There for You", artist: 'The Rembrandts' });
+  });
+});
+
+describe('the names a work is looked up under', () => {
+  it('tries the answer, then without its brackets, its season, and the names in its brackets', () => {
+    assert.deepEqual(workNameVariants('My Hero Academia (Boku no Hīrō Akademia) - Final Season'), [
+      'My Hero Academia (Boku no Hīrō Akademia) - Final Season',
+      'My Hero Academia - Final Season',
+      'My Hero Academia',
+      'Boku no Hīrō Akademia'
+    ]);
+    assert.deepEqual(workNameVariants('Drive (film, 2011)'), ['Drive (film, 2011)', 'Drive']);
+    assert.deepEqual(workNameVariants('Akuma no Ko (悪魔の子)'), ['Akuma no Ko (悪魔の子)', 'Akuma no Ko', '悪魔の子']);
+  });
+
+  it('tries each side of an "ou", and never a season or an arc as a name of its own', () => {
+    assert.ok(workNameVariants('Superman (film, 1978) ou Superman (série animée, 1996)').includes('Superman'));
+    assert.deepEqual(workNameVariants('Jujutsu Kaisen (Shibuya Incident Arc)'), [
+      'Jujutsu Kaisen (Shibuya Incident Arc)',
+      'Jujutsu Kaisen'
+    ]);
   });
 });
 

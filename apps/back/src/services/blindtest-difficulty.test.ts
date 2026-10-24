@@ -184,10 +184,26 @@ describe('the ends of the scale, earned', () => {
     }
   });
 
-  it('keeps a song with millions of views out of the 90s, whatever the lookup could not find', () => {
-    const scored = reggae({ ...NOBODY, views: 8_800_000 });
+  it('keeps a song with millions of views out of the 90s, whatever else the lookup found', () => {
+    // A namesake with a few fans, where the real act is filed under another name.
+    const scored = reggae({ ...NOBODY, deezerFans: 200, views: 8_800_000 });
     assert.equal(scored.difficulty, 85);
     assert.equal(scored.rule, 'contradicted');
+  });
+
+  it('does not read a song found nowhere as obscure, unless its views say so too', () => {
+    const unfound = reggae({ ...NOBODY, views: 8_800_000 });
+    assert.equal(unfound.unfound, true);
+    assert.ok(unfound.difficulty < 85, JSON.stringify(unfound));
+    // Few views and nothing anywhere: that one nobody knows.
+    assert.equal(reggae(NOBODY).unfound, false);
+  });
+
+  it('counts a classical piece’s own Wikipedias as the song’s fame', () => {
+    const piece = { looked: true, deezerFans: 1_400_000, wikiLanguages: 90, frPageviews: 60_000, model: 2 };
+    const context = { shape: 'artist-title' as const, audience: 'any' as const, calibration: {} };
+    assert.equal(extremeDoubt(3, piece, context), 'easy-unconfirmed');
+    assert.equal(extremeDoubt(3, piece, { ...context, piece: true }), null);
   });
 
   it('says which stored extremes nothing backs', () => {
@@ -200,7 +216,8 @@ describe('the ends of the scale, earned', () => {
     assert.equal(extremeDoubt(3, DEEP_CUT, french), 'easy-unconfirmed');
     assert.equal(extremeDoubt(3, BOB_MARLEY, anywhere), null);
     assert.equal(extremeDoubt(96, NOBODY, anywhere), null);
-    assert.equal(extremeDoubt(96, { ...NOBODY, views: 8_800_000 }, anywhere), 'hard-contradicted');
+    assert.equal(extremeDoubt(96, { ...NOBODY, deezerFans: 200, views: 8_800_000 }, anywhere), 'hard-contradicted');
+    assert.equal(extremeDoubt(40, { ...NOBODY, views: 8_800_000 }, anywhere), 'not-found');
     assert.equal(extremeDoubt(96, null, anywhere), 'unscored');
     // A film's figures are the film's own: no artist to borrow fame from.
     assert.equal(extremeDoubt(3, { looked: true, tmdbVotes: 5 }, { ...anywhere, shape: 'work' }), null);

@@ -262,7 +262,8 @@ const PROBLEM_LABELS: Record<Problem, MsgKey> = {
 const EXTREME_REASON_KEYS: Record<ExtremeDoubt, MsgKey> = {
   'easy-unconfirmed': 'ple.extreme.easyUnconfirmed',
   'hard-contradicted': 'ple.extreme.hardContradicted',
-  unscored: 'ple.extreme.unscored'
+  unscored: 'ple.extreme.unscored',
+  'not-found': 'ple.extreme.notFound'
 };
 
 /** Every row, the rows with any problem, or the rows with one problem in particular. */

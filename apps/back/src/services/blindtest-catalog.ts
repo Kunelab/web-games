@@ -1430,7 +1430,12 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
    * is not given an easy end of its own.
    */
   function rescore(genre: Genre, entries: PoolEntry[]): void {
-    const context = { shape: genre.answerShape, audience: audienceOf(genre), calibration: calibrationFor(genre) };
+    const context = {
+      shape: genre.answerShape,
+      audience: audienceOf(genre),
+      calibration: calibrationFor(genre),
+      piece: sourceGenreFor(genre).pieceFame
+    };
     for (const entry of entries) {
       entry.difficulty = scoreDifficulty(fameOf(entry), context);
     }
