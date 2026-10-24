@@ -661,6 +661,8 @@ export const blindtestCalibration = sqliteTable(
     signal: text('signal').notNull(),
     mean: real('mean').notNull(),
     sd: real('sd').notNull(),
+    /** Where the genre's top tenth starts, on the same scale. See `Scale.top`. */
+    top: real('top'),
     samples: integer('samples').notNull().default(0),
     fitted_at: text('fitted_at').notNull()
   },

@@ -20,6 +20,7 @@ import {
   isGenerated,
   type BlindtestGenre,
   type DuplicateReason,
+  type ExtremeDoubt,
   type GeneratedFilter,
   type GenreFlagReason,
   type MediaItem,
@@ -246,14 +247,22 @@ interface GenreFlagInfo {
  * In the order a curator settles them: a duplicate may be deleted outright,
  * which makes every other question about it moot.
  */
-type Problem = 'duplicate' | 'genre' | 'legacy' | 'review' | 'unfinished';
+type Problem = 'duplicate' | 'genre' | 'legacy' | 'review' | 'extreme' | 'unfinished';
 
 const PROBLEM_LABELS: Record<Problem, MsgKey> = {
   duplicate: 'ple.problem.duplicate',
   genre: 'ple.problem.genre',
   legacy: 'ple.problem.legacy',
   review: 'ple.problem.review',
+  extreme: 'ple.problem.extreme',
   unfinished: 'ple.problem.unfinished'
+};
+
+/** Why a difficulty at either end is in doubt, as the row's badge says it on hover. */
+const EXTREME_REASON_KEYS: Record<ExtremeDoubt, MsgKey> = {
+  'easy-unconfirmed': 'ple.extreme.easyUnconfirmed',
+  'hard-contradicted': 'ple.extreme.hardContradicted',
+  unscored: 'ple.extreme.unscored'
 };
 
 /** Every row, the rows with any problem, or the rows with one problem in particular. */
@@ -378,6 +387,19 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
         (review.data?.flags ?? []).filter((flag) => !deletedIds.has(flag.mediaId)).map((flag) => [flag.mediaId, flag])
       ),
     [review.data, deletedIds]
+  );
+
+  /** Difficulties at either end that nothing backs: the same rule again. */
+  const extremes = useAsync(
+    () => (curating ? api.blindtestExtremeFlags() : Promise.resolve({ flags: [] })),
+    [curating, playlistId]
+  );
+  const extremeById = useMemo(
+    () =>
+      new Map(
+        (extremes.data?.flags ?? []).filter((flag) => !deletedIds.has(flag.mediaId)).map((flag) => [flag.mediaId, flag])
+      ),
+    [extremes.data, deletedIds]
   );
 
   /**
@@ -640,9 +662,12 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
     genre: (item) => genreFlagById.has(item.id),
     legacy: (item) => legacyIds.has(item.id),
     review: (item) => reviewById.has(item.id),
+    extreme: (item) => extremeById.has(item.id),
     unfinished: (item) => !item.readiness.ready
   };
-  const problems: Problem[] = curating ? ['duplicate', 'genre', 'legacy', 'review', 'unfinished'] : ['unfinished'];
+  const problems: Problem[] = curating
+    ? ['duplicate', 'genre', 'legacy', 'review', 'extreme', 'unfinished']
+    : ['unfinished'];
   const hasAnyProblem = (item: MediaItem) => problems.some((problem) => hasProblem[problem](item));
   const problemCount = chosen.filter(hasAnyProblem).length;
   const countOf = (problem: Problem) => chosen.filter(hasProblem[problem]).length;
@@ -801,6 +826,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
               {genreFlagById.size > 0 && <> · {t(msg('ple.genre.count', { count: genreFlagById.size }))}</>}
               {legacyIds.size > 0 && <> · {t(msg('ple.genre.legacyCount', { count: legacyIds.size }))}</>}
               {reviewById.size > 0 && <> · {t(msg('ple.review.count', { count: reviewById.size }))}</>}
+              {extremeById.size > 0 && <> · {t(msg('ple.extreme.count', { count: extremeById.size }))}</>}
             </span>
           </header>
 
@@ -928,6 +954,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                       duplicate={curating ? dupById.get(item.id) : undefined}
                       hiddenInGames={curating && hiddenIds.has(item.id)}
                       review={curating ? reviewById.get(item.id) : undefined}
+                      extreme={curating ? extremeById.get(item.id) : undefined}
                       onShowDuplicate={() => setDupTargetId(item.id)}
                       genreFlag={curating ? genreFlagById.get(item.id) : undefined}
                       legacyLabel={curating && legacyIds.has(item.id)}
@@ -1174,6 +1201,7 @@ function SortableRow({
   duplicate,
   hiddenInGames = false,
   review,
+  extreme,
   onShowDuplicate,
   genreFlag,
   legacyLabel = false,
@@ -1190,6 +1218,8 @@ function SortableRow({
   hiddenInGames?: boolean;
   /** Rated easy and never found by any room. */
   review?: { difficulty: number; plays: number };
+  /** At either end of the scale, with nothing to back it. */
+  extreme?: { difficulty: number; reason: ExtremeDoubt };
   onShowDuplicate?: () => void;
   genreFlag?: GenreFlagInfo;
   /** Still asking for "a film, series or game". */
@@ -1239,6 +1269,16 @@ function SortableRow({
             title={t(msg('ple.review.flag', { title: item.title, difficulty: review.difficulty, plays: review.plays }))}
           >
             <Badge tone="warn">{t(msg('ple.review.badge'))}</Badge>
+          </span>
+        )}
+        {/*
+          At 1 to 10 or 90 to 100 with nothing to back it. The same kind of
+          badge, settled the same way: a number set by hand in the editor
+          is the admin's, and never listed again.
+        */}
+        {extreme && (
+          <span title={t(msg(EXTREME_REASON_KEYS[extreme.reason], { difficulty: extreme.difficulty }))}>
+            <Badge tone="warn">{t(msg('ple.extreme.badge', { difficulty: extreme.difficulty }))}</Badge>
           </span>
         )}
         {/*

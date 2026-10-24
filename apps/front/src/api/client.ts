@@ -571,6 +571,9 @@ export const api = {
   /** Catalogue rounds rated easy that no room has found yet. Admin only. */
   blindtestReviewFlags: () =>
     request<{ flags: { mediaId: number; difficulty: number; plays: number }[] }>('/blindtest/library/review'),
+  /** Catalogue rounds at either end of the scale that nothing backs. Admin only. */
+  blindtestExtremeFlags: () =>
+    request<{ flags: { mediaId: number; difficulty: number; reason: ExtremeDoubt }[] }>('/blindtest/library/extremes'),
   /** Settles every flag raised against one entry: "these are not duplicates". */
   blindtestDismissDuplicate: (mediaId: number) =>
     request<{ dismissed: number }>('/blindtest/library/duplicates/dismiss', {
@@ -613,6 +616,13 @@ export interface BlindtestGenre {
 }
 
 export type DuplicateReason = 'same-video' | 'same-track' | 'similar';
+
+/**
+ * Why a difficulty at either end is in doubt: an easy end the song has not
+ * earned, a hard end millions of views contradict, or either scored before any
+ * figure was kept. See `extremeDoubt` on the server.
+ */
+export type ExtremeDoubt = 'easy-unconfirmed' | 'hard-contradicted' | 'unscored';
 
 /** Why an entry's genre is in question. See `blindtest-genres` on the server. */
 export type GenreFlagReason =

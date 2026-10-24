@@ -26,7 +26,8 @@ process.on('exit', () => {
   }
 });
 
-const { correctLibraryRound, findReviewFlags, rememberPlayedRound } = await import('./blindtest-library.js');
+const { correctLibraryRound, findExtremeFlags, findReviewFlags, rememberPlayedRound } =
+  await import('./blindtest-library.js');
 const { recordRoundOutcome } = await import('./blindtest-stats.js');
 const { mediaService } = await import('./media-service.js');
 const { deleteRedundantDuplicates, findLibraryDuplicates, withoutHiddenDuplicates } =
@@ -176,5 +177,32 @@ describe('a possible duplicate in a game', () => {
     const left = new Set((await listLibrary()).map((row) => row.id));
     assert.ok(!left.has(quiet.id));
     assert.ok(left.has(loud.id) && left.has(road.id) && left.has(rode.id));
+  });
+});
+
+describe('the ends of the scale, for the admin', () => {
+  /** A round kept at `difficulty`, by a famous artist whose song is not a hit. */
+  async function keptAt(code: string, difficulty: number, extra: Record<string, unknown> = {}) {
+    const round = dealtRound(code);
+    round.payload = {
+      ...(round.payload as object),
+      difficulty,
+      fame: { looked: true, deezerRank: 200_000, deezerFans: 9_000_000, frPageviews: 500_000, views: 300_000 },
+      ...extra
+    };
+    return (await rememberPlayedRound(round))!;
+  }
+
+  it('lists an easy end its song has not earned, and leaves the rest alone', async () => {
+    const unearned = await keptAt('extremeaaa1', 3);
+    const middle = await keptAt('extremeaaa2', 50);
+    const byHand = await keptAt('extremeaaa3', 3, { difficultyBy: 'human' });
+    const unscored = await keptAt('extremeaaa4', 97, { fame: undefined });
+
+    const flags = new Map((await findExtremeFlags()).map((flag) => [flag.mediaId, flag.reason]));
+    assert.equal(flags.get(unearned.id), 'easy-unconfirmed');
+    assert.equal(flags.get(unscored.id), 'unscored');
+    assert.equal(flags.has(middle.id), false);
+    assert.equal(flags.has(byHand.id), false);
   });
 });

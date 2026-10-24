@@ -5,6 +5,7 @@ import type { BlindtestFame } from 'game-core';
 
 import {
   bellTarget,
+  extremeDoubt,
   fitCalibrations,
   normalCdf,
   normalQuantile,
@@ -144,6 +145,78 @@ describe('a difficulty, for somebody who picked the genre', () => {
         calibration: resolveCalibration(both, genreId, 'artist-title')
       });
     assert.ok(as('metal') < as('pop'), `metal ${as('metal')} < pop ${as('pop')}`);
+  });
+});
+
+describe('the ends of the scale, earned', () => {
+  /**
+   * A French genre whose rounds agree, so the blend spreads narrowly: rap
+   * français, where an ordinary SDM song came out at 1 on SDM's name alone.
+   */
+  const french = {
+    shape: 'artist-title' as const,
+    audience: 'fr' as const,
+    calibration: { composite: { mean: 0, sd: 0.5 } }
+  };
+  /** A star's name on a song nobody plays: everything about the artist, nothing about the song. */
+  const DEEP_CUT: BlindtestFame = {
+    looked: true,
+    deezerRank: 350_000,
+    deezerFans: 20_000_000,
+    frPageviews: 2_000_000,
+    views: 500_000,
+    upload: 'video',
+    model: 2,
+    recognised: true,
+    seedFame: 0.8
+  };
+
+  it('keeps an ordinary song by a famous artist off the easy end', () => {
+    const scored = scoreBreakdown(DEEP_CUT, french);
+    assert.equal(scored.difficulty, 15);
+    assert.equal(scored.rule, 'artist-only');
+  });
+
+  it('lets it through once the song itself is a hit, by any of its own figures', () => {
+    for (const hit of [{ seedFame: 0.95 }, { deezerRank: 950_000 }, { views: 100_000_000 }]) {
+      const scored = scoreBreakdown({ ...DEEP_CUT, ...hit }, french);
+      assert.ok(scored.difficulty <= 10, JSON.stringify({ hit, scored }));
+    }
+  });
+
+  it('keeps a song with millions of views out of the 90s, whatever the lookup could not find', () => {
+    const scored = reggae({ ...NOBODY, views: 8_800_000 });
+    assert.equal(scored.difficulty, 85);
+    assert.equal(scored.rule, 'contradicted');
+  });
+
+  it('says which stored extremes nothing backs', () => {
+    const anywhere = {
+      ...french,
+      audience: 'any' as const,
+      calibration: resolveCalibration(fitted, 'reggae', 'artist-title')
+    };
+    assert.equal(extremeDoubt(50, DEEP_CUT, french), null);
+    assert.equal(extremeDoubt(3, DEEP_CUT, french), 'easy-unconfirmed');
+    assert.equal(extremeDoubt(3, BOB_MARLEY, anywhere), null);
+    assert.equal(extremeDoubt(96, NOBODY, anywhere), null);
+    assert.equal(extremeDoubt(96, { ...NOBODY, views: 8_800_000 }, anywhere), 'hard-contradicted');
+    assert.equal(extremeDoubt(96, null, anywhere), 'unscored');
+    // A film's figures are the film's own: no artist to borrow fame from.
+    assert.equal(extremeDoubt(3, { looked: true, tmdbVotes: 5 }, { ...anywhere, shape: 'work' }), null);
+  });
+
+  it('places a genre’s top tenth where its hits are, though its rank stops at a million', () => {
+    // Bunched under the ceiling: the best rank there is sits less than one spread above the middle.
+    const ranks = catalogue('rap-fr').map((sample) => ({
+      ...sample,
+      fame: { ...sample.fame, deezerRank: Math.min(1_000_000, (sample.fame.deezerRank ?? 0) * 3) }
+    }));
+    const scale = resolveCalibration(fitCalibrations(ranks), 'rap-fr', 'artist-title').deezerRank;
+    assert.ok(
+      scale?.top !== undefined && scale.top > scale.mean && scale.top <= Math.log10(1_000_001),
+      JSON.stringify(scale)
+    );
   });
 });
 
