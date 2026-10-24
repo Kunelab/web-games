@@ -1,11 +1,26 @@
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
-import { changedByHand, getMediaKind, normalizeAnswer, withHandEdits, type BlindtestPayload } from 'game-core';
+import {
+  changedByHand,
+  getMediaKind,
+  normalizeAnswer,
+  withHandEdits,
+  type BlindtestFame,
+  type BlindtestPayload
+} from 'game-core';
 
 import { cleanAliases } from '../game/session.js';
 
 import { db } from '../db/index.js';
 import { blindtestRoundStats, media, playlistItems, playlists, type MediaRow } from '../db/schema.js';
-import { libraryVideoCodesIn, type Genre } from './blindtest-catalog.js';
+import {
+  audienceOf,
+  genreById,
+  libraryVideoCodesIn,
+  readCalibrations,
+  sourceGenreFor,
+  type Genre
+} from './blindtest-catalog.js';
+import { extremeDoubt, resolveCalibration, type ExtremeDoubt } from './blindtest-difficulty.js';
 import type { DrawHistory } from './blindtest-draw.js';
 import { hiddenDuplicates } from './blindtest-duplicates.js';
 import { refiled, underRememberedGenre } from './blindtest-refile.js';
@@ -536,6 +551,38 @@ export interface ReviewFlag {
   mediaId: number;
   difficulty: number;
   plays: number;
+}
+
+export interface ExtremeFlag {
+  mediaId: number;
+  difficulty: number;
+  reason: ExtremeDoubt;
+}
+
+/**
+ * Catalogue rounds at either end of the scale that nothing backs, for the admin.
+ *
+ * 1 to 10 for a song whose artist is famous and the song is not, 90 to 100 for
+ * one millions have watched, and either end scored before any figure was kept:
+ * see `extremeDoubt`. A number a person set is theirs, and never listed.
+ */
+export async function findExtremeFlags(): Promise<ExtremeFlag[]> {
+  const calibrations = readCalibrations(db);
+  const flags: ExtremeFlag[] = [];
+  for (const item of await listLibrary()) {
+    const payload = (item.payload ?? {}) as { difficulty?: unknown; difficultyBy?: unknown; fame?: BlindtestFame };
+    if (typeof payload.difficulty !== 'number' || payload.difficultyBy === 'human') continue;
+    const genre = item.category ? genreById.get(item.category) : undefined;
+    if (!genre) continue;
+    const source = sourceGenreFor(genre);
+    const reason = extremeDoubt(payload.difficulty, payload.fame, {
+      shape: source.answerShape,
+      audience: audienceOf(genre),
+      calibration: resolveCalibration(calibrations, source.id, source.answerShape)
+    });
+    if (reason) flags.push({ mediaId: item.id, difficulty: payload.difficulty, reason });
+  }
+  return flags;
 }
 
 /**

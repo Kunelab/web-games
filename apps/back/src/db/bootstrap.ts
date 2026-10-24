@@ -320,6 +320,7 @@ const statements = [
     "signal" TEXT NOT NULL,
     "mean" REAL NOT NULL,
     "sd" REAL NOT NULL,
+    "top" REAL,
     "samples" INTEGER NOT NULL DEFAULT 0,
     "fitted_at" TEXT NOT NULL,
     PRIMARY KEY ("genre_id", "signal")
@@ -384,7 +385,9 @@ function enforceUniqueLogins(sqlite: Database, warn: (message: string) => void):
  */
 const addedColumns: { table: string; column: string; definition: string }[] = [
   // The recording's length, which is how a clip is kept clear of a music video's skit.
-  { table: 'BlindtestSeeds', column: 'duration', definition: 'INTEGER' }
+  { table: 'BlindtestSeeds', column: 'duration', definition: 'INTEGER' },
+  // Where each genre's top tenth starts, for the easy end of the scale.
+  { table: 'BlindtestCalibration', column: 'top', definition: 'REAL' }
 ];
 
 function addMissingColumns(sqlite: Database): void {

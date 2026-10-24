@@ -334,6 +334,7 @@ export const atelierEn = {
   "ple.problem.genre": "Genre",
   "ple.problem.legacy": "Old label",
   "ple.problem.review": "Never found",
+  "ple.problem.extreme": "Doubtful extremes",
   "ple.problem.unfinished": "To finish",
   "ple.filter.genre": "Genre",
   "ple.noMatchInPlaylist": "Nothing in the playlist matches.",
@@ -364,6 +365,14 @@ export const atelierEn = {
   /* ------- rounds rated easy that no room ever finds (admin) ------- */
   "ple.review.count": "{count} never found",
   "ple.review.badge": "Never found",
+  "ple.extreme.count": "{count} doubtful extreme(s)",
+  "ple.extreme.badge": "{difficulty}?",
+  "ple.extreme.easyUnconfirmed":
+    "Rated {difficulty}: only the artist is famous, the song itself is not a hit in its genre. Set the difficulty by hand if it really is a classic.",
+  "ple.extreme.hardContradicted":
+    "Rated {difficulty}, yet widely watched or well ranked on Deezer: the artist was probably not found under this name.",
+  "ple.extreme.unscored":
+    "Rated {difficulty} the old way, with no figure to back it.",
   "ple.review.flag":
     "{title}: rated {difficulty}, and nobody found it in {plays} games. The difficulty or the clip probably needs a look.",
   /* ---------- genres in question in the generated-rounds catalogue (admin) ---------- */

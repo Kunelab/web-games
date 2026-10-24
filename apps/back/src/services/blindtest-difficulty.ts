@@ -76,6 +76,13 @@ export const CALIBRATION_KEYS: readonly CalibrationKey[] = [
 export interface Scale {
   mean: number;
   sd: number;
+  /**
+   * Where the genre's top tenth starts, fitted. The spread cannot say: Deezer's
+   * rank stops at a million, the genre's hits bunch up under it, and in rap
+   * français the best rank there is sits less than one spread above the
+   * middle. Absent for a spread fitted before this was kept.
+   */
+  top?: number;
 }
 
 /** One genre's scales. A missing key falls back on `DEFAULT_SCALES`. */
@@ -118,7 +125,7 @@ const CEILING = 99;
  * script replaces these with each genre's own figures.
  */
 export const DEFAULT_SCALES: Record<CalibrationKey, Scale> = {
-  deezerRank: { mean: 5.6, sd: 0.35 },
+  deezerRank: { mean: 5.6, sd: 0.35, top: Math.log10(900_001) },
   deezerFans: { mean: 5, sd: 1 },
   lastfmListeners: { mean: 4.8, sd: 0.9 },
   wikiLanguages: { mean: 1.1, sd: 0.5 },
@@ -190,6 +197,32 @@ const OBSCURE_TMDB_VOTES = 20;
 
 /** What the model says when it does not know the answer, at the least. */
 const UNRECOGNISED_MODEL = 80;
+
+/**
+ * The ends of the scale, which have to be earned.
+ *
+ * 1 to 10 is a song every fan of the genre names in a second, and the blend
+ * could put one there on its artist alone: four of the seven points on the
+ * French side are the artist's (Deezer fans, the French Wikipedia), so an
+ * ordinary song by a big name came out at 1 to 5. Nine of SDM's did. The easy
+ * end needs the song itself to be a hit: in its genre's top tenth on Deezer,
+ * on Last.fm or on YouTube, or near the top of the genre's seeds. Short of
+ * that, the artist's fame still makes it easy, never extreme.
+ *
+ * And 90 to 100 is a song nobody will name, which a lookup that found nothing
+ * cannot tell from one that looked under the wrong name: "ASTRO DDOCA", a
+ * sub-unit Deezer files under another, came out at 91 with nine million
+ * views. A million views, or a Deezer rank above the genre's middle, says
+ * people know it, whatever else came back empty.
+ */
+const EASY_END = 10;
+const ARTIST_ONLY_FLOOR = 15;
+/** The top tenth of a genre, in standard deviations from its middle, where no `top` was fitted. */
+const HIT_Z = 1.3;
+const HIT_SEED = 0.9;
+const HARD_END = 90;
+const CONTRADICTED_CAP = 85;
+const CONTRADICTING_VIEWS = 1_000_000;
 
 /* ------------------------------------------------------------------ the bell */
 
@@ -314,8 +347,11 @@ export interface ScoreBreakdown {
   fame: number | null;
   /** The blend before the genre's own spread is taken out. */
   composite: number | null;
-  /** Which fixed end, if either, decided it. */
-  rule: 'famous' | 'obscure' | null;
+  /**
+   * Which rule, if any, decided it: a fixed end (`famous`, `obscure`), or one
+   * kept from the extremes it had not earned (`artist-only`, `contradicted`).
+   */
+  rule: 'famous' | 'obscure' | 'artist-only' | 'contradicted' | null;
 }
 
 export interface ScoreContext {
@@ -404,6 +440,57 @@ function nobodyKnows(fame: BlindtestFame, shape: FameShape): boolean {
   return fame.recognised === false || (typeof fame.model === 'number' && fame.model >= UNRECOGNISED_MODEL);
 }
 
+/**
+ * The song itself is a hit in its genre, not only its artist. See `EASY_END`.
+ *
+ * Always so of a work, whose figures are the work's own: there is no artist
+ * to lend it fame.
+ */
+export function songIsHit(fame: BlindtestFame, context: ScoreContext): boolean {
+  if (context.shape === 'work') return true;
+  const hit = (signal: FameSignal) => {
+    const logged = logFigure(fame, signal);
+    if (logged === null) return false;
+    const scale = scaleOf(context.calibration, signal);
+    return logged >= (scale.top ?? DEFAULT_SCALES[signal].top ?? scale.mean + HIT_Z * scale.sd);
+  };
+  return (
+    hit('deezerRank') ||
+    hit('lastfmListeners') ||
+    hit('views') ||
+    (typeof fame.seedFame === 'number' && fame.seedFame >= HIT_SEED)
+  );
+}
+
+/** Something says people know it after all: a million views, or a Deezer rank above the genre's middle. */
+export function knownAfterAll(fame: BlindtestFame, context: ScoreContext): boolean {
+  if (typeof fame.views === 'number' && fame.views >= CONTRADICTING_VIEWS) return true;
+  return context.shape === 'artist-title' && (zOf(fame, 'deezerRank', context.calibration) ?? -Infinity) >= 0;
+}
+
+/** Why a stored difficulty at either end is in doubt. See `extremeDoubt`. */
+export type ExtremeDoubt = 'easy-unconfirmed' | 'hard-contradicted' | 'unscored';
+
+/**
+ * Why a difficulty at either end is in doubt, or null when nothing says so.
+ *
+ * For the admin. `scoreBreakdown` keeps every new number off the ends it has
+ * not earned; this finds the stored ones it would not have given: those no
+ * rescoring has reached yet or ever will (a round edited by hand before edits
+ * were marked), and the extremes scored before any figure was kept, which
+ * nothing backs either way.
+ */
+export function extremeDoubt(
+  difficulty: number,
+  fame: BlindtestFame | null | undefined,
+  context: ScoreContext
+): ExtremeDoubt | null {
+  if (difficulty > EASY_END && difficulty < HARD_END) return null;
+  if (!fame?.looked) return 'unscored';
+  if (difficulty <= EASY_END) return songIsHit(fame, context) ? null : 'easy-unconfirmed';
+  return knownAfterAll(fame, context) ? 'hard-contradicted' : null;
+}
+
 /** The difficulty, and how it came out. */
 export function scoreBreakdown(fame: BlindtestFame, context: ScoreContext): ScoreBreakdown {
   const { french, international, counted, composite } = blend(fame, context);
@@ -423,6 +510,15 @@ export function scoreBreakdown(fame: BlindtestFame, context: ScoreContext): Scor
   } else if (nobodyKnows(fame, context.shape) && difficulty < OBSCURE_FLOOR) {
     difficulty = OBSCURE_FLOOR;
     rule = 'obscure';
+  }
+
+  // And the extremes, earned or not; see `EASY_END`.
+  if (difficulty <= EASY_END && !songIsHit(fame, context)) {
+    difficulty = ARTIST_ONLY_FLOOR;
+    rule = 'artist-only';
+  } else if (difficulty > CONTRADICTED_CAP && knownAfterAll(fame, context)) {
+    difficulty = CONTRADICTED_CAP;
+    rule = 'contradicted';
   }
 
   return { difficulty, french, international, fame: counted, composite, rule };
@@ -467,7 +563,9 @@ const MIN_SD: Record<CalibrationKey, number> = {
 function spreadOf(values: number[], key: CalibrationKey): Scale & { samples: number } {
   const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
   const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / Math.max(1, values.length - 1);
-  return { mean, sd: Math.max(MIN_SD[key], Math.sqrt(variance)), samples: values.length };
+  const sorted = [...values].sort((left, right) => left - right);
+  const top = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))];
+  return { mean, sd: Math.max(MIN_SD[key], Math.sqrt(variance)), top, samples: values.length };
 }
 
 export type FittedCalibration = Map<string, Partial<Record<CalibrationKey, Scale & { samples: number }>>>;
@@ -542,7 +640,7 @@ export function resolveCalibration(
   for (const key of CALIBRATION_KEYS) {
     if (key === 'composite' && !withComposite) continue;
     const scale = own[key] ?? pooled[key];
-    if (scale) calibration[key] = { mean: scale.mean, sd: scale.sd };
+    if (scale) calibration[key] = { mean: scale.mean, sd: scale.sd, ...(scale.top != null ? { top: scale.top } : {}) };
   }
   return calibration;
 }

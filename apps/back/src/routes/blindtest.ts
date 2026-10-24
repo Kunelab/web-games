@@ -6,7 +6,7 @@ import { env } from '../env.js';
 import { GameManager } from '../game/manager.js';
 import { GENRES, SECTIONS, catalogAvailable, genreById } from '../services/blindtest-catalog.js';
 import { countAvailable, dealRounds, emptyHistory } from '../services/blindtest-draw.js';
-import { catalogueKeys, countLibrary, findReviewFlags } from '../services/blindtest-library.js';
+import { catalogueKeys, countLibrary, findExtremeFlags, findReviewFlags } from '../services/blindtest-library.js';
 import {
   deleteRedundantDuplicates,
   dismissDuplicateFlags,
@@ -353,6 +353,17 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
       throw app.httpErrors.forbidden('Réservé à un administrateur');
     }
     return { flags: await findReviewFlags() };
+  });
+
+  /**
+   * Catalogue rounds at either end of the scale that nothing backs, for the
+   * admin to settle by hand. See `findExtremeFlags`.
+   */
+  app.get('/blindtest/library/extremes', { preHandler: app.requireAuth }, async (request) => {
+    if (!isAdmin(request.currentUser)) {
+      throw app.httpErrors.forbidden('Réservé à un administrateur');
+    }
+    return { flags: await findExtremeFlags() };
   });
 
   /** "This genre is right", for as long as the entry keeps it. */

@@ -903,7 +903,7 @@ export function readCalibrations(db: Db): Map<string, Partial<Record<Calibration
   const fitted = new Map<string, Partial<Record<CalibrationKey, Scale>>>();
   for (const row of db.select().from(blindtestCalibration).all()) {
     const scales = fitted.get(row.genre_id) ?? {};
-    scales[row.signal as CalibrationKey] = { mean: row.mean, sd: row.sd };
+    scales[row.signal as CalibrationKey] = { mean: row.mean, sd: row.sd, ...(row.top != null ? { top: row.top } : {}) };
     fitted.set(row.genre_id, scales);
   }
   return fitted;
@@ -926,6 +926,7 @@ export function writeCalibrations(
             signal,
             mean: scale.mean,
             sd: scale.sd,
+            top: scale.top ?? null,
             samples: scale.samples ?? 0,
             fitted_at: now.toISOString()
           })

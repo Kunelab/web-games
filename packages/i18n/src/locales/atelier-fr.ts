@@ -319,6 +319,7 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.problem.genre": "Genre",
   "ple.problem.legacy": "Ancien libellé",
   "ple.problem.review": "Jamais trouvées",
+  "ple.problem.extreme": "Extrêmes douteux",
   "ple.problem.unfinished": "À compléter",
   "ple.filter.genre": "Genre",
   "ple.noMatchInPlaylist": "Aucun média de la playlist ne correspond.",
@@ -349,6 +350,14 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   /* ------- manches notées faciles que personne ne trouve (admin) ------- */
   "ple.review.count": "{count} jamais trouvée(s)",
   "ple.review.badge": "Jamais trouvée",
+  "ple.extreme.count": "{count} extrême(s) douteux",
+  "ple.extreme.badge": "{difficulty} ?",
+  "ple.extreme.easyUnconfirmed":
+    "Noté {difficulty} : seul l’artiste est très connu, le morceau lui-même n’est pas un tube de son genre. Fixez la difficulté à la main si c’est bien un classique.",
+  "ple.extreme.hardContradicted":
+    "Noté {difficulty}, pourtant très vu ou bien classé sur Deezer : l’artiste n’a sans doute pas été trouvé sous ce nom.",
+  "ple.extreme.unscored":
+    "Noté {difficulty} à l’ancienne, sans aucun chiffre pour le confirmer.",
   "ple.review.flag":
     "{title} : notée {difficulty}, et personne ne l’a trouvée en {plays} parties. La difficulté ou l’extrait est sans doute à revoir.",
   /* ---------- genres in question in the generated-rounds catalogue (admin) ---------- */
