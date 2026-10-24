@@ -518,8 +518,10 @@ const ANCHORS: { label: string; expect: string; match: (row: Row) => boolean }[]
 function report(rows: Row[], unknown: MediaView[], missing: number | null, fitted: FittedCalibration | null) {
   const scored = rows.filter((row) => row.plan?.score && !row.plan.keepDifficulty);
   const human = rows.filter((row) => row.payload.difficultyBy === 'human');
+  // Not the ones found nowhere, which are kept for that reason and counted on their own line.
   const heldEdited = rows.filter(
-    (row) => row.plan?.keepDifficulty && row.payload.difficultyBy !== 'human' && row.plan.score
+    (row) =>
+      row.plan?.keepDifficulty && row.payload.difficultyBy !== 'human' && row.plan.score && !row.plan.score.unfound
   );
 
   console.log('\n== Catalogue');
