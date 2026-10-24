@@ -20,6 +20,7 @@
     "smoke": "tsx src/smoke-run.ts",
     "admin": "tsx src/cli/admin.ts",
     "blindtest:rescore": "tsx src/cli/blindtest-rescore.ts",
+    "blindtest:difficulty": "tsx src/cli/blindtest-rescore.ts --no-youtube",
     "mafia:sim": "tsx src/mafia/simulate.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

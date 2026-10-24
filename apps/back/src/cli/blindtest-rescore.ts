@@ -27,7 +27,7 @@ import {
   planRescore,
   type RescorePlan
 } from '../services/blindtest-rescore.js';
-import { httpSources } from '../services/blindtest-sources.js';
+import { bulkFameSources, httpSources } from '../services/blindtest-sources.js';
 import { uploadKind, type ChorusInfo } from '../services/chorus-service.js';
 import { toMediaView, type MediaView } from '../services/media-service.js';
 import { fetchVideoFacts, type VideoFacts } from '../services/youtube-service.js';
@@ -49,6 +49,7 @@ import { fetchVideoFacts, type VideoFacts } from '../services/youtube-service.js
  *
  *   pnpm --filter back blindtest:rescore                  # report only, writes nothing
  *   pnpm --filter back blindtest:rescore --write          # and saves it
+ *   pnpm --filter back blindtest:difficulty --write       # the difficulty only, no YouTube
  *
  * Options:
  *   --write             save the new numbers, clips and spreads
@@ -56,9 +57,10 @@ import { fetchVideoFacts, type VideoFacts } from '../services/youtube-service.js
  *   --limit <n>         only the first n rounds, for a quick look; the same
  *   --include-edited    also redo rounds changed by hand before this script existed (see below)
  *   --no-retime         leave every clip where it is
+ *   --no-youtube        ask YouTube nothing: views as stored, every clip left where it is
  *   --with-model        ask the language model again about each round, as the draw does
  *   --refresh           ask the catalogues again even where the answer is cached
- *   --concurrency <n>   rounds looked up at once (default 4)
+ *   --concurrency <n>   rounds looked up at once (default 32)
  *   --report <file>     write every round's figures and result to a JSON file
  *
  * ## What it never touches
@@ -79,11 +81,19 @@ import { fetchVideoFacts, type VideoFacts } from '../services/youtube-service.js
  *
  * ## What it costs
  *
- * One YouTube unit per fifty rounds, for their view counts and lengths. The
- * catalogue lookups are free and paced to each service's published limit; a
- * catalogue of two thousand rounds takes a quarter of an hour or so the first
- * time and seconds after that, since the answers are cached for months. With
- * `--with-model`, one model call per twenty-five rounds.
+ * One YouTube unit per fifty rounds, for their view counts and lengths, or
+ * none with `--no-youtube`: the views are then the ones stored with each round
+ * (a small part of the score), and no clip moves, since placing one needs the
+ * video's length. With `--with-model`, one model call per twenty-five rounds.
+ *
+ * The catalogue lookups are free, paced to each service's published limit,
+ * and asked in bulk (see `bulkFameSources`): each artist's figures once rather
+ * than once per song, Wikidata items and Wikipedia readership fifty to a
+ * request. What is left is Deezer's search for each song, at a little under
+ * its limit: about six songs a second, an hour for twenty thousand never looked up,
+ * and seconds after that, since the answers are cached for months. A lookup
+ * that still failed leaves its round as it was, and the next run, which finds
+ * everything else in the cache, asks only for those.
  */
 
 /* ---------------------------------------------------------------- options */
@@ -94,6 +104,7 @@ interface Options {
   limit: number | null;
   includeEdited: boolean;
   retime: boolean;
+  youtube: boolean;
   withModel: boolean;
   refresh: boolean;
   concurrency: number;
@@ -107,9 +118,10 @@ function parseOptions(argv: string[]): Options {
     limit: null,
     includeEdited: false,
     retime: true,
+    youtube: true,
     withModel: false,
     refresh: false,
-    concurrency: 4,
+    concurrency: 32,
     report: null
   };
   for (let index = 0; index < argv.length; index++) {
@@ -124,13 +136,19 @@ function parseOptions(argv: string[]): Options {
     else if (flag === '--limit') options.limit = Math.max(1, Number(value()));
     else if (flag === '--include-edited') options.includeEdited = true;
     else if (flag === '--no-retime') options.retime = false;
-    else if (flag === '--with-model') options.withModel = true;
+    else if (flag === '--no-youtube') {
+      // A clip is placed for the video's length, and the model reads its title.
+      options.youtube = false;
+      options.retime = false;
+    } else if (flag === '--with-model') options.withModel = true;
     else if (flag === '--refresh') options.refresh = true;
-    else if (flag === '--concurrency') options.concurrency = Math.min(16, Math.max(1, Number(value())));
+    else if (flag === '--concurrency') options.concurrency = Math.min(64, Math.max(1, Number(value())));
     else if (flag === '--report') options.report = value();
     else if (flag === '--help' || flag === '-h') {
       console.log('Usage: blindtest:rescore [--write] [--genre <id>]... [--limit <n>] [--include-edited]');
-      console.log('       [--no-retime] [--with-model] [--refresh] [--concurrency <n>] [--report <file>]');
+      console.log(
+        '       [--no-retime] [--no-youtube] [--with-model] [--refresh] [--concurrency <n>] [--report <file>]'
+      );
       process.exit(0);
     } else throw new Error(`unknown option ${flag}`);
   }
@@ -159,6 +177,8 @@ interface Row {
   chorus?: ChorusInfo | null;
   /** What the run does with it. See `planRescore`. */
   plan?: RescorePlan;
+  /** A request of its lookup failed: scored on half the figures, it is left as it was. */
+  failed?: boolean;
 }
 
 function toRow(view: MediaView): Row | null {
@@ -222,8 +242,17 @@ async function pool<T>(items: readonly T[], limit: number, work: (item: T, index
   );
 }
 
+const started = new Map<string, number>();
+
+/** "catalogues 1200/20000, 14/s, 22 min left", every fifty rounds. */
 function progress(label: string, done: number, total: number): void {
-  if (done === total || done % 50 === 0) process.stderr.write(`\r${label} ${done}/${total}   `);
+  if (!started.has(label)) started.set(label, Date.now());
+  if (done !== total && done % 50 !== 0) return;
+  const seconds = (Date.now() - started.get(label)!) / 1000;
+  const rate = seconds > 0 ? done / seconds : 0;
+  const left = rate > 0 ? Math.ceil((total - done) / rate / 60) : null;
+  const pace = rate > 0 ? `, ${rate.toFixed(1)}/s${done < total && left !== null ? `, ${left} min left` : ''}` : '';
+  process.stderr.write(`\r${label} ${done}/${total}${pace}      `);
   if (done === total) process.stderr.write('\n');
 }
 
@@ -302,6 +331,8 @@ function oracles(rows: Row[]): Map<string, GenreOracle> {
 
 async function lookUp(rows: Row[], options: Options): Promise<void> {
   const seeds = oracles(rows);
+  // Each artist's figures once, and Wikimedia fifty to a request: see `bulkFameSources`.
+  const sources = bulkFameSources();
   let done = 0;
   await pool(rows, options.concurrency, async (row) => {
     const oracle = seeds.get(row.source.id);
@@ -313,7 +344,7 @@ async function lookUp(rows: Row[], options: Options): Promise<void> {
       if (row.artist && row.title) {
         row.lookups = await lookupFame(
           db,
-          httpSources.fame,
+          sources,
           { shape: 'artist-title', artist: row.artist, title: row.title, piece: row.source.pieceFame },
           { refresh: options.refresh }
         );
@@ -323,7 +354,7 @@ async function lookUp(rows: Row[], options: Options): Promise<void> {
       seedFame ??= seed?.fame ?? null;
       row.lookups = await lookupFame(
         db,
-        httpSources.fame,
+        sources,
         {
           shape: 'work',
           kind: row.source.workKind,
@@ -333,6 +364,13 @@ async function lookUp(rows: Row[], options: Options): Promise<void> {
         },
         { refresh: options.refresh }
       );
+    }
+
+    // Scored on what came back, a failed request reads as an obscure song.
+    if (row.lookups?.partial) {
+      row.failed = true;
+      progress('catalogues', ++done, rows.length);
+      return;
     }
 
     const model = row.annotation?.difficulty ?? (typeof stored.model === 'number' ? stored.model : null);
@@ -477,7 +515,7 @@ const ANCHORS: { label: string; expect: string; match: (row: Row) => boolean }[]
   }
 ];
 
-function report(rows: Row[], unknown: MediaView[], missing: number, fitted: FittedCalibration | null) {
+function report(rows: Row[], unknown: MediaView[], missing: number | null, fitted: FittedCalibration | null) {
   const scored = rows.filter((row) => row.plan?.score && !row.plan.keepDifficulty);
   const human = rows.filter((row) => row.payload.difficultyBy === 'human');
   const heldEdited = rows.filter(
@@ -489,7 +527,11 @@ function report(rows: Row[], unknown: MediaView[], missing: number, fitted: Fitt
   console.log(`  ${rows.length} rounds, ${scored.length} rescored`);
   console.log(`  ${human.length} set by hand, left alone`);
   console.log(`  ${heldEdited.length} edited before hand edits were marked, left alone (see below; --include-edited)`);
-  console.log(`  ${missing} whose video YouTube no longer returns (scored without views, clip left alone)`);
+  if (missing !== null) {
+    console.log(`  ${missing} whose video YouTube no longer returns (scored without views, clip left alone)`);
+  }
+  const failed = rows.filter((row) => row.failed).length;
+  if (failed > 0) console.log(`  ${failed} with a lookup that failed, left as they were: run again to finish them`);
   console.log(`  ${unknown.length} with no known genre or no video, skipped`);
 
   console.log('\n== Difficulty by genre');
@@ -597,7 +639,8 @@ async function main(): Promise<number> {
   if (!env.LASTFM_API_KEY) console.warn('LASTFM_API_KEY is not set: no Last.fm listeners.');
   if (!env.TMDB_API_KEY) console.warn('TMDB_API_KEY is not set: no TMDB votes for films and series.');
 
-  const missing = await fetchFacts(rows);
+  const missing = options.youtube ? await fetchFacts(rows) : null;
+  if (!options.youtube) console.log('YouTube is not asked: views as stored, every clip left where it is.');
   if (options.withModel) await askModel(rows);
   await lookUp(rows, options);
   await fetchChoruses(rows, options);

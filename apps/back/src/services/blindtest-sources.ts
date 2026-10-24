@@ -23,6 +23,7 @@ import type { AnilistHit, AnimeTheme, DeezerArtistHit, FameSources, WikidataEnti
 import { annotateCandidates } from './blindtest-llm.js';
 import type { DeezerPage, SeedSources } from './blindtest-seeds.js';
 import { chorusFromLyrics, type ChorusInfo } from './chorus-service.js';
+import { batched, remembered } from './request-batching.js';
 import { fetchPlaylistItems, fetchVideoFacts, searchVideos } from './youtube-service.js';
 
 /** Who is asking, for the services that want callers to say so, and for what. */
@@ -180,8 +181,27 @@ const nextSlot = new Map<string, number>();
 function paced<T>(host: string, gapMs: number, run: () => Promise<T>): Promise<T> {
   const now = Date.now();
   const slot = Math.max(now, nextSlot.get(host) ?? 0);
-  nextSlot.set(host, slot + gapMs);
+  nextSlot.set(host, slot + gapMs + (slowdown.get(host) ?? 0));
   return pause(slot - now).then(run);
+}
+
+/**
+ * How much more slowly a host has asked to be called, on top of its own pace.
+ *
+ * A published limit is per address, and the server and a rescoring on the
+ * same machine share one, so pacing to it is not always enough. A 429 doubles
+ * the extra gap, up to two seconds; every answer that is not one takes a tenth
+ * off, so the pace comes back once the service has.
+ */
+const slowdown = new Map<string, number>();
+
+function throttledBy(host: string): void {
+  slowdown.set(host, Math.min(2_000, Math.max(250, (slowdown.get(host) ?? 0) * 2)));
+}
+
+function answeredBy(host: string): void {
+  const extra = slowdown.get(host);
+  if (extra) slowdown.set(host, extra < 20 ? 0 : extra * 0.9);
 }
 
 /**
@@ -197,7 +217,7 @@ const turns = new Map<string, Promise<unknown>>();
 
 function inTurn<T>(host: string, gapMs: number, run: () => Promise<T>): Promise<T> {
   const previous = turns.get(host) ?? Promise.resolve();
-  const next = previous.then(() => pause(gapMs)).then(run);
+  const next = previous.then(() => pause(gapMs + (slowdown.get(host) ?? 0))).then(run);
   turns.set(
     host,
     next.catch(() => undefined)
@@ -214,24 +234,29 @@ const MAX_RETRY_WAIT_MS = 30_000;
  *
  * A 429 or a 503 is the service asking for patience, not saying no, so it is
  * asked again after the wait it names (`Retry-After`, in seconds), a couple of
- * times, before the figure is given up as unknown.
+ * times, before the figure is given up as unknown. Naming the `host` also
+ * slows every later request to it; see `slowdown`.
  */
 async function getJson(
   url: URL,
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
+  options: { host?: string; attempts?: number } = {}
 ): Promise<{ status: number; body: unknown } | undefined> {
-  for (let attempt = 1; attempt <= THROTTLED_ATTEMPTS; attempt++) {
+  const attempts = options.attempts ?? THROTTLED_ATTEMPTS;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
     const response = await fetch(url, {
       headers: { 'user-agent': FAME_USER_AGENT, accept: 'application/json', ...headers },
       signal: AbortSignal.timeout(15_000)
     }).catch(() => null);
     if (!response) return undefined;
     if (response.status === 429 || response.status === 503) {
-      if (attempt === THROTTLED_ATTEMPTS) return undefined;
+      if (options.host) throttledBy(options.host);
+      if (attempt === attempts) return undefined;
       const asked = Number(response.headers.get('retry-after'));
       await pause(Math.min(MAX_RETRY_WAIT_MS, Number.isFinite(asked) && asked >= 0 ? asked * 1000 : 2_000 * attempt));
       continue;
     }
+    if (options.host) answeredBy(options.host);
     if (response.status >= 500) return undefined;
     return { status: response.status, body: await response.json().catch(() => null) };
   }
@@ -266,8 +291,13 @@ const DEEZER_NO_DATA = 800;
  * failed request, and read as an empty search it would have said "Deezer has
  * never heard of them", which is what makes a round 95.
  */
-async function deezerFame<T>(path: string, params: Record<string, string>, parse: (raw: unknown) => T) {
-  const raw = await paced('deezer', DEEZER_GAP_FAME_MS, () => deezerGet(path, params));
+async function deezerFame<T>(
+  path: string,
+  params: Record<string, string>,
+  parse: (raw: unknown) => T,
+  gapMs = DEEZER_GAP_FAME_MS
+) {
+  const raw = await paced('deezer', gapMs, () => deezerGet(path, params));
   if (raw === null) return undefined;
   const code = (raw as { error?: { code?: unknown } }).error?.code;
   if (code !== undefined && code !== DEEZER_NO_DATA) return undefined;
@@ -285,10 +315,10 @@ const WIKIDATA_GAP_MS = 120;
 const WIKIMEDIA_GAP_MS = 100;
 
 /** The parsed body, or undefined when the request failed. */
-async function wikidataGet(params: Record<string, string>): Promise<unknown> {
+async function wikidataGet(params: Record<string, string>, attempts?: number): Promise<unknown> {
   const url = new URL(WIKIDATA_API);
   for (const [key, value] of Object.entries({ format: 'json', ...params })) url.searchParams.set(key, value);
-  const answer = await inTurn('wikidata', WIKIDATA_GAP_MS, () => getJson(url));
+  const answer = await inTurn('wikidata', WIKIDATA_GAP_MS, () => getJson(url, {}, { host: 'wikidata', attempts }));
   return answer && answer.status === 200 ? answer.body : undefined;
 }
 
@@ -321,6 +351,33 @@ function claimValue(value: unknown): string | null {
     return (value as { id: string }).id;
   }
   return null;
+}
+
+/**
+ * A `wbgetentities` answer, by entity id. Missing entities are left out, and
+ * so is an id that redirected, as before: it comes back under its target's id.
+ */
+function parseEntities(body: unknown): Map<string, WikidataEntity> {
+  const parsed = wikidataEntitiesSchema.safeParse(body);
+  const entities = new Map<string, WikidataEntity>();
+  if (!parsed.success) return entities;
+  for (const [id, raw] of Object.entries(parsed.data.entities)) {
+    if (raw.missing !== undefined) continue;
+    const claims: Record<string, string[]> = {};
+    for (const [property, statements] of Object.entries(raw.claims ?? {})) {
+      claims[property] = statements
+        .map((statement) => claimValue(statement.mainsnak.datavalue?.value))
+        .filter((value): value is string => value !== null);
+    }
+    const entity: WikidataEntity = {
+      id: raw.id ?? id,
+      sitelinks: Object.fromEntries(Object.entries(raw.sitelinks ?? {}).map(([site, link]) => [site, link.title])),
+      labels: Object.fromEntries(Object.entries(raw.labels ?? {}).map(([language, label]) => [language, label.value])),
+      claims
+    };
+    entities.set(entity.id, entity);
+  }
+  return entities;
 }
 
 const pageviewsSchema = z.object({
@@ -409,26 +466,48 @@ const animeThemesSchema = z.object({
     .default([])
 });
 
+/** Deezer's three fame questions, at a given pace. */
+function deezerFameSources(gapMs: number): Pick<FameSources, 'deezerTracks' | 'deezerArtists' | 'deezerArtist'> {
+  return {
+    // A plain query: the advanced `artist:"..." track:"..."` form has started
+    // coming back empty for everything.
+    deezerTracks: (artist, title) =>
+      deezerFame(
+        '/search',
+        { q: `${artist} ${title}`, limit: '25' },
+        (raw) => {
+          const parsed = deezerTrackPage.safeParse(raw);
+          return parsed.success ? parsed.data.data : [];
+        },
+        gapMs
+      ),
+
+    deezerArtists: (name) =>
+      deezerFame(
+        '/search/artist',
+        { q: name, limit: '5' },
+        (raw) => {
+          const parsed = z.object({ data: z.array(deezerArtistSchema).default([]) }).safeParse(raw);
+          return parsed.success ? parsed.data.data.map(toArtist) : [];
+        },
+        gapMs
+      ),
+
+    deezerArtist: (id) =>
+      deezerFame(
+        `/artist/${id}`,
+        {},
+        (raw) => {
+          const parsed = deezerArtistSchema.safeParse(raw);
+          return parsed.success ? toArtist(parsed.data) : null;
+        },
+        gapMs
+      )
+  };
+}
+
 const fameSources: FameSources = {
-  // A plain query: the advanced `artist:"..." track:"..."` form has started
-  // coming back empty for everything.
-  deezerTracks: (artist, title) =>
-    deezerFame('/search', { q: `${artist} ${title}`, limit: '25' }, (raw) => {
-      const parsed = deezerTrackPage.safeParse(raw);
-      return parsed.success ? parsed.data.data : [];
-    }),
-
-  deezerArtists: (name) =>
-    deezerFame('/search/artist', { q: name, limit: '5' }, (raw) => {
-      const parsed = z.object({ data: z.array(deezerArtistSchema).default([]) }).safeParse(raw);
-      return parsed.success ? parsed.data.data.map(toArtist) : [];
-    }),
-
-  deezerArtist: (id) =>
-    deezerFame(`/artist/${id}`, {}, (raw) => {
-      const parsed = deezerArtistSchema.safeParse(raw);
-      return parsed.success ? toArtist(parsed.data) : null;
-    }),
+  ...deezerFameSources(DEEZER_GAP_FAME_MS),
 
   async wikidataByClaim(property, value) {
     const body = await wikidataGet({
@@ -467,29 +546,9 @@ const fameSources: FameSources = {
       languages: 'fr|en'
     });
     if (body === undefined) return undefined;
-    const parsed = wikidataEntitiesSchema.safeParse(body);
-    if (!parsed.success) return [];
-
-    const entities: WikidataEntity[] = [];
-    for (const [id, raw] of Object.entries(parsed.data.entities)) {
-      if (raw.missing !== undefined) continue;
-      const claims: Record<string, string[]> = {};
-      for (const [property, statements] of Object.entries(raw.claims ?? {})) {
-        claims[property] = statements
-          .map((statement) => claimValue(statement.mainsnak.datavalue?.value))
-          .filter((value): value is string => value !== null);
-      }
-      entities.push({
-        id: raw.id ?? id,
-        sitelinks: Object.fromEntries(Object.entries(raw.sitelinks ?? {}).map(([site, link]) => [site, link.title])),
-        labels: Object.fromEntries(
-          Object.entries(raw.labels ?? {}).map(([language, label]) => [language, label.value])
-        ),
-        claims
-      });
-    }
+    const entities = parseEntities(body);
     // In the order asked, which is the search's order of relevance.
-    return ids.map((id) => entities.find((entity) => entity.id === id)).filter((entity) => entity !== undefined);
+    return ids.map((id) => entities.get(id)).filter((entity) => entity !== undefined);
   },
 
   async pageviews(language, title) {
@@ -504,7 +563,8 @@ const fameSources: FameSources = {
     })) {
       url.searchParams.set(key, value);
     }
-    const answer = await inTurn(`${language}.wikipedia`, WIKIMEDIA_GAP_MS, () => getJson(url));
+    const host = `${language}.wikipedia`;
+    const answer = await inTurn(host, WIKIMEDIA_GAP_MS, () => getJson(url, {}, { host }));
     if (!answer || answer.status !== 200) return undefined;
     const parsed = pageviewsSchema.safeParse(answer.body);
     const page = parsed.success ? parsed.data.query?.pages[0] : undefined;
@@ -526,7 +586,7 @@ const fameSources: FameSources = {
     })) {
       url.searchParams.set(name, value);
     }
-    const answer = await paced('lastfm', LASTFM_GAP_MS, () => getJson(url));
+    const answer = await paced('lastfm', LASTFM_GAP_MS, () => getJson(url, {}, { host: 'lastfm' }));
     if (!answer) return undefined;
     const parsed = lastfmTrackSchema.safeParse(answer.body);
     // Error 6 is "track not found"; anything else is a refusal worth no figure.
@@ -562,7 +622,7 @@ const fameSources: FameSources = {
         ? tmdbRequest(`/${kind}/${encodeURIComponent(ref.id)}`, {})
         : tmdbRequest(`/search/${kind}`, { query: ref.query, language: 'fr-FR' });
     if (!request) return null;
-    const answer = await paced('tmdb', TMDB_GAP_MS, () => getJson(request.url, request.headers));
+    const answer = await paced('tmdb', TMDB_GAP_MS, () => getJson(request.url, request.headers, { host: 'tmdb' }));
     if (!answer) return undefined;
     if (answer.status === 404) return null;
     const item =
@@ -580,7 +640,7 @@ const fameSources: FameSources = {
     url.searchParams.set('filter[site]', 'AniList');
     url.searchParams.set('filter[external_id]', String(anilistId));
     url.searchParams.set('include', 'animethemes.song.artists');
-    const answer = await paced('animethemes', ANIMETHEMES_GAP_MS, () => getJson(url));
+    const answer = await paced('animethemes', ANIMETHEMES_GAP_MS, () => getJson(url, {}, { host: 'animethemes' }));
     if (!answer) return undefined;
     const parsed = animeThemesSchema.safeParse(answer.body);
     const anime = parsed.success ? parsed.data.anime[0] : undefined;
@@ -597,6 +657,268 @@ const fameSources: FameSources = {
 
   configured: () => ({ lastfm: Boolean(env.LASTFM_API_KEY), tmdb: Boolean(env.TMDB_API_KEY) })
 };
+
+/* ------------------------------------------------------------- in bulk */
+
+/**
+ * Deezer's pace for a whole catalogue: the draw's own.
+ *
+ * Fifty requests per five seconds is Deezer's limit per address, and the
+ * server on the same machine keeps drawing rounds while a rescoring runs, so
+ * this stays a sixth under it, and a "quota exceeded" slows it further; see
+ * `patient`. One search per song is what is left of a rescoring's requests
+ * once everything else is asked once and in batches, so this is its pace.
+ */
+const DEEZER_GAP_BULK_MS = 120;
+/** Throttled requests are tried this often in all when nothing is waiting on the answer but a script. */
+const BULK_ATTEMPTS = 6;
+/** Wikidata and Wikipedia take fifty ids or titles to a request. */
+const WIKIMEDIA_BATCH = 50;
+/** QLever takes far more, and answers a few hundred ids at once in well under a second. */
+const SPARQL_BATCH = 200;
+/** How long a batch waits for company, when no request is out to wait on. */
+const BATCH_WAIT_MS = 40;
+/** QLever answers a burst with 429s: a second between queries, and a batch asked again this often. */
+const SPARQL_GAP_MS = 1_000;
+const SPARQL_ATTEMPTS = 3;
+
+/**
+ * Deezer, asked again after a pause when it fails.
+ *
+ * A failed answer is how Deezer says "quota exceeded", and the lookup would
+ * file the song's figures as unknown for a day. A script can wait out the
+ * five-second window instead.
+ */
+function patient<A extends unknown[], R>(ask: (...args: A) => Promise<R | undefined>) {
+  return async (...args: A): Promise<R | undefined> => {
+    for (let attempt = 1; ; attempt++) {
+      const answer = await ask(...args);
+      if (answer !== undefined) {
+        answeredBy('deezer');
+        return answer;
+      }
+      // Every request after this one slows down too, not only this one's retry.
+      throttledBy('deezer');
+      if (attempt === 3) return answer;
+      await pause(5_000);
+    }
+  };
+}
+
+const pageviewBatchSchema = z.object({
+  query: z
+    .object({
+      normalized: z.array(z.object({ from: z.string(), to: z.string() })).default([]),
+      redirects: z.array(z.object({ from: z.string(), to: z.string() })).default([]),
+      pages: z
+        .array(
+          z.object({
+            title: z.string(),
+            missing: z.boolean().optional(),
+            pageviews: z.record(z.string(), z.number().nullable()).optional()
+          })
+        )
+        .default([])
+    })
+    .optional(),
+  continue: z.record(z.string(), z.string()).optional()
+});
+
+/**
+ * Sixty days of views for each title asked, from every answer to one request.
+ *
+ * A title comes back under its normalised and redirected name, so each asked
+ * title is followed to the page it landed on. As for one title alone, a page
+ * that does not exist is 0 and so is one with no views recorded.
+ */
+export function readPageviewBatch(bodies: readonly unknown[], titles: readonly string[]): Map<string, number> {
+  const renamed = new Map<string, string>();
+  const views = new Map<string, number>();
+  for (const body of bodies) {
+    const query = pageviewBatchSchema.safeParse(body).data?.query;
+    if (!query) continue;
+    for (const { from, to } of [...query.normalized, ...query.redirects]) renamed.set(from, to);
+    for (const page of query.pages) {
+      if (page.pageviews) {
+        const total = Object.values(page.pageviews).reduce<number>((sum, count) => sum + (count ?? 0), 0);
+        views.set(page.title, total);
+      } else if (!views.has(page.title)) {
+        views.set(page.title, 0);
+      }
+    }
+  }
+  const landing = (title: string) => {
+    let current = title;
+    for (let hop = 0; hop < 4 && renamed.has(current); hop++) current = renamed.get(current)!;
+    return current;
+  };
+  return new Map(titles.map((title) => [title, views.get(landing(title)) ?? 0]));
+}
+
+/** Up to fifty titles' views in one request, following the answer's continuations. */
+async function pageviewBatch(language: 'fr' | 'en', titles: string[]): Promise<Map<string, number> | undefined> {
+  const host = `${language}.wikipedia`;
+  const bodies: unknown[] = [];
+  let next: Record<string, string> = {};
+  for (let round = 0; round < 10; round++) {
+    const url = new URL(`https://${language}.wikipedia.org/w/api.php`);
+    for (const [key, value] of Object.entries({
+      action: 'query',
+      format: 'json',
+      formatversion: '2',
+      prop: 'pageviews',
+      titles: titles.join('|'),
+      redirects: '1',
+      ...next
+    })) {
+      url.searchParams.set(key, value);
+    }
+    const answer = await inTurn(host, WIKIMEDIA_GAP_MS, () => getJson(url, {}, { host, attempts: BULK_ATTEMPTS }));
+    if (!answer || answer.status !== 200) return undefined;
+    bodies.push(answer.body);
+    const more = pageviewBatchSchema.safeParse(answer.body).data?.continue;
+    if (!more) break;
+    next = more;
+  }
+  return readPageviewBatch(bodies, titles);
+}
+
+/** Who carries each value, from a SPARQL answer of `?v ?item` rows: the oldest item first. */
+export function readClaimHolders(body: unknown): Map<string, string[]> {
+  const parsed = z
+    .object({
+      results: z.object({
+        bindings: z.array(z.object({ v: z.object({ value: z.string() }), item: z.object({ value: z.string() }) }))
+      })
+    })
+    .safeParse(body);
+  const holders = new Map<string, string[]>();
+  for (const row of parsed.data?.results.bindings ?? []) {
+    const id = row.item.value.split('/').pop() ?? '';
+    if (!/^Q\d+$/.test(id)) continue;
+    holders.set(row.v.value, [...(holders.get(row.v.value) ?? []), id]);
+  }
+  for (const items of holders.values()) items.sort((left, right) => Number(left.slice(1)) - Number(right.slice(1)));
+  return holders;
+}
+
+/**
+ * The items carrying each of these values for a property, a few hundred to a query.
+ *
+ * Through QLever rather than Wikidata's search, which takes them one at a time
+ * in Wikimedia's queue: an artist's item by their Deezer id was a third of a
+ * rescoring's Wikidata requests. When QLever does not answer, the search does,
+ * one value at a time as before.
+ */
+async function claimHolderBatch(property: string, values: string[]): Promise<Map<string, string[] | undefined>> {
+  const list = values.map((value) => JSON.stringify(value)).join(' ');
+  const query = `PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+SELECT ?v ?item WHERE { VALUES ?v { ${list} } ?item wdt:${property} ?v }`;
+  for (let attempt = 1; attempt <= SPARQL_ATTEMPTS; attempt++) {
+    const body = await paced('qlever', SPARQL_GAP_MS, () => sparql('qlever', query));
+    if (body) {
+      const holders = readClaimHolders(body);
+      return new Map(values.map((value) => [value, holders.get(value) ?? []]));
+    }
+    if (attempt < SPARQL_ATTEMPTS) await pause(2_000 * attempt);
+  }
+  const answers = await Promise.all(values.map((value) => fameSources.wikidataByClaim(property, value)));
+  return new Map(values.map((value, index) => [value, answers[index]]));
+}
+
+/**
+ * The fame sources for a whole catalogue at once: the same questions, asked
+ * once each, and many to a request wherever the service takes them.
+ *
+ * For the rescoring script, which looks up thousands of songs by a few
+ * thousand artists, and spent most of its time asking Wikimedia, one request
+ * at a time, about the same artists over and over. Every answer means exactly
+ * what `fameSources`' does, so a difficulty worked out here is the one the
+ * draw would work out. The per-host pace is the same too, and a 429 slows that
+ * host further; see `slowdown`.
+ *
+ * A fresh set per run: what it remembers is an answer from minutes ago, and a
+ * long-running server has no business keeping it.
+ */
+export function bulkFameSources(): FameSources {
+  const deezer = deezerFameSources(DEEZER_GAP_BULK_MS);
+  const entity = batched<string, WikidataEntity | null>(
+    async (ids) => {
+      const body = await wikidataGet(
+        { action: 'wbgetentities', ids: ids.join('|'), props: 'claims|sitelinks|labels', languages: 'fr|en' },
+        BULK_ATTEMPTS
+      );
+      return body === undefined ? undefined : parseEntities(body);
+    },
+    { size: WIKIMEDIA_BATCH, waitMs: BATCH_WAIT_MS, absent: null }
+  );
+  const views = {
+    fr: batched<string, number>((titles) => pageviewBatch('fr', titles), {
+      size: WIKIMEDIA_BATCH,
+      waitMs: BATCH_WAIT_MS,
+      absent: 0
+    }),
+    en: batched<string, number>((titles) => pageviewBatch('en', titles), {
+      size: WIKIMEDIA_BATCH,
+      waitMs: BATCH_WAIT_MS,
+      absent: 0
+    })
+  };
+  const holders = new Map<string, (value: string) => Promise<string[] | undefined>>();
+  const holdersOf = (property: string) => {
+    let ask = holders.get(property);
+    if (!ask) {
+      ask = batched<string, string[] | undefined>((values) => claimHolderBatch(property, values), {
+        size: SPARQL_BATCH,
+        waitMs: BATCH_WAIT_MS,
+        absent: []
+      });
+      holders.set(property, ask);
+    }
+    return ask;
+  };
+
+  return {
+    deezerTracks: remembered(patient(deezer.deezerTracks), (artist, title) => `${artist}\n${title}`),
+    deezerArtists: remembered(patient(deezer.deezerArtists), (name) => name),
+    deezerArtist: remembered(patient(deezer.deezerArtist), (id) => String(id)),
+    wikidataByClaim: remembered(
+      (property: string, value: string) => holdersOf(property)(value),
+      (property, value) => `${property}\n${value}`
+    ),
+    wikidataSearch: remembered(
+      (name: string, language: 'fr' | 'en') => fameSources.wikidataSearch(name, language),
+      (name, language) => `${language}\n${name}`
+    ),
+    async wikidataEntities(ids) {
+      const found = await Promise.all(ids.map((id) => entity(id)));
+      if (found.some((one) => one === undefined)) return undefined;
+      // In the order asked, which is the search's order of relevance.
+      return found.filter((one): one is WikidataEntity => one !== null && one !== undefined);
+    },
+    pageviews: remembered(
+      (language, title) => views[language](title),
+      (language, title) => `${language}\n${title}`
+    ),
+    lastfmListeners: remembered(
+      (artist: string, title: string) => fameSources.lastfmListeners(artist, title),
+      (artist, title) => `${artist}\n${title}`
+    ),
+    anilist: remembered(
+      (work: string) => fameSources.anilist(work),
+      (work) => work
+    ),
+    tmdbVotes: remembered(
+      (kind: 'movie' | 'tv', ref: { id: string } | { query: string }) => fameSources.tmdbVotes(kind, ref),
+      (kind, ref) => `${kind}\n${JSON.stringify(ref)}`
+    ),
+    animeThemes: remembered(
+      (id: number) => fameSources.animeThemes(id),
+      (id) => String(id)
+    ),
+    configured: () => fameSources.configured()
+  };
+}
 
 /* ------------------------------------------------------------------ all */
 
