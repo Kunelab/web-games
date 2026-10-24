@@ -11,6 +11,7 @@ import {
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { normalizeAnswer } from 'game-core';
 import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -239,6 +240,25 @@ interface GenreFlagInfo {
   suggestions: string[];
 }
 
+/**
+ * What can be wrong with a row, each one a filter of its own.
+ *
+ * In the order a curator settles them: a duplicate may be deleted outright,
+ * which makes every other question about it moot.
+ */
+type Problem = 'duplicate' | 'genre' | 'legacy' | 'review' | 'unfinished';
+
+const PROBLEM_LABELS: Record<Problem, MsgKey> = {
+  duplicate: 'ple.problem.duplicate',
+  genre: 'ple.problem.genre',
+  legacy: 'ple.problem.legacy',
+  review: 'ple.problem.review',
+  unfinished: 'ple.problem.unfinished'
+};
+
+/** Every row, the rows with any problem, or the rows with one problem in particular. */
+type ProblemFilter = null | 'any' | Problem;
+
 /** Which genres an entry could move to: the ones asking for the answers it has. */
 function shapeOfItem(item: MediaItem): BlindtestGenre['answerShape'] {
   return item.answers.some((answer) => answer.key === 'work') ? 'work' : 'artist-title';
@@ -276,12 +296,17 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   const [generatedFilter, setGeneratedFilter] = useState<GeneratedFilter>('include');
   /** Narrows the playlist's own list once it runs to several pages. */
   const [chosenSearch, setChosenSearch] = useState('');
-  const [flaggedOnly, setFlaggedOnly] = useState(false);
+  const [problemFilter, setProblemFilter] = useState<ProblemFilter>(null);
+  /** One genre of the playlist's list, `''` for the rows with none, or null for all of them. */
+  const [genreFilter, setGenreFilter] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   /** The entry whose duplicate flag the admin is settling, by id. */
   const [dupTargetId, setDupTargetId] = useState<number | null>(null);
   const [dupBusy, setDupBusy] = useState<'clear' | 'delete' | null>(null);
+  /** Whether the "delete every exact duplicate" confirmation is open, and whether it is running. */
+  const [redundantOpen, setRedundantOpen] = useState(false);
+  const [redundantBusy, setRedundantBusy] = useState(false);
   /**
    * Entries deleted from this screen, until the page is next loaded.
    *
@@ -296,16 +321,23 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   /** The entry whose genre the admin is looking at, and the genre picked for it. */
   const [genreTargetId, setGenreTargetId] = useState<number | null>(null);
   const [genreChoice, setGenreChoice] = useState('');
-  const [genreBusy, setGenreBusy] = useState<'apply' | 'dismiss' | 'fixAll' | null>(null);
-  /** Genres changed from this screen, so the row says so without a reload. */
-  const [categoryOverrides, setCategoryOverrides] = useState<ReadonlyMap<number, string>>(() => new Map());
+  const [genreBusy, setGenreBusy] = useState<'apply' | 'applyAll' | 'dismiss' | 'fixAll' | null>(null);
+  /**
+   * Entries moved to another genre from this screen, as the server saved them.
+   *
+   * Whole entries rather than their genre alone: a move rewrites the title's
+   * tag and the difficulty as well, and moving an artist rewrites dozens of
+   * rows at once, none of which should wait for a reload to say so.
+   */
+  const [refiledItems, setRefiledItems] = useState<ReadonlyMap<number, MediaItem>>(() => new Map());
 
   const byId = useMemo(() => {
     const map = new Map<number, MediaItem>();
     for (const item of library) map.set(item.id, item);
     for (const item of playlist.items) map.set(item.id, item);
+    for (const item of refiledItems.values()) map.set(item.id, item);
     return map;
-  }, [library, playlist.items]);
+  }, [library, playlist.items, refiledItems]);
 
   const chosen = order.map((mediaId) => byId.get(mediaId)).filter((item): item is MediaItem => Boolean(item));
   const chosenIds = new Set(order);
@@ -322,7 +354,8 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   const isCatalogue = playlist.user_id === null && playlist.name === EVERYTHING_PLAYLIST_NAME;
   const curating = admin && isCatalogue;
   const duplicates = useAsync(
-    () => (curating ? api.blindtestDuplicates() : Promise.resolve({ groups: [], pairs: [], hidden: [] })),
+    () =>
+      curating ? api.blindtestDuplicates() : Promise.resolve({ groups: [], pairs: [], hidden: [], redundant: [] }),
     [curating, playlistId]
   );
   /** The newer side of each unsettled pair, which no game deals until it is settled. */
@@ -426,8 +459,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
    * per-row dialog, and the button offering to fix them did nothing when pressed.
    */
   const fixableLegacy = [...legacyIds].filter((mediaId) => {
-    const item = byId.get(mediaId);
-    const category = item ? (categoryOverrides.get(item.id) ?? item.category) : null;
+    const category = byId.get(mediaId)?.category;
     return category ? genreById.get(category)?.answerShape === 'work' : false;
   }).length;
 
@@ -440,12 +472,18 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
     return section ? `${section} · ${genre.label}` : genre.label;
   }
 
-  function categoryOf(item: MediaItem): string | null {
-    return categoryOverrides.get(item.id) ?? item.category;
-  }
-
   const genreTarget = genreTargetId !== null ? byId.get(genreTargetId) : undefined;
   const genreFlag = genreTargetId !== null ? genreFlagById.get(genreTargetId) : undefined;
+  /** The artist as the entry spells it, and as the server matches it: the whole answer, normalised. */
+  const targetArtist = genreTarget?.answers.find((answer) => answer.key === 'artist')?.value ?? '';
+  const targetArtistKey = normalizeAnswer(targetArtist);
+  /** How many of this playlist's rows "all songs by this artist" would move. Counted only while the dialog is open. */
+  const artistSongs = targetArtistKey
+    ? chosen.filter(
+        (item) =>
+          normalizeAnswer(item.answers.find((answer) => answer.key === 'artist')?.value ?? '') === targetArtistKey
+      ).length
+    : 0;
   const genreOptions = genreTarget
     ? (catalog.data?.genres ?? [])
         .filter((genre) => genre.answerShape === shapeOfItem(genreTarget))
@@ -462,19 +500,27 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
     const shape = shapeOfItem(item);
     const fits = (id: string | null | undefined) => Boolean(id && genreById.get(id)?.answerShape === shape);
     const suggestion = genreFlagById.get(item.id)?.suggestions.find(fits);
-    const current = categoryOf(item);
+    const current = item.category;
     const first = (catalog.data?.genres ?? []).find((genre) => genre.answerShape === shape)?.id ?? '';
     setGenreChoice(suggestion ?? (current && fits(current) ? current : first));
     setGenreTargetId(item.id);
   }
 
-  /** Files the entry under the chosen genre; its prompt follows on the server. */
-  async function applyGenre(item: MediaItem) {
+  /**
+   * Files the entry under the chosen genre; its prompt, title tag and
+   * difficulty follow on the server. With `allByArtist`, every song by its
+   * artist goes too, and the artist's later songs are filed there.
+   */
+  async function applyGenre(item: MediaItem, allByArtist = false) {
     if (!genreChoice) return;
-    setGenreBusy('apply');
+    setGenreBusy(allByArtist ? 'applyAll' : 'apply');
     try {
-      const { item: saved } = await api.blindtestSetGenre(item.id, genreChoice);
-      setCategoryOverrides((current) => new Map(current).set(item.id, saved.category ?? genreChoice));
+      const { moved } = await api.blindtestSetGenre(item.id, genreChoice, allByArtist);
+      setRefiledItems((current) => {
+        const next = new Map(current);
+        for (const entry of moved) next.set(entry.id, entry);
+        return next;
+      });
       setGenreTargetId(null);
       genreCheck.reload();
     } finally {
@@ -546,6 +592,30 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
     }
   }
 
+  /** The copies exact duplicates leave out of games, which one press deletes. */
+  const redundantIds = (duplicates.data?.redundant ?? []).filter((mediaId) => !deletedIds.has(mediaId));
+
+  /**
+   * Deletes every copy an exact duplicate leaves out, keeping the most viewed.
+   *
+   * The server works the list out again rather than trusting this page's, and
+   * says what it deleted; the rows go from the order the way a single delete
+   * does, without a reload. See `deletedIds`.
+   */
+  async function deleteRedundant() {
+    setRedundantBusy(true);
+    try {
+      const { deleted } = await api.blindtestDeleteRedundant();
+      const gone = new Set(deleted);
+      setOrder((current) => current.filter((mediaId) => !gone.has(mediaId)));
+      setDeletedIds((current) => new Set([...current, ...deleted]));
+      setRedundantOpen(false);
+      duplicates.reload();
+    } finally {
+      setRedundantBusy(false);
+    }
+  }
+
   const available = library.filter((item) => {
     if (chosenIds.has(item.id) || deletedIds.has(item.id)) return false;
     if (kindFilter && item.kind !== kindFilter) return false;
@@ -558,23 +628,48 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   const availableRef = useRef<HTMLUListElement>(null);
 
   /**
-   * Whether a row in the playlist carries a curation flag, so the admin can
-   * look at those alone. Paging the catalogue scattered them across dozens of
-   * pages that used to be one long scroll.
+   * Whether a row in the playlist has a given problem, so the admin can look at
+   * those alone, all of them or one kind at a time. Paging the catalogue
+   * scattered them across dozens of pages that used to be one long scroll.
+   *
+   * The curation flags are the catalogue's, for an admin; an unfinished row is
+   * a problem in any playlist, since no game will deal it.
    */
-  const isFlagged = (item: MediaItem) =>
-    dupById.has(item.id) || genreFlagById.has(item.id) || legacyIds.has(item.id) || reviewById.has(item.id);
-  const flagCount = chosen.filter(isFlagged).length;
+  const hasProblem: Record<Problem, (item: MediaItem) => boolean> = {
+    duplicate: (item) => dupById.has(item.id),
+    genre: (item) => genreFlagById.has(item.id),
+    legacy: (item) => legacyIds.has(item.id),
+    review: (item) => reviewById.has(item.id),
+    unfinished: (item) => !item.readiness.ready
+  };
+  const problems: Problem[] = curating ? ['duplicate', 'genre', 'legacy', 'review', 'unfinished'] : ['unfinished'];
+  const hasAnyProblem = (item: MediaItem) => problems.some((problem) => hasProblem[problem](item));
+  const problemCount = chosen.filter(hasAnyProblem).length;
+  const countOf = (problem: Problem) => chosen.filter(hasProblem[problem]).length;
+
+  /**
+   * The playlist's genres, biggest first, for looking through one at a time.
+   *
+   * Scrolling rap US alone is how a French rapper filed there gets noticed; in
+   * the whole catalogue he is one row in twenty thousand. `''` stands for the
+   * rows with no genre at all.
+   */
+  const genreCounts = new Map<string, number>();
+  for (const item of chosen) genreCounts.set(item.category ?? '', (genreCounts.get(item.category ?? '') ?? 0) + 1);
+  const playlistGenres = [...genreCounts.entries()].sort((left, right) => right[1] - left[1]);
+
   /**
    * The playlist's own list, narrowed. Reordering still works on the result:
    * a row dropped on another takes that row's place in the whole order.
    */
   const shownChosen = chosen.filter((item) => {
     if (chosenSearch && !item.title.toLowerCase().includes(chosenSearch.toLowerCase())) return false;
-    if (flaggedOnly && curating && !isFlagged(item)) return false;
+    if (genreFilter !== null && (item.category ?? '') !== genreFilter) return false;
+    if (problemFilter === 'any' && !hasAnyProblem(item)) return false;
+    if (problemFilter && problemFilter !== 'any' && !hasProblem[problemFilter](item)) return false;
     return true;
   });
-  const chosenPaged = usePaged(shownChosen, undefined, `${chosenSearch}|${flaggedOnly}`);
+  const chosenPaged = usePaged(shownChosen, undefined, `${chosenSearch}|${problemFilter}|${genreFilter}`);
   const chosenRef = useRef<HTMLUListElement>(null);
   /** Position of each row in the whole playlist, which a narrowed list no longer tells. */
   const positionOf = new Map(order.map((mediaId, index) => [mediaId, index]));
@@ -716,32 +811,90 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
             kind of work it is. The ones whose genre is unknown stay flagged
             for a person, which is what the per-row dialog is for.
           */}
-          {curating && fixableLegacy > 0 && (
+          {/*
+            And the exact duplicates, all at once: the copy games already skip,
+            behind a confirmation since a delete is not undone.
+          */}
+          {curating && (fixableLegacy > 0 || redundantIds.length > 0) && (
             <div className="pl-curation-bar">
-              <Button variant="secondary" size="sm" busy={genreBusy === 'fixAll'} onClick={() => void fixAllLabels()}>
-                {t(msg('ple.genre.fixAll'))}
-              </Button>
+              {fixableLegacy > 0 && (
+                <Button variant="secondary" size="sm" busy={genreBusy === 'fixAll'} onClick={() => void fixAllLabels()}>
+                  {t(msg('ple.genre.fixAll'))}
+                </Button>
+              )}
+              {redundantIds.length > 0 && (
+                <Button variant="secondary" size="sm" onClick={() => setRedundantOpen(true)}>
+                  {t(msg('ple.duplicate.deleteRedundant', { count: redundantIds.length }))}
+                </Button>
+              )}
             </div>
           )}
 
-          {/*
-            Offered once the list runs past a page, which no hand-built quiz
-            does and the shared catalogue does many times over.
-          */}
-          {(chosen.length > PAGE_SIZE || chosenSearch) && (
+          {(chosen.length > PAGE_SIZE ||
+            chosenSearch ||
+            problemCount > 0 ||
+            problemFilter ||
+            playlistGenres.length > 1 ||
+            genreFilter !== null) && (
             <div style={{ padding: 'var(--space-3) var(--space-4)' }} className="stack-3">
-              <Input
-                type="search"
-                value={chosenSearch}
-                placeholder={t(msg('ple.searchPlaylist'))}
-                aria-label={t(msg('ple.searchPlaylistLabel'))}
-                onChange={(event) => setChosenSearch(event.target.value)}
-              />
-              {curating && (flagCount > 0 || flaggedOnly) && (
-                <div className="filters">
-                  <Chip active={flaggedOnly} onClick={() => setFlaggedOnly(!flaggedOnly)}>
-                    {t(msg('ple.flaggedOnly'))} {flagCount}
+              {/*
+                Offered once the list runs past a page, which no hand-built quiz
+                does and the shared catalogue does many times over.
+              */}
+              {(chosen.length > PAGE_SIZE || chosenSearch) && (
+                <Input
+                  type="search"
+                  value={chosenSearch}
+                  placeholder={t(msg('ple.searchPlaylist'))}
+                  aria-label={t(msg('ple.searchPlaylistLabel'))}
+                  onChange={(event) => setChosenSearch(event.target.value)}
+                />
+              )}
+              {/*
+                The problems, together or one kind at a time. A kind with
+                nothing in it has no chip, unless it is the one selected: a
+                chip that vanished under the cursor once its last row was
+                settled would leave no way back but "All".
+              */}
+              {(problemCount > 0 || problemFilter) && (
+                <div className="filters" role="group" aria-label={t(msg('ple.problem.label'))}>
+                  <span className="filters-label">{t(msg('ple.problem.label'))}</span>
+                  <Chip active={problemFilter === null} onClick={() => setProblemFilter(null)}>
+                    {t(msg('lib.all'))}
                   </Chip>
+                  {problems.length > 1 && (
+                    <Chip active={problemFilter === 'any'} onClick={() => setProblemFilter('any')}>
+                      {t(msg('ple.problem.any'))} {problemCount}
+                    </Chip>
+                  )}
+                  {problems.map((problem) => {
+                    const count = countOf(problem);
+                    if (count === 0 && problemFilter !== problem) return null;
+                    return (
+                      <Chip key={problem} active={problemFilter === problem} onClick={() => setProblemFilter(problem)}>
+                        {t(msg(PROBLEM_LABELS[problem]))} {count}
+                      </Chip>
+                    );
+                  })}
+                </div>
+              )}
+              {(playlistGenres.length > 1 || genreFilter !== null) && (
+                <div className="filters" role="group" aria-label={t(msg('ple.filter.genre'))}>
+                  <span className="filters-label">{t(msg('ple.filter.genre'))}</span>
+                  <Chip active={genreFilter === null} onClick={() => setGenreFilter(null)}>
+                    {t(msg('lib.all'))}
+                  </Chip>
+                  {playlistGenres.map(([genre, count]) => (
+                    <Chip key={genre || 'none'} active={genreFilter === genre} onClick={() => setGenreFilter(genre)}>
+                      {genreName(genre)} {count}
+                    </Chip>
+                  ))}
+                  {/* Emptied by moving its last row from this screen: still the one selected. */}
+                  {genreFilter !== null && !genreCounts.has(genreFilter) && (
+                    <Chip active onClick={() => setGenreFilter(null)}>
+                      {genreName(genreFilter)} 0
+                    </Chip>
+                  )}
                 </div>
               )}
             </div>
@@ -771,8 +924,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                       item={item}
                       index={positionOf.get(item.id) ?? 0}
                       canEdit={mayEditMedia(item)}
-                      category={categoryOf(item)}
-                      categoryLabel={curating ? genreName(categoryOf(item)) : undefined}
+                      categoryLabel={curating ? genreName(item.category) : undefined}
                       duplicate={curating ? dupById.get(item.id) : undefined}
                       hiddenInGames={curating && hiddenIds.has(item.id)}
                       review={curating ? reviewById.get(item.id) : undefined}
@@ -946,6 +1098,16 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                 {t(msg('ple.genre.dismiss'))}
               </Button>
             )}
+            {genreTarget && artistSongs > 1 && (
+              <Button
+                variant="secondary"
+                busy={genreBusy === 'applyAll'}
+                disabled={!genreChoice || genreBusy !== null}
+                onClick={() => void applyGenre(genreTarget, true)}
+              >
+                {t(msg('ple.genre.applyAll', { artist: targetArtist, count: artistSongs }))}
+              </Button>
+            )}
             {genreTarget && (
               <Button
                 variant="primary"
@@ -961,11 +1123,12 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
       >
         {genreFlag && <p className="dialog-desc">{t(msg(GENRE_REASON_KEYS[genreFlag.reason]))}</p>}
         {genreTarget && legacyIds.has(genreTarget.id) && <p className="dialog-desc">{t(msg('ple.genre.legacy'))}</p>}
+        {genreTarget && artistSongs > 1 && (
+          <p className="dialog-desc">{t(msg('ple.genre.applyAllHint', { artist: targetArtist }))}</p>
+        )}
         {genreTarget && (
           <div className="stack-3">
-            <p className="pl-dup-reason">
-              {t(msg('ple.genre.current', { genre: genreName(categoryOf(genreTarget)) }))}
-            </p>
+            <p className="pl-dup-reason">{t(msg('ple.genre.current', { genre: genreName(genreTarget.category) }))}</p>
             {genreFlag && genreFlag.suggestions.length > 0 && (
               <p className="pl-dup-reason">
                 {t(msg('ple.genre.suggested', { genres: genreFlag.suggestions.map(genreName).join(', ') }))}
@@ -979,6 +1142,26 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
           </div>
         )}
       </Dialog>
+
+      <Dialog
+        open={redundantOpen}
+        onOpenChange={(open) => {
+          if (!open && !redundantBusy) setRedundantOpen(false);
+        }}
+        title={t(msg('ple.duplicate.deleteRedundantTitle'))}
+        actions={
+          <>
+            <Button variant="ghost" disabled={redundantBusy} onClick={() => setRedundantOpen(false)}>
+              {t(msg('ple.duplicate.cancel'))}
+            </Button>
+            <Button variant="danger" busy={redundantBusy} onClick={() => void deleteRedundant()}>
+              {t(msg('ple.duplicate.deleteRedundantConfirm'))}
+            </Button>
+          </>
+        }
+      >
+        <p className="dialog-desc">{t(msg('ple.duplicate.deleteRedundantExplains', { count: redundantIds.length }))}</p>
+      </Dialog>
     </>
   );
 }
@@ -987,7 +1170,6 @@ function SortableRow({
   item,
   index,
   canEdit,
-  category,
   categoryLabel,
   duplicate,
   hiddenInGames = false,
@@ -1001,8 +1183,6 @@ function SortableRow({
   item: MediaItem;
   index: number;
   canEdit: boolean;
-  /** The genre as it stands, which a change from this screen may have moved. */
-  category?: string | null;
   /** The genre by name, on the catalogue only. */
   categoryLabel?: string;
   duplicate?: DuplicateInfo;
@@ -1019,7 +1199,6 @@ function SortableRow({
 }) {
   const t = useT();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
-  const shownCategory = category === undefined ? item.category : category;
 
   return (
     <li
@@ -1044,7 +1223,7 @@ function SortableRow({
         </span>
         <span className="pl-item-meta">
           {t(kindName(item.kind))}
-          {categoryLabel ? ` · ${categoryLabel}` : shownCategory ? ` · ${shownCategory}` : ''}
+          {categoryLabel ? ` · ${categoryLabel}` : item.category ? ` · ${item.category}` : ''}
           {hiddenInGames && t(msg('ple.duplicate.hiddenMeta'))}
         </span>
       </span>

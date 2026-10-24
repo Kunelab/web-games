@@ -270,6 +270,13 @@ const statements = [
     "created_at" TEXT DEFAULT CURRENT_TIMESTAMP
   )`,
 
+  // The genre all of one artist's songs were filed under, for the ones kept later.
+  `CREATE TABLE IF NOT EXISTS "BlindtestArtistGenres" (
+    "artist" TEXT PRIMARY KEY,
+    "genre_id" TEXT NOT NULL,
+    "created_at" TEXT DEFAULT CURRENT_TIMESTAMP
+  )`,
+
   // What the endless blind test searches YouTube for, harvested from real
   // catalogues (Deezer, AniList, Wikidata). See schema.ts.
   `CREATE TABLE IF NOT EXISTS "BlindtestSeeds" (

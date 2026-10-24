@@ -328,7 +328,14 @@ export const atelierEn = {
   "ple.unfinishedMeta": " · to finish",
   "ple.searchPlaylist": "Search the playlist…",
   "ple.searchPlaylistLabel": "Search the playlist",
-  "ple.flaggedOnly": "Flagged only",
+  "ple.problem.label": "Show",
+  "ple.problem.any": "Every problem",
+  "ple.problem.duplicate": "Duplicates",
+  "ple.problem.genre": "Genre",
+  "ple.problem.legacy": "Old label",
+  "ple.problem.review": "Never found",
+  "ple.problem.unfinished": "To finish",
+  "ple.filter.genre": "Genre",
   "ple.noMatchInPlaylist": "Nothing in the playlist matches.",
   "ple.add": "Add {title}",
   "ple.move": "Move {title}, position {position}",
@@ -346,9 +353,14 @@ export const atelierEn = {
   "ple.duplicate.clear": "Not duplicates",
   "ple.duplicate.delete": "Delete this media",
   "ple.duplicate.cancel": "Cancel",
+  "ple.duplicate.deleteRedundant": "Delete {count} exact duplicate(s)",
+  "ple.duplicate.deleteRedundantTitle": "Delete exact duplicates",
+  "ple.duplicate.deleteRedundantExplains":
+    "{count} copies of the same video or the same song will be deleted. The most viewed copy of each is kept; entries that are only “very similar” are left alone.",
+  "ple.duplicate.deleteRedundantConfirm": "Delete",
   "ple.duplicate.hiddenMeta": " · left out of games",
   "ple.duplicate.hidden":
-    "This entry sits out of every game until the flag is settled: the older entry plays instead.",
+    "This entry sits out of every game until the flag is settled: the most viewed entry plays instead.",
   /* ------- rounds rated easy that no room ever finds (admin) ------- */
   "ple.review.count": "{count} never found",
   "ple.review.badge": "Never found",
@@ -379,6 +391,9 @@ export const atelierEn = {
   "ple.genre.none": "none",
   "ple.genre.choose": "Genre",
   "ple.genre.apply": "Apply",
+  "ple.genre.applyAll": "All {count} songs by {artist}",
+  "ple.genre.applyAllHint":
+    "“All songs” moves {artist}’s other songs too, and their next songs will go straight to this genre.",
   "ple.genre.dismiss": "The genre is right",
   "ple.genre.cancel": "Cancel",
   "ple.catalogueName":
