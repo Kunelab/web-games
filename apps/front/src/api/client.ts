@@ -560,9 +560,14 @@ export const api = {
       groups: { reason: DuplicateReason; mediaIds: number[] }[];
       /** The direct comparisons behind the groups: what each entry actually collides with. */
       pairs: { a: number; b: number; reason: DuplicateReason }[];
-      /** Left out of every game until their flags are settled: the newer of each pair. */
+      /** Left out of every game until their flags are settled: all but the most viewed of each pair. */
       hidden: number[];
+      /** The copies exact pairs alone leave out, which `blindtestDeleteRedundant` deletes. */
+      redundant: number[];
     }>('/blindtest/library/duplicates'),
+  /** Deletes every copy an exact duplicate leaves out of games. Returns the ids deleted. */
+  blindtestDeleteRedundant: () =>
+    request<{ deleted: number[] }>('/blindtest/library/duplicates/delete-redundant', { method: 'POST' }),
   /** Catalogue rounds rated easy that no room has found yet. Admin only. */
   blindtestReviewFlags: () =>
     request<{ flags: { mediaId: number; difficulty: number; plays: number }[] }>('/blindtest/library/review'),
@@ -583,9 +588,16 @@ export const api = {
       method: 'POST',
       body: { mediaId }
     }),
-  /** Files an entry under a genre; sending its current one fixes an old prompt. */
-  blindtestSetGenre: (mediaId: number, genreId: string) =>
-    request<{ item: MediaItem }>('/blindtest/library/genre', { method: 'POST', body: { mediaId, genreId } }),
+  /**
+   * Files an entry under a genre; sending its current one fixes an old prompt.
+   * `allByArtist` moves every song by its artist too, and files their later
+   * songs there. `moved` is every entry rewritten, this one included.
+   */
+  blindtestSetGenre: (mediaId: number, genreId: string, allByArtist = false) =>
+    request<{ item: MediaItem; moved: MediaItem[] }>('/blindtest/library/genre', {
+      method: 'POST',
+      body: { mediaId, genreId, allByArtist }
+    }),
   /** Rewrites every old `field.work` prompt whose genre is known. */
   blindtestFixLabels: () => request<{ fixed: number }>('/blindtest/library/fix-labels', { method: 'POST' }),
   mafiaMe: () => request<MafiaCareer>('/mafia/me')

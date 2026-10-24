@@ -7,7 +7,11 @@ import { GameManager } from '../game/manager.js';
 import { GENRES, SECTIONS, catalogAvailable, genreById } from '../services/blindtest-catalog.js';
 import { countAvailable, dealRounds, emptyHistory } from '../services/blindtest-draw.js';
 import { catalogueKeys, countLibrary, findReviewFlags } from '../services/blindtest-library.js';
-import { dismissDuplicateFlags, findLibraryDuplicates } from '../services/blindtest-duplicates.js';
+import {
+  deleteRedundantDuplicates,
+  dismissDuplicateFlags,
+  findLibraryDuplicates
+} from '../services/blindtest-duplicates.js';
 import {
   dismissGenreFlag,
   findLibraryGenreFlags,
@@ -314,6 +318,21 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   /**
+   * Deletes every copy that an exact duplicate leaves out of games, in one go.
+   *
+   * Exact only (the same upload, or the same artist and title): which copy
+   * stays is the one with the most views, the rule games already follow. A
+   * "very similar" pair is left for a person, since a typo away is sometimes
+   * another song. Returns the ids deleted.
+   */
+  app.post('/blindtest/library/duplicates/delete-redundant', { preHandler: app.requireAuth }, async (request) => {
+    if (!isAdmin(request.currentUser)) {
+      throw app.httpErrors.forbidden('Réservé à un administrateur');
+    }
+    return { deleted: await deleteRedundantDuplicates() };
+  });
+
+  /**
    * Entries that look filed under the wrong genre, and the ones still carrying
    * the old `field.work` prompt. Admin-only, like the duplicates, for the same
    * reason; see `blindtest-genres` for the rules.
@@ -356,6 +375,8 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
    *
    * Sending the genre it already has is how an old `field.work` prompt is fixed
    * one entry at a time. Refused across answer shapes; see `setLibraryGenre`.
+   * `allByArtist` takes every song by the same artist along, and remembers
+   * the artist under that genre for the songs kept later.
    */
   app.post(
     '/blindtest/library/genre',
@@ -364,7 +385,8 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         body: z.object({
           mediaId: z.coerce.number().int().positive(),
-          genreId: z.string().min(1).max(40)
+          genreId: z.string().min(1).max(40),
+          allByArtist: z.boolean().optional()
         })
       }
     },
@@ -372,8 +394,9 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!isAdmin(request.currentUser)) {
         throw app.httpErrors.forbidden('Réservé à un administrateur');
       }
-      const result = await setLibraryGenre(request.body.mediaId, request.body.genreId);
-      if (result.ok) return { item: result.item };
+      const { mediaId, genreId, allByArtist } = request.body;
+      const result = await setLibraryGenre(mediaId, genreId, { allByArtist });
+      if (result.ok) return { item: result.item, moved: result.moved };
       if (result.reason === 'not-found') throw app.httpErrors.notFound('Entrée du catalogue introuvable');
       if (result.reason === 'unknown-genre') {
         return reply.code(400).send({ message: `Genre inconnu : ${request.body.genreId}` });

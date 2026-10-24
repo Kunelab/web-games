@@ -1,9 +1,10 @@
-import { eq, or } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { normalizeAnswer } from 'game-core';
 
 import { db } from '../db/index.js';
-import { blindtestDuplicateDismissals, blindtestDuplicateIndex, blindtestDuplicatePairs } from '../db/schema.js';
+import { blindtestDuplicateDismissals, blindtestDuplicateIndex, blindtestDuplicatePairs, media } from '../db/schema.js';
 import { listLibrary } from './blindtest-library.js';
+import { fetchVideoFacts } from './youtube-service.js';
 
 /**
  * Possible duplicates in the generated-rounds catalogue.
@@ -267,13 +268,39 @@ export function toDuplicateItem(view: {
   payload: unknown;
 }): DuplicateItem {
   const value = (key: string): string => view.answers.find((answer) => answer.key === key)?.value ?? '';
-  const payload = (view.payload ?? {}) as { code?: unknown };
   return {
     id: view.id,
-    code: typeof payload.code === 'string' && payload.code.length > 0 ? payload.code : null,
+    code: codeOf(view.payload),
     artist: value('artist'),
     title: value('title') || value('work')
   };
+}
+
+/** The YouTube video id a payload carries, if any. */
+function codeOf(payload: unknown): string | null {
+  const code = ((payload ?? {}) as { code?: unknown }).code;
+  return typeof code === 'string' && code.length > 0 ? code : null;
+}
+
+/**
+ * The YouTube views an entry's upload had when somebody looked, or null.
+ *
+ * Read from the fame figures the draw keeps with a round, and written there by
+ * `lookUpMissingViews` for the entries kept before it did.
+ */
+export function viewsOf(payload: unknown): number | null {
+  const views = ((payload ?? {}) as { fame?: { views?: unknown } | null }).fame?.views;
+  return typeof views === 'number' && Number.isFinite(views) ? views : null;
+}
+
+/** The known view counts among these entries, by id. */
+function viewCounts(items: readonly { id: number; payload: unknown }[]): Map<number, number> {
+  const counts = new Map<number, number>();
+  for (const item of items) {
+    const views = viewsOf(item.payload);
+    if (views !== null) counts.set(item.id, views);
+  }
+  return counts;
 }
 
 async function dismissedPairKeys(): Promise<Set<string>> {
@@ -421,12 +448,115 @@ export async function findLibraryDuplicates(): Promise<{
   pairs: DuplicatePair[];
   /** The entries a game leaves out until their flags are settled. See `duplicatesToHide`. */
   hidden: number[];
+  /** The copies that exact pairs alone leave out: what `deleteRedundantDuplicates` would delete. */
+  redundant: number[];
 }> {
-  const items = (await listLibrary()).map(toDuplicateItem);
+  const { ids, live, views } = await settledFlags();
+  return {
+    groups: groupPairs(live),
+    pairs: live,
+    hidden: [...duplicatesToHide(ids, live, views)],
+    redundant: [...redundantCopies(ids, live, views)]
+  };
+}
+
+/** The flags brought up to date, dismissals honoured, with the views to choose between twins by. */
+async function settledFlags(): Promise<{ ids: number[]; live: DuplicatePair[]; views: Map<number, number> }> {
+  const library = await listLibrary();
+  const items = library.map(toDuplicateItem);
   syncDuplicateIndex(items);
   const ids = items.map((item) => item.id);
   const live = livePairs(new Set(ids), await dismissedPairKeys());
-  return { groups: groupPairs(live), pairs: live, hidden: [...duplicatesToHide(ids, live)] };
+  const views = viewCounts(library);
+  await lookUpMissingViews(library, live, views).catch(() => undefined);
+  return { ids, live, views };
+}
+
+/**
+ * The copies an exact duplicate leaves out of games, and nothing a typo away.
+ *
+ * The same walk as `duplicatesToHide`, over the same-upload and same-track
+ * pairs only. A "similar" pair is a question; these two are answers, and the
+ * copy a game already skips for them is the one nobody needs.
+ */
+function redundantCopies(
+  ids: readonly number[],
+  pairs: readonly DuplicatePair[],
+  views: ReadonlyMap<number, number>
+): Set<number> {
+  return duplicatesToHide(
+    ids,
+    pairs.filter((pair) => pair.reason !== 'similar'),
+    views
+  );
+}
+
+/**
+ * Deletes every redundant copy at once. Returns their ids.
+ *
+ * Worked out again here rather than taken from the client, so what is deleted
+ * is what the flags say now, not what they said when the page loaded. The
+ * playlist links go with the rows, by the foreign key's cascade, and the pairs
+ * and index rows are forgotten at the next read, as for any deletion.
+ */
+export async function deleteRedundantDuplicates(): Promise<number[]> {
+  const { ids, live, views } = await settledFlags();
+  const redundant = [...redundantCopies(ids, live, views)];
+  if (redundant.length === 0) return [];
+  const deleted = db
+    .delete(media)
+    .where(and(inArray(media.id, redundant), isNull(media.user_id), eq(media.kind, 'blindtest')))
+    .returning({ id: media.id })
+    .all();
+  return deleted.map((row) => row.id);
+}
+
+/**
+ * Asks YouTube for the views of the flagged entries kept without them.
+ *
+ * Most of the catalogue predates the fame figures, so most twins have no count
+ * to compare, and a rule that falls back on age for nearly every pair is not
+ * the rule. Asked only for entries in a pair, at fifty to a request and one
+ * quota unit each, and only once: the count goes into the entry's `fame`, where
+ * every game reads it from afterwards. `last_modified` is left alone, since
+ * nobody edited the round. A video YouTube no longer returns stays unknown,
+ * which is where it belongs: it will not play either.
+ *
+ * Here rather than in `hiddenDuplicates`, which runs as a game starts and has
+ * no business waiting on the network. Fills `views` with what it learns.
+ */
+async function lookUpMissingViews(
+  entries: readonly { id: number; payload: unknown }[],
+  pairs: readonly DuplicatePair[],
+  views: Map<number, number>
+): Promise<void> {
+  const flagged = new Set(pairs.flatMap((pair) => [pair.a, pair.b]));
+  const missing = new Map<string, number[]>();
+  for (const entry of entries) {
+    const code = codeOf(entry.payload);
+    if (!code || !flagged.has(entry.id) || views.has(entry.id)) continue;
+    missing.set(code, [...(missing.get(code) ?? []), entry.id]);
+  }
+  if (missing.size === 0) return;
+
+  const facts = await fetchVideoFacts([...missing.keys()]);
+  db.transaction((tx) => {
+    for (const [code, fact] of facts) {
+      for (const mediaId of missing.get(code) ?? []) {
+        const row = tx.select({ payload: media.payload }).from(media).where(eq(media.id, mediaId)).get();
+        if (!row) continue;
+        const payload = JSON.parse(row.payload) as Record<string, unknown>;
+        // Corrected onto another upload while YouTube was being asked.
+        if (codeOf(payload) !== code) continue;
+        const fame = { ...((payload.fame ?? {}) as Record<string, unknown>), views: fact.views };
+        tx.update(media)
+          .set({ payload: JSON.stringify({ ...payload, fame }) })
+          .where(eq(media.id, mediaId))
+          .run();
+        views.set(mediaId, fact.views);
+      }
+    }
+  });
 }
 
 /* -------------------------------------------------- hidden until reviewed */
@@ -440,22 +570,33 @@ export async function findLibraryDuplicates(): Promise<{
  * "these are not duplicates" dismisses the pair, and deleting one removes it.
  * Nothing else is stored.
  *
- * Walked oldest first, keeping an entry unless it pairs with one already kept.
- * The oldest is the one rooms have played and admins have corrected. And it is
+ * Walked most viewed first, keeping an entry unless it pairs with one already
+ * kept. The upload more people have watched is the one a room is likelier to
+ * recognise, and usually the official one. An entry whose views nobody looked
+ * up comes after every entry whose views are known, and a tie falls back on the
+ * oldest, the one rooms have played and admins have corrected. And it is
  * walked over the direct pairs, not the groups: in a chain A≈B≈C where only the
  * neighbours look alike, A and C are both kept, because nothing says C is a
  * second A.
  */
-export function duplicatesToHide(ids: Iterable<number>, pairs: readonly DuplicatePair[]): Set<number> {
+export function duplicatesToHide(
+  ids: Iterable<number>,
+  pairs: readonly DuplicatePair[],
+  views: ReadonlyMap<number, number> = new Map()
+): Set<number> {
   const partners = new Map<number, number[]>();
   for (const pair of pairs) {
     partners.set(pair.a, [...(partners.get(pair.a) ?? []), pair.b]);
     partners.set(pair.b, [...(partners.get(pair.b) ?? []), pair.a]);
   }
 
+  const order = [...new Set(ids)].sort((left, right) => {
+    const byViews = (views.get(right) ?? -1) - (views.get(left) ?? -1);
+    return byViews !== 0 ? byViews : left - right;
+  });
   const kept = new Set<number>();
   const hidden = new Set<number>();
-  for (const id of [...new Set(ids)].sort((left, right) => left - right)) {
+  for (const id of order) {
     if ((partners.get(id) ?? []).some((other) => kept.has(other))) hidden.add(id);
     else kept.add(id);
   }
@@ -509,7 +650,7 @@ export async function hiddenDuplicates(items: readonly HideableItem[]): Promise<
   const present = new Set(items.map((item) => item.id));
   if (present.size < 2) return new Set();
   refreshIndexFor(items);
-  return duplicatesToHide(present, livePairs(present, await dismissedPairKeys()));
+  return duplicatesToHide(present, livePairs(present, await dismissedPairKeys()), viewCounts(items));
 }
 
 /**

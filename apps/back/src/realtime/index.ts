@@ -808,7 +808,7 @@ export function registerRealtime(
               answersForGenre(round.answers, genre).map((answer) => [answer.key, answer.label])
             );
             refiled = games.refileRound(state, genre.id, labels);
-            genreFix = { id: genre.id, relabel: (answers) => answersForGenre(answers, genre) };
+            genreFix = genre;
           }
         }
 

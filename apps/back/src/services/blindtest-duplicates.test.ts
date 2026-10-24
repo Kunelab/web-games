@@ -8,6 +8,7 @@ import {
   groupPairs,
   levenshtein,
   pairReason,
+  viewsOf,
   type DuplicateItem
 } from './blindtest-duplicates.js';
 
@@ -169,5 +170,76 @@ describe('duplicatesToHide', () => {
 
   it('hides nothing once a pair is settled, since a settled pair is no longer passed in', () => {
     assert.equal(duplicatesToHide([1, 2], []).size, 0);
+  });
+
+  it('plays the more viewed of a pair, however new it is', () => {
+    const pair = [{ a: 3, b: 7, reason: 'same-track' as const }];
+    assert.deepEqual(
+      [
+        ...duplicatesToHide(
+          [3, 7],
+          pair,
+          new Map([
+            [3, 1_000],
+            [7, 2_000_000]
+          ])
+        )
+      ],
+      [3]
+    );
+  });
+
+  it('plays an entry whose views are known over one nobody looked up', () => {
+    const pair = [{ a: 3, b: 7, reason: 'same-track' as const }];
+    assert.deepEqual([...duplicatesToHide([3, 7], pair, new Map([[7, 0]]))], [3]);
+  });
+
+  it('falls back on the oldest when the views tie', () => {
+    const pair = [{ a: 3, b: 7, reason: 'same-video' as const }];
+    assert.deepEqual(
+      [
+        ...duplicatesToHide(
+          [7, 3],
+          pair,
+          new Map([
+            [3, 500],
+            [7, 500]
+          ])
+        )
+      ],
+      [7]
+    );
+  });
+
+  it('keeps the most viewed of three and hides the rest', () => {
+    const hidden = duplicatesToHide(
+      [5, 9, 12],
+      [
+        { a: 5, b: 9, reason: 'similar' },
+        { a: 5, b: 12, reason: 'similar' },
+        { a: 9, b: 12, reason: 'similar' }
+      ],
+      new Map([
+        [5, 10],
+        [9, 900],
+        [12, 50]
+      ])
+    );
+    assert.deepEqual(
+      [...hidden].sort((a, b) => a - b),
+      [5, 12]
+    );
+  });
+});
+
+describe('viewsOf', () => {
+  it('reads the views kept with the fame figures', () => {
+    assert.equal(viewsOf({ code: 'x', fame: { views: 1234 } }), 1234);
+  });
+
+  it('says null when nobody looked', () => {
+    assert.equal(viewsOf({ code: 'x' }), null);
+    assert.equal(viewsOf({ code: 'x', fame: { views: null } }), null);
+    assert.equal(viewsOf(null), null);
   });
 });

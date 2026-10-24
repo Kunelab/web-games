@@ -5,9 +5,10 @@ import { cleanAliases } from '../game/session.js';
 
 import { db } from '../db/index.js';
 import { blindtestRoundStats, media, playlistItems, playlists, type MediaRow } from '../db/schema.js';
-import { libraryVideoCodesIn } from './blindtest-catalog.js';
+import { libraryVideoCodesIn, type Genre } from './blindtest-catalog.js';
 import type { DrawHistory } from './blindtest-draw.js';
 import { hiddenDuplicates } from './blindtest-duplicates.js';
+import { refiled, underRememberedGenre } from './blindtest-refile.js';
 import { forgetRoundOutcomes } from './blindtest-stats.js';
 import { toMediaView, type MediaView } from './media-service.js';
 
@@ -206,17 +207,19 @@ export async function rememberPlayedRound(item: MediaView): Promise<MediaView | 
     if (twin) return twin;
   }
 
+  // Filed where an admin said this artist belongs, whatever search found it.
+  const filed = underRememberedGenre(item);
   const [row] = await db
     .insert(media)
     .values({
       user_id: null,
-      kind: item.kind,
-      title: item.title,
-      category: item.category,
-      date: item.date,
-      answers: JSON.stringify(item.answers),
-      payload: JSON.stringify(item.payload),
-      timing: item.timing ? JSON.stringify(item.timing) : null
+      kind: filed.kind,
+      title: filed.title,
+      category: filed.category,
+      date: filed.date,
+      answers: JSON.stringify(filed.answers),
+      payload: JSON.stringify(filed.payload),
+      timing: filed.timing ? JSON.stringify(filed.timing) : null
     })
     .returning();
 
@@ -256,11 +259,10 @@ export async function correctLibraryRound(
   fields: { key: string; value: string; aliases?: string[] }[],
   numbers: Record<string, number | undefined> = {},
   /**
-   * The genre it belongs to, and the answers as they read under it (a work's
-   * prompt names the genre's kind of work). Worked out by the caller, which
-   * knows the genres; this module deliberately does not.
+   * The genre it belongs to. The work prompt, the title's tag and the
+   * difficulty follow it; see `refiled`.
    */
-  genre?: { id: string; relabel: <T extends { key: string; label: string }>(answers: T[]) => T[] }
+  genre?: Genre
 ): Promise<boolean> {
   const [row] = await db
     .select()
@@ -328,26 +330,39 @@ export async function correctLibraryRound(
     }
   }
 
+  /**
+   * The genre last, so a difficulty the host set in the same correction is
+   * already marked theirs and is kept rather than measured again. A move alone
+   * is not an edit: `last_modified` is stamped only when something above
+   * changed. See `blindtest-refile` for why.
+   */
   let category = row.category;
+  let title = row.title;
   let answers = view.answers;
+  let moved = false;
   if (genre) {
-    const relabelled = genre.relabel(answers);
-    if (genre.id !== category || JSON.stringify(relabelled) !== JSON.stringify(answers)) {
-      category = genre.id;
-      answers = relabelled;
-      changed = true;
+    const next = refiled({ ...view, title, answers, payload }, genre);
+    if (
+      next.category !== category ||
+      next.title !== title ||
+      next.payload !== payload ||
+      JSON.stringify(next.answers) !== JSON.stringify(answers)
+    ) {
+      ({ category, title, answers, payload } = next);
+      moved = true;
     }
   }
 
-  if (!changed) return false;
+  if (!changed && !moved) return false;
 
   await db
     .update(media)
     .set({
       category,
+      title,
       answers: JSON.stringify(answers),
       payload: JSON.stringify(payload),
-      last_modified: new Date().toISOString()
+      ...(changed ? { last_modified: new Date().toISOString() } : {})
     })
     .where(eq(media.id, row.id));
 

@@ -599,7 +599,7 @@ function DifficultySlider({ range, onChange }: { range: DifficultyRange; onChang
         type="range"
         min={0}
         max={100}
-        step={5}
+        step={1}
         value={range.min}
         aria-label="Notoriété minimale"
         onChange={(event) => onChange({ ...range, min: Math.min(Number(event.target.value), range.max) })}
@@ -608,7 +608,7 @@ function DifficultySlider({ range, onChange }: { range: DifficultyRange; onChang
         type="range"
         min={0}
         max={100}
-        step={5}
+        step={1}
         value={range.max}
         aria-label="Notoriété maximale"
         onChange={(event) => onChange({ ...range, max: Math.max(Number(event.target.value), range.min) })}

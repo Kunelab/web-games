@@ -552,6 +552,20 @@ export const blindtestGenreDismissals = sqliteTable('BlindtestGenreDismissals', 
 });
 
 /**
+ * The genre an admin filed all of one artist's songs under.
+ *
+ * YouTube search has no idea what a genre is, so a search for rap US keeps
+ * finding French rappers, and moving their songs once did nothing about the
+ * next one kept. A round by a remembered artist is filed under this genre when
+ * it is kept. Keyed by the whole artist answer, normalised; see `artistKeyOf`.
+ */
+export const blindtestArtistGenres = sqliteTable('BlindtestArtistGenres', {
+  artist: text('artist').primaryKey(),
+  genre_id: text('genre_id').notNull(),
+  created_at: text('created_at').default(now)
+});
+
+/**
  * Things worth searching YouTube for, per genre.
  *
  * The endless blind test used to find its songs with three fixed queries per

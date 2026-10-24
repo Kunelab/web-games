@@ -313,7 +313,14 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.unfinishedMeta": " · à compléter",
   "ple.searchPlaylist": "Rechercher dans la playlist…",
   "ple.searchPlaylistLabel": "Rechercher dans la playlist",
-  "ple.flaggedOnly": "À vérifier seulement",
+  "ple.problem.label": "Afficher",
+  "ple.problem.any": "Tous les problèmes",
+  "ple.problem.duplicate": "Doublons",
+  "ple.problem.genre": "Genre",
+  "ple.problem.legacy": "Ancien libellé",
+  "ple.problem.review": "Jamais trouvées",
+  "ple.problem.unfinished": "À compléter",
+  "ple.filter.genre": "Genre",
   "ple.noMatchInPlaylist": "Aucun média de la playlist ne correspond.",
   "ple.add": "Ajouter {title}",
   "ple.move": "Déplacer {title}, position {position}",
@@ -331,9 +338,14 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.duplicate.clear": "Ce ne sont pas des doublons",
   "ple.duplicate.delete": "Supprimer ce média",
   "ple.duplicate.cancel": "Annuler",
+  "ple.duplicate.deleteRedundant": "Supprimer {count} doublon(s) exact(s)",
+  "ple.duplicate.deleteRedundantTitle": "Supprimer les doublons exacts",
+  "ple.duplicate.deleteRedundantExplains":
+    "{count} copie(s) d’une même vidéo ou d’un même morceau seront supprimées. La copie la plus vue de chacun est gardée ; les entrées seulement « très ressemblantes » ne sont pas touchées.",
+  "ple.duplicate.deleteRedundantConfirm": "Supprimer",
   "ple.duplicate.hiddenMeta": " · écarté des parties",
   "ple.duplicate.hidden":
-    "Cette entrée est écartée des parties tant que le doublon n’est pas réglé : l’entrée la plus ancienne est jouée à sa place.",
+    "Cette entrée est écartée des parties tant que le doublon n’est pas réglé : l’entrée la plus vue est jouée à sa place.",
   /* ------- manches notées faciles que personne ne trouve (admin) ------- */
   "ple.review.count": "{count} jamais trouvée(s)",
   "ple.review.badge": "Jamais trouvée",
@@ -364,6 +376,9 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.genre.none": "aucun",
   "ple.genre.choose": "Genre",
   "ple.genre.apply": "Appliquer",
+  "ple.genre.applyAll": "Tous les titres de {artist} ({count})",
+  "ple.genre.applyAllHint":
+    "« Tous les titres » déplace aussi les autres titres de {artist}, et ses prochains titres iront directement dans ce genre.",
   "ple.genre.dismiss": "Le genre est correct",
   "ple.genre.cancel": "Annuler",
   "ple.catalogueName":

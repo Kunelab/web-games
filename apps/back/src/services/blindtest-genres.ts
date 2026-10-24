@@ -3,10 +3,14 @@ import { normalizeAnswer } from 'game-core';
 
 import { db } from '../db/index.js';
 import { blindtestGenreDismissals, media } from '../db/schema.js';
-import { GENRES, genreById, type AnswerShape } from './blindtest-catalog.js';
+import { GENRES, genreById, readCalibrations, type AnswerShape } from './blindtest-catalog.js';
 import { listLibrary } from './blindtest-library.js';
+import { answersForGenre, artistKeyOf, refiled, rememberArtistGenre } from './blindtest-refile.js';
 import type { SeedIndex } from './blindtest-seeds.js';
 import { toMediaView, type MediaView } from './media-service.js';
+
+/** Moved to `blindtest-refile` with the rest of a genre move; still read from here. */
+export { answersForGenre };
 
 /**
  * Catalogue entries filed under the wrong genre, for the admin to settle.
@@ -192,35 +196,14 @@ export async function dismissGenreFlag(mediaId: number): Promise<boolean> {
   return true;
 }
 
-/**
- * The answers of an entry moved to `genre`: its work prompt follows.
- *
- * The prompt is the genre's own ("Anime (opening)", "Jeu vidéo"), so an entry
- * moved from films to games without it would keep asking for a film. Only the
- * stock prompts are rewritten; a label somebody typed by hand stays theirs.
- */
-export function answersForGenre<T extends { key: string; label: string }>(answers: T[], genre: GenreInfo): T[] {
-  const stock: Record<string, { labels: Set<string>; to: string }> = {
-    work: { labels: stockLabels('field.work', (other) => other.workLabel), to: genre.workLabel ?? 'field.work' },
-    artist: {
-      labels: stockLabels('field.artist', (other) => other.artistLabel),
-      to: genre.artistLabel ?? 'field.artist'
-    },
-    title: { labels: stockLabels('field.title', (other) => other.titleLabel), to: genre.titleLabel ?? 'field.title' }
-  };
-  return answers.map((answer) => {
-    const rule = stock[answer.key];
-    return rule && rule.labels.has(answer.label) ? { ...answer, label: rule.to } : answer;
-  });
-}
-
-/** A field's default prompt and every genre's own, which are the ones a move may rewrite. */
-function stockLabels(fallback: string, own: (genre: (typeof GENRES)[number]) => string | undefined): Set<string> {
-  return new Set([fallback, ...GENRES.map(own).filter((label): label is string => Boolean(label))]);
-}
-
 export type SetGenreResult =
-  { ok: true; item: MediaView } | { ok: false; reason: 'not-found' | 'unknown-genre' | 'wrong-shape' };
+  | {
+      ok: true;
+      item: MediaView;
+      /** Every entry the move rewrote, this one included: more than one when the artist's songs went too. */
+      moved: MediaView[];
+    }
+  | { ok: false; reason: 'not-found' | 'unknown-genre' | 'wrong-shape' };
 
 /**
  * Files a catalogue entry under another genre, or confirms the one it has.
@@ -229,8 +212,18 @@ export type SetGenreResult =
  * changing a category, and letting it would leave a round whose answer boxes
  * ask for something the row does not hold. Confirming the current genre is
  * allowed on purpose, since it is how an old `field.work` prompt gets fixed.
+ *
+ * With `allByArtist`, every catalogue entry by the same artist goes with it,
+ * and the artist is remembered under that genre so the rounds kept afterwards
+ * are filed there too. Moving one artist's forty songs used to be forty
+ * dialogs. What moves with the entry, and why `last_modified` does not, is
+ * `refiled`'s; see `blindtest-refile`.
  */
-export async function setLibraryGenre(mediaId: number, genreId: string): Promise<SetGenreResult> {
+export async function setLibraryGenre(
+  mediaId: number,
+  genreId: string,
+  options: { allByArtist?: boolean } = {}
+): Promise<SetGenreResult> {
   const row = await libraryRow(mediaId);
   if (!row) return { ok: false, reason: 'not-found' };
 
@@ -240,15 +233,38 @@ export async function setLibraryGenre(mediaId: number, genreId: string): Promise
   const view = toMediaView(row);
   if (shapeOf(view) !== genre.answerShape) return { ok: false, reason: 'wrong-shape' };
 
-  const answers = answersForGenre(view.answers, genre);
-  const [updated] = await db
-    .update(media)
-    .set({ category: genre.id, answers: JSON.stringify(answers), last_modified: new Date().toISOString() })
-    .where(eq(media.id, mediaId))
-    .returning();
-  if (!updated) return { ok: false, reason: 'not-found' };
+  const artist = options.allByArtist ? artistKeyOf(view.answers) : '';
+  const targets = artist
+    ? db
+        .select()
+        .from(media)
+        .where(and(isNull(media.user_id), eq(media.kind, 'blindtest')))
+        .all()
+        .filter(
+          (candidate) => artistKeyOf(JSON.parse(candidate.answers) as { key: string; value: string }[]) === artist
+        )
+        .map(toMediaView)
+        .filter((candidate) => shapeOf(candidate) === genre.answerShape)
+    : [view];
 
-  return { ok: true, item: toMediaView(updated) };
+  const calibrations = readCalibrations(db);
+  const moved = db.transaction((tx) =>
+    targets.flatMap((target) => {
+      const next = refiled(target, genre, calibrations);
+      const [updated] = tx
+        .update(media)
+        .set({ ...next, answers: JSON.stringify(next.answers), payload: JSON.stringify(next.payload) })
+        .where(eq(media.id, target.id))
+        .returning()
+        .all();
+      return updated ? [toMediaView(updated)] : [];
+    })
+  );
+  if (artist) rememberArtistGenre(artist, genre.id);
+
+  const item = moved.find((entry) => entry.id === mediaId);
+  if (!item) return { ok: false, reason: 'not-found' };
+  return { ok: true, item, moved };
 }
 
 /**
