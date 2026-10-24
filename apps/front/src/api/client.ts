@@ -618,11 +618,11 @@ export interface BlindtestGenre {
 export type DuplicateReason = 'same-video' | 'same-track' | 'similar';
 
 /**
- * Why a difficulty at either end is in doubt: an easy end the song has not
- * earned, a hard end millions of views contradict, or either scored before any
- * figure was kept. See `extremeDoubt` on the server.
+ * Why a difficulty is in doubt: an easy end the song has not earned, a hard
+ * end millions of views contradict, either scored before any figure was kept,
+ * or an answer no catalogue found at all. See `extremeDoubt` on the server.
  */
-export type ExtremeDoubt = 'easy-unconfirmed' | 'hard-contradicted' | 'unscored';
+export type ExtremeDoubt = 'easy-unconfirmed' | 'hard-contradicted' | 'unscored' | 'not-found';
 
 /** Why an entry's genre is in question. See `blindtest-genres` on the server. */
 export type GenreFlagReason =

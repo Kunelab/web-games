@@ -332,6 +332,12 @@ const statements = [
     "found" INTEGER NOT NULL DEFAULT 0,
     "last_played_at" TEXT
   )`,
+  // How often each song or question has been heard, for a shuffle that favours the unheard.
+  `CREATE TABLE IF NOT EXISTS "MediaPlays" (
+    "key" TEXT PRIMARY KEY,
+    "plays" INTEGER NOT NULL DEFAULT 0,
+    "last_played_at" TEXT
+  )`,
   `CREATE INDEX IF NOT EXISTS "Media_user_id_idx" ON "Media" ("user_id")`,
   `CREATE INDEX IF NOT EXISTS "Media_kind_idx" ON "Media" ("kind")`,
   `CREATE INDEX IF NOT EXISTS "Media_category_idx" ON "Media" ("category")`,

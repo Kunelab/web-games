@@ -157,6 +157,8 @@ export interface RoundState {
    * so the several transitions a reveal goes through count it once.
    */
   statsRecorded?: boolean;
+  /** Set once this round has been counted as heard, for the same reason. See `recordPlay`. */
+  playCounted?: boolean;
 }
 
 /**
@@ -375,6 +377,8 @@ export interface CreateSessionOptions {
   hostUserId: number | null;
   items: MediaView[];
   config: SessionConfig;
+  /** How often each item has been heard, by id, for `config.freshFirst`. Absent ones never were. */
+  playCounts?: ReadonlyMap<number, number>;
   /** A code already allocated for this session, by the house's registry. */
   code: string;
 }
@@ -388,7 +392,7 @@ export function createSession(options: CreateSessionOptions): SessionState {
     const dateById = new Map(playable.map((item) => [item.id, item.date ?? '']));
     order = [...order].sort((a, b) => (dateById.get(a) ?? '').localeCompare(dateById.get(b) ?? ''));
   } else if (options.config.shuffle) {
-    order = shuffle(order);
+    order = options.config.freshFirst ? freshFirstOrder(order, options.playCounts ?? new Map()) : shuffle(order);
   }
 
   const now = Date.now();
@@ -409,6 +413,27 @@ export function createSession(options: CreateSessionOptions): SessionState {
     blindtest: playable.some((item) => item.kind === 'blindtest'),
     lastActivityAt: now
   };
+}
+
+/**
+ * A shuffle in which what has been heard least tends to come first.
+ *
+ * Each next item is drawn at random with a chance in proportion to its weight
+ * (Efraimidis and Spirakis: every item keeps a random key `u^(1/w)` and the
+ * order is the keys, highest first). A song never played weighs 1, once a
+ * quarter, twice a ninth: a room that plays the same playlist every week hears
+ * what it has not heard yet first, nearly always, and still never knows what
+ * comes next. With a round limit, that is what decides which songs make it in.
+ */
+export function freshFirstOrder(
+  ids: readonly number[],
+  plays: ReadonlyMap<number, number>,
+  random: () => number = () => randomInt(1, 2 ** 32) / 2 ** 32
+): number[] {
+  return ids
+    .map((id) => ({ id, key: random() ** ((1 + (plays.get(id) ?? 0)) ** 2) }))
+    .sort((left, right) => right.key - left.key)
+    .map((entry) => entry.id);
 }
 
 /** Fisher-Yates with crypto randomness, so the order is not predictable. */

@@ -683,6 +683,20 @@ export const blindtestRoundStats = sqliteTable('BlindtestRoundStats', {
   last_played_at: text('last_played_at')
 });
 
+/**
+ * How often each song or question has been heard, in any game.
+ *
+ * A blind test is counted by its YouTube video (`yt:<id>`), so one song kept
+ * in two playlists is one song heard; anything else by its item (`media:<id>`).
+ * Separate from `BlindtestRoundStats`, which counts only typed games, for
+ * whether anybody found the answer: a spoken game still played the song.
+ */
+export const mediaPlays = sqliteTable('MediaPlays', {
+  key: text('key').primaryKey(),
+  plays: integer('plays').notNull().default(0),
+  last_played_at: text('last_played_at')
+});
+
 export type MediaRow = typeof media.$inferSelect;
 export type GameResultRow = typeof gameResults.$inferSelect;
 export type NewMediaRow = typeof media.$inferInsert;

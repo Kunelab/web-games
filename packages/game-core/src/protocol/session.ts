@@ -384,6 +384,11 @@ export interface SessionView {
 export const sessionConfigSchema = z.object({
   /** Play the playlist in a random order. */
   shuffle: z.boolean().default(false),
+  /**
+   * With `shuffle`, what the room has heard least comes first, most of the
+   * time: still a shuffle, weighted by how often each item has been played.
+   */
+  freshFirst: z.boolean().default(true),
   /** Order media by their date rather than playlist position. */
   chronological: z.boolean().default(false),
 

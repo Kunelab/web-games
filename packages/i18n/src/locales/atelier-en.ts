@@ -334,7 +334,7 @@ export const atelierEn = {
   "ple.problem.genre": "Genre",
   "ple.problem.legacy": "Old label",
   "ple.problem.review": "Never found",
-  "ple.problem.extreme": "Doubtful extremes",
+  "ple.problem.extreme": "Doubtful difficulty",
   "ple.problem.unfinished": "To finish",
   "ple.filter.genre": "Genre",
   "ple.noMatchInPlaylist": "Nothing in the playlist matches.",
@@ -365,7 +365,7 @@ export const atelierEn = {
   /* ------- rounds rated easy that no room ever finds (admin) ------- */
   "ple.review.count": "{count} never found",
   "ple.review.badge": "Never found",
-  "ple.extreme.count": "{count} doubtful extreme(s)",
+  "ple.extreme.count": "{count} doubtful difficulty rating(s)",
   "ple.extreme.badge": "{difficulty}?",
   "ple.extreme.easyUnconfirmed":
     "Rated {difficulty}: only the artist is famous, the song itself is not a hit in its genre. Set the difficulty by hand if it really is a classic.",
@@ -373,6 +373,8 @@ export const atelierEn = {
     "Rated {difficulty}, yet widely watched or well ranked on Deezer: the artist was probably not found under this name.",
   "ple.extreme.unscored":
     "Rated {difficulty} the old way, with no figure to back it.",
+  "ple.extreme.notFound":
+    "Found nowhere on Deezer, Wikipedia or AniList: the answer may be wrong (the singer or the song instead of the anime) or misspelt. Difficulty {difficulty} kept as it was.",
   "ple.review.flag":
     "{title}: rated {difficulty}, and nobody found it in {plays} games. The difficulty or the clip probably needs a look.",
   /* ---------- genres in question in the generated-rounds catalogue (admin) ---------- */
@@ -427,6 +429,9 @@ export const atelierEn = {
     "The rounds are found as the evening runs. The room itself is a room like any other.",
   "launch.blindtest.source": "What will be played",
   "launch.shuffle": "Random order",
+  "launch.freshFirst": "Unplayed first",
+  "launch.freshFirst.hint":
+    "Still random, but what has never been played usually comes first, and what has been played comes later.",
   "launch.chronological": "Chronological order",
   "launch.chronological.hint": "By each media’s date.",
   "launch.autoAdvance": "Advance automatically",

@@ -178,6 +178,8 @@ export interface FameFacts {
   asked?: OptionalSources;
   /** Whether a request failed, leaving figures unknown that a retry may find. */
   partial?: boolean;
+  /** Which version of the lookup found these. See `LOOKUP_REVISION`. */
+  revision?: number;
 }
 
 function emptyFacts(): FameFacts {
@@ -548,7 +550,95 @@ function isKind(entity: WikidataEntity, kind: Exclude<WorkKind, 'anime'>): boole
 }
 
 /** How many of a work's names are tried before it is taken as unknown. */
-const MAX_NAMES = 3;
+const MAX_NAMES = 6;
+
+/** What follows a work's name to say which part of it: a season, an arc, an opening. */
+const PART_OF_A_WORK =
+  /\s*[-–:,]?\s*(?:the\s+)?(?:final\s+season|saison\s+\d+|season\s+\d+|\d+(?:st|nd|rd|th|e|ème)\s+(?:season|saison)|part(?:ie)?\s+\d+|cour\s+\d+|(?:opening|ending|op|ed)\s*\d*|(?:[\w-]+\s+)?arc)\s*$/i;
+
+/**
+ * The names a work's answer may be found under, most literal first.
+ *
+ * Answers are read off video titles and written for a room, not for a search:
+ * "My Hero Academia (Boku no Hīrō Akademia) - Final Season", "Superman (film,
+ * 1978) ou Superman (série animée, 1996)", "Drive (film, 2011)". Each of those
+ * found nothing, and nothing found used to read as nobody knowing them. So the
+ * answer is tried as written, then without what is in brackets, then without
+ * the season or the part it names, then each name in brackets on its own (an
+ * original or a translated title, usually), then each side of an "ou", and the
+ * part before a subtitle last, which is the franchise rather than the film.
+ * What a search finds is still checked against the names: see `workFame`.
+ */
+export function workNameVariants(answer: string): string[] {
+  const names: string[] = [];
+  // Compared as written, not normalised: normalising drops what is in brackets
+  // and any Japanese, and would take "Akuma no Ko (悪魔の子)" for "Akuma no Ko".
+  const add = (name: string) => {
+    const trimmed = name.replace(/\s+/g, ' ').replace(/^[\s:–-]+|[\s:–-]+$/g, '');
+    if (trimmed && !names.some((known) => known.toLowerCase() === trimmed.toLowerCase())) names.push(trimmed);
+  };
+  const unbracketed = (name: string) => name.replace(/\s*[([][^)\]]*[)\]]/g, ' ');
+  const bare = (name: string) => unbracketed(name).replace(PART_OF_A_WORK, '');
+
+  add(answer);
+  const sides = answer.split(/\s+(?:ou|or|\/)\s+/i);
+  for (const side of sides) {
+    add(side);
+    add(unbracketed(side));
+    add(bare(side));
+  }
+  for (const side of sides) {
+    for (const inner of side.match(/[([]([^)\]]+)[)\]]/g) ?? []) {
+      const name = inner.slice(1, -1);
+      // What the brackets say about the work rather than another name for it:
+      // a year, "film", "série animée", or which season or arc.
+      if (/^\s*(?:\d{4}|film|anime|série|series|tv|ova|movie)\b/i.test(name)) continue;
+      if (/\b(?:arc|season|saison|part|partie|cour|opening|ending)\b/i.test(name)) continue;
+      add(name);
+      add(bare(name));
+    }
+  }
+  for (const side of sides) add(bare(side).split(/\s*:\s+|\s+-\s+/)[0] ?? '');
+  return names;
+}
+
+/**
+ * Two titles that plausibly name the same anime: one is the other with more
+ * words, as a season's title is its series' with ": The Final Season" added.
+ */
+function closeTitle(title: string, name: string): boolean {
+  const a = normalizeAnswer(title);
+  const b = normalizeAnswer(name);
+  if (a.length < 4 || b.length < 4) return a === b && a.length > 0;
+  return a === b || a.startsWith(`${b} `) || b.startsWith(`${a} `);
+}
+
+/** What a season or an edition is part of, in the order they are worth trying. */
+const PARENT_CLAIMS = ['P179', 'P8345', 'P361', 'P144'];
+
+/**
+ * The item whose Wikipedia articles say how known a work is.
+ *
+ * An anime's AniList id, or a search, can land on the item for one season or
+ * one edition, which no Wikipedia covers while the series has thirty articles:
+ * Planetes and Aldnoah.Zero were scored as having none. Such an item is
+ * followed to what it is part of (the series, the franchise, what it is based
+ * on), and the best covered of those is the one. With no parent covered
+ * either, there is no item: the Wikipedia figures stay unknown rather than
+ * zero, since an uncovered season says nothing about the series.
+ */
+async function coveredItem(
+  entity: WikidataEntity | null,
+  sources: FameSources,
+  trace: Trace
+): Promise<WikidataEntity | null> {
+  if (!entity || wikipediaLanguages(entity) > 0) return entity;
+  const parents = [...new Set(PARENT_CLAIMS.flatMap((property) => entity.claims[property] ?? []))].slice(0, 6);
+  if (parents.length === 0) return null;
+  const candidates = settle(trace, await sources.wikidataEntities(parents)) ?? [];
+  const best = [...candidates].sort((left, right) => wikipediaLanguages(right) - wikipediaLanguages(left))[0];
+  return best && wikipediaLanguages(best) > 0 ? best : null;
+}
 
 /**
  * A film, series or game by its name, searched in French and in English.
@@ -595,10 +685,12 @@ async function workFame(
   trace: Trace
 ): Promise<FameFacts> {
   const facts = emptyFacts();
-  const names = [...new Set([target.work, ...(target.names ?? [])].map((name) => name.trim()).filter(Boolean))].slice(
-    0,
-    MAX_NAMES
-  );
+  const names = [...workNameVariants(target.work), ...(target.names ?? [])]
+    .map((name) => name.trim())
+    .filter(
+      (name, index, all) => name && all.findIndex((other) => other.toLowerCase() === name.toLowerCase()) === index
+    )
+    .slice(0, MAX_NAMES);
 
   if (target.kind === 'anime') {
     /**
@@ -611,26 +703,36 @@ async function workFame(
      */
     let anime: AnilistHit | null = null;
     let fallback: AnilistHit | null = null;
+    let answered = false;
     for (const name of names) {
       const hits = settle(trace, await sources.anilist(name)) ?? [];
-      fallback ??= hits[0] ?? null;
+      if (hits.length > 0) answered = true;
+      fallback ??= hits.find((hit) => hit.titles.some((title) => closeTitle(title, name))) ?? null;
       anime = hits.find((hit) => hit.titles.some((title) => sameName(title, name))) ?? null;
       if (anime) break;
     }
+    /**
+     * AniList's nearest match only when one of its titles is close to a name.
+     *
+     * It answers anything with something: a singer's name, read off a video
+     * title as the anime, came back as whichever anime matched best, and the
+     * round was scored with that anime's popularity. A match that shares no
+     * title with any name is a different anime, and an unknown is better.
+     */
     anime ??= fallback;
     if (anime) {
       facts.anilistMembers = anime.popularity;
       facts.ids.anilist = String(anime.id);
       const themes = settle(trace, await sources.animeThemes(anime.id));
       if (themes) facts.themes = themes;
-    } else if (!trace.failed) {
+    } else if (!trace.failed && !answered) {
       facts.anilistMembers = 0;
     }
     const qid = anime ? await firstByClaim('P8729', String(anime.id), sources, trace) : null;
     // No Wikipedia only for an anime AniList has never heard of either; one it
     // knows that Wikidata does not link to it is simply not known here.
-    const item = await entityById(qid ?? target.wikidataId, sources, trace);
-    await wikipediaFacts(item, facts, sources, trace, !anime && !item);
+    const item = await coveredItem(await entityById(qid ?? target.wikidataId, sources, trace), sources, trace);
+    await wikipediaFacts(item, facts, sources, trace, !anime && !answered && !qid && !target.wikidataId);
     return facts;
   }
 
@@ -643,7 +745,8 @@ async function workFame(
     entity = found.entity;
     absent &&= found.empty;
   }
-  await wikipediaFacts(entity, facts, sources, trace, absent && !entity);
+  const covered = await coveredItem(entity, sources, trace);
+  await wikipediaFacts(covered, facts, sources, trace, absent && !entity);
 
   if (target.kind !== 'game') {
     const kind = target.kind === 'film' ? 'movie' : 'tv';
@@ -672,11 +775,21 @@ export function fameKey(target: FameTarget): string {
     : `work:${target.kind}:${normalizeAnswer(target.work)}`;
 }
 
-function cached(db: Db, key: string, now: number): FameFacts | null {
+/**
+ * Which version of the lookups a cached answer came from, by shape.
+ *
+ * A work's lookup learned to try its other names and to follow a season to its
+ * series, and an answer kept from before is asked again rather than trusted for
+ * months: it is most of the works that found nothing. A song's has not changed.
+ */
+const LOOKUP_REVISION: Record<FameTarget['shape'], number> = { 'artist-title': 1, work: 2 };
+
+function cached(db: Db, key: string, now: number, shape: FameTarget['shape']): FameFacts | null {
   const row = db.select().from(blindtestFame).where(eq(blindtestFame.key, key)).get();
   if (!row || Date.parse(row.expires_at) < now) return null;
   try {
-    return JSON.parse(row.facts) as FameFacts;
+    const facts = JSON.parse(row.facts) as FameFacts;
+    return (facts.revision ?? 1) < LOOKUP_REVISION[shape] ? null : facts;
   } catch {
     return null;
   }
@@ -703,7 +816,7 @@ export async function lookupFame(
   const now = options.now ?? Date.now();
   const key = fameKey(target);
   if (!options.refresh) {
-    const hit = cached(db, key, now);
+    const hit = cached(db, key, now, target.shape);
     const configured = sources.configured();
     const keyedSince = (configured.lastfm && !hit?.asked?.lastfm) || (configured.tmdb && !hit?.asked?.tmdb);
     if (hit && !keyedSince) return hit;
@@ -723,6 +836,7 @@ export async function lookupFame(
 
   facts.asked = asked;
   facts.partial = trace.failed;
+  facts.revision = LOOKUP_REVISION[target.shape];
   try {
     keep(db, key, facts, now + (trace.failed ? PARTIAL_TTL_MS : FAME_TTL_MS));
   } catch {

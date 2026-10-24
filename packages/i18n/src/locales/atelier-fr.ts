@@ -319,7 +319,7 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.problem.genre": "Genre",
   "ple.problem.legacy": "Ancien libellé",
   "ple.problem.review": "Jamais trouvées",
-  "ple.problem.extreme": "Extrêmes douteux",
+  "ple.problem.extreme": "Difficulté douteuse",
   "ple.problem.unfinished": "À compléter",
   "ple.filter.genre": "Genre",
   "ple.noMatchInPlaylist": "Aucun média de la playlist ne correspond.",
@@ -350,7 +350,7 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   /* ------- manches notées faciles que personne ne trouve (admin) ------- */
   "ple.review.count": "{count} jamais trouvée(s)",
   "ple.review.badge": "Jamais trouvée",
-  "ple.extreme.count": "{count} extrême(s) douteux",
+  "ple.extreme.count": "{count} difficulté(s) douteuse(s)",
   "ple.extreme.badge": "{difficulty} ?",
   "ple.extreme.easyUnconfirmed":
     "Noté {difficulty} : seul l’artiste est très connu, le morceau lui-même n’est pas un tube de son genre. Fixez la difficulté à la main si c’est bien un classique.",
@@ -358,6 +358,8 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
     "Noté {difficulty}, pourtant très vu ou bien classé sur Deezer : l’artiste n’a sans doute pas été trouvé sous ce nom.",
   "ple.extreme.unscored":
     "Noté {difficulty} à l’ancienne, sans aucun chiffre pour le confirmer.",
+  "ple.extreme.notFound":
+    "Introuvable sur Deezer, Wikipedia et AniList : la réponse est peut-être fausse (le chanteur ou la chanson au lieu de l’anime) ou mal écrite. Difficulté {difficulty} gardée telle quelle.",
   "ple.review.flag":
     "{title} : notée {difficulty}, et personne ne l’a trouvée en {plays} parties. La difficulté ou l’extrait est sans doute à revoir.",
   /* ---------- genres in question in the generated-rounds catalogue (admin) ---------- */
@@ -413,6 +415,9 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
     "Les manches sont trouvées au fur et à mesure. Le salon, lui, est un salon comme les autres.",
   "launch.blindtest.source": "Ce qui sera joué",
   "launch.shuffle": "Ordre aléatoire",
+  "launch.freshFirst": "Priorité aux inédits",
+  "launch.freshFirst.hint":
+    "Toujours au hasard, mais ce qui n’a jamais été joué passe le plus souvent en premier, et ce qui a déjà été joué plus tard.",
   "launch.chronological": "Ordre chronologique",
   "launch.chronological.hint": "Selon la date de chaque média.",
   "launch.autoAdvance": "Enchaîner automatiquement",

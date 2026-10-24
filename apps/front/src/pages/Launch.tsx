@@ -301,6 +301,15 @@ export default function Launch({ source = 'playlist' }: { source?: LaunchSource 
                 checked={config.shuffle}
                 onCheckedChange={(checked) => setConfig({ ...config, shuffle: checked, chronological: false })}
               />
+              {/* Only a question about a shuffle, so only asked with one. */}
+              {config.shuffle && (
+                <Switch
+                  label={t(msg('launch.freshFirst'))}
+                  hint={t(msg('launch.freshFirst.hint'))}
+                  checked={config.freshFirst}
+                  onCheckedChange={(checked) => setConfig({ ...config, freshFirst: checked })}
+                />
+              )}
               <Switch
                 label={t(msg('launch.chronological'))}
                 hint={t(msg('launch.chronological.hint'))}

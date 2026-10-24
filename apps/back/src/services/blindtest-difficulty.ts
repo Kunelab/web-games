@@ -352,12 +352,23 @@ export interface ScoreBreakdown {
    * kept from the extremes it had not earned (`artist-only`, `contradicted`).
    */
   rule: 'famous' | 'obscure' | 'artist-only' | 'contradicted' | null;
+  /**
+   * No catalogue found it at all, and nothing says it is obscure: scored on
+   * what is left (the model, the seeds, the views), which a rescoring takes as
+   * no reason to change a number it already has. See `nothingFound`.
+   */
+  unfound: boolean;
 }
 
 export interface ScoreContext {
   shape: FameShape;
   audience: FameAudience;
   calibration: Calibration;
+  /**
+   * Whether the answer is a piece known in its own right, as in classical,
+   * whose Wikipedia figures are the piece's and not its composer's.
+   */
+  piece?: boolean;
 }
 
 /** The two sides and the blend, before the genre's spread is applied. */
@@ -458,7 +469,9 @@ export function songIsHit(fame: BlindtestFame, context: ScoreContext): boolean {
     hit('deezerRank') ||
     hit('lastfmListeners') ||
     hit('views') ||
-    (typeof fame.seedFame === 'number' && fame.seedFame >= HIT_SEED)
+    (typeof fame.seedFame === 'number' && fame.seedFame >= HIT_SEED) ||
+    // A piece's Wikipedia is its own, not its composer's: see `ScoreContext.piece`.
+    (context.piece === true && (hit('wikiLanguages') || hit('frPageviews') || hit('enPageviews')))
   );
 }
 
@@ -468,8 +481,46 @@ export function knownAfterAll(fame: BlindtestFame, context: ScoreContext): boole
   return context.shape === 'artist-title' && (zOf(fame, 'deezerRank', context.calibration) ?? -Infinity) >= 0;
 }
 
-/** Why a stored difficulty at either end is in doubt. See `extremeDoubt`. */
-export type ExtremeDoubt = 'easy-unconfirmed' | 'hard-contradicted' | 'unscored';
+/** What the catalogues give, as opposed to the views, the model and the seeds. */
+const CATALOGUE_SIGNALS: readonly FameSignal[] = [
+  'deezerRank',
+  'deezerFans',
+  'lastfmListeners',
+  'wikiLanguages',
+  'frPageviews',
+  'enPageviews',
+  'anilistMembers',
+  'tmdbVotes'
+];
+
+/**
+ * The catalogues answered, and every answer was nothing: a zero somewhere,
+ * and not one figure above it. (Figures that are all unknown say nothing
+ * either way, and are scored on what is left as they always were.)
+ *
+ * Read as "nobody knows it", that put "My Hero Academia", "Superman" and all
+ * of (G)I-DLE at 85 to 99. It is almost always the name instead: a season or
+ * a translation in brackets ("Drive (film, 2011)"), punctuation a search does
+ * not take, or an answer that is not the work at all (a singer, the song) read
+ * off a Japanese video title.
+ */
+export function nothingFound(fame: BlindtestFame): boolean {
+  const values = CATALOGUE_SIGNALS.map((signal) => fame[signal]);
+  return values.some((value) => value === 0) && !values.some((value) => typeof value === 'number' && value > 0);
+}
+
+/** Found nowhere, and the views do not say it is obscure either. See `nothingFound`. */
+function unfound(fame: BlindtestFame, shape: FameShape): boolean {
+  return nothingFound(fame) && !nobodyKnows(fame, shape);
+}
+
+/** The figures with the catalogues' zeros taken for what they are here: unknown. */
+function withoutCatalogues(fame: BlindtestFame): BlindtestFame {
+  return { ...fame, ...Object.fromEntries(CATALOGUE_SIGNALS.map((signal) => [signal, null])) };
+}
+
+/** Why a stored difficulty is in doubt. See `extremeDoubt`. */
+export type ExtremeDoubt = 'easy-unconfirmed' | 'hard-contradicted' | 'unscored' | 'not-found';
 
 /**
  * Why a difficulty at either end is in doubt, or null when nothing says so.
@@ -479,12 +530,16 @@ export type ExtremeDoubt = 'easy-unconfirmed' | 'hard-contradicted' | 'unscored'
  * rescoring has reached yet or ever will (a round edited by hand before edits
  * were marked), and the extremes scored before any figure was kept, which
  * nothing backs either way.
+ *
+ * And, wherever it sits, a round no catalogue found at all: its number was
+ * kept rather than made up, and the answer itself is the likeliest culprit.
  */
 export function extremeDoubt(
   difficulty: number,
   fame: BlindtestFame | null | undefined,
   context: ScoreContext
 ): ExtremeDoubt | null {
+  if (fame?.looked && unfound(fame, context.shape)) return 'not-found';
   if (difficulty > EASY_END && difficulty < HARD_END) return null;
   if (!fame?.looked) return 'unscored';
   if (difficulty <= EASY_END) return songIsHit(fame, context) ? null : 'easy-unconfirmed';
@@ -493,7 +548,8 @@ export function extremeDoubt(
 
 /** The difficulty, and how it came out. */
 export function scoreBreakdown(fame: BlindtestFame, context: ScoreContext): ScoreBreakdown {
-  const { french, international, counted, composite } = blend(fame, context);
+  const missing = fame.looked === true && unfound(fame, context.shape);
+  const { french, international, counted, composite } = blend(missing ? withoutCatalogues(fame) : fame, context);
 
   let difficulty = MIDDLE;
   if (composite !== null) {
@@ -521,7 +577,7 @@ export function scoreBreakdown(fame: BlindtestFame, context: ScoreContext): Scor
     rule = 'contradicted';
   }
 
-  return { difficulty, french, international, fame: counted, composite, rule };
+  return { difficulty, french, international, fame: counted, composite, rule, unfound: missing };
 }
 
 export function scoreDifficulty(fame: BlindtestFame, context: ScoreContext): number {
