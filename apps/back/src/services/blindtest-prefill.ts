@@ -147,6 +147,17 @@ export async function prefillCatalogue(
   const budget = Math.max(0, env.BLINDTEST_SEARCH_BUDGET - PREFILL_KEEP);
 
   try {
+    /**
+     * Wikidata's list first, before anything that could spend a search.
+     *
+     * The famous songs it finds a video for cost no search at all, and while it
+     * is missing they are not searched either: they wait. So the run asks for it
+     * before planning anything, through every try and even right after a failed
+     * one, whether it was started by hand or by the night. It goes on without
+     * it, for the rest, when QLever will not answer.
+     */
+    await catalogue.loadVideoIndex();
+
     // A facet reads its parent's pool and has no seeds of its own.
     const genres = GENRES.filter((genre) => !genre.facetOf && genre.seeds && genre.seeds.length > 0);
     const stock = await countLibrary(

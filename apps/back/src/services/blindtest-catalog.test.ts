@@ -909,3 +909,34 @@ describe("Wikidata's list of song videos", () => {
     assert.equal((await stock.videoIndex(false))?.songs.size, 1);
   });
 });
+
+describe("Wikidata's list, asked for by force", () => {
+  it('is fetched again at once, though the last try failed a minute ago', async () => {
+    const { db } = openDb(':memory:');
+    let refuse = true;
+    let asked = 0;
+    const { sources } = fakeSources();
+    const stock = createSeedStock({
+      sources: {
+        ...sources.seeds,
+        async sparql(_endpoint, query) {
+          asked += 1;
+          if (refuse) return null;
+          return query.includes('wdt:P1651') ? { results: { bindings: [] } } : { results: { bindings: [] } };
+        }
+      },
+      db,
+      clock: fakeClock(),
+      wait: async () => {}
+    });
+
+    assert.equal(await stock.videoIndex(), null);
+    refuse = false;
+    const before = asked;
+
+    // Without force, the failure stands for the hour; with it, QLever is asked again.
+    assert.equal(await stock.videoIndex(), null);
+    assert.equal(asked, before);
+    assert.notEqual(await stock.videoIndex(true, true), null);
+  });
+});

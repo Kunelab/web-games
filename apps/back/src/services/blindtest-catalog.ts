@@ -1370,6 +1370,11 @@ export interface Catalogue {
   seedStats(): SeedStats[];
   /** Where Wikidata's list of song videos and artist channels stands. */
   videoIndexStatus(): VideoIndexStatus;
+  /**
+   * Loads that list now, waiting through every try, even when the last one
+   * failed less than an hour ago. Whether it loaded.
+   */
+  loadVideoIndex(): Promise<boolean>;
   /** Which genres' seeds know each name. For the genre check on the shared catalogue. */
   seedIndex(): SeedIndex;
   /** Today's search spending, by the Pacific day Google resets the quota on. */
@@ -2421,6 +2426,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     warmSeeds: () => stock.warm(GENRES),
     seedStats: () => stock.stats(),
     videoIndexStatus: () => stock.videoIndexStatus(),
+    loadVideoIndex: async () => (await stock.videoIndex(true, true)) !== null,
     seedIndex: () => stock.index(),
     searchesToday: () => {
       const day = quotaDay(clock);

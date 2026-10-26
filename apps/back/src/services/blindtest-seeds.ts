@@ -1311,7 +1311,7 @@ export interface SeedStock {
    * asked for in the background and null comes back at once: a room's fill does
    * not wait minutes on it, the night's prefill does.
    */
-  videoIndex(wait?: boolean): Promise<VideoIndex | null>;
+  videoIndex(wait?: boolean, force?: boolean): Promise<VideoIndex | null>;
   /** When the list last loaded or failed to, and how big it is. For the diagnostics. */
   videoIndexStatus(): VideoIndexStatus;
   /**
@@ -1903,7 +1903,8 @@ export function createSeedStock({
     });
   }
 
-  function videoIndexNow(waitForIt = true): Promise<VideoIndex | null> {
+  /** `force` asks again now even after a failure, though never over a list less than a day old. */
+  function videoIndexNow(waitForIt = true, force = false): Promise<VideoIndex | null> {
     if (!videoIndexCache) {
       const stored = storedVideoIndex();
       if (stored) {
@@ -1911,7 +1912,7 @@ export function createSeedStock({
         noteLoaded(stored.at, stored.index);
       }
     }
-    const keep = videoIndexCache?.index ? DAY_MS : VIDEO_INDEX_RETRY_MS;
+    const keep = videoIndexCache?.index ? DAY_MS : force ? 0 : VIDEO_INDEX_RETRY_MS;
     if (videoIndexCache && clock.now() - videoIndexCache.at < keep) return Promise.resolve(videoIndexCache.index);
     indexing ??= fetchVideoIndex()
       .catch(() => null)
