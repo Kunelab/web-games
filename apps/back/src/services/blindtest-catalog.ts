@@ -77,9 +77,11 @@ import {
   byArtistOf,
   channelsFor,
   createSeedStock,
+  isTheRecording,
   otherNames,
   searchesHits,
   songKeys,
+  songTitle,
   trackOracleKey,
   uploadsFor,
   uploadsPlaylist,
@@ -90,7 +92,8 @@ import {
   type SeedSearch,
   type SeedSource,
   type SeedSources,
-  type SeedStats
+  type SeedStats,
+  type VideosFrom
 } from './blindtest-seeds.js';
 import { chargeUnits, quotaDay, searchesOn, spendSearch, unitsLeft } from './youtube-budget.js';
 import { YoutubeError, type VideoFacts, type YoutubePlaylistItem } from './youtube-service.js';
@@ -1026,7 +1029,12 @@ function toEntry(
    * the work: a scene from an anime AniList knows well is still not its
    * opening, and a live search returned a pool's worth of exactly those.
    */
-  oracle: GenreOracle | null = null
+  oracle: GenreOracle | null = null,
+  /**
+   * The answer, when it is already a fact and no model was asked: a song whose
+   * video Wikidata gives. See `buildEntries`. Music only.
+   */
+  known?: { artist: string; title: string }
 ): PoolEntry | null {
   const rawTitle = facts.title;
 
@@ -1058,10 +1066,10 @@ function toEntry(
   let seedWikidataId: string | null = null;
 
   if (genre.answerShape === 'artist-title') {
-    if (annotationRan && !annotation) return null;
+    if (annotationRan && !annotation && !known) return null;
 
-    artist = annotation?.artist?.trim() || '';
-    title = annotation?.answer?.trim() || '';
+    artist = known?.artist || annotation?.artist?.trim() || '';
+    title = known?.title || annotation?.answer?.trim() || '';
     if (!artist || !title) {
       const split = splitArtistTitle(rawTitle);
       artist = artist || split.artist;
@@ -1544,12 +1552,12 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     const index = await stock.videoIndex();
     if (!index) return;
 
-    const found: { id: number; videos: string[] }[] = [];
+    const found: { id: number; videos: string[]; from: VideosFrom }[] = [];
     const byChannel = new Map<string, typeof pending>();
     for (const seed of pending) {
       const known = videosFor(index, seed.artist, seed.title);
       const [channel] = channelsFor(index, seed.artist);
-      if (known.length > 0 || !channel) found.push({ id: seed.id, videos: known });
+      if (known.length > 0 || !channel) found.push({ id: seed.id, videos: known, from: 'wikidata' });
       else byChannel.set(channel, [...(byChannel.get(channel) ?? []), seed]);
     }
 
@@ -1565,7 +1573,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
         if (!(error instanceof YoutubeError)) throw error;
       }
       chargeUnits(db, Math.max(1, Math.ceil(uploads.length / 50)), clock);
-      for (const seed of seeds) found.push({ id: seed.id, videos: uploadsFor(uploads, seed.title) });
+      for (const seed of seeds) found.push({ id: seed.id, videos: uploadsFor(uploads, seed.title), from: 'channel' });
     }
     stock.recordVideos(found);
   }
@@ -1680,8 +1688,32 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
         !NOT_A_SINGLE_WORK.test(fact.title)
     );
 
+    /**
+     * A video Wikidata gives for a song needs no model to say what it is.
+     *
+     * The answer is a fact: the seed's song, by the artist its editors credit.
+     * Only when the video's own title agrees, though (see `isTheRecording`): a
+     * wrong id or a live take of the song is read like any other candidate.
+     */
+    const fromWikidata = new Map<string, { artist: string; title: string }>();
+    for (const step of steps) {
+      if (!step.seed?.videoIds) continue;
+      for (const seed of [...step.seed.seeds].sort((left, right) => right.fame - left.fame)) {
+        if (seed.videosFrom !== 'wikidata') continue;
+        for (const id of seed.videos ?? []) {
+          if (!fromWikidata.has(id)) fromWikidata.set(id, { artist: seed.artist, title: songTitle(seed.title) });
+        }
+      }
+    }
+    const answered = new Map<string, { artist: string; title: string }>();
+    for (const fact of surviving) {
+      const song = fromWikidata.get(fact.videoId);
+      if (song && isTheRecording(fact.title, song.title)) answered.set(fact.videoId, song);
+    }
+    const toRead = surviving.filter((fact) => !answered.has(fact.videoId));
+
     const annotations = await sources.annotate(
-      surviving.map((fact) => ({
+      toRead.map((fact) => ({
         videoId: fact.videoId,
         title: fact.title,
         channel: fact.channel,
@@ -1707,7 +1739,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
      * marked searched and never tried again for a month. The searches are gone
      * either way; the seeds need not be.
      */
-    if (genre.answerShape === 'work' && surviving.length > 0 && !annotationRan) {
+    if (genre.answerShape === 'work' && toRead.length > 0 && !annotationRan) {
       for (const seed of ran) stock.unmarkSearched(seed);
     }
 
@@ -1720,7 +1752,14 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     const byTrack = new Map<string, number>();
 
     for (const fact of surviving) {
-      const entry = toEntry(fact, genre, annotations.get(fact.videoId), annotationRan, oracle);
+      const entry = toEntry(
+        fact,
+        genre,
+        annotations.get(fact.videoId),
+        annotationRan,
+        oracle,
+        answered.get(fact.videoId)
+      );
       if (!entry || exclude.trackKeys.has(entry.trackKey)) continue;
 
       /**
@@ -1767,7 +1806,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
       spent,
       looked,
       annotated: annotationRan,
-      candidates: surviving.length,
+      candidates: toRead.length,
       searched: ran
     };
   }

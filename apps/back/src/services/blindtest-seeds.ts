@@ -162,7 +162,11 @@ export interface Seed {
   fame: number;
   /** A hit's videos, found without a search. See `VideoIndex`. */
   videos?: string[];
+  /** Where: Wikidata's video of the song is a fact, a channel's upload a match on its title. */
+  videosFrom?: VideosFrom;
 }
+
+export type VideosFrom = 'wikidata' | 'channel';
 
 /** One YouTube search, and the seeds it is aimed at. */
 export interface SeedSearch {
@@ -883,35 +887,46 @@ const NOT_THE_RECORDING =
   /\b(live|teaser|trailer|making|behind|backstage|interview|reaction|snippet|extrait|preview|shorts?|tiktok|karaoke|instrumental|cover|remix|acoustic|acoustique|session|version)\b/gi;
 const OFFICIAL = /\b(official|officiel(?:le)?|clip|music video|audio|visuali[sz]er)\b/i;
 
+function noiseIn(text: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const match of text.matchAll(NOT_THE_RECORDING)) {
+    const word = (match[1] ?? '').toLowerCase();
+    counts.set(word, (counts.get(word) ?? 0) + 1);
+  }
+  return counts;
+}
+
 /**
- * The uploads on an artist's channel that are this song, the official ones first.
+ * Whether a video's title says it is this song, and only the song.
  *
- * An upload is taken when its title holds one of the song's names as whole
- * words, and left when it also says it is a live take, a teaser or a remix,
- * more often than the song's own name does: Oasis's "Live Forever" is live
- * only in its title. The model reads what is kept, as it reads a search's.
+ * It has to hold one of the song's names as whole words, and must not also say
+ * it is a live take, a teaser or a remix more often than the song's own name
+ * does: Oasis's "Live Forever" is live only in its title, and "Live Forever
+ * (Live at Knebworth)" says it once more.
+ */
+export function isTheRecording(videoTitle: string, title: string): boolean {
+  const text = ` ${normalizeAnswer(videoTitle)} `;
+  if (!titleKeys(title).some((name) => text.includes(` ${name} `))) return false;
+  const own = noiseIn(title);
+  return [...noiseIn(videoTitle)].every(([word, times]) => times <= (own.get(word) ?? 0));
+}
+
+/**
+ * The uploads on an artist's channel that are this song, the official ones
+ * first. See `isTheRecording`. The model reads what is kept, as it reads a
+ * search's: a title matched on a channel is a guess, where Wikidata's is a fact.
  */
 export function uploadsFor(uploads: readonly { title: string; videoId: string }[], title: string): string[] {
-  const names = titleKeys(title);
-  const noise = (text: string) => {
-    const counts = new Map<string, number>();
-    for (const match of text.matchAll(NOT_THE_RECORDING)) {
-      const word = (match[1] ?? '').toLowerCase();
-      counts.set(word, (counts.get(word) ?? 0) + 1);
-    }
-    return counts;
-  };
-  const own = noise(title);
-  const matching = uploads.filter((upload) => {
-    const text = ` ${normalizeAnswer(upload.title)} `;
-    if (!names.some((name) => text.includes(` ${name} `))) return false;
-    // "Live Forever (Live at Knebworth)" says live once more than the song does.
-    return [...noise(upload.title)].every(([word, times]) => times <= (own.get(word) ?? 0));
-  });
-  return matching
+  return uploads
+    .filter((upload) => isTheRecording(upload.title, title))
     .sort((left, right) => Number(OFFICIAL.test(right.title)) - Number(OFFICIAL.test(left.title)))
     .slice(0, VIDEOS_PER_SONG)
     .map((upload) => upload.videoId);
+}
+
+/** A hit's title as the answer: without what the release added, "(feat. David Bowie)". */
+export function songTitle(title: string): string {
+  return title.replace(RELEASE_NOTE, '').trim() || title;
 }
 
 /** What one source returned, and how many of its requests failed on the way. */
@@ -940,6 +955,7 @@ function toSeed(row: {
   year: number | null;
   fame: number;
   videos: string | null;
+  videos_from: string | null;
 }): Seed {
   return {
     id: row.id,
@@ -949,7 +965,8 @@ function toSeed(row: {
     aliases: parseAliases(row.aliases),
     year: row.year,
     fame: row.fame,
-    ...(row.videos ? { videos: parseAliases(row.videos) } : {})
+    ...(row.videos ? { videos: parseAliases(row.videos) } : {}),
+    ...(row.videos_from === 'wikidata' || row.videos_from === 'channel' ? { videosFrom: row.videos_from } : {})
   };
 }
 
@@ -1269,7 +1286,7 @@ export interface SeedStock {
    */
   pendingVideos(genre: SeededGenre): { id: number; artist: string; title: string }[];
   /** What was found for these hits: their videos, or none. */
-  recordVideos(found: { id: number; videos: string[] }[]): void;
+  recordVideos(found: { id: number; videos: string[]; from: VideosFrom | null }[]): void;
   /** Wikidata's songs and channels, fetched once a day. Null while neither endpoint answers. */
   videoIndex(): Promise<VideoIndex | null>;
   /**
@@ -1602,7 +1619,7 @@ export function createSeedStock({
     if (plan(genre, 1).length === 0) {
       const cutoff = stamp(clock.now() - RECYCLE_AFTER_MS);
       db.update(blindtestSeeds)
-        .set({ searched_at: null, tries: 0, tried_at: null, videos: null })
+        .set({ searched_at: null, tries: 0, tried_at: null, videos: null, videos_from: null })
         .where(and(eq(blindtestSeeds.genre_id, genre.id), lt(blindtestSeeds.searched_at, cutoff)))
         .run();
     }
@@ -1622,7 +1639,8 @@ export function createSeedStock({
         aliases: blindtestSeeds.aliases,
         year: blindtestSeeds.year,
         fame: blindtestSeeds.fame,
-        videos: blindtestSeeds.videos
+        videos: blindtestSeeds.videos,
+        videos_from: blindtestSeeds.videos_from
       })
       .from(blindtestSeeds)
       .where(
@@ -1665,7 +1683,10 @@ export function createSeedStock({
     db.transaction((tx) => {
       for (const seed of search.seeds) {
         tx.update(blindtestSeeds)
-          .set({ tries: sql`${blindtestSeeds.tries} + 1`, ...(search.videoIds ? { videos: '[]' } : {}) })
+          .set({
+            tries: sql`${blindtestSeeds.tries} + 1`,
+            ...(search.videoIds ? { videos: '[]', videos_from: null } : {})
+          })
           .where(eq(blindtestSeeds.id, seed.id))
           .run();
       }
@@ -1693,7 +1714,8 @@ export function createSeedStock({
         searched_at: blindtestSeeds.searched_at,
         tries: blindtestSeeds.tries,
         tried_at: blindtestSeeds.tried_at,
-        videos: blindtestSeeds.videos
+        videos: blindtestSeeds.videos,
+        videos_from: blindtestSeeds.videos_from
       })
       .from(blindtestSeeds)
       .where(and(eq(blindtestSeeds.genre_id, genre.id), gte(blindtestSeeds.fame, HIT_FAME)))
@@ -1731,13 +1753,16 @@ export function createSeedStock({
         (last, seed) => (seed.tried_at && (!last || seed.tried_at > last) ? seed.tried_at : last),
         null
       );
-      const videos =
-        seeds.find((seed) => seed.videos && seed.videos !== '[]')?.videos ?? seeds.find((seed) => seed.videos)?.videos;
+      const known = seeds.find((seed) => seed.videos && seed.videos !== '[]') ?? seeds.find((seed) => seed.videos);
       for (const seed of seeds) {
         if (seed.searched_at !== null) continue;
         if (found || tries >= HIT_TRIES) updates.push({ id: seed.id, set: { searched_at: at, found: found ? 1 : 0 } });
-        else if (seed.tries !== tries || seed.tried_at !== triedAt || (seed.videos === null && videos)) {
-          updates.push({ id: seed.id, set: { tries, tried_at: triedAt, videos: seed.videos ?? videos ?? null } });
+        else if (seed.tries !== tries || seed.tried_at !== triedAt || (seed.videos === null && known)) {
+          const videos = seed.videos === null && known ? known : seed;
+          updates.push({
+            id: seed.id,
+            set: { tries, tried_at: triedAt, videos: videos.videos, videos_from: videos.videos_from }
+          });
         }
       }
     }
@@ -1768,12 +1793,12 @@ export function createSeedStock({
     return hitsOf(genre).filter((seed) => seed.searched_at === null && seed.videos === null);
   }
 
-  function recordVideos(found: { id: number; videos: string[] }[]): void {
+  function recordVideos(found: { id: number; videos: string[]; from: VideosFrom | null }[]): void {
     if (found.length === 0) return;
     db.transaction((tx) => {
-      for (const { id, videos } of found) {
+      for (const { id, videos, from } of found) {
         tx.update(blindtestSeeds)
-          .set({ videos: JSON.stringify(videos) })
+          .set({ videos: JSON.stringify(videos), videos_from: videos.length > 0 ? from : null })
           .where(eq(blindtestSeeds.id, id))
           .run();
       }

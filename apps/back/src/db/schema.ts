@@ -617,6 +617,8 @@ export const blindtestSeeds = sqliteTable(
      * were, null until somebody looked. See `lookUpVideos`.
      */
     videos: text('videos'),
+    /** Where they came from: `wikidata`, whose video of the song is filed without the model, or `channel`. */
+    videos_from: text('videos_from'),
     created_at: text('created_at').default(now)
   },
   (table) => [

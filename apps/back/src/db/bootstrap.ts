@@ -295,6 +295,7 @@ const statements = [
     "tried_at" TEXT,
     "tries" INTEGER NOT NULL DEFAULT 0,
     "videos" TEXT,
+    "videos_from" TEXT,
     "created_at" TEXT DEFAULT CURRENT_TIMESTAMP
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "BlindtestSeeds_source_unique" ON "BlindtestSeeds" ("genre_id", "source", "source_key")`,
@@ -397,6 +398,8 @@ const addedColumns: { table: string; column: string; definition: string; fill?: 
   { table: 'BlindtestSeeds', column: 'tries', definition: 'INTEGER NOT NULL DEFAULT 0' },
   // A hit's videos found without a search, and the units the cheap calls that found them took.
   { table: 'BlindtestSeeds', column: 'videos', definition: 'TEXT' },
+  // Where they came from, which decides whether the model has to read them.
+  { table: 'BlindtestSeeds', column: 'videos_from', definition: 'TEXT' },
   { table: 'BlindtestSearchLedger', column: 'units', definition: 'INTEGER NOT NULL DEFAULT 0' },
   // The plays lately, starting from every play so far as of the last one.
   {

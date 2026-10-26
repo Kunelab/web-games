@@ -18,6 +18,7 @@ import {
   qleverQuery,
   rankFame,
   songKeys,
+  songTitle,
   trackOracleKey,
   uploadsFor,
   uploadsPlaylist,
@@ -524,6 +525,11 @@ describe('uploadsFor', () => {
     ];
 
     assert.deepEqual(uploadsFor(uploads, 'Live Forever'), ['official001', 'lyrics00001']);
+  });
+
+  it("answers with the song's own name, without what the release added", () => {
+    assert.equal(songTitle('Under Pressure (feat. David Bowie)'), 'Under Pressure');
+    assert.equal(songTitle("(I Can't Get No) Satisfaction"), "(I Can't Get No) Satisfaction");
   });
 
   it('reads a channel as its uploads playlist', () => {

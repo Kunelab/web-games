@@ -100,7 +100,7 @@ interface World {
  * the world files under it.
  */
 function fakeSources(world: World = {}) {
-  const calls = { search: [] as string[], sparql: 0, playlist: [] as string[] };
+  const calls = { search: [] as string[], sparql: 0, playlist: [] as string[], read: [] as string[] };
   const clips = world.clips ?? [];
   const playlists: string[] = [];
 
@@ -209,6 +209,7 @@ function fakeSources(world: World = {}) {
     },
     fame: { ...noFameSources, ...world.fame },
     async annotate(candidates) {
+      calls.read.push(...candidates.map((candidate) => candidate.videoId));
       return new Map(candidates.map((candidate) => [candidate.videoId, reading(candidate, clips)]));
     }
   };
@@ -526,6 +527,21 @@ describe("a famous song's video, found without a search", () => {
     assert.equal(result?.free, 1);
     assert.equal(result?.spent, 0);
     assert.deepEqual(answers(result?.entries ?? []), ['Queen / Bohemian Rhapsody']);
+    // The answer is Wikidata's and Deezer's: nothing for the model to read.
+    assert.deepEqual(calls.read, []);
+  });
+
+  it('is read by the model after all when its own title says it is something else', async () => {
+    const { catalogue, calls } = catalogueOver({
+      deezer: rockList(QUEEN),
+      wikidata: { videos: [{ artist: 'Queen', title: 'Bohemian Rhapsody', video: 'liveaid1985' }] },
+      clips: [{ id: 'liveaid1985', title: 'Queen - Bohemian Rhapsody (Live Aid 1985)', read: { kind: 'reject' } }]
+    });
+
+    const result = await catalogue.searchForCatalogue('rock', 95);
+
+    assert.deepEqual(calls.read, ['liveaid1985']);
+    assert.deepEqual(result?.entries, []);
   });
 
   it("is on the artist's channel when Wikidata has none, for a unit and not a search", async () => {
@@ -546,6 +562,8 @@ describe("a famous song's video, found without a search", () => {
 
     assert.deepEqual(calls.search, []);
     assert.deepEqual(calls.playlist, [`UU${QUEEN_CHANNEL.slice(2)}`]);
+    // A title matched on a channel is a guess, which the model still checks.
+    assert.deepEqual(calls.read, ['queenvideo1']);
     assert.deepEqual(answers(result?.entries ?? []), ['Queen / Bohemian Rhapsody']);
     // One page read: one unit, which the day counts as a search's worth begun.
     assert.equal(catalogue.searchesToday().used, 1);
