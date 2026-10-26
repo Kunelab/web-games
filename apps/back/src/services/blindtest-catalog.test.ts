@@ -588,6 +588,40 @@ describe("a famous song's video, found without a search", () => {
   });
 });
 
+describe('a run that spends no search', () => {
+  const QUEEN_CHANNEL = 'UCiMhD4jzUqG-IgPzUmmytRQ';
+
+  it('looks up the videos it knows and searches nothing else', async () => {
+    const { catalogue, calls } = catalogueOver({
+      deezer: rockList(QUEEN),
+      wikidata: { videos: [{ artist: 'Queen', title: 'Bohemian Rhapsody', video: 'fJ9rUzIMcZQ' }] },
+      clips: [{ id: 'fJ9rUzIMcZQ', title: 'Queen - Bohemian Rhapsody' }]
+    });
+
+    const looked = await catalogue.searchForCatalogue('rock', 95, { searches: false });
+    // The hit rests a week once looked up: what is left would need a search.
+    const after = await catalogue.searchForCatalogue('rock', 95, { searches: false });
+
+    assert.deepEqual(answers(looked?.entries ?? []), ['Queen / Bohemian Rhapsody']);
+    assert.equal(after, null);
+    assert.deepEqual(calls.search, []);
+  });
+
+  it('counts a channel read as a step, though it held none of the songs', async () => {
+    const { catalogue, calls } = catalogueOver({
+      deezer: rockList(QUEEN),
+      wikidata: { channels: [{ artist: 'Queen', channel: QUEEN_CHANNEL }] },
+      uploads: { [`UU${QUEEN_CHANNEL.slice(2)}`]: [{ id: 'queenother1', title: 'Queen - Radio Ga Ga' }] }
+    });
+
+    const result = await catalogue.searchForCatalogue('rock', 95, { searches: false });
+
+    assert.equal(result?.channels, 1);
+    assert.deepEqual(result?.entries, []);
+    assert.deepEqual(calls.search, []);
+  });
+});
+
 describe("the day's search budget", () => {
   it('stops the searches once it is spent, whichever genre asks next', async () => {
     const artists = Array.from({ length: 9 }, (_, index) => ({ artist: `Artist ${index}`, title: `Track ${index}` }));

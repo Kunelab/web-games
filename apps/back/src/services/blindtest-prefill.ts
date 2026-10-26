@@ -88,6 +88,8 @@ export interface PrefillReport {
   searches: number;
   /** Lookups of hits whose videos were already known, which spent none. */
   lookups: number;
+  /** Artists' channels read for their hits' videos, at a unit a page. */
+  channels: number;
   /** New rows in the catalogue. */
   saved: number;
   byGenre: Record<string, number>;
@@ -114,8 +116,16 @@ function pause(ms: number): Promise<void> {
  * are already known, which spends none), the genres with the fewest catalogue
  * rows first, until the budget, the quota day or every genre's seeds run out.
  * One run at a time: a second call while one is going returns it.
+ *
+ * Without `searches`, only what costs no search: the hits whose videos
+ * Wikidata gives, and those on the artists' channels, read at a unit a page
+ * and taken out of the same day. A few hundred units where the searches for
+ * the same songs would have been thousands.
  */
-export async function prefillCatalogue(log?: FastifyBaseLogger): Promise<PrefillReport> {
+export async function prefillCatalogue(
+  log?: FastifyBaseLogger,
+  options: { searches?: boolean } = {}
+): Promise<PrefillReport> {
   if (running) return running;
 
   const report: PrefillReport = {
@@ -123,6 +133,7 @@ export async function prefillCatalogue(log?: FastifyBaseLogger): Promise<Prefill
     finishedAt: null,
     searches: 0,
     lookups: 0,
+    channels: 0,
     saved: 0,
     byGenre: {},
     stopped: ''
@@ -156,13 +167,14 @@ export async function prefillCatalogue(log?: FastifyBaseLogger): Promise<Prefill
           break rounds;
         }
 
-        const result = await catalogue.searchForCatalogue(genre.id, budget);
-        if (!result || (result.spent === 0 && result.free === 0)) {
+        const result = await catalogue.searchForCatalogue(genre.id, budget, { searches: options.searches });
+        if (!result || (result.spent === 0 && result.free === 0 && result.channels === 0)) {
           done.add(genre.id);
           continue;
         }
         report.searches += result.spent;
         report.lookups += result.free;
+        report.channels += result.channels;
         searched = true;
         if (result.modelDown) {
           report.stopped = 'no model answered';
@@ -182,7 +194,11 @@ export async function prefillCatalogue(log?: FastifyBaseLogger): Promise<Prefill
       }
       if (!searched) {
         report.stopped ||=
-          catalogue.searchesToday().used >= budget ? 'the budget is spent' : 'every genre has searched its seeds';
+          options.searches === false
+            ? 'every genre has looked up what it could without a search'
+            : catalogue.searchesToday().used >= budget
+              ? 'the budget is spent'
+              : 'every genre has searched its seeds';
         break;
       }
     }
@@ -199,6 +215,7 @@ export async function prefillCatalogue(log?: FastifyBaseLogger): Promise<Prefill
     {
       searches: report.searches,
       lookups: report.lookups,
+      channels: report.channels,
       saved: report.saved,
       byGenre: report.byGenre,
       stopped: report.stopped

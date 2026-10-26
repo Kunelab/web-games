@@ -430,17 +430,34 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
    * The overnight prefill, on demand: the same run, bounded by the same
    * budget. Not awaited, since a full one takes an hour; `GET /blindtest/seeds`
    * shows it going.
+   *
+   * `?searches=0` runs only what costs no search: the hits whose videos are
+   * known, and the artists' channels, at a unit a page. See `prefillCatalogue`.
    */
-  app.post('/blindtest/prefill', { preHandler: app.requireAuth }, async (request, reply) => {
-    if (!isAdmin(request.currentUser)) {
-      throw app.httpErrors.forbidden('Réservé à un administrateur');
+  app.post(
+    '/blindtest/prefill',
+    {
+      preHandler: app.requireAuth,
+      schema: {
+        querystring: z.object({
+          searches: z
+            .string()
+            .optional()
+            .transform((value) => value !== '0' && value !== 'false')
+        })
+      }
+    },
+    async (request, reply) => {
+      if (!isAdmin(request.currentUser)) {
+        throw app.httpErrors.forbidden('Réservé à un administrateur');
+      }
+      if (!catalogAvailable()) {
+        return reply.code(503).send({ message: "La recherche YouTube n'est pas configurée sur ce serveur" });
+      }
+      void prefillCatalogue(app.log, { searches: request.query.searches });
+      return reply.code(202).send(prefillStatus());
     }
-    if (!catalogAvailable()) {
-      return reply.code(503).send({ message: "La recherche YouTube n'est pas configurée sur ce serveur" });
-    }
-    void prefillCatalogue(app.log);
-    return reply.code(202).send(prefillStatus());
-  });
+  );
 
   /**
    * Harvests a genre's seeds now, or every seeded genre.

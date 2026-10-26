@@ -1317,6 +1317,8 @@ export interface CatalogueSearch {
   spent: number;
   /** Lookups of videos already known, which spent no search. */
   free: number;
+  /** Artists' channels read for their hits' videos, at a unit a page. */
+  channels: number;
   /** No model read the candidates, so nothing was kept and the seeds were handed back. */
   modelDown: boolean;
 }
@@ -1344,8 +1346,15 @@ export interface Catalogue {
    * if it never was. Saved, so it is done once. See `rescoreForPlay` below.
    */
   rescoreForPlay<T extends PlayableRound>(item: T): Promise<T>;
-  /** One seed search straight into rounds for the shared catalogue, within `budget` for the day. */
-  searchForCatalogue(genreId: string, budget: number): Promise<CatalogueSearch | null>;
+  /**
+   * One seed search straight into rounds for the shared catalogue, within `budget` for the day.
+   * With `searches` false, only a lookup of videos already known, and null when there is none.
+   */
+  searchForCatalogue(
+    genreId: string,
+    budget: number,
+    options?: { searches?: boolean }
+  ): Promise<CatalogueSearch | null>;
   /**
    * Puts back, in every genre, the hits that were spent without their song
    * reaching the catalogue. By genre, how many. See `SeedStock.reopenHits`.
@@ -1511,14 +1520,21 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
   async function searchPlan(
     genre: Genre,
     searches: number,
-    options: { window?: { min: number; max: number }; allowFixed: boolean; budget: number }
+    options: {
+      window?: { min: number; max: number };
+      allowFixed: boolean;
+      budget: number;
+      /** Counts the channels read on the way, for a caller that wants to know. */
+      progress?: { channels: number };
+    }
   ): Promise<SearchStep[]> {
     if (genre.seeds && genre.seeds.length > 0) {
       await stock.ensure(genre).catch(() => undefined);
       if (searchesHits(genre)) {
         // A hit is spent once its song is in the catalogue, whichever room or night filed it.
         stock.settleHits(genre, await librarySongKeysIn(db));
-        await lookUpVideos(genre, options.budget);
+        const channels = await lookUpVideos(genre, options.budget);
+        if (options.progress) options.progress.channels += channels;
       }
       const planned = stock.plan(genre, searches, options.window);
       if (planned.length > 0) {
@@ -1546,11 +1562,11 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
    * them: the hits whose channel has not been read yet wait for a later plan,
    * and the night's prefill, which plans a hundred times, reads them all.
    */
-  async function lookUpVideos(genre: Genre, budget: number): Promise<void> {
+  async function lookUpVideos(genre: Genre, budget: number): Promise<number> {
     const pending = stock.pendingVideos(genre);
-    if (pending.length === 0) return;
+    if (pending.length === 0) return 0;
     const index = await stock.videoIndex();
-    if (!index) return;
+    if (!index) return 0;
 
     const found: { id: number; videos: string[]; from: VideosFrom }[] = [];
     const byChannel = new Map<string, typeof pending>();
@@ -1576,6 +1592,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
       for (const seed of seeds) found.push({ id: seed.id, videos: uploadsFor(uploads, seed.title), from: 'channel' });
     }
     stock.recordVideos(found);
+    return reads;
   }
 
   /**
@@ -1827,17 +1844,29 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
    * enriches each round before filing it, which is when the catalogues are
    * asked and the number becomes the real one.
    */
-  async function searchForCatalogue(genreId: string, budget: number): Promise<CatalogueSearch | null> {
+  async function searchForCatalogue(
+    genreId: string,
+    budget: number,
+    options: { searches?: boolean } = {}
+  ): Promise<CatalogueSearch | null> {
     const genre = genreById.get(genreId);
     if (!genre) return null;
-    const steps = await searchPlan(genre, 1, { allowFixed: false, budget });
-    if (steps.length === 0) return null;
+    const progress = { channels: 0 };
+    const planned = await searchPlan(genre, 1, { allowFixed: false, budget, progress });
+    // The lookups come first in a plan, so a plan without one has none left.
+    const steps = options.searches === false ? planned.filter((step) => step.seed?.videoIds) : planned;
+    if (steps.length === 0) {
+      // Channels read that held none of the songs are still a step: the genre may have more to read.
+      return progress.channels > 0
+        ? { entries: [], spent: 0, free: 0, channels: progress.channels, modelDown: false }
+        : null;
+    }
 
     const built = await buildEntries(genre, steps, [], { videoIds: new Set(), trackKeys: new Set() }, () => {}, budget);
     const modelDown = built.candidates > 0 && !built.annotated;
     if (modelDown) {
       for (const seed of built.searched) stock.unmarkSearched(seed);
-      return { entries: [], spent: built.spent, free: built.looked, modelDown };
+      return { entries: [], spent: built.spent, free: built.looked, channels: progress.channels, modelDown };
     }
 
     /**
@@ -1852,7 +1881,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     }
 
     rescore(genre, built.entries);
-    return { entries: built.entries, spent: built.spent, free: built.looked, modelDown };
+    return { entries: built.entries, spent: built.spent, free: built.looked, channels: progress.channels, modelDown };
   }
 
   /**
