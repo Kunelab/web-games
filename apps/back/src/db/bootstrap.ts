@@ -294,6 +294,7 @@ const statements = [
     "found" INTEGER NOT NULL DEFAULT 0,
     "tried_at" TEXT,
     "tries" INTEGER NOT NULL DEFAULT 0,
+    "videos" TEXT,
     "created_at" TEXT DEFAULT CURRENT_TIMESTAMP
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "BlindtestSeeds_source_unique" ON "BlindtestSeeds" ("genre_id", "source", "source_key")`,
@@ -307,7 +308,8 @@ const statements = [
   // YouTube searches per Pacific day, so a restart cannot spend the quota twice.
   `CREATE TABLE IF NOT EXISTS "BlindtestSearchLedger" (
     "day" TEXT PRIMARY KEY,
-    "searches" INTEGER NOT NULL DEFAULT 0
+    "searches" INTEGER NOT NULL DEFAULT 0,
+    "units" INTEGER NOT NULL DEFAULT 0
   )`,
   // What the outside catalogues said about a track or a work, kept for months.
   // See schema.ts.
@@ -393,6 +395,9 @@ const addedColumns: { table: string; column: string; definition: string; fill?: 
   // A hit's last search and how often it failed, which spend it only once its song is filed.
   { table: 'BlindtestSeeds', column: 'tried_at', definition: 'TEXT' },
   { table: 'BlindtestSeeds', column: 'tries', definition: 'INTEGER NOT NULL DEFAULT 0' },
+  // A hit's videos found without a search, and the units the cheap calls that found them took.
+  { table: 'BlindtestSeeds', column: 'videos', definition: 'TEXT' },
+  { table: 'BlindtestSearchLedger', column: 'units', definition: 'INTEGER NOT NULL DEFAULT 0' },
   // The plays lately, starting from every play so far as of the last one.
   {
     table: 'MediaPlays',

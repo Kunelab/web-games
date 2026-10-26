@@ -390,7 +390,7 @@ export async function fetchVideoMetadata(videoId: string): Promise<YoutubeVideoM
   };
 }
 
-export async function fetchPlaylistItems(playlistId: string): Promise<YoutubePlaylistItem[]> {
+export async function fetchPlaylistItems(playlistId: string, maxPages = MAX_PAGES): Promise<YoutubePlaylistItem[]> {
   if (!env.GOOGLE_API_KEY) {
     throw new YoutubeError('GOOGLE_API_KEY is not configured', 503);
   }
@@ -433,7 +433,7 @@ export async function fetchPlaylistItems(playlistId: string): Promise<YoutubePla
 
     pageToken = parsed.data.nextPageToken;
     page += 1;
-  } while (pageToken && page < MAX_PAGES);
+  } while (pageToken && page < Math.min(maxPages, MAX_PAGES));
 
   return collected;
 }

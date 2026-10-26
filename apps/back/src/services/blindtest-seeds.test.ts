@@ -5,6 +5,7 @@ import {
   anilistSeeds,
   buildOracle,
   byArtistOf,
+  channelsFor,
   compositionSeeds,
   compositionsQuery,
   curatedPlaylists,
@@ -18,6 +19,10 @@ import {
   rankFame,
   songKeys,
   trackOracleKey,
+  uploadsFor,
+  uploadsPlaylist,
+  videoIndex,
+  videosFor,
   weightedSample,
   wikidataSeeds,
   type Seed
@@ -450,6 +455,79 @@ describe('songKeys', () => {
 
   it('has nothing to say about a work', () => {
     assert.deepEqual(songKeys('', 'Naruto'), []);
+  });
+});
+
+describe("planFromSeeds with hits' videos known", () => {
+  const rock = {
+    id: 'rock',
+    answerShape: 'artist-title' as const,
+    seeds: [{ kind: 'deezer' as const, playlistQueries: [], titleMatch: /rock/i }]
+  };
+
+  it('looks the known ones up first, without a query, and searches the rest', () => {
+    const seeds = [
+      seed(1, 'AC/DC', 'Highway to Hell', 0.99, { videos: ['l482T0yNkeo'] }),
+      seed(2, 'Queen', 'Bohemian Rhapsody', 0.98, { videos: ['fJ9rUzIMcZQ', 'bohemian002'] }),
+      seed(3, 'The Rolling Stones', 'Paint It, Black', 0.97, { videos: [] })
+    ];
+
+    const [looked, searched, ...more] = planFromSeeds(rock, seeds, 2, undefined, () => 0.5);
+
+    assert.equal(looked?.query, '');
+    assert.deepEqual(looked?.videoIds?.sort(), ['bohemian002', 'fJ9rUzIMcZQ', 'l482T0yNkeo']);
+    assert.deepEqual(looked?.seeds.map((entry) => entry.id).sort(), [1, 2]);
+    assert.equal(searched?.query, '"The Rolling Stones Paint It, Black"');
+    assert.equal(searched?.videoIds, undefined);
+    assert.deepEqual(more, []);
+  });
+});
+
+describe('videoIndex', () => {
+  const index = videoIndex(
+    {
+      results: {
+        bindings: [
+          { vid: { value: 'fJ9rUzIMcZQ' }, title: { value: 'Bohemian Rhapsody' }, artist: { value: 'Queen' } },
+          { vid: { value: 'not a video id' }, title: { value: 'Radio Ga Ga' }, artist: { value: 'Queen' } }
+        ]
+      }
+    },
+    { results: { bindings: [{ channel: { value: 'UCiMhD4jzUqG-IgPzUmmytRQ' }, name: { value: 'Queen' } }] } }
+  );
+
+  it("finds a song's video under the names a catalogue gives it", () => {
+    assert.ok(index);
+    assert.deepEqual(videosFor(index, 'Queen', 'Bohemian Rhapsody (Remastered 2011)'), ['fJ9rUzIMcZQ']);
+    assert.deepEqual(videosFor(index, 'Queen', 'Radio Ga Ga'), []);
+  });
+
+  it("finds an artist's channel by their whole name only", () => {
+    assert.ok(index);
+    assert.deepEqual(channelsFor(index, 'Queen'), ['UCiMhD4jzUqG-IgPzUmmytRQ']);
+    assert.deepEqual(channelsFor(index, 'Queen & David Bowie'), []);
+  });
+
+  it('is nothing when an answer is not one', () => {
+    assert.equal(videoIndex(null, { results: { bindings: [] } }), null);
+  });
+});
+
+describe('uploadsFor', () => {
+  it('keeps the uploads that are the song, the official one first, and no live take of it', () => {
+    const uploads = [
+      { videoId: 'knebworth01', title: 'Oasis - Live Forever (Live at Knebworth)' },
+      { videoId: 'teaser00001', title: 'Live Forever - teaser' },
+      { videoId: 'wonderwall1', title: 'Oasis - Wonderwall' },
+      { videoId: 'lyrics00001', title: 'Oasis - Live Forever (Lyrics)' },
+      { videoId: 'official001', title: 'Oasis - Live Forever (Official Video)' }
+    ];
+
+    assert.deepEqual(uploadsFor(uploads, 'Live Forever'), ['official001', 'lyrics00001']);
+  });
+
+  it('reads a channel as its uploads playlist', () => {
+    assert.equal(uploadsPlaylist('UCiMhD4jzUqG-IgPzUmmytRQ'), 'UUiMhD4jzUqG-IgPzUmmytRQ');
   });
 });
 

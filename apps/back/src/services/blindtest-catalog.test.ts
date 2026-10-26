@@ -80,6 +80,13 @@ interface World {
   years?: boolean;
   /** What the fame catalogues answer. Nothing, by default. */
   fame?: Partial<FameSources>;
+  /** The songs Wikidata has a YouTube video for, and the artists it has a channel for. */
+  wikidata?: {
+    videos?: { artist: string; title: string; video: string }[];
+    channels?: { artist: string; channel: string }[];
+  };
+  /** Playlists by id: a channel's uploads are its id with `UU` for `UC`. */
+  uploads?: Record<string, Clip[]>;
 }
 
 /**
@@ -93,7 +100,7 @@ interface World {
  * the world files under it.
  */
 function fakeSources(world: World = {}) {
-  const calls = { search: [] as string[], sparql: 0 };
+  const calls = { search: [] as string[], sparql: 0, playlist: [] as string[] };
   const clips = world.clips ?? [];
   const playlists: string[] = [];
 
@@ -116,8 +123,9 @@ function fakeSources(world: World = {}) {
       async facts(videoIds) {
         return new Map(clips.filter((clip) => videoIds.includes(clip.id)).map((clip) => [clip.id, factsOf(clip)]));
       },
-      async playlist() {
-        return [];
+      async playlist(playlistId) {
+        calls.playlist.push(playlistId);
+        return (world.uploads?.[playlistId] ?? []).map((clip) => ({ title: clip.title, videoId: clip.id }));
       }
     },
     seeds: {
@@ -160,6 +168,26 @@ function fakeSources(world: World = {}) {
       },
       async sparql(_endpoint, query) {
         calls.sparql += 1;
+        if (query.includes('wdt:P1651')) {
+          const videos = world.wikidata?.videos ?? [];
+          return {
+            results: {
+              bindings: videos.map((song) => ({
+                vid: { value: song.video },
+                title: { value: song.title },
+                artist: { value: song.artist }
+              }))
+            }
+          };
+        }
+        if (query.includes('wdt:P2397')) {
+          const channels = world.wikidata?.channels ?? [];
+          return {
+            results: {
+              bindings: channels.map((entry) => ({ channel: { value: entry.channel }, name: { value: entry.artist } }))
+            }
+          };
+        }
         // Only the classical works are in this world: a film or a game query finds nothing.
         if (!query.includes('wd:Q105543609')) return { results: { bindings: [] } };
         return {
@@ -479,6 +507,66 @@ describe("a genre's famous songs", () => {
     assert.ok(seedsBy(db, 'Queen').every((seed) => seed.searched_at === null));
     assert.ok(seedsBy(db, 'AC/DC').every((seed) => seed.searched_at !== null));
     assert.ok(seedsBy(db, 'Garage A').every((seed) => seed.searched_at !== null));
+  });
+});
+
+describe("a famous song's video, found without a search", () => {
+  const QUEEN_CHANNEL = 'UCiMhD4jzUqG-IgPzUmmytRQ';
+
+  it('is the one Wikidata gives the song', async () => {
+    const { catalogue, calls } = catalogueOver({
+      deezer: rockList(QUEEN),
+      wikidata: { videos: [{ artist: 'Queen', title: 'Bohemian Rhapsody', video: 'fJ9rUzIMcZQ' }] },
+      clips: [{ id: 'fJ9rUzIMcZQ', title: 'Queen - Bohemian Rhapsody' }]
+    });
+
+    const result = await catalogue.searchForCatalogue('rock', 95);
+
+    assert.deepEqual(calls.search, []);
+    assert.equal(result?.free, 1);
+    assert.equal(result?.spent, 0);
+    assert.deepEqual(answers(result?.entries ?? []), ['Queen / Bohemian Rhapsody']);
+  });
+
+  it("is on the artist's channel when Wikidata has none, for a unit and not a search", async () => {
+    const { catalogue, calls } = catalogueOver({
+      deezer: rockList(QUEEN),
+      wikidata: { channels: [{ artist: 'Queen', channel: QUEEN_CHANNEL }] },
+      uploads: {
+        [`UU${QUEEN_CHANNEL.slice(2)}`]: [
+          { id: 'queenlive01', title: 'Queen - Bohemian Rhapsody (Live Aid 1985)' },
+          { id: 'queenvideo1', title: 'Queen - Bohemian Rhapsody (Official Video Remastered)' },
+          { id: 'queenother1', title: 'Queen - Radio Ga Ga' }
+        ]
+      },
+      clips: [{ id: 'queenvideo1', title: 'Queen - Bohemian Rhapsody' }]
+    });
+
+    const result = await catalogue.searchForCatalogue('rock', 95);
+
+    assert.deepEqual(calls.search, []);
+    assert.deepEqual(calls.playlist, [`UU${QUEEN_CHANNEL.slice(2)}`]);
+    assert.deepEqual(answers(result?.entries ?? []), ['Queen / Bohemian Rhapsody']);
+    // One page read: one unit, which the day counts as a search's worth begun.
+    assert.equal(catalogue.searchesToday().used, 1);
+  });
+
+  it('is searched for the next time, when the one found filed nothing', async () => {
+    // Wikidata's video is gone from YouTube.
+    const { catalogue, calls, clock } = catalogueOver({
+      deezer: rockList(QUEEN),
+      wikidata: { videos: [{ artist: 'Queen', title: 'Bohemian Rhapsody', video: 'deadvideo01' }] }
+    });
+
+    const looked = await catalogue.searchForCatalogue('rock', 95);
+    assert.equal(looked?.free, 1);
+    clock.advance(8 * DAY);
+    await catalogue.searchForCatalogue('rock', 95);
+
+    assert.deepEqual(
+      calls.search.filter((query) => query.includes('Queen')),
+      ['"Queen Bohemian Rhapsody"']
+    );
   });
 });
 

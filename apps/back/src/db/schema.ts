@@ -612,6 +612,11 @@ export const blindtestSeeds = sqliteTable(
     tried_at: text('tried_at'),
     /** How often the overnight prefill searched a hit and could not file it. */
     tries: integer('tries').notNull().default(0),
+    /**
+     * A hit's YouTube videos, found without a search: JSON ids, `[]` when none
+     * were, null until somebody looked. See `lookUpVideos`.
+     */
+    videos: text('videos'),
     created_at: text('created_at').default(now)
   },
   (table) => [
@@ -631,10 +636,11 @@ export const blindtestSeedHarvests = sqliteTable('BlindtestSeedHarvests', {
   error: text('error')
 });
 
-/** YouTube searches spent per Pacific day. See `youtube-budget`. */
+/** YouTube searches spent per Pacific day, and the units of the cheaper calls. See `youtube-budget`. */
 export const blindtestSearchLedger = sqliteTable('BlindtestSearchLedger', {
   day: text('day').primaryKey(),
-  searches: integer('searches').notNull().default(0)
+  searches: integer('searches').notNull().default(0),
+  units: integer('units').notNull().default(0)
 });
 
 /**

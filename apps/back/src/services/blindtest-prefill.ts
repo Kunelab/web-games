@@ -86,6 +86,8 @@ export interface PrefillReport {
   finishedAt: string | null;
   /** YouTube searches spent. */
   searches: number;
+  /** Lookups of hits whose videos were already known, which spent none. */
+  lookups: number;
   /** New rows in the catalogue. */
   saved: number;
   byGenre: Record<string, number>;
@@ -108,9 +110,10 @@ function pause(ms: number): Promise<void> {
 /**
  * Spends what is left of today's searches on the catalogue, now.
  *
- * Genre by genre, one search each in turn, the genres with the fewest
- * catalogue rows first, until the budget, the quota day or every genre's seeds
- * run out. One run at a time: a second call while one is going returns it.
+ * Genre by genre, one search each in turn (or one lookup of hits whose videos
+ * are already known, which spends none), the genres with the fewest catalogue
+ * rows first, until the budget, the quota day or every genre's seeds run out.
+ * One run at a time: a second call while one is going returns it.
  */
 export async function prefillCatalogue(log?: FastifyBaseLogger): Promise<PrefillReport> {
   if (running) return running;
@@ -119,6 +122,7 @@ export async function prefillCatalogue(log?: FastifyBaseLogger): Promise<Prefill
     startedAt: new Date().toISOString(),
     finishedAt: null,
     searches: 0,
+    lookups: 0,
     saved: 0,
     byGenre: {},
     stopped: ''
@@ -136,30 +140,29 @@ export async function prefillCatalogue(log?: FastifyBaseLogger): Promise<Prefill
     );
     genres.sort((left, right) => (stock.get(left.id) ?? 0) - (stock.get(right.id) ?? 0));
 
-    const spent = new Set<string>();
+    /**
+     * A genre is done for the night when it has nothing left, or nothing left
+     * it can do without the searches that have run out. Not the whole run: a
+     * genre whose hits' videos are known goes on looking them up, which costs
+     * no search, after another has spent the last one.
+     */
+    const done = new Set<string>();
     rounds: for (;;) {
       let searched = false;
       for (const genre of genres) {
-        if (spent.has(genre.id)) continue;
+        if (done.has(genre.id)) continue;
         if (quotaDay() !== day) {
           report.stopped = 'the quota day ended';
           break rounds;
         }
-        if (catalogue.searchesToday().used >= budget) {
-          report.stopped = 'the budget is spent';
-          break rounds;
-        }
 
         const result = await catalogue.searchForCatalogue(genre.id, budget);
-        if (!result) {
-          spent.add(genre.id);
+        if (!result || (result.spent === 0 && result.free === 0)) {
+          done.add(genre.id);
           continue;
         }
-        if (result.spent === 0) {
-          report.stopped = 'the budget is spent';
-          break rounds;
-        }
         report.searches += result.spent;
+        report.lookups += result.free;
         searched = true;
         if (result.modelDown) {
           report.stopped = 'no model answered';
@@ -178,7 +181,8 @@ export async function prefillCatalogue(log?: FastifyBaseLogger): Promise<Prefill
         report.byGenre[genre.id] = (report.byGenre[genre.id] ?? 0) + added;
       }
       if (!searched) {
-        report.stopped ||= 'every genre has searched its seeds';
+        report.stopped ||=
+          catalogue.searchesToday().used >= budget ? 'the budget is spent' : 'every genre has searched its seeds';
         break;
       }
     }
@@ -192,7 +196,13 @@ export async function prefillCatalogue(log?: FastifyBaseLogger): Promise<Prefill
   }
 
   log?.info(
-    { searches: report.searches, saved: report.saved, byGenre: report.byGenre, stopped: report.stopped },
+    {
+      searches: report.searches,
+      lookups: report.lookups,
+      saved: report.saved,
+      byGenre: report.byGenre,
+      stopped: report.stopped
+    },
     'blind test prefill finished'
   );
 

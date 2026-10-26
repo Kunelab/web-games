@@ -75,11 +75,15 @@ import {
 import type { Annotation, Candidate } from './blindtest-llm.js';
 import {
   byArtistOf,
+  channelsFor,
   createSeedStock,
   otherNames,
   searchesHits,
   songKeys,
   trackOracleKey,
+  uploadsFor,
+  uploadsPlaylist,
+  videosFor,
   type GenreOracle,
   type Seed,
   type SeedIndex,
@@ -88,7 +92,7 @@ import {
   type SeedSources,
   type SeedStats
 } from './blindtest-seeds.js';
-import { quotaDay, searchesOn, spendSearch } from './youtube-budget.js';
+import { chargeUnits, quotaDay, searchesOn, spendSearch, unitsLeft } from './youtube-budget.js';
 import { YoutubeError, type VideoFacts, type YoutubePlaylistItem } from './youtube-service.js';
 
 /* -------------------------------------------------------------- the taxonomy */
@@ -1189,6 +1193,11 @@ const FILL_SEARCHES = 3;
 /** Searches per extension. Small, because an extension repeats as needed. */
 const EXTEND_SEARCHES = 1;
 
+/** Pages of an artist's uploads read: their latest thousand, for twenty units at most. */
+const CHANNEL_PAGES = 20;
+/** Channels read per plan; see `lookUpVideos`. */
+const CHANNEL_READS = 4;
+
 /* ------------------------------------------------------------- extensions */
 
 /**
@@ -1236,8 +1245,8 @@ export interface CatalogueSources {
     search(query: string, options: { musicOnly: boolean; limit: number }): Promise<string[]>;
     /** `videos.list` over any number of ids. An id YouTube does not return is absent. Throws `YoutubeError`. */
     facts(videoIds: string[]): Promise<Map<string, VideoFacts>>;
-    /** Every item of a playlist. Throws `YoutubeError`. */
-    playlist(playlistId: string): Promise<YoutubePlaylistItem[]>;
+    /** Every item of a playlist, or of its first `maxPages` pages of fifty. Throws `YoutubeError`. */
+    playlist(playlistId: string, maxPages?: number): Promise<YoutubePlaylistItem[]>;
   };
   /** The seed catalogues: Deezer, AniList and Wikidata. See `blindtest-seeds`. */
   seeds: SeedSources;
@@ -1298,6 +1307,8 @@ export interface PoolStatus {
 export interface CatalogueSearch {
   entries: PoolEntry[];
   spent: number;
+  /** Lookups of videos already known, which spent no search. */
+  free: number;
   /** No model read the candidates, so nothing was kept and the seeds were handed back. */
   modelDown: boolean;
 }
@@ -1492,19 +1503,71 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
   async function searchPlan(
     genre: Genre,
     searches: number,
-    options: { window?: { min: number; max: number }; allowFixed: boolean }
+    options: { window?: { min: number; max: number }; allowFixed: boolean; budget: number }
   ): Promise<SearchStep[]> {
     if (genre.seeds && genre.seeds.length > 0) {
       await stock.ensure(genre).catch(() => undefined);
-      // A hit is spent once its song is in the catalogue, whichever room or night filed it.
-      if (searchesHits(genre)) stock.settleHits(genre, await librarySongKeysIn(db));
+      if (searchesHits(genre)) {
+        // A hit is spent once its song is in the catalogue, whichever room or night filed it.
+        stock.settleHits(genre, await librarySongKeysIn(db));
+        await lookUpVideos(genre, options.budget);
+      }
       const planned = stock.plan(genre, searches, options.window);
       if (planned.length > 0) {
-        return planned.map((seed) => ({ query: seed.query, limit: seed.limit, seed, label: `seeds:${seed.hint}` }));
+        return planned.map((seed) => ({
+          query: seed.query,
+          limit: seed.limit,
+          seed,
+          label: `${seed.videoIds ? 'videos' : 'seeds'}:${seed.hint}`
+        }));
       }
     }
     if (!options.allowFixed) return [];
     return genre.queries.map((query) => ({ query, limit: 50, label: `query:${query}` }));
+  }
+
+  /**
+   * Finds the videos of a genre's hits that cost no search, before any is planned.
+   *
+   * Wikidata's video for the song first, which costs nothing. Then, for an
+   * artist Wikidata knows the channel of, that channel's latest uploads, at a
+   * unit a page instead of a hundred a search, and taken out of the same day.
+   * A hit neither finds is searched for as before.
+   *
+   * A few channels a time, so a room's fill does not wait on a whole genre of
+   * them: the hits whose channel has not been read yet wait for a later plan,
+   * and the night's prefill, which plans a hundred times, reads them all.
+   */
+  async function lookUpVideos(genre: Genre, budget: number): Promise<void> {
+    const pending = stock.pendingVideos(genre);
+    if (pending.length === 0) return;
+    const index = await stock.videoIndex();
+    if (!index) return;
+
+    const found: { id: number; videos: string[] }[] = [];
+    const byChannel = new Map<string, typeof pending>();
+    for (const seed of pending) {
+      const known = videosFor(index, seed.artist, seed.title);
+      const [channel] = channelsFor(index, seed.artist);
+      if (known.length > 0 || !channel) found.push({ id: seed.id, videos: known });
+      else byChannel.set(channel, [...(byChannel.get(channel) ?? []), seed]);
+    }
+
+    let reads = 0;
+    for (const [channel, seeds] of byChannel) {
+      if (reads >= CHANNEL_READS || unitsLeft(db, budget, clock) < CHANNEL_PAGES) break;
+      reads += 1;
+      let uploads: YoutubePlaylistItem[] = [];
+      try {
+        uploads = await sources.youtube.playlist(uploadsPlaylist(channel), CHANNEL_PAGES);
+      } catch (error) {
+        // A channel gone or hidden has nothing to give, and the hits are searched.
+        if (!(error instanceof YoutubeError)) throw error;
+      }
+      chargeUnits(db, Math.max(1, Math.ceil(uploads.length / 50)), clock);
+      for (const seed of seeds) found.push({ id: seed.id, videos: uploadsFor(uploads, seed.title) });
+    }
+    stock.recordVideos(found);
   }
 
   /**
@@ -1528,6 +1591,8 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     entries: PoolEntry[];
     thinSources: string[];
     spent: number;
+    /** Steps whose videos were known, which spent no search. */
+    looked: number;
     /** Whether a model read the candidates, and how many there were to read. */
     annotated: boolean;
     candidates: number;
@@ -1543,10 +1608,13 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     const broad = new Set<string>(extraIds);
     const ran: SeedSearch[] = [];
     let spent = 0;
+    let looked = 0;
 
     for (const step of steps) {
       checkpoint();
-      if (!spendSearch(db, budget, clock)) {
+      // Videos already known need no search, and the rest of the way is the same.
+      const known = step.seed?.videoIds;
+      if (!known && !spendSearch(db, budget, clock)) {
         thinSources.push('budget: the daily YouTube search budget is spent');
         break;
       }
@@ -1563,8 +1631,8 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
       const musicOnly =
         genre.section !== 'ecrans' && genre.section !== 'jeux' && !(step.seed && genre.answerShape === 'work');
       try {
-        const ids = await sources.youtube.search(step.query, { musicOnly, limit: step.limit });
-        if (ids.length < 10) thinSources.push(step.label);
+        const ids = known ?? (await sources.youtube.search(step.query, { musicOnly, limit: step.limit }));
+        if (!known && ids.length < 10) thinSources.push(step.label);
         for (const id of ids) {
           harvested.push(id);
           if (!origin.has(id)) origin.set(id, step);
@@ -1579,7 +1647,8 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
           else stock.markSearched(step.seed, ids.length);
           ran.push(step.seed);
         }
-        spent += 1;
+        if (known) looked += 1;
+        else spent += 1;
       } catch (error) {
         thinSources.push(step.label);
         if (!(error instanceof YoutubeError)) throw error;
@@ -1692,7 +1761,15 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
       if (entries.length >= MAX_POOL_ENTRIES) break;
     }
 
-    return { entries, thinSources, spent, annotated: annotationRan, candidates: surviving.length, searched: ran };
+    return {
+      entries,
+      thinSources,
+      spent,
+      looked,
+      annotated: annotationRan,
+      candidates: surviving.length,
+      searched: ran
+    };
   }
 
   /**
@@ -1714,14 +1791,14 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
   async function searchForCatalogue(genreId: string, budget: number): Promise<CatalogueSearch | null> {
     const genre = genreById.get(genreId);
     if (!genre) return null;
-    const steps = await searchPlan(genre, 1, { allowFixed: false });
+    const steps = await searchPlan(genre, 1, { allowFixed: false, budget });
     if (steps.length === 0) return null;
 
     const built = await buildEntries(genre, steps, [], { videoIds: new Set(), trackKeys: new Set() }, () => {}, budget);
     const modelDown = built.candidates > 0 && !built.annotated;
     if (modelDown) {
       for (const seed of built.searched) stock.unmarkSearched(seed);
-      return { entries: [], spent: built.spent, modelDown };
+      return { entries: [], spent: built.spent, free: built.looked, modelDown };
     }
 
     /**
@@ -1736,7 +1813,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     }
 
     rescore(genre, built.entries);
-    return { entries: built.entries, spent: built.spent, modelDown };
+    return { entries: built.entries, spent: built.spent, free: built.looked, modelDown };
   }
 
   /**
@@ -1797,7 +1874,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
    */
   async function fillPool(genre: Genre): Promise<Pool> {
     const checkpoint = checkpointFor(genre.id);
-    const steps = await searchPlan(genre, FILL_SEARCHES, { allowFixed: true });
+    const steps = await searchPlan(genre, FILL_SEARCHES, { allowFixed: true, budget: dailyBudget });
     /**
      * The abandonment clock starts once the searches are ready.
      *
@@ -1872,7 +1949,11 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
 
     const checkpoint = checkpointFor(key);
     const run = (async () => {
-      const steps = await searchPlan(source, EXTEND_SEARCHES, { window, allowFixed: false });
+      const steps = await searchPlan(source, EXTEND_SEARCHES, {
+        window,
+        allowFixed: false,
+        budget: Math.max(0, dailyBudget - FILL_RESERVE)
+      });
       if (steps.length === 0) return;
 
       const built = await buildEntries(

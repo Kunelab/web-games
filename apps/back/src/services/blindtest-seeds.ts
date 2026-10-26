@@ -48,7 +48,7 @@
  * and what to keep, with the stock in the database and the few caches over it
  * held by one `createSeedStock`, so that a test can have its own.
  */
-import { and, count, eq, gte, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, count, eq, gte, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { normalizeAnswer } from 'game-core';
 import { z } from 'zod';
 
@@ -160,6 +160,8 @@ export interface Seed {
   aliases: string[];
   year: number | null;
   fame: number;
+  /** A hit's videos, found without a search. See `VideoIndex`. */
+  videos?: string[];
 }
 
 /** One YouTube search, and the seeds it is aimed at. */
@@ -173,6 +175,11 @@ export interface SeedSearch {
    * `HIT_FAME`.
    */
   aim: 'artists' | 'hits' | 'works';
+  /**
+   * The videos, when they are already known and YouTube need not be searched:
+   * hits whose video Wikidata or the artist's channel gave. The query is empty.
+   */
+  videoIds?: string[];
   /** What the model is told this search was for. */
   hint: string;
 }
@@ -220,6 +227,11 @@ const HIT_TRIES = 2;
 const HIT_REST_MS = 7 * 24 * 60 * 60 * 1000;
 /** Hits are searched for a room that may be dealt them: one whose window starts at least this easy. */
 const HIT_WINDOW_MIN = 20;
+/**
+ * Hits per lookup, when their videos are known. No search is spent, so more go
+ * in one than in a search; twelve keep the model's reading to a batch or two.
+ */
+const HITS_PER_LOOKUP = 12;
 
 /** Re-harvested monthly: new releases, new editorial lists, new seasons. */
 const HARVEST_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -230,6 +242,8 @@ const LOW_STOCK = 40;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Searched seeds become eligible again after this, once a genre runs dry. */
 const RECYCLE_AFTER_MS = 30 * DAY_MS;
+/** How long a Wikidata index that would not come is remembered before asking again. */
+const VIDEO_INDEX_RETRY_MS = 60 * 60 * 1000;
 
 /* ----------------------------------------------------------------- sources */
 
@@ -384,12 +398,13 @@ function artistKeys(artist: string): string[] {
  * song, and so are "Paint It, Black" and "Paint It Black". Empty for a work.
  */
 export function songKeys(artist: string, title: string): string[] {
-  const names = new Set(
-    [title, title.replace(/\s*[([][^)\]]*[)\]]/g, ' '), title.replace(/\s+[-–—]\s+.*$/, '')]
-      .map(normalizeAnswer)
-      .filter(Boolean)
-  );
-  return artistKeys(artist).flatMap((who) => [...names].map((name) => `${who}::${name}`));
+  const names = titleKeys(title);
+  return artistKeys(artist).flatMap((who) => names.map((name) => `${who}::${name}`));
+}
+
+function titleKeys(title: string): string[] {
+  const names = [title, title.replace(/\s*[([][^)\]]*[)\]]/g, ' '), title.replace(/\s+[-–—]\s+.*$/, '')];
+  return [...new Set(names.map(normalizeAnswer).filter(Boolean))];
 }
 
 /** Whether a found answer is by one of these artists. */
@@ -775,6 +790,130 @@ export function compositionSeeds(raw: unknown): RawSeed[] {
   return [...seeds.values()];
 }
 
+/* ------------------------------------------------------------- hit videos */
+
+/**
+ * Where a hit's video is found without a search, which costs a hundred units.
+ *
+ * Wikidata holds the YouTube video of some forty thousand songs (P1651) and
+ * the channel of eighteen thousand performers (P2397), whose uploads read at
+ * one unit a page of fifty. Measured against the 1,756 hits the catalogue
+ * lacked: the videos covered 766 of them, and the channels 709 of the rest.
+ * What neither finds is searched, as before.
+ */
+export interface VideoIndex {
+  /** `songKeys` to the song's video ids. */
+  songs: Map<string, string[]>;
+  /** An artist's name, normalised, to their channel ids. */
+  channels: Map<string, string[]>;
+}
+
+/** Videos kept for one song. A lookup costs no search, but each one is read by the model. */
+const VIDEOS_PER_SONG = 3;
+
+/** Every song with a performer and a YouTube video, under each of its names. */
+export const SONG_VIDEOS_QUERY = `${PREFIXES}
+SELECT DISTINCT ?vid ?title ?artist WHERE {
+  ?item wdt:P1651 ?vid ; wdt:P175 ?performer .
+  ?item rdfs:label ?t FILTER(LANG(?t) IN ("en", "mul", "fr"))
+  ?performer rdfs:label ?a FILTER(LANG(?a) IN ("en", "mul", "fr"))
+  BIND(STR(?t) AS ?title) BIND(STR(?a) AS ?artist)
+}`;
+
+/** Every performer with a YouTube channel, under each of their names. */
+export const ARTIST_CHANNELS_QUERY = `${PREFIXES}
+SELECT DISTINCT ?channel ?name WHERE {
+  ?work wdt:P175 ?performer . ?performer wdt:P2397 ?channel .
+  ?performer rdfs:label ?n FILTER(LANG(?n) IN ("en", "mul", "fr"))
+  BIND(STR(?n) AS ?name)
+}`;
+
+const VIDEO_ID = /^[\w-]{11}$/;
+const CHANNEL_ID = /^UC[\w-]{22}$/;
+
+/** A channel is matched on the artist's whole name: the lead of a duet has a channel of their own. */
+function channelKey(artist: string): string {
+  return normalizeAnswer(artist).replace(/^the /, '');
+}
+
+/** The index the two queries above answer, or null when either answer is not one. */
+export function videoIndex(songsRaw: unknown, channelsRaw: unknown): VideoIndex | null {
+  const songs = sparqlResults.safeParse(songsRaw);
+  const channels = sparqlResults.safeParse(channelsRaw);
+  if (!songs.success || !channels.success) return null;
+
+  const index: VideoIndex = { songs: new Map(), channels: new Map() };
+  const add = (map: Map<string, string[]>, key: string, id: string) => {
+    const ids = map.get(key) ?? [];
+    if (!ids.includes(id) && ids.length < VIDEOS_PER_SONG) ids.push(id);
+    map.set(key, ids);
+  };
+  for (const row of songs.data.results.bindings) {
+    const id = row.vid?.value ?? '';
+    if (!VIDEO_ID.test(id)) continue;
+    for (const key of songKeys(row.artist?.value ?? '', row.title?.value ?? '')) add(index.songs, key, id);
+  }
+  for (const row of channels.data.results.bindings) {
+    const id = row.channel?.value ?? '';
+    const key = channelKey(row.name?.value ?? '');
+    if (CHANNEL_ID.test(id) && key) add(index.channels, key, id);
+  }
+  return index;
+}
+
+/** The videos Wikidata gives this song, under any of its names. */
+export function videosFor(index: VideoIndex, artist: string, title: string): string[] {
+  const ids = new Set(songKeys(artist, title).flatMap((key) => index.songs.get(key) ?? []));
+  return [...ids].slice(0, VIDEOS_PER_SONG);
+}
+
+/** The artist's YouTube channels, by their whole name. */
+export function channelsFor(index: VideoIndex, artist: string): string[] {
+  const key = channelKey(artist);
+  return key ? (index.channels.get(key) ?? []) : [];
+}
+
+/** A channel's uploads, as a playlist: its id with `UU` where the channel's has `UC`. */
+export function uploadsPlaylist(channelId: string): string {
+  return `UU${channelId.slice(2)}`;
+}
+
+/** What makes an upload something other than the recording, unless the song's own name says it. */
+const NOT_THE_RECORDING =
+  /\b(live|teaser|trailer|making|behind|backstage|interview|reaction|snippet|extrait|preview|shorts?|tiktok|karaoke|instrumental|cover|remix|acoustic|acoustique|session|version)\b/gi;
+const OFFICIAL = /\b(official|officiel(?:le)?|clip|music video|audio|visuali[sz]er)\b/i;
+
+/**
+ * The uploads on an artist's channel that are this song, the official ones first.
+ *
+ * An upload is taken when its title holds one of the song's names as whole
+ * words, and left when it also says it is a live take, a teaser or a remix,
+ * more often than the song's own name does: Oasis's "Live Forever" is live
+ * only in its title. The model reads what is kept, as it reads a search's.
+ */
+export function uploadsFor(uploads: readonly { title: string; videoId: string }[], title: string): string[] {
+  const names = titleKeys(title);
+  const noise = (text: string) => {
+    const counts = new Map<string, number>();
+    for (const match of text.matchAll(NOT_THE_RECORDING)) {
+      const word = (match[1] ?? '').toLowerCase();
+      counts.set(word, (counts.get(word) ?? 0) + 1);
+    }
+    return counts;
+  };
+  const own = noise(title);
+  const matching = uploads.filter((upload) => {
+    const text = ` ${normalizeAnswer(upload.title)} `;
+    if (!names.some((name) => text.includes(` ${name} `))) return false;
+    // "Live Forever (Live at Knebworth)" says live once more than the song does.
+    return [...noise(upload.title)].every(([word, times]) => times <= (own.get(word) ?? 0));
+  });
+  return matching
+    .sort((left, right) => Number(OFFICIAL.test(right.title)) - Number(OFFICIAL.test(left.title)))
+    .slice(0, VIDEOS_PER_SONG)
+    .map((upload) => upload.videoId);
+}
+
 /** What one source returned, and how many of its requests failed on the way. */
 interface Harvest {
   seeds: RawSeed[];
@@ -800,6 +939,7 @@ function toSeed(row: {
   aliases: string;
   year: number | null;
   fame: number;
+  videos: string | null;
 }): Seed {
   return {
     id: row.id,
@@ -808,7 +948,8 @@ function toSeed(row: {
     search: row.search,
     aliases: parseAliases(row.aliases),
     year: row.year,
-    fame: row.fame
+    fame: row.fame,
+    ...(row.videos ? { videos: parseAliases(row.videos) } : {})
   };
 }
 
@@ -892,13 +1033,38 @@ function planHits(
     }
   }
 
-  const chosen = weightedSample(
-    [...bySong.values()],
-    searches * HITS_PER_SEARCH,
-    (song) => fameWeight(song.lead.fame, window),
+  // The songs whose videos are known first: they cost no search at all.
+  const videosOf = (song: { seeds: Seed[] }) =>
+    [...new Set(song.seeds.flatMap((seed) => seed.videos ?? []))].slice(0, VIDEOS_PER_SONG);
+  const weight = (song: { lead: Seed }) => fameWeight(song.lead.fame, window);
+  const songs = [...bySong.values()];
+  const hint = (chunk: { lead: Seed }[]) => chunk.map((song) => `${song.lead.artist} - ${song.lead.title}`).join(', ');
+
+  const plan: SeedSearch[] = [];
+  const known = weightedSample(
+    songs.filter((song) => videosOf(song).length > 0),
+    searches * HITS_PER_LOOKUP,
+    weight,
     random
   );
-  const plan: SeedSearch[] = [];
+  for (let index = 0; index < known.length; index += HITS_PER_LOOKUP) {
+    const chunk = known.slice(index, index + HITS_PER_LOOKUP);
+    plan.push({
+      query: '',
+      limit: 50,
+      seeds: chunk.flatMap((song) => song.seeds),
+      aim: 'hits',
+      videoIds: chunk.flatMap(videosOf),
+      hint: hint(chunk)
+    });
+  }
+
+  const chosen = weightedSample(
+    songs.filter((song) => videosOf(song).length === 0),
+    (searches - plan.length) * HITS_PER_SEARCH,
+    weight,
+    random
+  );
   for (let index = 0; index < chosen.length; index += HITS_PER_SEARCH) {
     const chunk = chosen.slice(index, index + HITS_PER_SEARCH);
     plan.push({
@@ -906,7 +1072,7 @@ function planHits(
       limit: 50,
       seeds: chunk.flatMap((song) => song.seeds),
       aim: 'hits',
-      hint: chunk.map((song) => `${song.lead.artist} - ${song.lead.title}`).join(', ')
+      hint: hint(chunk)
     });
   }
   return plan;
@@ -1097,6 +1263,15 @@ export interface SeedStock {
    * one pass that undid the artist searches' losses. Returns how many.
    */
   reopenHits(genre: SeededGenre, covered: ReadonlySet<string>): number;
+  /**
+   * A genre's unspent hits nobody has looked for a video for yet. They wait,
+   * unplanned, until somebody has: see `lookUpVideos` in the catalogue.
+   */
+  pendingVideos(genre: SeededGenre): { id: number; artist: string; title: string }[];
+  /** What was found for these hits: their videos, or none. */
+  recordVideos(found: { id: number; videos: string[] }[]): void;
+  /** Wikidata's songs and channels, fetched once a day. Null while neither endpoint answers. */
+  videoIndex(): Promise<VideoIndex | null>;
   /**
    * A genre's oracle, from every seed it has, searched or not. Cached briefly.
    *
@@ -1427,7 +1602,7 @@ export function createSeedStock({
     if (plan(genre, 1).length === 0) {
       const cutoff = stamp(clock.now() - RECYCLE_AFTER_MS);
       db.update(blindtestSeeds)
-        .set({ searched_at: null, tries: 0, tried_at: null })
+        .set({ searched_at: null, tries: 0, tried_at: null, videos: null })
         .where(and(eq(blindtestSeeds.genre_id, genre.id), lt(blindtestSeeds.searched_at, cutoff)))
         .run();
     }
@@ -1446,14 +1621,17 @@ export function createSeedStock({
         search: blindtestSeeds.search,
         aliases: blindtestSeeds.aliases,
         year: blindtestSeeds.year,
-        fame: blindtestSeeds.fame
+        fame: blindtestSeeds.fame,
+        videos: blindtestSeeds.videos
       })
       .from(blindtestSeeds)
       .where(
         and(
           eq(blindtestSeeds.genre_id, genre.id),
           isNull(blindtestSeeds.searched_at),
-          or(isNull(blindtestSeeds.tried_at), lt(blindtestSeeds.tried_at, rested))
+          or(isNull(blindtestSeeds.tried_at), lt(blindtestSeeds.tried_at, rested)),
+          // A hit whose video nobody has looked for yet waits: it may cost no search at all.
+          searchesHits(genre) ? or(lt(blindtestSeeds.fame, HIT_FAME), isNotNull(blindtestSeeds.videos)) : undefined
         )
       )
       .all();
@@ -1479,11 +1657,15 @@ export function createSeedStock({
     });
   }
 
+  /**
+   * And a lookup that filed nothing hands its videos back: they were dead,
+   * blocked here, or not the song, so the next try is a search.
+   */
   function countTry(search: SeedSearch): void {
     db.transaction((tx) => {
       for (const seed of search.seeds) {
         tx.update(blindtestSeeds)
-          .set({ tries: sql`${blindtestSeeds.tries} + 1` })
+          .set({ tries: sql`${blindtestSeeds.tries} + 1`, ...(search.videoIds ? { videos: '[]' } : {}) })
           .where(eq(blindtestSeeds.id, seed.id))
           .run();
       }
@@ -1510,7 +1692,8 @@ export function createSeedStock({
         title: blindtestSeeds.title,
         searched_at: blindtestSeeds.searched_at,
         tries: blindtestSeeds.tries,
-        tried_at: blindtestSeeds.tried_at
+        tried_at: blindtestSeeds.tried_at,
+        videos: blindtestSeeds.videos
       })
       .from(blindtestSeeds)
       .where(and(eq(blindtestSeeds.genre_id, genre.id), gte(blindtestSeeds.fame, HIT_FAME)))
@@ -1527,7 +1710,9 @@ export function createSeedStock({
    * monthly harvest can bring it another: a seed that arrives after its song
    * was tried twice and given up on starts with no tries of its own, and would
    * have it searched all over again. So what one seed of a song knows, its
-   * unspent seeds are brought up to: its tries, its rest, and whether it is done.
+   * unspent seeds are brought up to: its tries, its rest, whether it is done,
+   * and its videos, so that a new id does not send anybody to read the
+   * artist's channel a second time.
    */
   function settleHits(genre: SeededGenre, covered: ReadonlySet<string>): void {
     if (!searchesHits(genre)) return;
@@ -1546,11 +1731,13 @@ export function createSeedStock({
         (last, seed) => (seed.tried_at && (!last || seed.tried_at > last) ? seed.tried_at : last),
         null
       );
+      const videos =
+        seeds.find((seed) => seed.videos && seed.videos !== '[]')?.videos ?? seeds.find((seed) => seed.videos)?.videos;
       for (const seed of seeds) {
         if (seed.searched_at !== null) continue;
         if (found || tries >= HIT_TRIES) updates.push({ id: seed.id, set: { searched_at: at, found: found ? 1 : 0 } });
-        else if (seed.tries !== tries || seed.tried_at !== triedAt) {
-          updates.push({ id: seed.id, set: { tries, tried_at: triedAt } });
+        else if (seed.tries !== tries || seed.tried_at !== triedAt || (seed.videos === null && videos)) {
+          updates.push({ id: seed.id, set: { tries, tried_at: triedAt, videos: seed.videos ?? videos ?? null } });
         }
       }
     }
@@ -1572,6 +1759,57 @@ export function createSeedStock({
       }
     });
     return lost.length;
+  }
+
+  /* ---------------------------------------------------------- hit videos */
+
+  function pendingVideos(genre: SeededGenre): { id: number; artist: string; title: string }[] {
+    if (!searchesHits(genre)) return [];
+    return hitsOf(genre).filter((seed) => seed.searched_at === null && seed.videos === null);
+  }
+
+  function recordVideos(found: { id: number; videos: string[] }[]): void {
+    if (found.length === 0) return;
+    db.transaction((tx) => {
+      for (const { id, videos } of found) {
+        tx.update(blindtestSeeds)
+          .set({ videos: JSON.stringify(videos) })
+          .where(eq(blindtestSeeds.id, id))
+          .run();
+      }
+    });
+  }
+
+  /**
+   * Fetched whole rather than asked song by song: two queries of a few seconds,
+   * where thousands of small ones would be thousands of requests to a free service.
+   * Kept a day, and a failure an hour, so neither endpoint is asked again and again.
+   */
+  let videoIndexCache: { at: number; index: VideoIndex | null } | null = null;
+  let indexing: Promise<VideoIndex | null> | null = null;
+
+  async function fetchVideoIndex(): Promise<VideoIndex | null> {
+    for (const endpoint of ['qlever', 'wikidata'] as const) {
+      const index = videoIndex(
+        await sources.sparql(endpoint, SONG_VIDEOS_QUERY),
+        await sources.sparql(endpoint, ARTIST_CHANNELS_QUERY)
+      );
+      if (index) return index;
+    }
+    return null;
+  }
+
+  function videoIndexNow(): Promise<VideoIndex | null> {
+    const keep = videoIndexCache?.index ? DAY_MS : VIDEO_INDEX_RETRY_MS;
+    if (videoIndexCache && clock.now() - videoIndexCache.at < keep) return Promise.resolve(videoIndexCache.index);
+    indexing ??= fetchVideoIndex()
+      .catch(() => null)
+      .then((index) => {
+        videoIndexCache = { at: clock.now(), index };
+        indexing = null;
+        return index;
+      });
+    return indexing;
   }
 
   /* -------------------------------------------------------------- oracle */
@@ -1695,6 +1933,9 @@ export function createSeedStock({
     unmarkSearched,
     settleHits,
     reopenHits,
+    pendingVideos,
+    recordVideos,
+    videoIndex: videoIndexNow,
     oracle,
     index,
     stats
