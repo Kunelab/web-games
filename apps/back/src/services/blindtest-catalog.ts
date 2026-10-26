@@ -93,6 +93,7 @@ import {
   type SeedSource,
   type SeedSources,
   type SeedStats,
+  type VideoIndexStatus,
   type VideosFrom
 } from './blindtest-seeds.js';
 import { chargeUnits, quotaDay, searchesOn, spendSearch, unitsLeft } from './youtube-budget.js';
@@ -1367,6 +1368,8 @@ export interface Catalogue {
   /** Starts every due seed harvest, one after another, without waiting for any. */
   warmSeeds(): void;
   seedStats(): SeedStats[];
+  /** Where Wikidata's list of song videos and artist channels stands. */
+  videoIndexStatus(): VideoIndexStatus;
   /** Which genres' seeds know each name. For the genre check on the shared catalogue. */
   seedIndex(): SeedIndex;
   /** Today's search spending, by the Pacific day Google resets the quota on. */
@@ -1526,6 +1529,8 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
       budget: number;
       /** Counts the channels read on the way, for a caller that wants to know. */
       progress?: { channels: number };
+      /** Whether to wait for Wikidata's list when it is not loaded: the prefill does, a room does not. */
+      waitForIndex?: boolean;
     }
   ): Promise<SearchStep[]> {
     if (genre.seeds && genre.seeds.length > 0) {
@@ -1533,7 +1538,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
       if (searchesHits(genre)) {
         // A hit is spent once its song is in the catalogue, whichever room or night filed it.
         stock.settleHits(genre, await librarySongKeysIn(db));
-        const channels = await lookUpVideos(genre, options.budget);
+        const channels = await lookUpVideos(genre, options.budget, options.waitForIndex ?? false);
         if (options.progress) options.progress.channels += channels;
       }
       const planned = stock.plan(genre, searches, options.window);
@@ -1562,10 +1567,10 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
    * them: the hits whose channel has not been read yet wait for a later plan,
    * and the night's prefill, which plans a hundred times, reads them all.
    */
-  async function lookUpVideos(genre: Genre, budget: number): Promise<number> {
+  async function lookUpVideos(genre: Genre, budget: number, waitForIndex: boolean): Promise<number> {
     const pending = stock.pendingVideos(genre);
     if (pending.length === 0) return 0;
-    const index = await stock.videoIndex();
+    const index = await stock.videoIndex(waitForIndex);
     if (!index) return 0;
 
     const found: { id: number; videos: string[]; from: VideosFrom }[] = [];
@@ -1852,7 +1857,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     const genre = genreById.get(genreId);
     if (!genre) return null;
     const progress = { channels: 0 };
-    const planned = await searchPlan(genre, 1, { allowFixed: false, budget, progress });
+    const planned = await searchPlan(genre, 1, { allowFixed: false, budget, progress, waitForIndex: true });
     // The lookups come first in a plan, so a plan without one has none left.
     const steps = options.searches === false ? planned.filter((step) => step.seed?.videoIds) : planned;
     if (steps.length === 0) {
@@ -2415,6 +2420,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     },
     warmSeeds: () => stock.warm(GENRES),
     seedStats: () => stock.stats(),
+    videoIndexStatus: () => stock.videoIndexStatus(),
     seedIndex: () => stock.index(),
     searchesToday: () => {
       const day = quotaDay(clock);

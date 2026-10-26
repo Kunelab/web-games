@@ -421,7 +421,12 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
     if (!isAdmin(request.currentUser)) {
       throw app.httpErrors.forbidden('Réservé à un administrateur');
     }
-    return { genres: catalogue.seedStats(), searches: catalogue.searchesToday(), prefill: prefillStatus() };
+    return {
+      genres: catalogue.seedStats(),
+      searches: catalogue.searchesToday(),
+      prefill: prefillStatus(),
+      videoIndex: catalogue.videoIndexStatus()
+    };
   });
 
   /**

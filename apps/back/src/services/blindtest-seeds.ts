@@ -54,7 +54,7 @@ import { z } from 'zod';
 
 import type { Clock } from '../clock.js';
 import type { Db } from '../db/open.js';
-import { blindtestSeedHarvests, blindtestSeeds } from '../db/schema.js';
+import { blindtestSeedHarvests, blindtestSeeds, metaData } from '../db/schema.js';
 
 /* ------------------------------------------------------------------ config */
 
@@ -248,6 +248,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const RECYCLE_AFTER_MS = 30 * DAY_MS;
 /** How long a Wikidata index that would not come is remembered before asking again. */
 const VIDEO_INDEX_RETRY_MS = 60 * 60 * 1000;
+/**
+ * The waits before each try at the index: at once, then longer and longer, up
+ * to ten minutes, for QLever to stop throttling. Some eighteen minutes in all,
+ * which only the night's prefill waits through; a room's fill never does.
+ */
+const VIDEO_INDEX_ATTEMPTS = [0, 30_000, 60_000, 2 * 60_000, 5 * 60_000, 10 * 60_000];
+/** Where the index is kept between restarts. */
+const VIDEO_INDEX_KEY = 'blindtest_video_index';
 
 /* ----------------------------------------------------------------- sources */
 
@@ -1229,6 +1237,16 @@ export interface SeedIndex {
 
 /* ------------------------------------------------------------------ stock */
 
+/** Where Wikidata's list of song videos and artist channels stands. See `SeedStock.videoIndex`. */
+export interface VideoIndexStatus {
+  loadedAt: string | null;
+  songs: number;
+  channels: number;
+  /** The last failure, when it came after the last load. */
+  failedAt: string | null;
+  error: string | null;
+}
+
 export interface SeedStats {
   genreId: string;
   total: number;
@@ -1287,8 +1305,15 @@ export interface SeedStock {
   pendingVideos(genre: SeededGenre): { id: number; artist: string; title: string }[];
   /** What was found for these hits: their videos, or none. */
   recordVideos(found: { id: number; videos: string[]; from: VideosFrom | null }[]): void;
-  /** Wikidata's songs and channels, fetched once a day. Null while neither endpoint answers. */
-  videoIndex(): Promise<VideoIndex | null>;
+  /**
+   * Wikidata's songs and channels, fetched once a day and kept across restarts.
+   * Null while QLever will not answer. Without `wait`, a list not loaded yet is
+   * asked for in the background and null comes back at once: a room's fill does
+   * not wait minutes on it, the night's prefill does.
+   */
+  videoIndex(wait?: boolean): Promise<VideoIndex | null>;
+  /** When the list last loaded or failed to, and how big it is. For the diagnostics. */
+  videoIndexStatus(): VideoIndexStatus;
   /**
    * A genre's oracle, from every seed it has, searched or not. Cached briefly.
    *
@@ -1312,11 +1337,14 @@ export interface SeedStock {
 export function createSeedStock({
   sources,
   db,
-  clock
+  clock,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 }: {
   sources: SeedSources;
   db: Db;
   clock: Pick<Clock, 'now'>;
+  /** How the stock waits before asking a throttled service again. A test's is instant. */
+  wait?: (ms: number) => Promise<void>;
 }): SeedStock {
   /**
    * The anime list, shared between the openings and the endings.
@@ -1808,33 +1836,103 @@ export function createSeedStock({
   /**
    * Fetched whole rather than asked song by song: two queries of a few seconds,
    * where thousands of small ones would be thousands of requests to a free service.
-   * Kept a day, and a failure an hour, so neither endpoint is asked again and again.
+   *
+   * From QLever only. Wikidata's own endpoint was the fallback and never once
+   * answered these: both queries ran into its sixty-second limit and came back
+   * cut off, two minutes spent for nothing. QLever asked to slow down (a 429)
+   * is asked again, five times, each after a longer wait.
+   *
+   * Kept a day, in the database as well as here: the box restarts with every
+   * deploy, and three deploys in an afternoon fetched the list three times, which
+   * with the fame lookups is what got the server throttled. A failure is kept an
+   * hour, so QLever is not asked again and again while it is saying no.
    */
   let videoIndexCache: { at: number; index: VideoIndex | null } | null = null;
   let indexing: Promise<VideoIndex | null> | null = null;
+  const indexStatus: VideoIndexStatus = { loadedAt: null, songs: 0, channels: 0, failedAt: null, error: null };
 
   async function fetchVideoIndex(): Promise<VideoIndex | null> {
-    for (const endpoint of ['qlever', 'wikidata'] as const) {
+    for (let attempt = 0; attempt < VIDEO_INDEX_ATTEMPTS.length; attempt++) {
+      await wait(VIDEO_INDEX_ATTEMPTS[attempt] ?? 0);
       const index = videoIndex(
-        await sources.sparql(endpoint, SONG_VIDEOS_QUERY),
-        await sources.sparql(endpoint, ARTIST_CHANNELS_QUERY)
+        await sources.sparql('qlever', SONG_VIDEOS_QUERY),
+        await sources.sparql('qlever', ARTIST_CHANNELS_QUERY)
       );
       if (index) return index;
     }
     return null;
   }
 
-  function videoIndexNow(): Promise<VideoIndex | null> {
+  /** The list a previous process kept, if it is less than a day old. */
+  function storedVideoIndex(): { at: number; index: VideoIndex } | null {
+    const row = db
+      .select({ value: metaData.value })
+      .from(metaData)
+      .where(and(eq(metaData.content_id, 0), eq(metaData.key, VIDEO_INDEX_KEY)))
+      .get();
+    if (!row?.value) return null;
+    try {
+      const stored = JSON.parse(row.value) as {
+        at: number;
+        songs: [string, string[]][];
+        channels: [string, string[]][];
+      };
+      if (clock.now() - stored.at >= DAY_MS) return null;
+      return { at: stored.at, index: { songs: new Map(stored.songs), channels: new Map(stored.channels) } };
+    } catch {
+      return null;
+    }
+  }
+
+  function storeVideoIndex(at: number, index: VideoIndex): void {
+    const value = JSON.stringify({ at, songs: [...index.songs], channels: [...index.channels] });
+    const stamped = stamp(at);
+    db.insert(metaData)
+      .values({ content_id: 0, key: VIDEO_INDEX_KEY, value, type: 'cache', createdAt: stamped, updatedAt: stamped })
+      .onConflictDoUpdate({ target: [metaData.content_id, metaData.key], set: { value, updatedAt: stamped } })
+      .run();
+  }
+
+  function noteLoaded(at: number, index: VideoIndex): void {
+    Object.assign(indexStatus, {
+      loadedAt: stamp(at),
+      songs: index.songs.size,
+      channels: index.channels.size,
+      failedAt: null,
+      error: null
+    });
+  }
+
+  function videoIndexNow(waitForIt = true): Promise<VideoIndex | null> {
+    if (!videoIndexCache) {
+      const stored = storedVideoIndex();
+      if (stored) {
+        videoIndexCache = stored;
+        noteLoaded(stored.at, stored.index);
+      }
+    }
     const keep = videoIndexCache?.index ? DAY_MS : VIDEO_INDEX_RETRY_MS;
     if (videoIndexCache && clock.now() - videoIndexCache.at < keep) return Promise.resolve(videoIndexCache.index);
     indexing ??= fetchVideoIndex()
       .catch(() => null)
       .then((index) => {
-        videoIndexCache = { at: clock.now(), index };
+        const at = clock.now();
+        videoIndexCache = { at, index };
         indexing = null;
+        if (index) {
+          noteLoaded(at, index);
+          try {
+            storeVideoIndex(at, index);
+          } catch {
+            // Kept in memory all the same; the next restart fetches it again.
+          }
+        } else {
+          indexStatus.failedAt = stamp(at);
+          indexStatus.error = `QLever did not answer in ${VIDEO_INDEX_ATTEMPTS.length} tries; asked again in an hour`;
+        }
         return index;
       });
-    return indexing;
+    return waitForIt ? indexing : Promise.resolve(null);
   }
 
   /* -------------------------------------------------------------- oracle */
@@ -1961,6 +2059,7 @@ export function createSeedStock({
     pendingVideos,
     recordVideos,
     videoIndex: videoIndexNow,
+    videoIndexStatus: () => ({ ...indexStatus }),
     oracle,
     index,
     stats

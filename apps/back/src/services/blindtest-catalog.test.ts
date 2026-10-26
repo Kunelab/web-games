@@ -14,6 +14,7 @@ import {
   type PoolEntry
 } from './blindtest-catalog.js';
 import { noFameSources, type FameSources } from './blindtest-fame.js';
+import { createSeedStock } from './blindtest-seeds.js';
 import type { Annotation, Candidate } from './blindtest-llm.js';
 import type { VideoFacts } from './youtube-service.js';
 
@@ -454,10 +455,19 @@ describe("a genre's famous songs", () => {
       ]
     });
 
-    const pool = await catalogue.poolFor('rock');
+    const result = await catalogue.searchForCatalogue('rock', 95);
 
     assert.equal(calls.search[0], '"Queen Bohemian Rhapsody"');
-    assert.deepEqual(answers(pool), ['Queen / Bohemian Rhapsody']);
+    assert.deepEqual(answers(result?.entries ?? []), ['Queen / Bohemian Rhapsody']);
+  });
+
+  it("wait for Wikidata's list before a room's fill searches them, without the room waiting", async () => {
+    const { catalogue, calls } = catalogueOver({ deezer: rockList(QUEEN) });
+
+    await catalogue.poolFor('rock');
+
+    // The list was not loaded: the room's fill went on without the hit, which is not searched blind.
+    assert.ok(!calls.search.some((query) => query.includes('Queen')));
   });
 
   it('are spent once their song is in the catalogue, and not before', async () => {
@@ -823,5 +833,79 @@ describe("each genre's spread, refitted from the rounds already rescored", () =>
     const stored = readCalibrations(db);
     assert.ok(stored.get('metal')?.composite, 'metal fitted');
     assert.deepEqual(stored.get('reggae')?.composite, { mean: -1, sd: 1 });
+  });
+});
+
+describe("Wikidata's list of song videos", () => {
+  const SONGS = {
+    results: {
+      bindings: [{ vid: { value: 'fJ9rUzIMcZQ' }, title: { value: 'Bohemian Rhapsody' }, artist: { value: 'Queen' } }]
+    }
+  };
+  const CHANNELS = { results: { bindings: [] } };
+
+  /** A stock whose QLever refuses the first `refusals` queries, and which records its waits. */
+  function stockOver(db: ReturnType<typeof openDb>['db'], refusals: number) {
+    const waits: number[] = [];
+    let asked = 0;
+    const { sources } = fakeSources();
+    const stock = createSeedStock({
+      sources: {
+        ...sources.seeds,
+        async sparql(_endpoint, query) {
+          asked += 1;
+          if (asked <= refusals) return null;
+          return query.includes('wdt:P1651') ? SONGS : CHANNELS;
+        }
+      },
+      db,
+      clock: fakeClock(),
+      wait: async (ms) => {
+        waits.push(ms);
+      }
+    });
+    return { stock, waits, asked: () => asked };
+  }
+
+  it('is asked again, after longer and longer waits, when QLever refuses', async () => {
+    const { db } = openDb(':memory:');
+    const { stock, waits } = stockOver(db, 3);
+
+    const index = await stock.videoIndex();
+
+    assert.equal(index?.songs.size, 1);
+    assert.deepEqual(waits, [0, 30_000, 60_000]);
+    assert.equal(stock.videoIndexStatus().songs, 1);
+  });
+
+  it('is kept across a restart, and not fetched again', async () => {
+    const { db } = openDb(':memory:');
+    await stockOver(db, 0).stock.videoIndex();
+
+    const restarted = stockOver(db, 1_000);
+    const index = await restarted.stock.videoIndex();
+
+    assert.equal(index?.songs.size, 1);
+    assert.equal(restarted.asked(), 0);
+  });
+
+  it('says when it would not come, after six tries over some eighteen minutes', async () => {
+    const { db } = openDb(':memory:');
+    const { stock, waits } = stockOver(db, 1_000);
+
+    assert.equal(await stock.videoIndex(), null);
+    assert.equal(waits.length, 6);
+    assert.equal(waits.at(-1), 10 * 60_000);
+    assert.ok(stock.videoIndexStatus().failedAt);
+  });
+
+  it('is not waited for by a room: it comes back empty at once and loads behind', async () => {
+    const { db } = openDb(':memory:');
+    const { stock } = stockOver(db, 0);
+
+    assert.equal(await stock.videoIndex(false), null);
+    // The fetch it started has landed by the next ask.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal((await stock.videoIndex(false))?.songs.size, 1);
   });
 });

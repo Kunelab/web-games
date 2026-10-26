@@ -8,6 +8,7 @@ import { GENRES, catalogAvailable, refitCalibrations } from './blindtest-catalog
 import { catalogueRound } from './blindtest-draw.js';
 import { indexCatalogueEntry } from './blindtest-duplicates.js';
 import { countLibrary, libraryVideoCodes, rememberPlayedRound } from './blindtest-library.js';
+import type { VideoIndexStatus } from './blindtest-seeds.js';
 import { catalogue } from './catalogue-service.js';
 import { quotaDay } from './youtube-budget.js';
 import { playableIn } from './youtube-service.js';
@@ -95,6 +96,8 @@ export interface PrefillReport {
   byGenre: Record<string, number>;
   /** Why it stopped. */
   stopped: string;
+  /** Wikidata's list of song videos and artist channels, when the run ended. See `VideoIndexStatus`. */
+  videoIndex: VideoIndexStatus | null;
 }
 
 let running: PrefillReport | null = null;
@@ -136,7 +139,8 @@ export async function prefillCatalogue(
     channels: 0,
     saved: 0,
     byGenre: {},
-    stopped: ''
+    stopped: '',
+    videoIndex: null
   };
   running = report;
   const day = quotaDay();
@@ -206,11 +210,18 @@ export async function prefillCatalogue(
     report.stopped = `failed: ${String(error).slice(0, 200)}`;
     log?.warn({ err: error }, 'blind test prefill failed');
   } finally {
+    report.videoIndex = catalogue.videoIndexStatus();
     report.finishedAt = new Date().toISOString();
     lastReport = report;
     running = null;
   }
 
+  if (report.videoIndex?.failedAt) {
+    log?.warn(
+      { videoIndex: report.videoIndex },
+      "Wikidata's list of song videos would not load: no famous song was looked up on Wikidata or an artist's channel"
+    );
+  }
   log?.info(
     {
       searches: report.searches,
