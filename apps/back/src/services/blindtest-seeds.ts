@@ -48,7 +48,7 @@
  * and what to keep, with the stock in the database and the few caches over it
  * held by one `createSeedStock`, so that a test can have its own.
  */
-import { and, count, eq, isNull, lt, sql } from 'drizzle-orm';
+import { and, count, eq, gte, isNull, lt, or, sql } from 'drizzle-orm';
 import { normalizeAnswer } from 'game-core';
 import { z } from 'zod';
 
@@ -167,6 +167,12 @@ export interface SeedSearch {
   query: string;
   limit: number;
   seeds: Seed[];
+  /**
+   * A few artists by name, a few famous songs by artist and title, or a few
+   * works. A hit's seeds are spent only once its song is in the catalogue; see
+   * `HIT_FAME`.
+   */
+  aim: 'artists' | 'hits' | 'works';
   /** What the model is told this search was for. */
   hint: string;
 }
@@ -184,6 +190,36 @@ const ARTISTS_PER_SEARCH = 3;
 /** Past this many works a composer weighs no more: Bach need not be searched first every time. */
 const REPERTOIRE_CAP = 50;
 const WORKS_PER_SEARCH = 4;
+
+/**
+ * Where a seed counts as a hit: the top tenth of its genre's harvest.
+ *
+ * A hit is searched by itself, artist and title, before anything else in its
+ * genre. Searched by its artist alongside two others, as everything was, it was
+ * left to YouTube's ranking: "The Rolling Stones"|"grandson"|"Clairo" filed
+ * twenty-six songs by Clairo and grandson, spent all fifteen Stones seeds, and
+ * the catalogue still had no Rolling Stones a month later. "Nirvana" came back
+ * as every song called Nirvana by somebody else.
+ */
+export const HIT_FAME = 0.9;
+/**
+ * Hits per search. Measured on the live API: four came back with every song
+ * in the results, and their Topic uploads among them; eight lost two songs
+ * entirely to the covers of the other six.
+ */
+const HITS_PER_SEARCH = 4;
+/** How often the overnight prefill searches a hit that it could not file before it gives up on it. */
+const HIT_TRIES = 2;
+/**
+ * How long a hit rests after a search, found or not.
+ *
+ * A room's pool may hold the song for a day without anybody playing it, and a
+ * search that missed it once is likelier to find it with other songs beside it.
+ * Either way the night's prefill should spend its searches on other hits first.
+ */
+const HIT_REST_MS = 7 * 24 * 60 * 60 * 1000;
+/** Hits are searched for a room that may be dealt them: one whose window starts at least this easy. */
+const HIT_WINDOW_MIN = 20;
 
 /** Re-harvested monthly: new releases, new editorial lists, new seasons. */
 const HARVEST_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -281,16 +317,18 @@ export function weightedSample<T>(items: T[], count: number, weight: (item: T) =
  * How much a seed of this fame should be drawn.
  *
  * With no window the famous are favoured, because a party wants songs people
- * know: squared, so about five draws in six come from the better-known half,
- * where a straight line gave the first harvest's plans "No Limit", "Mallrats"
- * and "Recovery of an MMO Junkie". A room asking for hard rounds gets seeds
- * near the fame its window implies instead: difficulty 0 is fame 1.
+ * know: to the fourth power, so about fifteen draws in sixteen come from the
+ * better-known half. A straight line gave the first harvest's plans "No Limit",
+ * "Mallrats" and "Recovery of an MMO Junkie"; squared still left two thirds of
+ * rock's best-known tenth unsearched after a month, because the middle of a
+ * harvest is so much larger than its top. A room asking for hard rounds gets
+ * seeds near the fame its window implies instead: difficulty 0 is fame 1.
  */
 export function fameWeight(fame: number, window?: { min: number; max: number }): number {
   // A window this wide is no preference at all, and it is what every room
   // left on the default 0 to 100 sends. Read as a target it centred the draw on
   // middling fame and weighed deep cuts the same as household names.
-  if (!window || window.max - window.min >= WIDE_WINDOW) return 0.05 + 1.5 * fame * fame;
+  if (!window || window.max - window.min >= WIDE_WINDOW) return 0.02 + 1.5 * fame ** 4;
   const target = 1 - (window.min + window.max) / 200;
   const spread = 0.2 + (window.max - window.min) / 400;
   return 0.05 + Math.exp(-((fame - target) ** 2) / (2 * spread ** 2));
@@ -302,6 +340,62 @@ const WIDE_WINDOW = 80;
 /** A name as a YouTube phrase. Quotes inside it would end the phrase early. */
 function phrase(name: string): string {
   return `"${name.replace(/"/g, '').trim()}"`;
+}
+
+/**
+ * What a release adds to a song's title: "(feat. David Bowie)", "(Remastered 2011)".
+ *
+ * Left out of a hit's search, which has to match the upload's title word for
+ * word: "Queen Under Pressure feat David Bowie" is in no title at all. A
+ * bracket that is part of the name, "(I Can't Get No) Satisfaction", stays.
+ */
+const RELEASE_NOTE =
+  /\s*[([][^)\]]*\b(?:feat|ft|with|remaster(?:ed)?|version|edit|live|mono|stereo|mix|bonus|deluxe|demo|single)\b[^)\]]*[)\]]/gi;
+
+function hitPhrase(seed: Seed): string {
+  return phrase(`${seed.search || seed.artist} ${seed.title.replace(RELEASE_NOTE, '')}`);
+}
+
+/** Which song a hit's seed is, across the several Deezer ids one song has. */
+function hitSongKey(seed: { artist: string; title: string }): string {
+  return trackOracleKey(seed.artist, seed.title.replace(RELEASE_NOTE, ''));
+}
+
+/**
+ * The names an artist is matched by: as credited, and the lead of a duet.
+ *
+ * "Queen & David Bowie" is Queen, "The Rolling Stones" is "Rolling Stones",
+ * whichever side of the comparison says it.
+ */
+function artistKeys(artist: string): string[] {
+  const keys = new Set<string>();
+  for (const name of [artist, artist.split(/\s*(?:&|,|\bfeat\.?|\bft\.?|\bx\b|\bwith\b|\bvs\.?)\s*/i)[0] ?? '']) {
+    const key = normalizeAnswer(name).replace(/^the /, '');
+    if (key) keys.add(key);
+  }
+  return [...keys];
+}
+
+/**
+ * The keys a recording is matched on, the same for a seed and a catalogue row.
+ *
+ * The title as it is, without its brackets and without a trailing " - Remastered":
+ * Deezer's "(I Can't Get No) Satisfaction" and a model's "Satisfaction" are one
+ * song, and so are "Paint It, Black" and "Paint It Black". Empty for a work.
+ */
+export function songKeys(artist: string, title: string): string[] {
+  const names = new Set(
+    [title, title.replace(/\s*[([][^)\]]*[)\]]/g, ' '), title.replace(/\s+[-–—]\s+.*$/, '')]
+      .map(normalizeAnswer)
+      .filter(Boolean)
+  );
+  return artistKeys(artist).flatMap((who) => [...names].map((name) => `${who}::${name}`));
+}
+
+/** Whether a found answer is by one of these artists. */
+export function byArtistOf(artist: string, seeds: readonly Pick<Seed, 'artist'>[]): boolean {
+  const keys = new Set(seeds.flatMap((seed) => artistKeys(seed.artist)));
+  return artistKeys(artist).some((key) => keys.has(key));
 }
 
 /* --------------------------------------------------------------- Deezer */
@@ -719,11 +813,24 @@ function toSeed(row: {
 }
 
 /**
+ * Whether a genre's famous seeds are searched one song at a time. See `HIT_FAME`.
+ *
+ * Only where the seeds are an editor's tracks, credited the way the uploads
+ * are. A Wikidata work is "Symphony No. 5" under "Ludwig van Beethoven", which
+ * no upload's title says word for word.
+ */
+export function searchesHits(genre: SeededGenre): boolean {
+  return genre.answerShape === 'artist-title' && (genre.seeds?.some((source) => source.kind === 'deezer') ?? false);
+}
+
+/**
  * Groups unsearched seeds into YouTube searches. Pure, for the tests.
  *
- * Music is searched by artist, a few artists per search, and every seed of a
- * chosen artist rides along so the whole artist is marked once searched. A
- * work is searched by its name and the genre's suffix.
+ * A genre's hits first, a few songs to a search by artist and title, for any
+ * room that may be dealt one. Then music by artist, a few artists per search,
+ * every seed of a chosen artist riding along so the whole artist is marked
+ * once searched, except its hits, which are only ever searched as themselves.
+ * A work is searched by its name and the genre's suffix.
  */
 export function planFromSeeds(
   genre: SeededGenre,
@@ -735,40 +842,11 @@ export function planFromSeeds(
   if (searches <= 0 || seeds.length === 0) return [];
 
   if (genre.answerShape === 'artist-title') {
-    const byArtist = new Map<string, { artist: string; search: string; fame: number; seeds: Seed[] }>();
-    for (const seed of seeds) {
-      const key = normalizeAnswer(seed.artist);
-      if (!key) continue;
-      const group = byArtist.get(key);
-      if (group) {
-        group.seeds.push(seed);
-        group.fame = Math.max(group.fame, seed.fame);
-      } else {
-        // A composer is searched under the name YouTube uses; a Deezer artist has
-        // no separate search name and is searched as credited.
-        byArtist.set(key, { artist: seed.artist, search: seed.search || seed.artist, fame: seed.fame, seeds: [seed] });
-      }
-    }
-
-    const chosen = weightedSample(
-      [...byArtist.values()],
-      searches * ARTISTS_PER_SEARCH,
-      (group) =>
-        fameWeight(group.fame, window) *
-        (genre.artistWeight === 'repertoire' ? Math.sqrt(Math.min(group.seeds.length, REPERTOIRE_CAP)) : 1),
-      random
-    );
-    const plan: SeedSearch[] = [];
-    for (let index = 0; index < chosen.length; index += ARTISTS_PER_SEARCH) {
-      const chunk = chosen.slice(index, index + ARTISTS_PER_SEARCH);
-      plan.push({
-        query: chunk.map((group) => phrase(group.search)).join('|'),
-        limit: 50,
-        seeds: chunk.flatMap((group) => group.seeds),
-        hint: chunk.map((group) => group.artist).join(', ')
-      });
-    }
-    return plan;
+    if (!searchesHits(genre)) return planArtists(genre, seeds, searches, window, random);
+    const hits = seeds.filter((seed) => seed.fame >= HIT_FAME);
+    const rest = seeds.filter((seed) => seed.fame < HIT_FAME);
+    const first = !window || window.min <= HIT_WINDOW_MIN ? planHits(hits, searches, window, random) : [];
+    return [...first, ...planArtists(genre, rest, searches - first.length, window, random)];
   }
 
   const chosen = weightedSample(seeds, searches * WORKS_PER_SEARCH, (seed) => fameWeight(seed.fame, window), random);
@@ -783,7 +861,97 @@ export function planFromSeeds(
         : `${names.map((name) => phrase(name)).join('|')}${suffix}`,
       limit: 50,
       seeds: chunk,
+      aim: 'works',
       hint: chunk.map((seed) => seed.title).join(', ')
+    });
+  }
+  return plan;
+}
+
+/**
+ * Famous songs, by artist and title, a few to a search.
+ *
+ * One song is often several seeds, a track on three editors' lists under three
+ * Deezer ids, and they go together: searched once, spent together.
+ */
+function planHits(
+  seeds: Seed[],
+  searches: number,
+  window: { min: number; max: number } | undefined,
+  random: () => number
+): SeedSearch[] {
+  if (searches <= 0) return [];
+  const bySong = new Map<string, { lead: Seed; seeds: Seed[] }>();
+  for (const seed of seeds) {
+    const key = hitSongKey(seed);
+    const song = bySong.get(key);
+    if (!song) bySong.set(key, { lead: seed, seeds: [seed] });
+    else {
+      song.seeds.push(seed);
+      if (seed.fame > song.lead.fame) song.lead = seed;
+    }
+  }
+
+  const chosen = weightedSample(
+    [...bySong.values()],
+    searches * HITS_PER_SEARCH,
+    (song) => fameWeight(song.lead.fame, window),
+    random
+  );
+  const plan: SeedSearch[] = [];
+  for (let index = 0; index < chosen.length; index += HITS_PER_SEARCH) {
+    const chunk = chosen.slice(index, index + HITS_PER_SEARCH);
+    plan.push({
+      query: chunk.map((song) => hitPhrase(song.lead)).join('|'),
+      limit: 50,
+      seeds: chunk.flatMap((song) => song.seeds),
+      aim: 'hits',
+      hint: chunk.map((song) => `${song.lead.artist} - ${song.lead.title}`).join(', ')
+    });
+  }
+  return plan;
+}
+
+function planArtists(
+  genre: SeededGenre,
+  seeds: Seed[],
+  searches: number,
+  window: { min: number; max: number } | undefined,
+  random: () => number
+): SeedSearch[] {
+  if (searches <= 0) return [];
+  const byArtist = new Map<string, { artist: string; search: string; fame: number; seeds: Seed[] }>();
+  for (const seed of seeds) {
+    const key = normalizeAnswer(seed.artist);
+    if (!key) continue;
+    const group = byArtist.get(key);
+    if (group) {
+      group.seeds.push(seed);
+      group.fame = Math.max(group.fame, seed.fame);
+    } else {
+      // A composer is searched under the name YouTube uses; a Deezer artist has
+      // no separate search name and is searched as credited.
+      byArtist.set(key, { artist: seed.artist, search: seed.search || seed.artist, fame: seed.fame, seeds: [seed] });
+    }
+  }
+
+  const chosen = weightedSample(
+    [...byArtist.values()],
+    searches * ARTISTS_PER_SEARCH,
+    (group) =>
+      fameWeight(group.fame, window) *
+      (genre.artistWeight === 'repertoire' ? Math.sqrt(Math.min(group.seeds.length, REPERTOIRE_CAP)) : 1),
+    random
+  );
+  const plan: SeedSearch[] = [];
+  for (let index = 0; index < chosen.length; index += ARTISTS_PER_SEARCH) {
+    const chunk = chosen.slice(index, index + ARTISTS_PER_SEARCH);
+    plan.push({
+      query: chunk.map((group) => phrase(group.search)).join('|'),
+      limit: 50,
+      seeds: chunk.flatMap((group) => group.seeds),
+      aim: 'artists',
+      hint: chunk.map((group) => group.artist).join(', ')
     });
   }
   return plan;
@@ -909,8 +1077,26 @@ export interface SeedStock {
    * refused leaves its seeds for another day.
    */
   markSearched(search: SeedSearch, found: number): void;
+  /**
+   * Rests a search's hits; see `HIT_REST_MS`. Not spent: a hit is spent once
+   * its song is in the catalogue (see `settleHits`), which a room's pool alone
+   * does not put it in.
+   */
+  markTried(search: SeedSearch): void;
+  /** Counts a try against a search's hits, for a run that files what it finds. See `HIT_TRIES`. */
+  countTry(search: SeedSearch): void;
   /** Hands a search's seeds back, for a run that could make nothing of its results. */
   unmarkSearched(search: SeedSearch): void;
+  /**
+   * Spends a genre's hits whose song the catalogue holds, and those tried too
+   * often to keep trying. `covered` is every catalogue recording's `songKeys`.
+   */
+  settleHits(genre: SeededGenre, covered: ReadonlySet<string>): void;
+  /**
+   * Puts back every hit spent without its song reaching the catalogue, for the
+   * one pass that undid the artist searches' losses. Returns how many.
+   */
+  reopenHits(genre: SeededGenre, covered: ReadonlySet<string>): number;
   /**
    * A genre's oracle, from every seed it has, searched or not. Cached briefly.
    *
@@ -1241,7 +1427,7 @@ export function createSeedStock({
     if (plan(genre, 1).length === 0) {
       const cutoff = stamp(clock.now() - RECYCLE_AFTER_MS);
       db.update(blindtestSeeds)
-        .set({ searched_at: null })
+        .set({ searched_at: null, tries: 0, tried_at: null })
         .where(and(eq(blindtestSeeds.genre_id, genre.id), lt(blindtestSeeds.searched_at, cutoff)))
         .run();
     }
@@ -1251,6 +1437,7 @@ export function createSeedStock({
 
   function plan(genre: SeededGenre, searches: number, window?: { min: number; max: number }): SeedSearch[] {
     if (!genre.seeds || genre.seeds.length === 0) return [];
+    const rested = stamp(clock.now() - HIT_REST_MS);
     const rows = db
       .select({
         id: blindtestSeeds.id,
@@ -1262,7 +1449,13 @@ export function createSeedStock({
         fame: blindtestSeeds.fame
       })
       .from(blindtestSeeds)
-      .where(and(eq(blindtestSeeds.genre_id, genre.id), isNull(blindtestSeeds.searched_at)))
+      .where(
+        and(
+          eq(blindtestSeeds.genre_id, genre.id),
+          isNull(blindtestSeeds.searched_at),
+          or(isNull(blindtestSeeds.tried_at), lt(blindtestSeeds.tried_at, rested))
+        )
+      )
       .all();
     return planFromSeeds(genre, rows.map(toSeed), searches, window);
   }
@@ -1277,12 +1470,108 @@ export function createSeedStock({
     });
   }
 
+  function markTried(search: SeedSearch): void {
+    const at = stamp();
+    db.transaction((tx) => {
+      for (const seed of search.seeds) {
+        tx.update(blindtestSeeds).set({ tried_at: at }).where(eq(blindtestSeeds.id, seed.id)).run();
+      }
+    });
+  }
+
+  function countTry(search: SeedSearch): void {
+    db.transaction((tx) => {
+      for (const seed of search.seeds) {
+        tx.update(blindtestSeeds)
+          .set({ tries: sql`${blindtestSeeds.tries} + 1` })
+          .where(eq(blindtestSeeds.id, seed.id))
+          .run();
+      }
+    });
+  }
+
   function unmarkSearched(search: SeedSearch): void {
     db.transaction((tx) => {
       for (const seed of search.seeds) {
-        tx.update(blindtestSeeds).set({ searched_at: null, found: 0 }).where(eq(blindtestSeeds.id, seed.id)).run();
+        tx.update(blindtestSeeds)
+          .set({ searched_at: null, found: 0, tried_at: null })
+          .where(eq(blindtestSeeds.id, seed.id))
+          .run();
       }
     });
+  }
+
+  /** A genre's hits, spent or not. */
+  function hitsOf(genre: SeededGenre) {
+    return db
+      .select({
+        id: blindtestSeeds.id,
+        artist: blindtestSeeds.artist,
+        title: blindtestSeeds.title,
+        searched_at: blindtestSeeds.searched_at,
+        tries: blindtestSeeds.tries,
+        tried_at: blindtestSeeds.tried_at
+      })
+      .from(blindtestSeeds)
+      .where(and(eq(blindtestSeeds.genre_id, genre.id), gte(blindtestSeeds.fame, HIT_FAME)))
+      .all();
+  }
+
+  const filed = (seed: { artist: string; title: string }, covered: ReadonlySet<string>) =>
+    songKeys(seed.artist, seed.title).some((key) => covered.has(key));
+
+  /**
+   * By song, not by seed.
+   *
+   * One song is several seeds, a track on several editors' lists, and the
+   * monthly harvest can bring it another: a seed that arrives after its song
+   * was tried twice and given up on starts with no tries of its own, and would
+   * have it searched all over again. So what one seed of a song knows, its
+   * unspent seeds are brought up to: its tries, its rest, and whether it is done.
+   */
+  function settleHits(genre: SeededGenre, covered: ReadonlySet<string>): void {
+    if (!searchesHits(genre)) return;
+    const songs = new Map<string, ReturnType<typeof hitsOf>>();
+    for (const seed of hitsOf(genre)) {
+      const key = hitSongKey(seed);
+      songs.set(key, [...(songs.get(key) ?? []), seed]);
+    }
+
+    const at = stamp();
+    const updates: { id: number; set: Partial<typeof blindtestSeeds.$inferInsert> }[] = [];
+    for (const seeds of songs.values()) {
+      const found = seeds.some((seed) => filed(seed, covered));
+      const tries = Math.max(...seeds.map((seed) => seed.tries));
+      const triedAt = seeds.reduce<string | null>(
+        (last, seed) => (seed.tried_at && (!last || seed.tried_at > last) ? seed.tried_at : last),
+        null
+      );
+      for (const seed of seeds) {
+        if (seed.searched_at !== null) continue;
+        if (found || tries >= HIT_TRIES) updates.push({ id: seed.id, set: { searched_at: at, found: found ? 1 : 0 } });
+        else if (seed.tries !== tries || seed.tried_at !== triedAt) {
+          updates.push({ id: seed.id, set: { tries, tried_at: triedAt } });
+        }
+      }
+    }
+    if (updates.length === 0) return;
+    db.transaction((tx) => {
+      for (const { id, set } of updates) tx.update(blindtestSeeds).set(set).where(eq(blindtestSeeds.id, id)).run();
+    });
+  }
+
+  function reopenHits(genre: SeededGenre, covered: ReadonlySet<string>): number {
+    if (!searchesHits(genre)) return 0;
+    const lost = hitsOf(genre).filter((seed) => seed.searched_at !== null && !filed(seed, covered));
+    db.transaction((tx) => {
+      for (const seed of lost) {
+        tx.update(blindtestSeeds)
+          .set({ searched_at: null, found: 0, tries: 0, tried_at: null })
+          .where(eq(blindtestSeeds.id, seed.id))
+          .run();
+      }
+    });
+    return lost.length;
   }
 
   /* -------------------------------------------------------------- oracle */
@@ -1395,5 +1684,19 @@ export function createSeedStock({
     });
   }
 
-  return { harvest, warm, ensure, plan, markSearched, unmarkSearched, oracle, index, stats };
+  return {
+    harvest,
+    warm,
+    ensure,
+    plan,
+    markSearched,
+    markTried,
+    countTry,
+    unmarkSearched,
+    settleHits,
+    reopenHits,
+    oracle,
+    index,
+    stats
+  };
 }

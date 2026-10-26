@@ -1,6 +1,8 @@
+import { and, eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 
 import { db } from '../db/index.js';
+import { metaData } from '../db/schema.js';
 import { apiSlots, env } from '../env.js';
 import { GENRES, catalogAvailable, refitCalibrations } from './blindtest-catalog.js';
 import { catalogueRound } from './blindtest-draw.js';
@@ -206,6 +208,39 @@ export async function prefillCatalogue(log?: FastifyBaseLogger): Promise<Prefill
     log?.warn({ err: error }, 'could not refit the blind test spreads');
   }
   return report;
+}
+
+/** Left in `MetaData` by the pass below, so that a restart never runs it again. */
+const HIT_REOPEN_KEY = 'blindtest_hit_reopen_v1';
+
+/**
+ * Once: puts back the hits that were spent without their song being filed.
+ *
+ * Until a genre's famous songs were searched as themselves, they went with
+ * their artist's name in a search shared with two others, and every seed of
+ * the artist was spent whatever came back. That is how the Rolling Stones' 15
+ * seeds were spent on a search that filed only Clairo and grandson. The hits
+ * nobody ever searched need nothing: they now go first. These are the rest, and
+ * the nights' prefills work through them all, hits first.
+ *
+ * Once, and marked done: run on every boot, it would also put back the hits the
+ * new rules have since tried enough times and given up on.
+ */
+export async function reopenLostHitsOnce(log?: FastifyBaseLogger): Promise<void> {
+  const [marker] = await db
+    .select({ value: metaData.value })
+    .from(metaData)
+    .where(and(eq(metaData.content_id, 0), eq(metaData.key, HIT_REOPEN_KEY)))
+    .limit(1);
+  if (marker?.value === 'done') return;
+
+  const reopened = await catalogue.reopenHits();
+  const now = new Date().toISOString();
+  await db
+    .insert(metaData)
+    .values({ content_id: 0, key: HIT_REOPEN_KEY, value: 'done', type: 'migration', createdAt: now, updatedAt: now })
+    .onConflictDoUpdate({ target: [metaData.content_id, metaData.key], set: { value: 'done', updatedAt: now } });
+  log?.info({ reopened }, 'blind test hits put back for the prefill');
 }
 
 /**

@@ -153,11 +153,9 @@ export interface RoundState {
    */
   catalogue?: boolean;
   /**
-   * Set once this round's play has been counted in the catalogue's statistics,
-   * so the several transitions a reveal goes through count it once.
+   * Set once this round has been counted as heard, so the several transitions
+   * a reveal goes through count it once. See `recordPlay`.
    */
-  statsRecorded?: boolean;
-  /** Set once this round has been counted as heard, for the same reason. See `recordPlay`. */
   playCounted?: boolean;
 }
 

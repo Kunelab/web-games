@@ -1,17 +1,10 @@
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
-import {
-  changedByHand,
-  getMediaKind,
-  normalizeAnswer,
-  withHandEdits,
-  type BlindtestFame,
-  type BlindtestPayload
-} from 'game-core';
+import { getMediaKind, normalizeAnswer, withHandEdits, type BlindtestFame, type BlindtestPayload } from 'game-core';
 
 import { cleanAliases } from '../game/session.js';
 
 import { db } from '../db/index.js';
-import { blindtestRoundStats, media, playlistItems, playlists, type MediaRow } from '../db/schema.js';
+import { media, playlistItems, playlists, type MediaRow } from '../db/schema.js';
 import {
   audienceOf,
   genreById,
@@ -24,7 +17,8 @@ import { extremeDoubt, resolveCalibration, type ExtremeDoubt } from './blindtest
 import type { DrawHistory } from './blindtest-draw.js';
 import { hiddenDuplicates } from './blindtest-duplicates.js';
 import { refiled, underRememberedGenre } from './blindtest-refile.js';
-import { forgetRoundOutcomes } from './blindtest-stats.js';
+import { weightedSample } from './blindtest-seeds.js';
+import { playKeyOf, recentPlays } from './media-plays.js';
 import { toMediaView, type MediaView } from './media-service.js';
 
 /**
@@ -332,15 +326,11 @@ export async function correctLibraryRound(
   }
 
   let payload = view.payload;
-  /** Whether the round itself changed: what it asks the room to recognise, or how hard it says that is. */
-  let rejudged = false;
   if (Object.keys(patch).length > 0) {
     const merged = { ...((payload ?? {}) as Record<string, unknown>), ...patch };
     const parsed = getMediaKind('blindtest').payloadSchema.safeParse(merged);
     if (parsed.success && JSON.stringify(parsed.data) !== JSON.stringify(payload)) {
-      const moved = changedByHand(payload, parsed.data);
       payload = withHandEdits(payload, parsed.data as BlindtestPayload);
-      rejudged = moved.difficulty || moved.timing;
       changed = true;
     }
   }
@@ -380,8 +370,6 @@ export async function correctLibraryRound(
       ...(changed ? { last_modified: new Date().toISOString() } : {})
     })
     .where(eq(media.id, row.id));
-
-  if (rejudged) await forgetRoundOutcomes(code);
 
   return true;
 }
@@ -443,6 +431,9 @@ export async function purgeLibraryRound(code: string): Promise<boolean> {
  * A row flagged as a possible duplicate of an older one sits out until an admin
  * settles the flag; see `duplicatesToHide`.
  *
+ * Which of the rest, by lot: the easier a round and the less it has been heard
+ * lately, the likelier. See `replayWeight`.
+ *
  * `dealt` is every media id the session has already handed out, and it is the
  * hard half of "never the same song twice in one evening". The track key below
  * is the soft half: it spans both sources, so a song the catalogue supplied
@@ -474,22 +465,48 @@ export async function replayFromLibrary(
       return key !== '' && !history.playedTracks.has(key);
     });
 
-  const picked: MediaView[] = [];
-  while (picked.length < count && pool.length > 0) {
-    const index = Math.floor(Math.random() * pool.length);
-    const [item] = pool.splice(index, 1);
-    if (!item) break;
+  const heard = recentPlays();
+  const picked = weightedSample(pool, count, (item) => {
+    const key = playKeyOf(item);
+    const rating = (item.payload as { difficulty?: unknown } | null)?.difficulty;
+    return replayOdds(replayWeight(typeof rating === 'number' ? rating : null, key ? (heard.get(key) ?? 0) : 0));
+  });
 
+  for (const item of picked) {
     // The same bookkeeping a drawn round does, so the two sources cannot hand
     // the room the same song between them.
     history.playedTracks.add(trackKeyOf(item));
     const artist = item.answers.find((answer) => answer.key === 'artist')?.value;
     if (artist) history.recentArtists.push(artist.toLowerCase());
-
-    picked.push(item);
   }
 
   return picked;
+}
+
+/** The weight that holds a round back the most. */
+const REPLAY_WEIGHT_MAX = 255;
+/** How many times likelier a round of weight 0 is to be replayed than one of `REPLAY_WEIGHT_MAX`. */
+const REPLAY_ODDS_SPAN = 5;
+/** What a round rated before difficulties were kept counts as. */
+const UNRATED_DIFFICULTY = 50;
+
+/**
+ * How much a catalogue round is held back from a replay: 0 to 255.
+ *
+ * A point for every five of difficulty, so a round rated 1 starts at 0, one
+ * rated 50 at 10 and one rated 99 at 19. And a point for every five plays
+ * lately, which fade at five a month (see `MediaPlays.recent`): 25 plays add 5,
+ * and five months later they add nothing.
+ */
+export function replayWeight(difficulty: number | null, recentPlays: number): number {
+  const rated = difficulty !== null && Number.isFinite(difficulty) ? Math.max(0, difficulty) : UNRATED_DIFFICULTY;
+  return Math.min(REPLAY_WEIGHT_MAX, Math.floor(rated / 5) + Math.floor(Math.max(0, recentPlays) / 5));
+}
+
+/** A weight's odds of being replayed: 5 at 0, 1 at 255, in a straight line between. */
+export function replayOdds(weight: number): number {
+  const held = Math.min(REPLAY_WEIGHT_MAX, Math.max(0, weight)) / REPLAY_WEIGHT_MAX;
+  return REPLAY_ODDS_SPAN - (REPLAY_ODDS_SPAN - 1) * held;
 }
 
 /**
@@ -543,16 +560,6 @@ export async function listLibrary(): Promise<MediaView[]> {
 
 /* ------------------------------------------------------- how it went */
 
-/** Rated at most this easy, played at least this often, and never found: worth a look. */
-const REVIEW_MAX_DIFFICULTY = 40;
-const REVIEW_MIN_PLAYS = 2;
-
-export interface ReviewFlag {
-  mediaId: number;
-  difficulty: number;
-  plays: number;
-}
-
 export interface ExtremeFlag {
   mediaId: number;
   difficulty: number;
@@ -582,30 +589,6 @@ export async function findExtremeFlags(): Promise<ExtremeFlag[]> {
       piece: source.pieceFame
     });
     if (reason) flags.push({ mediaId: item.id, difficulty: payload.difficulty, reason });
-  }
-  return flags;
-}
-
-/**
- * Catalogue rounds rated easy that no room has ever found.
- *
- * Either the number is wrong, and the round is harder than its fame says, or
- * the clip is: a window that opens on a logo or a spoken intro is unanswerable
- * however famous the song. Both are an admin's to fix from the editor, and
- * either fix settles the flag, since a harder number takes the round out of it
- * and a found round takes it out for good.
- */
-export async function findReviewFlags(): Promise<ReviewFlag[]> {
-  const stats = new Map((await db.select().from(blindtestRoundStats)).map((row) => [row.code, row]));
-  const flags: ReviewFlag[] = [];
-  for (const item of await listLibrary()) {
-    const code = videoCodeOf(item.payload);
-    const row = code ? stats.get(code) : undefined;
-    const difficulty = (item.payload as { difficulty?: unknown } | null)?.difficulty;
-    if (!row || typeof difficulty !== 'number') continue;
-    if (row.found === 0 && row.plays >= REVIEW_MIN_PLAYS && difficulty <= REVIEW_MAX_DIFFICULTY) {
-      flags.push({ mediaId: item.id, difficulty, plays: row.plays });
-    }
   }
   return flags;
 }

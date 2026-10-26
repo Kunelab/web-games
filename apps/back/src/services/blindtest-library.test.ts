@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import type { MediaView } from './media-service.js';
-import type { SessionUser } from '../types/fastify.js';
 
 /**
  * The shared catalogue's own bookkeeping, on a database of its own.
@@ -26,18 +25,11 @@ process.on('exit', () => {
   }
 });
 
-const { correctLibraryRound, findExtremeFlags, findReviewFlags, rememberPlayedRound } =
+const { correctLibraryRound, findExtremeFlags, rememberPlayedRound, replayOdds, replayWeight } =
   await import('./blindtest-library.js');
-const { recordRoundOutcome } = await import('./blindtest-stats.js');
-const { mediaService } = await import('./media-service.js');
 const { deleteRedundantDuplicates, findLibraryDuplicates, withoutHiddenDuplicates } =
   await import('./blindtest-duplicates.js');
 const { listLibrary } = await import('./blindtest-library.js');
-
-/** Whether this catalogue entry is among the admin's flags. */
-async function flagged(mediaId: number | undefined): Promise<boolean> {
-  return (await findReviewFlags()).some((flag) => flag.mediaId === mediaId);
-}
 
 /** A generated round as the draw deals it: rated easy. */
 function dealtRound(code: string): MediaView {
@@ -56,63 +48,26 @@ function dealtRound(code: string): MediaView {
   } as unknown as MediaView;
 }
 
-describe('a round rated easy that nobody finds', () => {
-  it('is flagged, and the flag clears once its clip is fixed', async () => {
-    const code = 'abcdefghij1';
-    const kept = await rememberPlayedRound(dealtRound(code));
-    await recordRoundOutcome(code, false);
-    await recordRoundOutcome(code, false);
-    assert.equal(await flagged(kept?.id), true);
-
-    // The window opened on a spoken intro; an admin moves it onto the chorus.
-    await correctLibraryRound(code, [], { startGuess: 62, endGuess: 82 });
-
-    assert.equal(await flagged(kept?.id), false);
+describe('how much a replay holds a round back', () => {
+  it('starts from its difficulty, a point for every five', () => {
+    assert.equal(replayWeight(1, 0), 0);
+    assert.equal(replayWeight(50, 0), 10);
+    assert.equal(replayWeight(99, 0), 19);
+    // Rated before difficulties were kept: the middle.
+    assert.equal(replayWeight(null, 0), 10);
   });
 
-  it('clears too once an admin has set its difficulty, even to one still easy', async () => {
-    const code = 'abcdefghij2';
-    const kept = await rememberPlayedRound(dealtRound(code));
-    await recordRoundOutcome(code, false);
-    await recordRoundOutcome(code, false);
-
-    // Looked at and judged: the misses so far were against the old number.
-    await correctLibraryRound(code, [], { difficulty: 35 });
-
-    assert.equal(await flagged(kept?.id), false);
+  it('adds a point for every five plays lately, up to 255', () => {
+    assert.equal(replayWeight(1, 25), 5);
+    assert.equal(replayWeight(50, 24), 14);
+    assert.equal(replayWeight(99, 10_000), 255);
   });
 
-  it('clears once an admin moves its clip in the media editor, where the flag sends them', async () => {
-    const code = 'abcdefghij4';
-    const kept = await rememberPlayedRound(dealtRound(code));
-    await recordRoundOutcome(code, false);
-    await recordRoundOutcome(code, false);
-    const admin: SessionUser = { id: 1, login: 'admin', role: 'admin' };
-
-    await mediaService.update(
-      kept!.id,
-      {
-        kind: 'blindtest',
-        title: kept!.title,
-        category: kept!.category,
-        answers: kept!.answers,
-        payload: { ...(kept!.payload as Record<string, unknown>), startGuess: 62, endGuess: 82 }
-      },
-      admin
-    );
-
-    assert.equal(await flagged(kept?.id), false);
-  });
-
-  it('stays flagged when only the answer was corrected', async () => {
-    const code = 'abcdefghij3';
-    const kept = await rememberPlayedRound(dealtRound(code));
-    await recordRoundOutcome(code, false);
-    await recordRoundOutcome(code, false);
-
-    await correctLibraryRound(code, [{ key: 'artist', value: 'Some Other Band' }]);
-
-    assert.equal(await flagged(kept?.id), true);
+  it('makes weight 0 five times as likely as 255', () => {
+    assert.equal(replayOdds(0), 5);
+    assert.equal(replayOdds(255), 1);
+    assert.ok(replayOdds(replayWeight(1, 0)) > replayOdds(replayWeight(99, 0)));
+    assert.ok(replayOdds(replayWeight(30, 0)) > replayOdds(replayWeight(30, 25)));
   });
 });
 

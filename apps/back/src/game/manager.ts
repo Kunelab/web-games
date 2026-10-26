@@ -6,7 +6,6 @@ import type { LobbyCard } from 'lobby-core';
 import { db } from '../db/index.js';
 import { indexCatalogueEntry } from '../services/blindtest-duplicates.js';
 import { rememberPlayedRound } from '../services/blindtest-library.js';
-import { recordRoundOutcome } from '../services/blindtest-stats.js';
 import { playCountsOf, recordPlay } from '../services/media-plays.js';
 import { dealRounds, reserveEphemeralIdsBelow, type DrawHistory } from '../services/blindtest-draw.js';
 import { catalogue } from '../services/catalogue-service.js';
@@ -21,7 +20,6 @@ import {
   closeAnswers,
   createSession,
   expireBuzzWindow,
-  libraryCodeOf,
   nextDeadline,
   upcomingMediaId,
   openAnswers,
@@ -722,7 +720,6 @@ export class GameManager {
     }
 
     this.keepGeneratedRound(state);
-    this.countCatalogueRound(state);
     this.countPlay(state);
     this.prepareUpcoming(state);
   }
@@ -759,39 +756,18 @@ export class GameManager {
   }
 
   /**
-   * Counts a catalogue round's play, and whether anybody found it.
-   *
-   * What lets the admin see the rounds rated easy that no room ever names; see
-   * `findReviewFlags`. Once per round, at its reveal, and only where answers
-   * were typed: an oral game scores nothing, so it says nothing about who knew
-   * the song, and a rehearsal is not a room.
-   */
-  /**
    * Counts a round as heard, once, at its reveal.
    *
    * In any game a room plays, spoken ones included, since the song was played
    * either way; not in a rehearsal, which is the host listening alone. What a
-   * shuffle reads to deal the unheard first; see `freshFirstOrder`.
+   * shuffle reads to deal the unheard first, and the catalogue's replays to hold
+   * back what was heard lately; see `freshFirstOrder` and `replayWeight`.
    */
   private countPlay(state: SessionState): void {
     const round = state.round;
     if (!round || round.phase !== 'reveal' || round.playCounted || state.rehearsal) return;
     round.playCounted = true;
     recordPlay({ id: round.mediaId, kind: round.kind, payload: round.payload });
-  }
-
-  private countCatalogueRound(state: SessionState): void {
-    const round = state.round;
-    if (!round || round.phase !== 'reveal' || !round.scored || round.statsRecorded) return;
-    if (state.config.oral || state.rehearsal || Object.keys(state.players).length === 0) return;
-    const code = libraryCodeOf(round);
-    if (!code) return;
-
-    round.statsRecorded = true;
-    const found = round.submissions.some((submission) => submission.correct);
-    void recordRoundOutcome(code, found).catch((error: unknown) => {
-      this.log.warn({ err: error, code: state.code }, 'could not count a catalogue round');
-    });
   }
 
   /**

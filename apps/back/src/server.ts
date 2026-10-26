@@ -2,7 +2,7 @@ import { buildApp } from './app.js';
 import { closeDb } from './db/index.js';
 import { env } from './env.js';
 import { catalogAvailable } from './services/blindtest-catalog.js';
-import { schedulePrefill } from './services/blindtest-prefill.js';
+import { reopenLostHitsOnce, schedulePrefill } from './services/blindtest-prefill.js';
 import { catalogue } from './services/catalogue-service.js';
 
 const app = await buildApp();
@@ -51,5 +51,8 @@ try {
  */
 if (catalogAvailable()) catalogue.warmSeeds();
 
-// And the day's unused searches spent on the catalogue before they lapse.
-schedulePrefill(app.log);
+// And the day's unused searches spent on the catalogue before they lapse, once
+// the hits the old artist searches lost are back in the stock.
+void reopenLostHitsOnce(app.log)
+  .catch((error: unknown) => app.log.warn({ err: error }, 'could not put the blind test hits back'))
+  .finally(() => schedulePrefill(app.log));

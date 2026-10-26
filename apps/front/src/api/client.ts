@@ -568,9 +568,6 @@ export const api = {
   /** Deletes every copy an exact duplicate leaves out of games. Returns the ids deleted. */
   blindtestDeleteRedundant: () =>
     request<{ deleted: number[] }>('/blindtest/library/duplicates/delete-redundant', { method: 'POST' }),
-  /** Catalogue rounds rated easy that no room has found yet. Admin only. */
-  blindtestReviewFlags: () =>
-    request<{ flags: { mediaId: number; difficulty: number; plays: number }[] }>('/blindtest/library/review'),
   /** Catalogue rounds at either end of the scale that nothing backs. Admin only. */
   blindtestExtremeFlags: () =>
     request<{ flags: { mediaId: number; difficulty: number; reason: ExtremeDoubt }[] }>('/blindtest/library/extremes'),

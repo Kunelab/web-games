@@ -247,13 +247,12 @@ interface GenreFlagInfo {
  * In the order a curator settles them: a duplicate may be deleted outright,
  * which makes every other question about it moot.
  */
-type Problem = 'duplicate' | 'genre' | 'legacy' | 'review' | 'extreme' | 'unfinished';
+type Problem = 'duplicate' | 'genre' | 'legacy' | 'extreme' | 'unfinished';
 
 const PROBLEM_LABELS: Record<Problem, MsgKey> = {
   duplicate: 'ple.problem.duplicate',
   genre: 'ple.problem.genre',
   legacy: 'ple.problem.legacy',
-  review: 'ple.problem.review',
   extreme: 'ple.problem.extreme',
   unfinished: 'ple.problem.unfinished'
 };
@@ -375,22 +374,9 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   );
 
   /**
-   * Rounds rated easy that no room has found, admin only, on the catalogue
-   * only: the same rule as the duplicates, for the same reason.
+   * Difficulties at either end that nothing backs, admin only, on the
+   * catalogue only: the same rule as the duplicates, for the same reason.
    */
-  const review = useAsync(
-    () => (curating ? api.blindtestReviewFlags() : Promise.resolve({ flags: [] })),
-    [curating, playlistId]
-  );
-  const reviewById = useMemo(
-    () =>
-      new Map(
-        (review.data?.flags ?? []).filter((flag) => !deletedIds.has(flag.mediaId)).map((flag) => [flag.mediaId, flag])
-      ),
-    [review.data, deletedIds]
-  );
-
-  /** Difficulties at either end that nothing backs: the same rule again. */
   const extremes = useAsync(
     () => (curating ? api.blindtestExtremeFlags() : Promise.resolve({ flags: [] })),
     [curating, playlistId]
@@ -662,13 +648,10 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
     duplicate: (item) => dupById.has(item.id),
     genre: (item) => genreFlagById.has(item.id),
     legacy: (item) => legacyIds.has(item.id),
-    review: (item) => reviewById.has(item.id),
     extreme: (item) => extremeById.has(item.id),
     unfinished: (item) => !item.readiness.ready
   };
-  const problems: Problem[] = curating
-    ? ['duplicate', 'genre', 'legacy', 'review', 'extreme', 'unfinished']
-    : ['unfinished'];
+  const problems: Problem[] = curating ? ['duplicate', 'genre', 'legacy', 'extreme', 'unfinished'] : ['unfinished'];
   const hasAnyProblem = (item: MediaItem) => problems.some((problem) => hasProblem[problem](item));
   const problemCount = chosen.filter(hasAnyProblem).length;
   const countOf = (problem: Problem) => chosen.filter(hasProblem[problem]).length;
@@ -826,7 +809,6 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
               {dupById.size > 0 && <> · {t(msg('ple.duplicate.count', { count: dupById.size }))}</>}
               {genreFlagById.size > 0 && <> · {t(msg('ple.genre.count', { count: genreFlagById.size }))}</>}
               {legacyIds.size > 0 && <> · {t(msg('ple.genre.legacyCount', { count: legacyIds.size }))}</>}
-              {reviewById.size > 0 && <> · {t(msg('ple.review.count', { count: reviewById.size }))}</>}
               {extremeById.size > 0 && <> · {t(msg('ple.extreme.count', { count: extremeById.size }))}</>}
             </span>
           </header>
@@ -954,7 +936,6 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                       categoryLabel={curating ? genreName(item.category) : undefined}
                       duplicate={curating ? dupById.get(item.id) : undefined}
                       hiddenInGames={curating && hiddenIds.has(item.id)}
-                      review={curating ? reviewById.get(item.id) : undefined}
                       extreme={curating ? extremeById.get(item.id) : undefined}
                       onShowDuplicate={() => setDupTargetId(item.id)}
                       genreFlag={curating ? genreFlagById.get(item.id) : undefined}
@@ -1201,7 +1182,6 @@ function SortableRow({
   categoryLabel,
   duplicate,
   hiddenInGames = false,
-  review,
   extreme,
   onShowDuplicate,
   genreFlag,
@@ -1217,8 +1197,6 @@ function SortableRow({
   duplicate?: DuplicateInfo;
   /** The newer side of an unsettled duplicate: no game deals it until it is settled. */
   hiddenInGames?: boolean;
-  /** Rated easy and never found by any room. */
-  review?: { difficulty: number; plays: number };
   /** At either end of the scale, with nothing to back it. */
   extreme?: { difficulty: number; reason: ExtremeDoubt };
   onShowDuplicate?: () => void;
@@ -1261,21 +1239,9 @@ function SortableRow({
       <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
         {!item.readiness.ready && <Badge tone="warn">{t(msg('lib.unfinished'))}</Badge>}
         {/*
-          Rated easy, and no room has ever named it: the number or the clip is
-          wrong. A badge with its reason on hover, fixed from the media editor
-          behind the pencil, like any other correction.
-        */}
-        {review && (
-          <span
-            title={t(msg('ple.review.flag', { title: item.title, difficulty: review.difficulty, plays: review.plays }))}
-          >
-            <Badge tone="warn">{t(msg('ple.review.badge'))}</Badge>
-          </span>
-        )}
-        {/*
-          At 1 to 10 or 90 to 100 with nothing to back it. The same kind of
-          badge, settled the same way: a number set by hand in the editor
-          is the admin's, and never listed again.
+          At 1 to 10 or 90 to 100 with nothing to back it. A badge with its
+          reason on hover, fixed from the media editor behind the pencil: a
+          number set by hand there is the admin's, and never listed again.
         */}
         {extreme && (
           <span title={t(msg(EXTREME_REASON_KEYS[extreme.reason], { difficulty: extreme.difficulty }))}>

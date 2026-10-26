@@ -74,10 +74,14 @@ import {
 } from './chorus-service.js';
 import type { Annotation, Candidate } from './blindtest-llm.js';
 import {
+  byArtistOf,
   createSeedStock,
   otherNames,
+  searchesHits,
+  songKeys,
   trackOracleKey,
   type GenreOracle,
+  type Seed,
   type SeedIndex,
   type SeedSearch,
   type SeedSource,
@@ -1323,6 +1327,11 @@ export interface Catalogue {
   rescoreForPlay<T extends PlayableRound>(item: T): Promise<T>;
   /** One seed search straight into rounds for the shared catalogue, within `budget` for the day. */
   searchForCatalogue(genreId: string, budget: number): Promise<CatalogueSearch | null>;
+  /**
+   * Puts back, in every genre, the hits that were spent without their song
+   * reaching the catalogue. By genre, how many. See `SeedStock.reopenHits`.
+   */
+  reopenHits(): Promise<Record<string, number>>;
   /** Diagnostics for the setup screen and the logs. */
   status(): PoolStatus[];
   /** Harvests a genre's seeds now. Resolves to how many the sources offered. */
@@ -1361,6 +1370,37 @@ export async function libraryVideoCodesIn(db: Db): Promise<Set<string>> {
     if (row.code) codes.add(row.code);
   }
   return codes;
+}
+
+/**
+ * Every recording the shared catalogue holds, by the keys a hit is matched on.
+ *
+ * In any genre: Queen filed under metal is still Queen in the catalogue, and a
+ * rock seed for it would only find the same song again. See `songKeys`.
+ */
+export async function librarySongKeysIn(db: Db): Promise<Set<string>> {
+  const rows = await db
+    .select({ answers: media.answers })
+    .from(media)
+    .where(and(isNull(media.user_id), eq(media.kind, 'blindtest')));
+
+  const keys = new Set<string>();
+  for (const row of rows) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.answers);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(parsed)) continue;
+    const answers = parsed as ({ key?: unknown; value?: unknown } | null)[];
+    const value = (key: string): string => {
+      const found = answers.find((answer) => answer?.key === key)?.value;
+      return typeof found === 'string' ? found : '';
+    };
+    for (const key of songKeys(value('artist'), value('title'))) keys.add(key);
+  }
+  return keys;
 }
 
 /**
@@ -1456,6 +1496,8 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
   ): Promise<SearchStep[]> {
     if (genre.seeds && genre.seeds.length > 0) {
       await stock.ensure(genre).catch(() => undefined);
+      // A hit is spent once its song is in the catalogue, whichever room or night filed it.
+      if (searchesHits(genre)) stock.settleHits(genre, await librarySongKeysIn(db));
       const planned = stock.plan(genre, searches, options.window);
       if (planned.length > 0) {
         return planned.map((seed) => ({ query: seed.query, limit: seed.limit, seed, label: `seeds:${seed.hint}` }));
@@ -1496,6 +1538,9 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     const thinSources: string[] = [];
     /** Which search found each video, for the hint the model is given. */
     const origin = new Map<string, SearchStep>();
+    /** The hits each video was searched for, and the videos a broader search found as well. */
+    const aimedAt = new Map<string, Seed[]>();
+    const broad = new Set<string>(extraIds);
     const ran: SeedSearch[] = [];
     let spent = 0;
 
@@ -1523,11 +1568,15 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
         for (const id of ids) {
           harvested.push(id);
           if (!origin.has(id)) origin.set(id, step);
+          if (step.seed?.aim === 'hits') aimedAt.set(id, [...(aimedAt.get(id) ?? []), ...step.seed.seeds]);
+          else broad.add(id);
         }
         // Spent the moment it ran: the quota is gone whatever the model makes of
         // the results, and a seed searched twice is a hundred units for nothing.
+        // Except a hit, which rests instead, and is spent once its song is filed.
         if (step.seed) {
-          stock.markSearched(step.seed, ids.length);
+          if (step.seed.aim === 'hits') stock.markTried(step.seed);
+          else stock.markSearched(step.seed, ids.length);
           ran.push(step.seed);
         }
         spent += 1;
@@ -1606,6 +1655,17 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
       if (!entry || exclude.trackKeys.has(entry.trackKey)) continue;
 
       /**
+       * A search for hits keeps only songs by the artists it was for.
+       *
+       * The rest of what it finds is other people's versions of those songs,
+       * "Pentatonix - Bohemian Rhapsody" and "The Piano Guys", which the model
+       * reads as their own answers: nothing a room asked for when it was meant
+       * to hear the famous one.
+       */
+      const aimed = aimedAt.get(fact.videoId);
+      if (aimed && !broad.has(fact.videoId) && !byArtistOf(entry.artist, aimed)) continue;
+
+      /**
        * One recording, one entry, and when there is a choice the Topic upload wins.
        *
        * Not a tidiness rule. An auto-generated "Art Track" is the recording with
@@ -1662,6 +1722,17 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     if (modelDown) {
       for (const seed of built.searched) stock.unmarkSearched(seed);
       return { entries: [], spent: built.spent, modelDown };
+    }
+
+    /**
+     * A try, against every hit this search was for.
+     *
+     * Counted here and not for a room's pool, because this run files what it
+     * finds: a hit it found is in the catalogue by the next plan, which spends
+     * it, and one still missing after `HIT_TRIES` of these is not coming.
+     */
+    for (const search of built.searched) {
+      if (search.aim === 'hits') stock.countTry(search);
     }
 
     rescore(genre, built.entries);
@@ -2179,6 +2250,15 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     enrich,
     rescoreForPlay,
     searchForCatalogue,
+    async reopenHits() {
+      const covered = await librarySongKeysIn(db);
+      const reopened: Record<string, number> = {};
+      for (const genre of GENRES) {
+        if (genre.facetOf || !searchesHits(genre)) continue;
+        reopened[genre.id] = stock.reopenHits(genre, covered);
+      }
+      return reopened;
+    },
     status,
     harvest: (genreId) => {
       const genre = genreById.get(genreId);

@@ -6,7 +6,7 @@ import { env } from '../env.js';
 import { GameManager } from '../game/manager.js';
 import { GENRES, SECTIONS, catalogAvailable, genreById } from '../services/blindtest-catalog.js';
 import { countAvailable, dealRounds, emptyHistory } from '../services/blindtest-draw.js';
-import { catalogueKeys, countLibrary, findExtremeFlags, findReviewFlags } from '../services/blindtest-library.js';
+import { catalogueKeys, countLibrary, findExtremeFlags } from '../services/blindtest-library.js';
 import {
   deleteRedundantDuplicates,
   dismissDuplicateFlags,
@@ -342,17 +342,6 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
       throw app.httpErrors.forbidden('Réservé à un administrateur');
     }
     return findLibraryGenreFlags(catalogue.seedIndex());
-  });
-
-  /**
-   * Catalogue rounds rated easy that no room has ever found, for the admin to
-   * look at: the difficulty is wrong, or the clip is. See `findReviewFlags`.
-   */
-  app.get('/blindtest/library/review', { preHandler: app.requireAuth }, async (request) => {
-    if (!isAdmin(request.currentUser)) {
-      throw app.httpErrors.forbidden('Réservé à un administrateur');
-    }
-    return { flags: await findReviewFlags() };
   });
 
   /**

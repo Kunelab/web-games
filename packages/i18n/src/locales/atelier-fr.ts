@@ -318,7 +318,6 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.problem.duplicate": "Doublons",
   "ple.problem.genre": "Genre",
   "ple.problem.legacy": "Ancien libellé",
-  "ple.problem.review": "Jamais trouvées",
   "ple.problem.extreme": "Difficulté douteuse",
   "ple.problem.unfinished": "À compléter",
   "ple.filter.genre": "Genre",
@@ -348,8 +347,6 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.duplicate.hidden":
     "Cette entrée est écartée des parties tant que le doublon n’est pas réglé : l’entrée la plus vue est jouée à sa place.",
   /* ------- manches notées faciles que personne ne trouve (admin) ------- */
-  "ple.review.count": "{count} jamais trouvée(s)",
-  "ple.review.badge": "Jamais trouvée",
   "ple.extreme.count": "{count} difficulté(s) douteuse(s)",
   "ple.extreme.badge": "{difficulty} ?",
   "ple.extreme.easyUnconfirmed":
@@ -360,8 +357,6 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
     "Noté {difficulty} à l’ancienne, sans aucun chiffre pour le confirmer.",
   "ple.extreme.notFound":
     "Introuvable sur Deezer, Wikipedia et AniList : la réponse est peut-être fausse (le chanteur ou la chanson au lieu de l’anime) ou mal écrite. Difficulté {difficulty} gardée telle quelle.",
-  "ple.review.flag":
-    "{title} : notée {difficulty}, et personne ne l’a trouvée en {plays} parties. La difficulté ou l’extrait est sans doute à revoir.",
   /* ---------- genres in question in the generated-rounds catalogue (admin) ---------- */
   "ple.genre.flag": "Genre à vérifier : {title}",
   "ple.genre.count": "{count} genre(s) à vérifier",

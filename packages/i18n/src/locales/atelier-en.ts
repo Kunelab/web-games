@@ -333,7 +333,6 @@ export const atelierEn = {
   "ple.problem.duplicate": "Duplicates",
   "ple.problem.genre": "Genre",
   "ple.problem.legacy": "Old label",
-  "ple.problem.review": "Never found",
   "ple.problem.extreme": "Doubtful difficulty",
   "ple.problem.unfinished": "To finish",
   "ple.filter.genre": "Genre",
@@ -363,8 +362,6 @@ export const atelierEn = {
   "ple.duplicate.hidden":
     "This entry sits out of every game until the flag is settled: the most viewed entry plays instead.",
   /* ------- rounds rated easy that no room ever finds (admin) ------- */
-  "ple.review.count": "{count} never found",
-  "ple.review.badge": "Never found",
   "ple.extreme.count": "{count} doubtful difficulty rating(s)",
   "ple.extreme.badge": "{difficulty}?",
   "ple.extreme.easyUnconfirmed":
@@ -375,8 +372,6 @@ export const atelierEn = {
     "Rated {difficulty} the old way, with no figure to back it.",
   "ple.extreme.notFound":
     "Found nowhere on Deezer, Wikipedia or AniList: the answer may be wrong (the singer or the song instead of the anime) or misspelt. Difficulty {difficulty} kept as it was.",
-  "ple.review.flag":
-    "{title}: rated {difficulty}, and nobody found it in {plays} games. The difficulty or the clip probably needs a look.",
   /* ---------- genres in question in the generated-rounds catalogue (admin) ---------- */
   "ple.genre.flag": "Genre to check: {title}",
   "ple.genre.count": "{count} genre(s) to check",

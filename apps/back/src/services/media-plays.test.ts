@@ -18,7 +18,7 @@ process.on('exit', () => {
   }
 });
 
-const { playCountsOf, playKeyOf, recordPlay } = await import('./media-plays.js');
+const { playCountsOf, playKeyOf, recentPlays, recordPlay } = await import('./media-plays.js');
 
 const song = (id: number, code: string) => ({ id, kind: 'blindtest', payload: { code } });
 
@@ -45,5 +45,29 @@ describe('how often something has been heard', () => {
     assert.equal(counts.get(2), 2);
     assert.equal(counts.get(3), 1);
     assert.equal(counts.has(5), false);
+  });
+});
+
+describe('how much something has been heard lately', () => {
+  const near = (actual: number | undefined, expected: number) =>
+    assert.ok(actual !== undefined && Math.abs(actual - expected) < 1e-6, `${actual} ≈ ${expected}`);
+
+  it('forgets five plays a month, and nothing below none', () => {
+    const may = new Date('2026-05-10T20:00:00Z');
+    for (let play = 0; play < 25; play++) recordPlay(song(7, 'heardinmay'), may);
+
+    near(recentPlays(may).get('yt:heardinmay'), 25);
+    near(recentPlays(new Date('2026-06-09T20:00:00Z')).get('yt:heardinmay'), 20);
+    near(recentPlays(new Date('2026-11-10T20:00:00Z')).get('yt:heardinmay'), 0);
+  });
+
+  it('counts a new play on top of what is left of the old ones', () => {
+    for (let play = 0; play < 10; play++) recordPlay(song(8, 'heardagain'), new Date('2026-01-01T00:00:00Z'));
+    // Sixty days on, the ten are forgotten.
+    const march = new Date('2026-03-02T00:00:00Z');
+    recordPlay(song(8, 'heardagain'), march);
+
+    near(recentPlays(march).get('yt:heardagain'), 1);
+    assert.equal(playCountsOf([song(8, 'heardagain')]).get(8), 11);
   });
 });

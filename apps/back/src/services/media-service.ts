@@ -5,7 +5,6 @@ import {
   mediaReadiness,
   resolveTiming,
   timingSchema,
-  changedByHand,
   withHandEdits,
   type AnswerField,
   type BlindtestPayload,
@@ -18,7 +17,6 @@ import { z } from 'zod';
 import { db } from '../db/index.js';
 import { media, playlistItems, type MediaRow } from '../db/schema.js';
 import type { SessionUser } from '../types/fastify.js';
-import { forgetRoundOutcomes } from './blindtest-stats.js';
 import { copyName } from './copy-name.js';
 import { ownerFilter } from './ownership.js';
 
@@ -292,8 +290,6 @@ export const mediaService = {
      * so the rescoring leaves it alone. See `withHandEdits`.
      */
     let payload = input.payload;
-    /** A clip or difficulty moved: the round's play counts describe the old one. */
-    let rejudgedCode: string | null = null;
     if (input.kind === 'blindtest') {
       const [current] = await db
         .select({ kind: media.kind, payload: media.payload })
@@ -301,11 +297,7 @@ export const mediaService = {
         .where(and(eq(media.id, id), ownerFilter(media.user_id, user)))
         .limit(1);
       if (current?.kind === 'blindtest') {
-        const previous = safeJson(current.payload);
-        const moved = changedByHand(previous, input.payload);
-        payload = withHandEdits(previous, input.payload as BlindtestPayload);
-        const code = (payload as { code?: unknown }).code;
-        if ((moved.difficulty || moved.timing) && typeof code === 'string' && code) rejudgedCode = code;
+        payload = withHandEdits(safeJson(current.payload), input.payload as BlindtestPayload);
       }
     }
 
@@ -323,7 +315,6 @@ export const mediaService = {
       })
       .where(and(eq(media.id, id), ownerFilter(media.user_id, user)));
 
-    if (rejudgedCode) await forgetRoundOutcomes(rejudgedCode);
     return this.getById(id, user);
   },
 

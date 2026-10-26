@@ -4,7 +4,7 @@ import { after, describe, it } from 'node:test';
 import { eq } from 'drizzle-orm';
 
 import { openDb } from '../db/open.js';
-import { media } from '../db/schema.js';
+import { blindtestSeeds, media } from '../db/schema.js';
 import {
   createCatalogue,
   readCalibrations,
@@ -86,8 +86,9 @@ interface World {
  * Fake sources over a world, counting what was asked of them.
  *
  * YouTube's search returns every clip whose title holds one of the query's
- * quoted names, which is what a seed search is, or everything for a query with
- * none, plus the clips that turn up everywhere. Deezer answers a playlist
+ * quoted names, punctuation aside as on the real one ("AC/DC Highway to Hell"
+ * finds "AC/DC - Highway to Hell"), which is what a seed search is, or
+ * everything for a query with none, plus the clips that turn up everywhere. Deezer answers a playlist
  * search with one editor's playlist named after the query, holding whatever
  * the world files under it.
  */
@@ -100,11 +101,15 @@ function fakeSources(world: World = {}) {
     youtube: {
       async search(query) {
         calls.search.push(query);
-        const names = [...query.matchAll(/"([^"]+)"/g)].map((match) => (match[1] ?? '').toLowerCase());
+        const words = (text: string) =>
+          text
+            .toLowerCase()
+            .replace(/[^\p{L}\p{N}]+/gu, ' ')
+            .trim();
+        const names = [...query.matchAll(/"([^"]+)"/g)].map((match) => words(match[1] ?? ''));
         return clips
           .filter(
-            (clip) =>
-              clip.everywhere || names.length === 0 || names.some((name) => clip.title.toLowerCase().includes(name))
+            (clip) => clip.everywhere || names.length === 0 || names.some((name) => words(clip.title).includes(name))
           )
           .map((clip) => clip.id);
       },
@@ -370,6 +375,110 @@ describe("a genre's seeds against the model", () => {
       pool.map((entry) => [entry.work, entry.workAliases, entry.year, entry.yearVerified]),
       [['Attack on Titan', ['Shingeki no Kyojin'], 2013, true]]
     );
+  });
+});
+
+/**
+ * One rock editor's list: these famous songs, and nine nobody knows for each.
+ *
+ * So that exactly the famous ones are the genre's top tenth, its hits.
+ */
+function rockList(...famous: Track[]): (query: string) => Track[] {
+  const unknown = Array.from({ length: famous.length * 9 }, (_, index) => ({
+    artist: `Garage ${String.fromCharCode(65 + index)}`,
+    title: `Demo ${index}`,
+    rank: 100 - index
+  }));
+  const list = [...famous.map((track, index) => ({ ...track, rank: 1_000_000 - index })), ...unknown];
+  return (query) => (query === 'rock essentials' ? list : []);
+}
+
+const QUEEN: Track = { artist: 'Queen', title: 'Bohemian Rhapsody' };
+const ACDC: Track = { artist: 'AC/DC', title: 'Highway to Hell' };
+const DAY = 24 * 60 * MINUTE;
+
+/** A song in the shared catalogue, filed the way the prefill files one. */
+async function fileInCatalogue(db: ReturnType<typeof catalogueOver>['db'], artist: string, title: string) {
+  await db.insert(media).values({
+    user_id: null,
+    kind: 'blindtest',
+    title: `${artist} - ${title}`,
+    category: 'rock',
+    answers: JSON.stringify([
+      { key: 'title', value: title },
+      { key: 'artist', value: artist }
+    ]),
+    payload: JSON.stringify({ code: `${artist}${title}`.replace(/\W/g, '') })
+  });
+}
+
+describe("a genre's famous songs", () => {
+  const seedsBy = (db: ReturnType<typeof catalogueOver>['db'], artist: string) =>
+    db.select().from(blindtestSeeds).where(eq(blindtestSeeds.artist, artist)).all();
+
+  it('are searched as themselves before anything else, and their covers are left out', async () => {
+    const { catalogue, calls } = catalogueOver({
+      deezer: rockList(QUEEN),
+      clips: [
+        { id: 'queen', title: 'Queen - Bohemian Rhapsody' },
+        { id: 'cover', title: 'Pentatonix - Queen Bohemian Rhapsody' }
+      ]
+    });
+
+    const pool = await catalogue.poolFor('rock');
+
+    assert.equal(calls.search[0], '"Queen Bohemian Rhapsody"');
+    assert.deepEqual(answers(pool), ['Queen / Bohemian Rhapsody']);
+  });
+
+  it('are spent once their song is in the catalogue, and not before', async () => {
+    const { catalogue, calls, db } = catalogueOver({
+      deezer: rockList(QUEEN),
+      clips: [{ id: 'queen', title: 'Queen - Bohemian Rhapsody' }]
+    });
+
+    await catalogue.searchForCatalogue('rock', 95);
+    assert.equal(calls.search[0], '"Queen Bohemian Rhapsody"');
+    assert.ok(seedsBy(db, 'Queen').every((seed) => seed.searched_at === null && seed.tries === 1));
+
+    await fileInCatalogue(db, 'Queen', 'Bohemian Rhapsody');
+    await catalogue.searchForCatalogue('rock', 95);
+
+    assert.ok(seedsBy(db, 'Queen').every((seed) => seed.searched_at !== null && seed.found === 1));
+    assert.equal(calls.search.filter((query) => query.includes('Queen')).length, 1);
+  });
+
+  it('are given up on once the prefill has tried twice and filed nothing, under any id', async () => {
+    // YouTube has no upload of it to find. And every harvest here hands the song
+    // a new Deezer id, the way a new editor's list does: a new seed of a song
+    // given up on is given up on too.
+    const { catalogue, calls, clock, db } = catalogueOver({ deezer: rockList(QUEEN) });
+
+    await catalogue.searchForCatalogue('rock', 95);
+    // Resting a week, so the night after searches something else.
+    await catalogue.searchForCatalogue('rock', 95);
+    clock.advance(8 * DAY);
+    await catalogue.searchForCatalogue('rock', 95);
+    clock.advance(8 * DAY);
+    await catalogue.searchForCatalogue('rock', 95);
+    await catalogue.searchForCatalogue('rock', 95);
+
+    assert.equal(calls.search.filter((query) => query.includes('Queen')).length, 2);
+    assert.ok(seedsBy(db, 'Queen').length > 1);
+    assert.ok(seedsBy(db, 'Queen').every((seed) => seed.searched_at !== null && seed.found === 0));
+  });
+
+  it('are put back when an artist search spent them without filing their song', async () => {
+    const { catalogue, db } = catalogueOver({ deezer: rockList(QUEEN, ACDC) });
+    await catalogue.harvest('rock');
+    // Spent the old way: every seed, whatever its search came back with.
+    db.update(blindtestSeeds).set({ searched_at: '2026-10-01T00:00:00.000Z', found: 50 }).run();
+    await fileInCatalogue(db, 'AC/DC', 'Highway To Hell');
+
+    assert.equal((await catalogue.reopenHits()).rock, 1);
+    assert.ok(seedsBy(db, 'Queen').every((seed) => seed.searched_at === null));
+    assert.ok(seedsBy(db, 'AC/DC').every((seed) => seed.searched_at !== null));
+    assert.ok(seedsBy(db, 'Garage A').every((seed) => seed.searched_at !== null));
   });
 });
 

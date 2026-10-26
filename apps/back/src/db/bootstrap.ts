@@ -292,6 +292,8 @@ const statements = [
     "fame" REAL NOT NULL DEFAULT 0,
     "searched_at" TEXT,
     "found" INTEGER NOT NULL DEFAULT 0,
+    "tried_at" TEXT,
+    "tries" INTEGER NOT NULL DEFAULT 0,
     "created_at" TEXT DEFAULT CURRENT_TIMESTAMP
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "BlindtestSeeds_source_unique" ON "BlindtestSeeds" ("genre_id", "source", "source_key")`,
@@ -325,17 +327,11 @@ const statements = [
     "fitted_at" TEXT NOT NULL,
     PRIMARY KEY ("genre_id", "signal")
   )`,
-  // How often each catalogue round was played, and how often anybody found it.
-  `CREATE TABLE IF NOT EXISTS "BlindtestRoundStats" (
-    "code" TEXT PRIMARY KEY,
-    "plays" INTEGER NOT NULL DEFAULT 0,
-    "found" INTEGER NOT NULL DEFAULT 0,
-    "last_played_at" TEXT
-  )`,
   // How often each song or question has been heard, for a shuffle that favours the unheard.
   `CREATE TABLE IF NOT EXISTS "MediaPlays" (
     "key" TEXT PRIMARY KEY,
     "plays" INTEGER NOT NULL DEFAULT 0,
+    "recent" REAL NOT NULL DEFAULT 0,
     "last_played_at" TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS "Media_user_id_idx" ON "Media" ("user_id")`,
@@ -389,18 +385,30 @@ function enforceUniqueLogins(sqlite: Database, warn: (message: string) => void):
  * deployed one. Each entry here is added when the table lacks it, which makes
  * it safe to run on every boot.
  */
-const addedColumns: { table: string; column: string; definition: string }[] = [
+const addedColumns: { table: string; column: string; definition: string; fill?: string }[] = [
   // The recording's length, which is how a clip is kept clear of a music video's skit.
   { table: 'BlindtestSeeds', column: 'duration', definition: 'INTEGER' },
   // Where each genre's top tenth starts, for the easy end of the scale.
-  { table: 'BlindtestCalibration', column: 'top', definition: 'REAL' }
+  { table: 'BlindtestCalibration', column: 'top', definition: 'REAL' },
+  // A hit's last search and how often it failed, which spend it only once its song is filed.
+  { table: 'BlindtestSeeds', column: 'tried_at', definition: 'TEXT' },
+  { table: 'BlindtestSeeds', column: 'tries', definition: 'INTEGER NOT NULL DEFAULT 0' },
+  // The plays lately, starting from every play so far as of the last one.
+  {
+    table: 'MediaPlays',
+    column: 'recent',
+    definition: 'REAL NOT NULL DEFAULT 0',
+    fill: 'UPDATE "MediaPlays" SET "recent" = "plays"'
+  }
 ];
 
 function addMissingColumns(sqlite: Database): void {
-  for (const { table, column, definition } of addedColumns) {
+  for (const { table, column, definition, fill } of addedColumns) {
     const columns = sqlite.prepare(`PRAGMA table_info("${table}")`).all() as { name: string }[];
     if (!columns.some((existing) => existing.name === column)) {
       sqlite.exec(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${definition}`);
+      // Only on the boot that adds it, so it never overwrites what came after.
+      if (fill) sqlite.exec(fill);
     }
   }
 }

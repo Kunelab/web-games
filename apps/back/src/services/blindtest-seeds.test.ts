@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   anilistSeeds,
   buildOracle,
+  byArtistOf,
   compositionSeeds,
   compositionsQuery,
   curatedPlaylists,
@@ -15,6 +16,7 @@ import {
   planFromSeeds,
   qleverQuery,
   rankFame,
+  songKeys,
   trackOracleKey,
   weightedSample,
   wikidataSeeds,
@@ -388,6 +390,75 @@ describe('planFromSeeds', () => {
   it('plans nothing from nothing', () => {
     assert.deepEqual(planFromSeeds(music, [], 3), []);
     assert.deepEqual(planFromSeeds(music, [seed(1, 'A', 'B')], 0), []);
+  });
+});
+
+describe("planFromSeeds on an editor's genre", () => {
+  const rock = {
+    id: 'rock',
+    answerShape: 'artist-title' as const,
+    seeds: [{ kind: 'deezer' as const, playlistQueries: [], titleMatch: /rock/i }]
+  };
+  const seeds = [
+    seed(1, 'AC/DC', 'Highway to Hell', 0.99),
+    seed(2, 'AC/DC', 'Highway to Hell', 0.95),
+    seed(3, 'The Rolling Stones', 'Paint It, Black', 0.97),
+    seed(4, 'Queen', 'Under Pressure (feat. David Bowie)', 0.93),
+    seed(5, 'AC/DC', 'Realize', 0.5),
+    seed(6, 'Clairo', 'Sofia', 0.8)
+  ];
+
+  it('searches the famous songs as themselves first, and the rest by artist without them', () => {
+    const [hits, artists, ...more] = planFromSeeds(rock, seeds, 2, undefined, () => 0.5);
+
+    assert.equal(hits?.aim, 'hits');
+    assert.deepEqual(hits?.query.split('|').sort(), [
+      '"AC/DC Highway to Hell"',
+      '"Queen Under Pressure"',
+      '"The Rolling Stones Paint It, Black"'
+    ]);
+    // One song under two Deezer ids is searched once and spent together.
+    assert.deepEqual(hits?.seeds.map((entry) => entry.id).sort(), [1, 2, 3, 4]);
+
+    assert.equal(artists?.aim, 'artists');
+    assert.deepEqual(artists?.seeds.map((entry) => entry.id).sort(), [5, 6]);
+    assert.deepEqual(more, []);
+  });
+
+  it('leaves the hits out of a search for a room that only wants hard rounds', () => {
+    const plan = planFromSeeds(rock, seeds, 2, { min: 60, max: 100 }, () => 0.5);
+
+    assert.deepEqual(
+      plan.map((search) => search.aim),
+      ['artists']
+    );
+    assert.deepEqual(plan[0]?.seeds.map((entry) => entry.id).sort(), [5, 6]);
+  });
+});
+
+describe('songKeys', () => {
+  const same = (left: [string, string], right: [string, string]) =>
+    songKeys(...left).some((key) => songKeys(...right).includes(key));
+
+  it('knows one song under the spellings a catalogue and a model give it', () => {
+    assert.ok(same(['The Rolling Stones', "(I Can't Get No) Satisfaction"], ['Rolling Stones', 'Satisfaction']));
+    assert.ok(same(['The Rolling Stones', 'Paint It, Black'], ['The Rolling Stones', 'Paint It Black']));
+    assert.ok(same(['Queen', 'Under Pressure'], ['Queen & David Bowie', 'Under Pressure - Remastered 2011']));
+    assert.ok(!same(['Queen', 'Under Pressure'], ['Queen', 'Radio Ga Ga']));
+    assert.ok(!same(['Queen', 'Under Pressure'], ['Pentatonix', 'Under Pressure']));
+  });
+
+  it('has nothing to say about a work', () => {
+    assert.deepEqual(songKeys('', 'Naruto'), []);
+  });
+});
+
+describe('byArtistOf', () => {
+  it('reads a duet as its lead artist', () => {
+    const searched = [{ artist: 'Queen' }, { artist: 'The Rolling Stones' }];
+    assert.ok(byArtistOf('Queen & David Bowie', searched));
+    assert.ok(byArtistOf('Rolling Stones', searched));
+    assert.ok(!byArtistOf('Pentatonix', searched));
   });
 });
 

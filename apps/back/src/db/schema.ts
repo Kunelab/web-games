@@ -601,9 +601,17 @@ export const blindtestSeeds = sqliteTable(
     fame: real('fame').notNull().default(0),
     /** The recording's length in seconds, when the source gives it (Deezer does). */
     duration: integer('duration'),
+    /** When it was spent. A hit is spent once its song is in the catalogue, or once it has been tried enough. */
     searched_at: text('searched_at'),
-    /** How many pool entries its search produced, for diagnostics. */
+    /**
+     * What its search found, for diagnostics: how many videos, for an artist or a
+     * work; for a hit, 1 when its song reached the catalogue and 0 when it never did.
+     */
     found: integer('found').notNull().default(0),
+    /** A hit's last search, which it rests after; see `HIT_REST_MS`. */
+    tried_at: text('tried_at'),
+    /** How often the overnight prefill searched a hit and could not file it. */
+    tries: integer('tries').notNull().default(0),
     created_at: text('created_at').default(now)
   },
   (table) => [
@@ -670,30 +678,24 @@ export const blindtestCalibration = sqliteTable(
 );
 
 /**
- * How often a catalogue round was played and how often anybody found it.
- *
- * Keyed by the video id, which a correction never changes and which a round
- * dealt from a search already has before it is filed. Feeds the admin's
- * "rated easy, and nobody ever finds it" flag.
- */
-export const blindtestRoundStats = sqliteTable('BlindtestRoundStats', {
-  code: text('code').primaryKey(),
-  plays: integer('plays').notNull().default(0),
-  found: integer('found').notNull().default(0),
-  last_played_at: text('last_played_at')
-});
-
-/**
  * How often each song or question has been heard, in any game.
  *
  * A blind test is counted by its YouTube video (`yt:<id>`), so one song kept
  * in two playlists is one song heard; anything else by its item (`media:<id>`).
- * Separate from `BlindtestRoundStats`, which counts only typed games, for
- * whether anybody found the answer: a spoken game still played the song.
+ *
+ * The `BlindtestRoundStats` table a deployed database still holds counted, for
+ * typed games only, whether anybody found each round. Nothing reads or writes it
+ * since its flag went: a room playing aloud in a typed game counted every round
+ * as never found.
  */
 export const mediaPlays = sqliteTable('MediaPlays', {
   key: text('key').primaryKey(),
   plays: integer('plays').notNull().default(0),
+  /**
+   * The plays lately: one per play, five forgotten a month, as of
+   * `last_played_at`. What the catalogue's replays read; see `replayWeight`.
+   */
+  recent: real('recent').notNull().default(0),
   last_played_at: text('last_played_at')
 });
 
