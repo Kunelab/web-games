@@ -392,6 +392,20 @@ export const atelierEn = {
   "ple.genre.legacy":
     "Old entry: the question still asks for “a film, series or game”. Confirm or change its genre to fix it.",
   "ple.genre.fixAll": "Fix the old labels",
+  "ple.request.title": "Ask for more songs",
+  "ple.request.pending": "{count} waiting",
+  "ple.request.explain":
+    "An artist's best-known songs on Deezer, or a film, series, game or anime by its name. The next fill, a room's or the night's, searches them before anything else in their genre.",
+  "ple.request.genre": "Genre",
+  "ple.request.genrePlaceholder": "Choose a genre",
+  "ple.request.artist": "Artist",
+  "ple.request.work": "Title",
+  "ple.request.count": "Songs",
+  "ple.request.submit": "Ask",
+  "ple.request.failed": "The request could not be made",
+  "ple.request.status":
+    "{filed}/{seeds} added · {waiting} waiting · {missed} not found",
+  "ple.request.cancel": "Cancel",
   "ple.genre.current": "Current genre: {genre}",
   "ple.genre.suggested": "Suggested: {genres}",
   "ple.genre.none": "none",

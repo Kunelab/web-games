@@ -566,6 +566,23 @@ export const blindtestArtistGenres = sqliteTable('BlindtestArtistGenres', {
 });
 
 /**
+ * An admin's ask for more songs by an artist, or for a film, series, game or anime.
+ *
+ * Its seeds (source `request`, keyed by this id) are planned before any other of
+ * their genre's, so the next fill, a room's or the night's, searches them first.
+ * `found_as` is the name the source answered with: "francky vincent" asked,
+ * "Francky Vincent" found. See `blindtest-seeds`.
+ */
+export const blindtestRequests = sqliteTable('BlindtestRequests', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  genre_id: text('genre_id').notNull(),
+  name: text('name').notNull(),
+  found_as: text('found_as'),
+  user_id: integer('user_id'),
+  created_at: text('created_at').default(now)
+});
+
+/**
  * Things worth searching YouTube for, per genre.
  *
  * The endless blind test used to find its songs with three fixed queries per

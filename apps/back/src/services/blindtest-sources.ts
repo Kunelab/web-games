@@ -120,7 +120,9 @@ const seedSources: SeedSources = {
     searchPlaylists: (query, at) => deezerGet('/search/playlist', { q: query, ...page(at) }),
     userPlaylists: (userId, at) => deezerGet(`/user/${userId}/playlists`, page(at)),
     playlistTracks: (playlistId, at) => deezerGet(`/playlist/${playlistId}/tracks`, page(at)),
-    album: (albumId) => deezerGet(`/album/${albumId}`, {})
+    album: (albumId) => deezerGet(`/album/${albumId}`, {}),
+    searchArtists: (name) => deezerGet('/search/artist', { q: name, limit: '10' }),
+    artistTop: (artistId, limit) => deezerGet(`/artist/${artistId}/top`, { limit: String(limit) })
   },
   anilist: anilistPage,
   sparql

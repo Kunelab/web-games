@@ -48,13 +48,13 @@
  * and what to keep, with the stock in the database and the few caches over it
  * held by one `createSeedStock`, so that a test can have its own.
  */
-import { and, count, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, isNotNull, isNull, like, lt, or, sql } from 'drizzle-orm';
 import { normalizeAnswer } from 'game-core';
 import { z } from 'zod';
 
 import type { Clock } from '../clock.js';
 import type { Db } from '../db/open.js';
-import { blindtestSeedHarvests, blindtestSeeds, metaData } from '../db/schema.js';
+import { blindtestRequests, blindtestSeedHarvests, blindtestSeeds, metaData } from '../db/schema.js';
 
 /* ------------------------------------------------------------------ config */
 
@@ -139,7 +139,7 @@ export interface SeededGenre {
 
 /** One harvested seed, before it is stored. */
 export interface RawSeed {
-  source: 'deezer' | 'anilist' | 'wikidata' | 'chart';
+  source: 'deezer' | 'anilist' | 'wikidata' | 'chart' | 'request';
   sourceKey: string;
   artist: string;
   title: string;
@@ -164,6 +164,8 @@ export interface Seed {
   videos?: string[];
   /** Where: Wikidata's video of the song is a fact, a channel's upload a match on its title. */
   videosFrom?: VideosFrom;
+  /** Asked for by an admin, and planned before the rest of its genre. See `BlindtestRequests`. */
+  requested?: boolean;
 }
 
 export type VideosFrom = 'wikidata' | 'channel';
@@ -285,6 +287,10 @@ export interface SeedSources {
     playlistTracks(playlistId: number, page: DeezerPage): Promise<unknown>;
     /** `GET /album/:id`, for its genre. */
     album(albumId: number): Promise<unknown>;
+    /** `GET /search/artist`. */
+    searchArtists(name: string): Promise<unknown>;
+    /** `GET /artist/:id/top`: their most played tracks. */
+    artistTop(artistId: number, limit: number): Promise<unknown>;
   };
   /** One page, from 1, of AniList's most popular TV series, fifty to a page. */
   anilist(page: number): Promise<unknown>;
@@ -635,6 +641,62 @@ export const CHARTS = {
   /** French, and a decade from the nineties on: not "Années 80", not "Rap US des années 90". */
   frenchTitle: /^(?=.*(?:fran[cç]|vari[ée]t[ée]|bleu blanc))(?=.*(?:90|2000)).*$/i
 };
+
+/* ------------------------------------------------------------- requests */
+
+/** One admin's ask, and how far the fills have got with it. See `BlindtestRequests`. */
+export interface SeedRequest {
+  id: number;
+  genreId: string;
+  name: string;
+  /** What the source answered with, when it knew the name. */
+  foundAs: string | null;
+  createdAt: string | null;
+  /** Its seeds: an artist's top tracks, or the one work. */
+  seeds: number;
+  /** Searched or looked up, and in the catalogue. */
+  filed: number;
+  /** Searched as often as a hit is, and never filed. */
+  missed: number;
+  /** Not searched yet. */
+  waiting: number;
+}
+
+export type RequestResult =
+  { ok: true; request: SeedRequest } | { ok: false; reason: 'not-requestable' | 'not-found' | 'unavailable' };
+
+/** How many of an artist's tracks a request asks for, when it does not say. */
+export const REQUEST_SONGS = 20;
+export const REQUEST_SONGS_MAX = 50;
+
+/**
+ * Whether an admin can ask for more of a genre.
+ *
+ * An artist's songs where its seeds are an editor's tracks, searched as
+ * themselves; a work where the genre's seeds are works. Not the classical
+ * repertoire, whose "artist" on Deezer is the orchestra.
+ */
+export function requestable(genre: SeededGenre): boolean {
+  if (!genre.seeds || genre.seeds.length === 0) return false;
+  return genre.answerShape === 'work' || searchesHits(genre);
+}
+
+const deezerArtists = z.object({
+  data: z.array(z.object({ id: z.number(), name: z.string().default('') })).default([])
+});
+
+/**
+ * The artist an admin meant, among Deezer's answers to their name.
+ *
+ * The one whose name is theirs, normalised, so "francky vincent" is Francky
+ * Vincent; failing that, Deezer's first answer, which is its most followed.
+ * Its name goes back to the admin, so a wrong guess shows.
+ */
+export function pickArtist(raw: unknown, name: string): { id: number; name: string } | null {
+  const artists = deezerArtists.safeParse(raw).data?.data ?? [];
+  const wanted = normalizeAnswer(name);
+  return artists.find((artist) => normalizeAnswer(artist.name) === wanted) ?? artists[0] ?? null;
+}
 
 /** The chart side a list is from, which decides where an unknown rapper goes. */
 export type ChartSide = 'world' | 'france';
@@ -1085,6 +1147,7 @@ function toSeed(row: {
   fame: number;
   videos: string | null;
   videos_from: string | null;
+  source?: string;
 }): Seed {
   return {
     id: row.id,
@@ -1095,7 +1158,8 @@ function toSeed(row: {
     year: row.year,
     fame: row.fame,
     ...(row.videos ? { videos: parseAliases(row.videos) } : {}),
-    ...(row.videos_from === 'wikidata' || row.videos_from === 'channel' ? { videosFrom: row.videos_from } : {})
+    ...(row.videos_from === 'wikidata' || row.videos_from === 'channel' ? { videosFrom: row.videos_from } : {}),
+    ...(row.source === 'request' ? { requested: true } : {})
   };
 }
 
@@ -1127,6 +1191,19 @@ export function planFromSeeds(
   random = Math.random
 ): SeedSearch[] {
   if (searches <= 0 || seeds.length === 0) return [];
+
+  /**
+   * What an admin asked for first, then the rest with what is left.
+   *
+   * Planned the same way as the others, a requested song as a hit and a work
+   * as a work: only their place in the queue is theirs.
+   */
+  const requested = seeds.filter((seed) => seed.requested);
+  if (requested.length > 0 && requested.length < seeds.length) {
+    const first = planFromSeeds(genre, requested, searches, window, random);
+    const rest = seeds.filter((seed) => !seed.requested);
+    return [...first, ...planFromSeeds(genre, rest, searches - first.length, window, random)];
+  }
 
   if (genre.answerShape === 'artist-title') {
     if (!searchesHits(genre)) return planArtists(genre, seeds, searches, window, random);
@@ -1392,6 +1469,21 @@ export interface SeedStock {
   harvestCharts(genres: readonly SeededGenre[]): Promise<number>;
   /** Waits for the charts: the fetch under way, or one that is due. Nothing when they are filed and fresh. */
   chartsReady(genres: readonly SeededGenre[]): Promise<void>;
+  /**
+   * An admin's ask for more of an artist (their top tracks on Deezer, `count`
+   * of them) or for a work, stored as seeds planned before the rest of the genre.
+   */
+  request(
+    genre: SeededGenre,
+    name: string,
+    options?: { count?: number; userId?: number | null }
+  ): Promise<RequestResult>;
+  /** Every request, newest first, with how far the fills have got. */
+  requests(): SeedRequest[];
+  /** Forgets a request and its seeds. Whether there was one. */
+  cancelRequest(id: number): boolean;
+  /** The genres holding requested seeds nobody has searched yet. */
+  requestedGenres(): Set<string>;
   /** Makes sure a genre has seeds to search, harvesting when it is due. */
   ensure(genre: SeededGenre): Promise<void>;
   /** The next searches for a genre, from seeds nobody has searched yet. */
@@ -1718,6 +1810,135 @@ export function createSeedStock({
     else if (genres.some(searchesHits) && harvestDue(CHARTS_HARVEST)) await harvestCharts(genres).catch(() => 0);
   }
 
+  /* ------------------------------------------------------------ requests */
+
+  async function request(
+    genre: SeededGenre,
+    name: string,
+    options: { count?: number; userId?: number | null } = {}
+  ): Promise<RequestResult> {
+    const asked = name.trim();
+    if (!requestable(genre) || !asked) return { ok: false, reason: 'not-requestable' };
+
+    let foundAs = asked;
+    let seeds: RawSeed[] = [];
+    if (genre.answerShape === 'work') {
+      seeds = [
+        {
+          source: 'request',
+          sourceKey: 'work',
+          artist: '',
+          title: asked,
+          search: asked,
+          aliases: [],
+          year: null,
+          popularity: 1
+        }
+      ];
+    } else {
+      const found = await sources.deezer.searchArtists(asked);
+      if (found === null) return { ok: false, reason: 'unavailable' };
+      const artist = pickArtist(found, asked);
+      if (!artist) return { ok: false, reason: 'not-found' };
+      const count = Math.min(REQUEST_SONGS_MAX, Math.max(1, Math.round(options.count ?? REQUEST_SONGS)));
+      const top = await sources.deezer.artistTop(artist.id, count);
+      if (top === null) return { ok: false, reason: 'unavailable' };
+      foundAs = artist.name;
+      seeds = deezerSeeds(top).slice(0, count);
+      if (seeds.length === 0) return { ok: false, reason: 'not-found' };
+    }
+
+    const id = db.transaction((tx) => {
+      const row = tx
+        .insert(blindtestRequests)
+        .values({ genre_id: genre.id, name: asked, found_as: foundAs, user_id: options.userId ?? null })
+        .returning({ id: blindtestRequests.id })
+        .get();
+      for (const seed of seeds) {
+        tx.insert(blindtestSeeds)
+          .values({
+            genre_id: genre.id,
+            source: 'request',
+            source_key: `${row.id}:${seed.sourceKey}`,
+            artist: seed.artist,
+            title: seed.title,
+            search: seed.search,
+            aliases: JSON.stringify(seed.aliases),
+            year: seed.year,
+            // A hit, searched or looked up as itself: see `HIT_FAME`.
+            fame: 1,
+            duration: seed.duration ?? null
+          })
+          .onConflictDoNothing()
+          .run();
+      }
+      return row.id;
+    });
+    invalidateOracles();
+    const stored = requests().find((entry) => entry.id === id);
+    return stored ? { ok: true, request: stored } : { ok: false, reason: 'not-found' };
+  }
+
+  /** The request a seed belongs to, from its key: `12:3135556` is request 12's. */
+  const requestIdOf = (sourceKey: string) => Number(sourceKey.slice(0, sourceKey.indexOf(':')));
+
+  function requests(): SeedRequest[] {
+    const seeds = db
+      .select({
+        key: blindtestSeeds.source_key,
+        artist: blindtestSeeds.artist,
+        searched: blindtestSeeds.searched_at,
+        found: blindtestSeeds.found
+      })
+      .from(blindtestSeeds)
+      .where(eq(blindtestSeeds.source, 'request'))
+      .all();
+    const counts = new Map<number, { seeds: number; filed: number; missed: number; waiting: number }>();
+    for (const seed of seeds) {
+      const id = requestIdOf(seed.key);
+      const count = counts.get(id) ?? { seeds: 0, filed: 0, missed: 0, waiting: 0 };
+      count.seeds += 1;
+      // A song's `found` says whether it was filed; a work's, how many videos its search found.
+      if (seed.searched === null) count.waiting += 1;
+      else if (seed.found > 0) count.filed += 1;
+      else count.missed += 1;
+      counts.set(id, count);
+    }
+    return db
+      .select()
+      .from(blindtestRequests)
+      .orderBy(desc(blindtestRequests.id))
+      .all()
+      .map((row) => ({
+        id: row.id,
+        genreId: row.genre_id,
+        name: row.name,
+        foundAs: row.found_as,
+        createdAt: row.created_at,
+        ...(counts.get(row.id) ?? { seeds: 0, filed: 0, missed: 0, waiting: 0 })
+      }));
+  }
+
+  function cancelRequest(id: number): boolean {
+    const removed = db.transaction((tx) => {
+      tx.delete(blindtestSeeds)
+        .where(and(eq(blindtestSeeds.source, 'request'), like(blindtestSeeds.source_key, `${id}:%`)))
+        .run();
+      return tx.delete(blindtestRequests).where(eq(blindtestRequests.id, id)).run().changes > 0;
+    });
+    invalidateOracles();
+    return removed;
+  }
+
+  function requestedGenres(): Set<string> {
+    const rows = db
+      .selectDistinct({ genreId: blindtestSeeds.genre_id })
+      .from(blindtestSeeds)
+      .where(and(eq(blindtestSeeds.source, 'request'), isNull(blindtestSeeds.searched_at)))
+      .all();
+    return new Set(rows.map((row) => row.genreId));
+  }
+
   /* ------------------------------------------------------------- storage */
 
   /** Stores a harvest. Known seeds keep their search history; their fame moves. */
@@ -1931,7 +2152,8 @@ export function createSeedStock({
         year: blindtestSeeds.year,
         fame: blindtestSeeds.fame,
         videos: blindtestSeeds.videos,
-        videos_from: blindtestSeeds.videos_from
+        videos_from: blindtestSeeds.videos_from,
+        source: blindtestSeeds.source
       })
       .from(blindtestSeeds)
       .where(
@@ -2314,6 +2536,10 @@ export function createSeedStock({
     warm,
     harvestCharts,
     chartsReady,
+    request,
+    requests,
+    cancelRequest,
+    requestedGenres,
     ensure,
     plan,
     markSearched,

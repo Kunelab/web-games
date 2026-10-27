@@ -19,6 +19,7 @@ import {
   setLibraryGenre
 } from '../services/blindtest-genres.js';
 import { takeOpener, warmOpener } from '../services/blindtest-opener.js';
+import { REQUEST_SONGS_MAX } from '../services/blindtest-seeds.js';
 import { prefillCatalogue, prefillStatus } from '../services/blindtest-prefill.js';
 import { catalogue } from '../services/catalogue-service.js';
 import { isAdmin } from '../services/ownership.js';
@@ -402,6 +403,62 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
         return reply.code(400).send({ message: `Genre inconnu : ${request.body.genreId}` });
       }
       return reply.code(400).send({ message: "Ce genre n'attend pas ce type de réponse" });
+    }
+  );
+
+  /**
+   * An admin's asks for more of an artist or a work, with how far the fills
+   * have got, and the genres they can be made in. See `BlindtestRequests`.
+   */
+  app.get('/blindtest/requests', { preHandler: app.requireAuth }, async (request) => {
+    if (!isAdmin(request.currentUser)) {
+      throw app.httpErrors.forbidden('Réservé à un administrateur');
+    }
+    return { requests: catalogue.requests(), genres: catalogue.requestableGenres() };
+  });
+
+  /**
+   * Asks for more: an artist's top tracks on Deezer, `count` of them, or a work
+   * by its name. Searched first by the next fill, a room's or the night's.
+   */
+  app.post(
+    '/blindtest/requests',
+    {
+      preHandler: app.requireAuth,
+      schema: {
+        body: z.object({
+          genreId: z.string().min(1).max(40),
+          name: z.string().trim().min(1).max(120),
+          count: z.coerce.number().int().min(1).max(REQUEST_SONGS_MAX).optional()
+        })
+      }
+    },
+    async (request, reply) => {
+      if (!isAdmin(request.currentUser)) {
+        throw app.httpErrors.forbidden('Réservé à un administrateur');
+      }
+      const { genreId, name, count } = request.body;
+      const result = await catalogue.request(genreId, name, { count, userId: request.currentUser.id });
+      if (result.ok) return { request: result.request };
+      if (result.reason === 'not-requestable') {
+        return reply.code(400).send({ message: `On ne peut pas demander de titres dans ce genre : ${genreId}` });
+      }
+      if (result.reason === 'not-found') {
+        return reply.code(404).send({ message: `Deezer ne connaît aucun titre de « ${name} »` });
+      }
+      return reply.code(503).send({ message: 'Deezer ne répond pas, réessayez dans un moment' });
+    }
+  );
+
+  app.delete(
+    '/blindtest/requests/:id',
+    { preHandler: app.requireAuth, schema: { params: z.object({ id: z.coerce.number().int().positive() }) } },
+    async (request) => {
+      if (!isAdmin(request.currentUser)) {
+        throw app.httpErrors.forbidden('Réservé à un administrateur');
+      }
+      if (!catalogue.cancelRequest(request.params.id)) throw app.httpErrors.notFound('Demande introuvable');
+      return { cancelled: true };
     }
   );
 

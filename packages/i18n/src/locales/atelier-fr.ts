@@ -377,6 +377,20 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.genre.legacy":
     "Entrée ancienne : la question demande encore « Film, série ou jeu ». Confirmez ou changez son genre pour la corriger.",
   "ple.genre.fixAll": "Corriger les anciens libellés",
+  "ple.request.title": "Demander des titres",
+  "ple.request.pending": "{count} en attente",
+  "ple.request.explain":
+    "Les titres les plus connus d’un artiste sur Deezer, ou un film, une série, un jeu ou un anime par son nom. Le prochain remplissage, celui d’une partie ou celui de la nuit, les cherche avant tout le reste de leur genre.",
+  "ple.request.genre": "Genre",
+  "ple.request.genrePlaceholder": "Choisir un genre",
+  "ple.request.artist": "Artiste",
+  "ple.request.work": "Titre",
+  "ple.request.count": "Titres",
+  "ple.request.submit": "Demander",
+  "ple.request.failed": "La demande n’a pas pu être faite",
+  "ple.request.status":
+    "{filed}/{seeds} ajouté(s) · {waiting} en attente · {missed} introuvable(s)",
+  "ple.request.cancel": "Annuler",
   "ple.genre.current": "Genre actuel : {genre}",
   "ple.genre.suggested": "Suggéré : {genres}",
   "ple.genre.none": "aucun",

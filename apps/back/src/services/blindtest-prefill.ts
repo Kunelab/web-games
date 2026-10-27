@@ -170,7 +170,13 @@ export async function prefillCatalogue(
       genres.map((genre) => genre.id),
       { min: 0, max: 100 }
     );
-    genres.sort((left, right) => (stock.get(left.id) ?? 0) - (stock.get(right.id) ?? 0));
+    // The genres an admin asked more of first, then the thinnest.
+    const requested = catalogue.requestedGenres();
+    genres.sort(
+      (left, right) =>
+        Number(requested.has(right.id)) - Number(requested.has(left.id)) ||
+        (stock.get(left.id) ?? 0) - (stock.get(right.id) ?? 0)
+    );
 
     /**
      * A genre is done for the night when it has nothing left, or nothing left

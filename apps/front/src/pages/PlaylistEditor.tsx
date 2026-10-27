@@ -34,6 +34,7 @@ import { PAGE_SIZE, usePaged } from '../hooks/usePaged';
 import { Badge, Button, Chip, Dialog, Field, IconButton, Input, Loading, Select, Switch } from '../ui';
 import { GeneratedFilterChips } from '../ui/GeneratedFilterChips';
 import { Pagination } from '../ui/Pagination';
+import { CatalogueRequests } from './CatalogueRequests';
 import './library.css';
 import './playlists.css';
 
@@ -837,6 +838,11 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                 </Button>
               )}
             </div>
+          )}
+
+          {/* Asking the next fill for more of an artist or a work. */}
+          {curating && catalog.data && (
+            <CatalogueRequests genres={catalog.data.genres.filter((genre) => !genre.facet)} />
           )}
 
           {(chosen.length > PAGE_SIZE ||

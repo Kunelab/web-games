@@ -600,8 +600,32 @@ export const api = {
     }),
   /** Rewrites every old `field.work` prompt whose genre is known. */
   blindtestFixLabels: () => request<{ fixed: number }>('/blindtest/library/fix-labels', { method: 'POST' }),
+  /** The asks for more of an artist or a work, and the genres one can be made in. Admin only. */
+  blindtestRequests: () => request<{ requests: BlindtestRequest[]; genres: string[] }>('/blindtest/requests'),
+  /** Asks the next fill for an artist's top tracks (`count` of them) or a work. */
+  blindtestRequest: (genreId: string, name: string, count?: number) =>
+    request<{ request: BlindtestRequest }>('/blindtest/requests', {
+      method: 'POST',
+      body: { genreId, name, ...(count ? { count } : {}) }
+    }),
+  blindtestCancelRequest: (id: number) =>
+    request<{ cancelled: boolean }>(`/blindtest/requests/${id}`, { method: 'DELETE' }),
   mafiaMe: () => request<MafiaCareer>('/mafia/me')
 };
+
+/** An admin's ask for more of an artist or a work. See `BlindtestRequests` on the server. */
+export interface BlindtestRequest {
+  id: number;
+  genreId: string;
+  name: string;
+  /** The name the source answered with: what was actually asked for. */
+  foundAs: string | null;
+  createdAt: string | null;
+  seeds: number;
+  filed: number;
+  missed: number;
+  waiting: number;
+}
 
 /** One selectable genre. `facet` marks an era filter over another genre's pool. */
 export interface BlindtestGenre {

@@ -142,6 +142,12 @@ function fakeSources(world: World = {}) {
         async album() {
           return {};
         },
+        async searchArtists() {
+          return { data: [] };
+        },
+        async artistTop() {
+          return { data: [] };
+        },
         async playlistTracks(playlistId) {
           const tracks = world.deezer?.(playlists[playlistId - 1] ?? '') ?? [];
           return {

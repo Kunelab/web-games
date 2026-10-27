@@ -270,6 +270,16 @@ const statements = [
     "created_at" TEXT DEFAULT CURRENT_TIMESTAMP
   )`,
 
+  // An admin's ask for more of an artist or a work, which the next fill searches first.
+  `CREATE TABLE IF NOT EXISTS "BlindtestRequests" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "genre_id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "found_as" TEXT,
+    "user_id" INTEGER,
+    "created_at" TEXT DEFAULT CURRENT_TIMESTAMP
+  )`,
+
   // The genre all of one artist's songs were filed under, for the ones kept later.
   `CREATE TABLE IF NOT EXISTS "BlindtestArtistGenres" (
     "artist" TEXT PRIMARY KEY,

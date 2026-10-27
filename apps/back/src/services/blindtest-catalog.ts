@@ -79,6 +79,7 @@ import {
   createSeedStock,
   isTheRecording,
   otherNames,
+  requestable,
   searchesHits,
   songKeys,
   songTitle,
@@ -87,7 +88,9 @@ import {
   uploadsPlaylist,
   videosFor,
   type GenreOracle,
+  type RequestResult,
   type Seed,
+  type SeedRequest,
   type SeedIndex,
   type SeedSearch,
   type SeedSource,
@@ -1377,6 +1380,15 @@ export interface Catalogue {
   loadVideoIndex(): Promise<boolean>;
   /** Waits for the charts' songs to be filed into the genres, when a fetch is under way or due. */
   loadCharts(): Promise<void>;
+  /** An admin's ask for more of an artist or a work in a genre. See `SeedStock.request`. */
+  request(genreId: string, name: string, options?: { count?: number; userId?: number | null }): Promise<RequestResult>;
+  /** Every request, newest first, with how far the fills have got. */
+  requests(): SeedRequest[];
+  cancelRequest(id: number): boolean;
+  /** The genres an admin can ask more of. */
+  requestableGenres(): string[];
+  /** The genres holding requested seeds nobody has searched yet. */
+  requestedGenres(): Set<string>;
   /** Which genres' seeds know each name. For the genre check on the shared catalogue. */
   seedIndex(): SeedIndex;
   /** Today's search spending, by the Pacific day Google resets the quota on. */
@@ -2430,6 +2442,14 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     videoIndexStatus: () => stock.videoIndexStatus(),
     loadVideoIndex: async () => (await stock.videoIndex(true, true)) !== null,
     loadCharts: () => stock.chartsReady(GENRES),
+    request: (genreId, name, options) => {
+      const genre = genreById.get(genreId);
+      return genre ? stock.request(genre, name, options) : Promise.resolve({ ok: false, reason: 'not-requestable' });
+    },
+    requests: () => stock.requests(),
+    cancelRequest: (id) => stock.cancelRequest(id),
+    requestableGenres: () => GENRES.filter((genre) => !genre.facetOf && requestable(genre)).map((genre) => genre.id),
+    requestedGenres: () => stock.requestedGenres(),
     seedIndex: () => stock.index(),
     searchesToday: () => {
       const day = quotaDay(clock);

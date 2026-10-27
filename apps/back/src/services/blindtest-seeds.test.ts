@@ -25,9 +25,11 @@ import {
   genreEditors,
   HIT_FAME,
   otherNames,
+  pickArtist,
   planFromSeeds,
   qleverQuery,
   rankFame,
+  requestable,
   songKeys,
   songTitle,
   trackOracleKey,
@@ -694,7 +696,9 @@ describe('the chart harvest', () => {
           async album(albumId) {
             albums.push(albumId);
             return { genre_id: ALBUMS[albumId] ?? 0 };
-          }
+          },
+          searchArtists: async () => ({ data: [] }),
+          artistTop: async () => ({ data: [] })
         },
         anilist: async () => null,
         sparql: async () => null
@@ -759,6 +763,8 @@ describe('the chart harvest', () => {
           searchPlaylists: async () => ({ data: [] }),
           playlistTracks: async () => ({ data: [] }),
           album: async () => ({}),
+          searchArtists: async () => ({ data: [] }),
+          artistTop: async () => ({ data: [] }),
           async userPlaylists() {
             asked += 1;
             return { data: [] };
@@ -774,7 +780,7 @@ describe('the chart harvest', () => {
 
     now += 2 * 24 * 60 * 60 * 1000;
     // A genre the warm did not start queues behind everything it did.
-    const LAST: SeededGenre = { ...GENRES[0]!, id: 'last' };
+    const LAST: SeededGenre = { ...GENRES[0], id: 'last' };
     counting.warm(GENRES);
     await counting.harvest(LAST);
     assert.equal(asked, 0);
@@ -821,5 +827,150 @@ describe('the chart harvest', () => {
       charted(db).filter(([artist]) => artist === "Guns N' Roses"),
       [["Guns N' Roses", 'metal', true]]
     );
+  });
+});
+
+describe('an admin request', () => {
+  it("picks the artist whose name is the admin's, else Deezer's first", () => {
+    const raw = {
+      data: [
+        { id: 1, name: 'Francky Vincent & Friends' },
+        { id: 2, name: 'Francky Vincent' }
+      ]
+    };
+    assert.deepEqual(pickArtist(raw, 'francky vincent'), { id: 2, name: 'Francky Vincent' });
+    assert.deepEqual(pickArtist(raw, 'Francky'), { id: 1, name: 'Francky Vincent & Friends' });
+    assert.equal(pickArtist({ data: [] }, 'nobody'), null);
+  });
+
+  it('is planned before the rest of its genre', () => {
+    const genre: SeededGenre = { id: 'films', answerShape: 'work', seeds: [{ kind: 'anilist' }] };
+    const seeds = [
+      ...Array.from({ length: 20 }, (_, index) => seed(index + 1, '', `Famous ${index}`, 1)),
+      seed(99, '', 'Asked for', 0, { requested: true })
+    ];
+    const [first] = planFromSeeds(genre, seeds, 1, undefined, sequence(0.9));
+    assert.equal(first?.seeds[0]?.title, 'Asked for');
+  });
+
+  it('can be made where the seeds are songs searched as themselves, or works; not classical', () => {
+    assert.ok(
+      requestable({
+        id: 'pop',
+        answerShape: 'artist-title',
+        seeds: [{ kind: 'deezer', playlistQueries: [], titleMatch: /x/ }]
+      })
+    );
+    assert.ok(requestable({ id: 'films', answerShape: 'work', seeds: [{ kind: 'anilist' }] }));
+    assert.ok(
+      !requestable({
+        id: 'classique',
+        answerShape: 'artist-title',
+        seeds: [{ kind: 'wikidata-compositions', minLinks: 1, bornBefore: 1900 }]
+      })
+    );
+  });
+
+  const POP: SeededGenre = {
+    id: 'pop',
+    answerShape: 'artist-title',
+    seeds: [{ kind: 'deezer', playlistQueries: [], titleMatch: /x/ }]
+  };
+  const FILMS: SeededGenre = { id: 'films', answerShape: 'work', seeds: [{ kind: 'anilist' }] };
+
+  function stockOver(db: ReturnType<typeof openDb>['db'], deezerDown = false) {
+    const asked: { artist?: number; limit?: number } = {};
+    const stock = createSeedStock({
+      sources: {
+        deezer: {
+          searchPlaylists: async () => ({ data: [] }),
+          userPlaylists: async () => ({ data: [] }),
+          playlistTracks: async () => ({ data: [] }),
+          album: async () => ({}),
+          async searchArtists(name) {
+            if (deezerDown) return null;
+            return name === 'nobody' ? { data: [] } : { data: [{ id: 7, name: 'Francky Vincent' }] };
+          },
+          async artistTop(artistId, limit) {
+            asked.artist = artistId;
+            asked.limit = limit;
+            return {
+              data: ['Fruit de la passion', 'Alice ça glisse', 'Tu veux mon zizi'].map((title, index) => ({
+                id: 100 + index,
+                title,
+                rank: 1000 - index,
+                artist: { name: 'Francky Vincent' }
+              }))
+            };
+          }
+        },
+        anilist: async () => null,
+        sparql: async () => null
+      },
+      db,
+      clock: { now: () => Date.parse('2026-10-27T12:00:00Z') }
+    });
+    return { stock, asked };
+  }
+
+  it("stores an artist's top tracks as hits, waiting for the next fill", async () => {
+    const { db } = openDb(':memory:');
+    const { stock, asked } = stockOver(db);
+
+    const result = await stock.request(POP, 'francky vincent', { count: 3 });
+
+    assert.ok(result.ok);
+    assert.equal(result.request.foundAs, 'Francky Vincent');
+    assert.deepEqual([result.request.seeds, result.request.waiting], [3, 3]);
+    assert.deepEqual(asked, { artist: 7, limit: 3 });
+    assert.deepEqual(stock.requestedGenres(), new Set(['pop']));
+    const stored = db.select().from(blindtestSeeds).where(eq(blindtestSeeds.source, 'request')).all();
+    assert.ok(stored.every((row) => row.fame >= HIT_FAME && row.genre_id === 'pop'));
+  });
+
+  it('stores a work as itself', async () => {
+    const { db } = openDb(':memory:');
+    const { stock } = stockOver(db);
+
+    const result = await stock.request(FILMS, 'Le Fabuleux Destin d’Amélie Poulain');
+
+    assert.ok(result.ok);
+    const [work] = db.select().from(blindtestSeeds).where(eq(blindtestSeeds.source, 'request')).all();
+    assert.deepEqual([work?.artist, work?.title, work?.genre_id], ['', 'Le Fabuleux Destin d’Amélie Poulain', 'films']);
+  });
+
+  it('says when Deezer knows nobody by that name, or does not answer', async () => {
+    const { db } = openDb(':memory:');
+    assert.deepEqual(await stockOver(db).stock.request(POP, 'nobody'), { ok: false, reason: 'not-found' });
+    assert.deepEqual(await stockOver(db, true).stock.request(POP, 'Francky Vincent'), {
+      ok: false,
+      reason: 'unavailable'
+    });
+    assert.deepEqual(stockOver(db).stock.requests(), []);
+  });
+
+  it('counts what was filed and what was missed, and forgets everything when cancelled', async () => {
+    const { db } = openDb(':memory:');
+    const { stock } = stockOver(db);
+    const result = await stock.request(POP, 'Francky Vincent', { count: 3 });
+    assert.ok(result.ok);
+
+    const [first, second] = db.select().from(blindtestSeeds).where(eq(blindtestSeeds.source, 'request')).all();
+    db.update(blindtestSeeds)
+      .set({ searched_at: '2026-10-27', found: 1 })
+      .where(eq(blindtestSeeds.id, first.id))
+      .run();
+    db.update(blindtestSeeds)
+      .set({ searched_at: '2026-10-27', found: 0 })
+      .where(eq(blindtestSeeds.id, second.id))
+      .run();
+
+    const [status] = stock.requests();
+    assert.deepEqual([status?.filed, status?.missed, status?.waiting], [1, 1, 1]);
+
+    assert.ok(stock.cancelRequest(result.request.id));
+    assert.deepEqual(stock.requests(), []);
+    assert.equal(db.select().from(blindtestSeeds).all().length, 0);
+    assert.ok(!stock.cancelRequest(result.request.id));
   });
 });
