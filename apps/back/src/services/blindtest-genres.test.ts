@@ -55,6 +55,24 @@ describe('checkGenres', () => {
     assert.deepEqual(flags, [{ mediaId: 1, reason: 'label-disagrees', suggestions: ['films-musique'] }]);
   });
 
+  it('finds a work in the seeds by another of its names', () => {
+    const seeds = index({ works: { interstellar: ['films-musique'], sopranos: ['series-tv'] } });
+    const film = {
+      id: 1,
+      category: 'series-tv',
+      answers: [{ key: 'work', label: 'field.work.series', value: 'Interstellar' }]
+    };
+    assert.deepEqual(checkGenres([film], GENRES, seeds, none).flags, [
+      { mediaId: 1, reason: 'seed-elsewhere', suggestions: ['films-musique'] }
+    ]);
+    const soprano = {
+      id: 2,
+      category: 'films-musique',
+      answers: [{ key: 'work', label: 'field.work.film', value: 'Les Soprano', aliases: ['The Sopranos'] }]
+    };
+    assert.equal(checkGenres([soprano], GENRES, seeds, none).flags[0]?.reason, 'seed-elsewhere');
+  });
+
   it('does not flag a song also listed where its seeds are', () => {
     const seeds = index({ artists: { stromae: ['electro'] }, works: {} });
     const listed = { ...song(1, 'chanson-fr', 'Stromae'), payload: { alsoIn: ['electro'] } };

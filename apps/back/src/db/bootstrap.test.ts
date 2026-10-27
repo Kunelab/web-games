@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import Database from 'better-sqlite3';
 
-import { bootstrapSchema, untagRoundTitles } from './bootstrap.js';
+import { bootstrapSchema, cleanWorkAnswers, untagRoundTitles } from './bootstrap.js';
 
 function withRounds(titles: string[]): Database.Database {
   const sqlite = new Database(':memory:');
@@ -44,5 +44,28 @@ describe('untagRoundTitles', () => {
     assert.equal(after[0].last_modified, before[0].last_modified);
 
     assert.equal(untagRoundTitles(sqlite), 0);
+  });
+});
+
+describe('cleanWorkAnswers', () => {
+  it('takes the bracket off a work, keeping the old name as a spelling', () => {
+    const sqlite = new Database(':memory:');
+    bootstrapSchema(sqlite, () => {});
+    const answers = (value: string) =>
+      JSON.stringify([{ key: 'work', label: 'field.work.series', value, aliases: [] }]);
+    const insert = sqlite.prepare(`INSERT INTO "Media" ("kind", "title", "answers") VALUES ('blindtest', ?, ?)`);
+    insert.run('Les Soprano (The Sopranos)', answers('Les Soprano (The Sopranos)'));
+    insert.run('Titanic', answers('Titanic'));
+
+    assert.equal(cleanWorkAnswers(sqlite), 1);
+    const [first] = sqlite.prepare(`SELECT "title", "answers" FROM "Media" ORDER BY "id"`).all() as {
+      title: string;
+      answers: string;
+    }[];
+    assert.equal(first?.title, 'Les Soprano');
+    const [work] = JSON.parse(first?.answers ?? '[]') as { value: string; aliases: string[] }[];
+    assert.equal(work?.value, 'Les Soprano');
+    assert.deepEqual(work?.aliases, ['Les Soprano (The Sopranos)', 'The Sopranos']);
+    assert.equal(cleanWorkAnswers(sqlite), 0);
   });
 });

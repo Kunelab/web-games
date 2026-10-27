@@ -27,6 +27,7 @@ import { bellTarget } from './blindtest-difficulty.js';
 import { catalogueKeys, replayFromLibrary } from './blindtest-library.js';
 import { catalogue } from './catalogue-service.js';
 import { playableIn } from './youtube-service.js';
+import { cleanWorkName } from './blindtest-work-names.js';
 
 export interface DrawSettings {
   genreIds: string[];
@@ -282,6 +283,9 @@ function toMediaView(entry: PoolEntry, difficultyTarget: number): MediaView {
     upload: entry.upload
   });
 
+  // Named without a Wikipedia-style bracket; see `cleanWorkName`.
+  const work = entry.answerShape === 'work' ? cleanWorkName(entry.work, entry.workAliases) : null;
+
   const answers: AnswerField[] =
     entry.answerShape === 'artist-title'
       ? [
@@ -312,8 +316,8 @@ function toMediaView(entry: PoolEntry, difficultyTarget: number): MediaView {
             // The genre names itself when it can; the catch-all only covers a
             // genre added without one.
             label: genre?.workLabel ?? 'field.work',
-            value: entry.work,
-            aliases: entry.workAliases,
+            value: work?.value ?? entry.work,
+            aliases: work?.aliases ?? entry.workAliases,
             points: 4,
             tolerance: 0.17,
             directBonus: 0
@@ -353,7 +357,7 @@ function toMediaView(entry: PoolEntry, difficultyTarget: number): MediaView {
     kind: 'blindtest',
     // Librarian-facing only; players never see it. The genre and the part of
     // the song played have their own fields, `category` and `payload.angle`.
-    title: entry.answerShape === 'artist-title' ? `${entry.artist} - ${entry.title}` : entry.work,
+    title: entry.answerShape === 'artist-title' ? `${entry.artist} - ${entry.title}` : (work?.value ?? entry.work),
     category: entry.genreId,
     date: entry.year ? `${entry.year}-01-01` : null,
     answers,

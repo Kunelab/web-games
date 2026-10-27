@@ -62,7 +62,7 @@ export interface GenreCheck {
 export interface GenreCheckItem {
   id: number;
   category: string | null;
-  answers: { key: string; label: string; value: string }[];
+  answers: { key: string; label: string; value: string; aliases?: string[] }[];
   /** Where its other genres are, `alsoIn`. */
   payload?: unknown;
 }
@@ -87,6 +87,18 @@ export function shapeOf(item: { answers: { key: string }[] }): AnswerShape | nul
 /** The pool a genre reads: a facet counts as its parent. */
 function familyOf(genre: GenreInfo): string {
   return genre.facetOf ?? genre.id;
+}
+
+/**
+ * A work's seeds by another of its names, when its own is not seeded: "Les
+ * Soprano" is seeded as "The Sopranos". The first one that is.
+ */
+function workByAlias(aliases: readonly string[], index: SeedIndex): Set<string> | undefined {
+  for (const alias of aliases) {
+    const found = index.works.get(normalizeAnswer(alias));
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /** Pure, for the tests: every flag the rules raise, dismissals honoured. */
@@ -127,7 +139,11 @@ export function checkGenres(
     if (workAnswer?.label === 'field.work') legacyLabels.push(item.id);
 
     const key = normalizeAnswer(shape === 'work' ? value(item, 'work') : value(item, 'artist'));
-    const seeded = key ? (shape === 'work' ? index.works.get(key) : index.artists.get(key)) : undefined;
+    const seeded = key
+      ? shape === 'work'
+        ? (index.works.get(key) ?? workByAlias(workAnswer?.aliases ?? [], index))
+        : index.artists.get(key)
+      : undefined;
     const seededOfShape = [...(seeded ?? [])].filter((id) => byId.get(id)?.answerShape === shape);
 
     const flag = ((): Omit<GenreFlag, 'mediaId'> | null => {

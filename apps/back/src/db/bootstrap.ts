@@ -1,5 +1,7 @@
 import type { Database } from 'better-sqlite3';
 
+import { cleanWorkName } from '../services/blindtest-work-names.js';
+
 /**
  * Idempotent DDL that reproduces exactly what Sequelize `sync({ force: false })`
  * used to create, so a fresh checkout gets a working database and an existing
@@ -471,6 +473,44 @@ export function untagRoundTitles(sqlite: Database): number {
   return untagged;
 }
 
+/**
+ * Takes the Wikipedia-style bracket off every catalogue work's name, once.
+ *
+ * What the draw does to a new round (see `cleanWorkName`), done to the rounds
+ * filed before it did. Like the title fix, not an edit: `last_modified` stays.
+ * A name without a trailing bracket is left as it is, so later boots find
+ * nothing to change.
+ */
+export function cleanWorkAnswers(sqlite: Database): number {
+  const rows = sqlite
+    .prepare(`SELECT "id", "title", "answers" FROM "Media" WHERE "kind" = 'blindtest' AND "answers" LIKE '%"work"%)%'`)
+    .all() as { id: number; title: string; answers: string }[];
+  const update = sqlite.prepare(`UPDATE "Media" SET "title" = ?, "answers" = ? WHERE "id" = ?`);
+  let cleaned = 0;
+  sqlite.transaction(() => {
+    for (const row of rows) {
+      let answers: { key?: unknown; value?: unknown; aliases?: unknown }[];
+      try {
+        answers = JSON.parse(row.answers) as typeof answers;
+      } catch {
+        continue;
+      }
+      if (!Array.isArray(answers)) continue;
+      const work = answers.find((answer) => answer.key === 'work');
+      if (!work || typeof work.value !== 'string') continue;
+      const aliases = Array.isArray(work.aliases) ? work.aliases.filter((alias) => typeof alias === 'string') : [];
+      const next = cleanWorkName(work.value, aliases);
+      if (next.value === work.value) continue;
+      const old = work.value;
+      work.value = next.value;
+      work.aliases = next.aliases;
+      update.run(row.title === old ? next.value : row.title, JSON.stringify(answers), row.id);
+      cleaned += 1;
+    }
+  })();
+  return cleaned;
+}
+
 export function bootstrapSchema(sqlite: Database, warn: (message: string) => void = console.warn): void {
   for (const statement of statements) {
     sqlite.exec(statement);
@@ -479,4 +519,6 @@ export function bootstrapSchema(sqlite: Database, warn: (message: string) => voi
   enforceUniqueLogins(sqlite, warn);
   const untagged = untagRoundTitles(sqlite);
   if (untagged > 0) warn(`blind test titles: ${untagged} round tags moved off the title`);
+  const cleaned = cleanWorkAnswers(sqlite);
+  if (cleaned > 0) warn(`blind test works: ${cleaned} names lost their trailing bracket`);
 }
