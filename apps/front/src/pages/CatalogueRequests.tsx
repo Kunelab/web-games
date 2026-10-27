@@ -1,7 +1,13 @@
 import { msg } from 'i18n';
 import { useEffect, useState, type FormEvent } from 'react';
 
-import { api, type BlindtestArtistCandidate, type BlindtestGenre, type BlindtestPrefillStatus } from '../api/client';
+import {
+  api,
+  type BlindtestArtistCandidate,
+  type BlindtestGaps,
+  type BlindtestGenre,
+  type BlindtestPrefillStatus
+} from '../api/client';
 import { useAsync } from '../hooks/useAsync';
 import { useT } from '../i18n/locale-context';
 import { Button, Field, Input, Select } from '../ui';
@@ -214,6 +220,8 @@ export function CatalogueRequests({ genres }: { genres: readonly BlindtestGenre[
         </Button>
       )}
 
+      <CatalogueGaps genres={genreById} onAsked={state.reload} />
+
       {requests.length > 0 && (
         <ul className="pl-requests-list">
           {requests.map((entry) => {
@@ -310,5 +318,115 @@ function FillProgress({ genres, onFinished }: { genres: ReadonlyMap<string, Blin
     <p className="pl-fill pl-fill-live" role="status">
       {parts.join(' · ')}
     </p>
+  );
+}
+
+/**
+ * Famous artists the catalogue has few songs of, and famous works it has none
+ * of, each one press from a request. Read when opened: it goes through every
+ * row of the catalogue and every seed.
+ */
+function CatalogueGaps({ genres, onAsked }: { genres: ReadonlyMap<string, BlindtestGenre>; onAsked: () => void }) {
+  const t = useT();
+  const [gaps, setGaps] = useState<BlindtestGaps | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /** Names asked for from here, by `genre::name`, and the one being asked. */
+  const [asked, setAsked] = useState<ReadonlySet<string>>(() => new Set());
+  const [asking, setAsking] = useState<string | null>(null);
+
+  async function load() {
+    if (gaps || loading) return;
+    setLoading(true);
+    try {
+      setGaps(await api.blindtestGaps());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t(msg('ple.request.failed')));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function ask(genreId: string, name: string) {
+    const key = `${genreId}::${name}`;
+    setAsking(key);
+    setError(null);
+    try {
+      await api.blindtestRequest(genreId, name);
+      setAsked((current) => new Set(current).add(key));
+      onAsked();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t(msg('ple.request.failed')));
+    } finally {
+      setAsking(null);
+    }
+  }
+
+  const label = (genreId: string) => genres.get(genreId)?.label ?? genreId;
+  const row = (key: string, name: string, genreId: string, detail: string) => (
+    <li key={key} className="pl-requests-row">
+      <span className="pl-requests-name">
+        {name}
+        <span className="pl-requests-genre"> · {label(genreId)}</span>
+      </span>
+      <span className="pl-requests-status">{detail}</span>
+      {asked.has(`${genreId}::${name}`) ? (
+        <span className="pl-requests-status">{t(msg('ple.gaps.asked'))}</span>
+      ) : (
+        <Button
+          variant="ghost"
+          size="sm"
+          busy={asking === `${genreId}::${name}`}
+          disabled={asking !== null}
+          onClick={() => void ask(genreId, name)}
+        >
+          {t(msg('ple.request.submit'))}
+        </Button>
+      )}
+    </li>
+  );
+
+  return (
+    <details
+      className="pl-gaps"
+      onToggle={(event) => {
+        if (event.currentTarget.open) void load();
+      }}
+    >
+      <summary className="pl-requests-summary">{t(msg('ple.gaps.title'))}</summary>
+      <p className="pl-requests-explain">{t(msg('ple.gaps.explain'))}</p>
+      {loading && <p className="pl-fill">{t(msg('ple.gaps.loading'))}</p>}
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
+      {gaps && (
+        <>
+          <h4 className="pl-gaps-heading">{t(msg('ple.gaps.artists'))}</h4>
+          <ul className="pl-requests-list">
+            {gaps.artists.map((gap) =>
+              row(
+                `a:${gap.artist}`,
+                gap.artist,
+                gap.genreId,
+                t(msg('ple.gaps.artistDetail', { rounds: gap.rounds, charts: gap.charts }))
+              )
+            )}
+          </ul>
+          <h4 className="pl-gaps-heading">{t(msg('ple.gaps.works'))}</h4>
+          <ul className="pl-requests-list">
+            {gaps.works.map((gap) =>
+              row(
+                `w:${gap.genreId}:${gap.work}`,
+                gap.work,
+                gap.genreId,
+                t(msg(gap.searched ? 'ple.gaps.workSearched' : 'ple.gaps.workWaiting'))
+              )
+            )}
+          </ul>
+        </>
+      )}
+    </details>
   );
 }

@@ -301,6 +301,14 @@
   border-radius: 50%;
   flex: none;
 }
+/* What the catalogue is missing, inside the request panel. */
+.pl-gaps {
+  margin-top: var(--space-3);
+}
+.pl-gaps-heading {
+  margin: var(--space-3) 0 0;
+  font-size: inherit;
+}
 /* The catalogue fill, running or the last one. */
 .pl-fill {
   margin: 0 0 var(--space-3);

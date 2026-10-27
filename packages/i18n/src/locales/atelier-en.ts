@@ -406,6 +406,17 @@ export const atelierEn = {
   "ple.request.status":
     "{filed}/{seeds} added · {waiting} waiting · {missed} not found",
   "ple.request.cancel": "Cancel",
+  "ple.gaps.title": "What the catalogue is missing",
+  "ple.gaps.explain":
+    "Well-known artists the catalogue has few songs of, across all genres, and well-known works it does not have yet. What is already asked for is left out.",
+  "ple.gaps.loading": "Reading the catalogue…",
+  "ple.gaps.artists": "Artists",
+  "ple.gaps.works": "Films, series, games and anime",
+  "ple.gaps.artistDetail":
+    "{rounds} song(s) in the catalogue · {charts} in the charts",
+  "ple.gaps.workSearched": "searched already, nothing kept",
+  "ple.gaps.workWaiting": "not searched yet",
+  "ple.gaps.asked": "Asked",
   "ple.request.needSearch": "{count} need a YouTube search",
   "ple.request.runNow": "Search now ({count} searches)",
   "ple.request.runStarted": "Fill started",

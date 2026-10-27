@@ -391,6 +391,17 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.request.status":
     "{filed}/{seeds} ajouté(s) · {waiting} en attente · {missed} introuvable(s)",
   "ple.request.cancel": "Annuler",
+  "ple.gaps.title": "Ce qui manque au catalogue",
+  "ple.gaps.explain":
+    "Les artistes connus dont le catalogue a peu de titres, tous genres confondus, et les œuvres connues qui n’y sont pas encore. Ce qui est déjà demandé n’y figure pas.",
+  "ple.gaps.loading": "Lecture du catalogue…",
+  "ple.gaps.artists": "Artistes",
+  "ple.gaps.works": "Films, séries, jeux et animes",
+  "ple.gaps.artistDetail":
+    "{rounds} titre(s) au catalogue · {charts} dans les classements",
+  "ple.gaps.workSearched": "déjà cherché, rien gardé",
+  "ple.gaps.workWaiting": "pas encore cherché",
+  "ple.gaps.asked": "Demandé",
   "ple.request.needSearch": "{count} à chercher sur YouTube",
   "ple.request.runNow": "Chercher maintenant ({count} recherches)",
   "ple.request.runStarted": "Remplissage lancé",

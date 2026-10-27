@@ -6,6 +6,7 @@ import { env } from '../env.js';
 import { GameManager } from '../game/manager.js';
 import { GENRES, SECTIONS, catalogAvailable, genreById } from '../services/blindtest-catalog.js';
 import { countAvailable, dealRounds, emptyHistory } from '../services/blindtest-draw.js';
+import { libraryGaps } from '../services/blindtest-gaps.js';
 import { catalogueKeys, countLibrary, findExtremeFlags } from '../services/blindtest-library.js';
 import {
   deleteRedundantDuplicates,
@@ -454,6 +455,14 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
       return reply.code(503).send({ message: 'Deezer ne répond pas, réessayez dans un moment' });
     }
   );
+
+  /** Famous artists the catalogue has few songs of, and famous works it has none of. See `blindtest-gaps`. */
+  app.get('/blindtest/gaps', { preHandler: app.requireAuth }, async (request) => {
+    if (!isAdmin(request.currentUser)) {
+      throw app.httpErrors.forbidden('Réservé à un administrateur');
+    }
+    return libraryGaps();
+  });
 
   /** Deezer's artists for a name, so an admin picks the one they mean before asking. */
   app.get(

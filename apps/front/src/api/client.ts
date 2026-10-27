@@ -612,6 +612,8 @@ export const api = {
   /** Deezer's artists for a name, to pick from before asking. */
   blindtestArtistCandidates: (name: string) =>
     request<{ artists: BlindtestArtistCandidate[] }>(`/blindtest/requests/artists?name=${encodeURIComponent(name)}`),
+  /** What the catalogue is surprisingly thin on. Admin only. */
+  blindtestGaps: () => request<BlindtestGaps>('/blindtest/gaps'),
   /** The fill under way or the last one, with how far it has to go. Admin only. */
   blindtestPrefill: () => request<BlindtestPrefillStatus>('/blindtest/prefill'),
   /** Starts a fill now: `0` searches for the free lookups only, a number for at most that many. */
@@ -644,6 +646,12 @@ export interface BlindtestArtistCandidate {
   name: string;
   fans: number;
   picture: string | null;
+}
+
+/** Famous artists the catalogue has few songs of, and famous works it has none of. */
+export interface BlindtestGaps {
+  artists: { artist: string; genreId: string; rounds: number; seeds: number; charts: number }[];
+  works: { work: string; genreId: string; fame: number; searched: boolean }[];
 }
 
 /** A catalogue fill, running or the last one. */
