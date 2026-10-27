@@ -431,10 +431,52 @@ function addMissingColumns(sqlite: Database): void {
   }
 }
 
+/** The tag a drawn round's title used to end with: " [rap-us/verse]". */
+const ROUND_TAG = / \[[a-z0-9-]+\/(intro|verse|chorus)\]$/;
+
+/**
+ * Takes the old " [genre/angle]" tag off blind test titles, once.
+ *
+ * The genre was already the `category`, and the tag kept naming the genre a
+ * round was first found in after an admin moved it. The angle moves to
+ * `payload.angle`. `last_modified` is left alone: a rescoring reads it to tell
+ * a person's edit from the draw's, and this is neither. A title without the
+ * tag does not match, so every boot after the first finds nothing to do.
+ */
+export function untagRoundTitles(sqlite: Database): number {
+  const rows = sqlite
+    .prepare(`SELECT "id", "title", "payload" FROM "Media" WHERE "kind" = 'blindtest' AND "title" LIKE '%/%]'`)
+    .all() as { id: number; title: string; payload: string }[];
+  const update = sqlite.prepare(`UPDATE "Media" SET "title" = ?, "payload" = ? WHERE "id" = ?`);
+  let untagged = 0;
+  sqlite.transaction(() => {
+    for (const row of rows) {
+      const tag = ROUND_TAG.exec(row.title);
+      if (!tag) continue;
+      let payload: Record<string, unknown> = {};
+      try {
+        const parsed: unknown = JSON.parse(row.payload);
+        if (parsed && typeof parsed === 'object') payload = parsed as Record<string, unknown>;
+      } catch {
+        // An unreadable payload keeps its text; only the title is fixed.
+        update.run(row.title.slice(0, tag.index), row.payload, row.id);
+        untagged += 1;
+        continue;
+      }
+      payload.angle ??= tag[1];
+      update.run(row.title.slice(0, tag.index), JSON.stringify(payload), row.id);
+      untagged += 1;
+    }
+  })();
+  return untagged;
+}
+
 export function bootstrapSchema(sqlite: Database, warn: (message: string) => void = console.warn): void {
   for (const statement of statements) {
     sqlite.exec(statement);
   }
   addMissingColumns(sqlite);
   enforceUniqueLogins(sqlite, warn);
+  const untagged = untagRoundTitles(sqlite);
+  if (untagged > 0) warn(`blind test titles: ${untagged} round tags moved off the title`);
 }

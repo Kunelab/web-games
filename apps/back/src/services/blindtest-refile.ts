@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { normalizeAnswer, type BlindtestFame } from 'game-core';
+import { alsoInOf, normalizeAnswer, type BlindtestFame } from 'game-core';
 
 import { db } from '../db/index.js';
 import { blindtestArtistGenres } from '../db/schema.js';
@@ -10,8 +10,7 @@ import { applyPlan, planRescore } from './blindtest-rescore.js';
  * Moving a catalogue entry to another genre, and what has to move with it.
  *
  * A genre is more than the `category` column. The work prompt names the
- * genre's kind of work, the librarian title carries the genre the round was
- * filed under, and the difficulty is a distance from the genre's own middle:
+ * genre's kind of work, and the difficulty is a distance from the genre's own middle:
  * the same fame is ordinary for rap US and famous for rap français. The three
  * places that move an entry (the admin's genre dialog, the host's correction at
  * a reveal, and an artist's remembered genre when a round is kept) each changed
@@ -59,14 +58,19 @@ function stockLabels(fallback: string, own: (genre: (typeof GENRES)[number]) => 
 }
 
 /**
- * The librarian title, its genre tag naming `genreId`.
+ * The other genres an entry is listed in, once `genreId` is its own.
  *
- * The draw files a round as "Artist - Title [rap-us/verse]", and the tag kept
- * naming the genre it was found under long after an admin had moved it. Only
- * the genre half changes; a title without a tag is left as it is.
+ * Moving an entry to a genre it was also listed in makes that its own, and
+ * the list would otherwise name it twice.
  */
-export function retagTitle(title: string, genreId: string): string {
-  return title.replace(/\[[^\]/]+\/([^\]]*)\]$/, (_tag, angle: string) => `[${genreId}/${angle}]`);
+export function alsoInAfterMove(payload: Record<string, unknown>, genreId: string): Record<string, unknown> {
+  const others = alsoInOf(payload);
+  if (!others.includes(genreId)) return payload;
+  const rest = others.filter((other) => other !== genreId);
+  const next = { ...payload };
+  if (rest.length > 0) next.alsoIn = rest;
+  else delete next.alsoIn;
+  return next;
 }
 
 type Calibrations = ReturnType<typeof readCalibrations>;
@@ -109,7 +113,6 @@ export function rescoredForGenre(
 
 /** The fields of a catalogue entry that a move to another genre rewrites. */
 export interface RefileableEntry<A extends { key: string; label: string }> {
-  title: string;
   category: string | null;
   answers: A[];
   payload: unknown;
@@ -128,11 +131,10 @@ export function refiled<A extends { key: string; label: string }>(
   entry: RefileableEntry<A>,
   genre: Genre,
   calibrations?: Calibrations
-): { category: string; title: string; answers: A[]; payload: Record<string, unknown> } {
-  const payload = (entry.payload ?? {}) as Record<string, unknown>;
+): { category: string; answers: A[]; payload: Record<string, unknown> } {
+  const payload = alsoInAfterMove((entry.payload ?? {}) as Record<string, unknown>, genre.id);
   return {
     category: genre.id,
-    title: retagTitle(entry.title, genre.id),
     answers: answersForGenre(entry.answers, genre),
     payload:
       entry.category === genre.id

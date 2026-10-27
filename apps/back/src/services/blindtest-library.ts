@@ -1,5 +1,12 @@
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
-import { getMediaKind, normalizeAnswer, withHandEdits, type BlindtestFame, type BlindtestPayload } from 'game-core';
+import {
+  genreKeysOf,
+  getMediaKind,
+  normalizeAnswer,
+  withHandEdits,
+  type BlindtestFame,
+  type BlindtestPayload
+} from 'game-core';
 
 import { cleanAliases } from '../game/session.js';
 
@@ -342,18 +349,16 @@ export async function correctLibraryRound(
    * changed. See `blindtest-refile` for why.
    */
   let category = row.category;
-  let title = row.title;
   let answers = view.answers;
   let moved = false;
   if (genre) {
-    const next = refiled({ ...view, title, answers, payload }, genre);
+    const next = refiled({ ...view, answers, payload }, genre);
     if (
       next.category !== category ||
-      next.title !== title ||
       next.payload !== payload ||
       JSON.stringify(next.answers) !== JSON.stringify(answers)
     ) {
-      ({ category, title, answers, payload } = next);
+      ({ category, answers, payload } = next);
       moved = true;
     }
   }
@@ -364,7 +369,6 @@ export async function correctLibraryRound(
     .update(media)
     .set({
       category,
-      title,
       answers: JSON.stringify(answers),
       payload: JSON.stringify(payload),
       ...(changed ? { last_modified: new Date().toISOString() } : {})
@@ -453,7 +457,7 @@ export async function replayFromLibrary(
   const rows = (await libraryRows()).map(toMediaView);
   const hidden = await hiddenDuplicates(rows).catch(() => new Set<number>());
   const pool = rows
-    .filter((item) => item.readiness.ready && wanted.has(item.category ?? ''))
+    .filter((item) => item.readiness.ready && genreKeysOf(item).some((key) => wanted.has(key)))
     .filter((item) => !dealt.has(item.id) && !hidden.has(item.id))
     .filter((item) => {
       const rating = (item.payload as { difficulty?: unknown } | null)?.difficulty;
@@ -527,8 +531,10 @@ export async function countLibrary(
   const rows = (await libraryRows()).map(toMediaView);
   const hidden = await hiddenDuplicates(rows).catch(() => new Set<number>());
   for (const item of rows) {
-    const genreId = item.category ?? '';
-    if (!wanted.has(genreId) || !item.readiness.ready || hidden.has(item.id)) continue;
+    // Counted once, under the first of its genres asked for, so a round in two
+    // of them does not add up to two on the setup screen.
+    const genreId = genreKeysOf(item).find((key) => wanted.has(key));
+    if (genreId === undefined || !item.readiness.ready || hidden.has(item.id)) continue;
     const rating = (item.payload as { difficulty?: unknown } | null)?.difficulty;
     if (typeof rating === 'number' && (rating < difficulty.min || rating > difficulty.max)) continue;
     counts.set(genreId, (counts.get(genreId) ?? 0) + 1);

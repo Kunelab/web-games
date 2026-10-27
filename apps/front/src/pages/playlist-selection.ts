@@ -1,4 +1,4 @@
-import { genreKeyOf, mediaDifficulty, selectByGenre, type GenreWindow } from 'game-core';
+import { genreKeysOf, mediaDifficulty, selectByGenre, type GenreWindow } from 'game-core';
 
 /**
  * What the launch screen keeps of a playlist, as state and as a request.
@@ -24,7 +24,10 @@ export interface Range {
 }
 
 export interface PlaylistFilter {
-  /** Genres set aside, by `genreKeyOf`. Everything else plays. */
+  /**
+   * Genres set aside, by key (see `genreKeysOf`). Everything else plays,
+   * including a round set aside here and kept under another of its genres.
+   */
   excluded: ReadonlySet<string>;
   difficulty: Range;
   /** A window per genre, once the host asks for one; null applies `difficulty` to every genre. */
@@ -65,7 +68,7 @@ export function playlistSelection(
   filter: PlaylistFilter
 ): { genres?: GenreWindow[]; maxRounds?: number; kept: number } {
   const ready = items.filter((item) => item.readiness.ready);
-  const keys = [...new Set(ready.map(genreKeyOf))];
+  const keys = [...new Set(ready.flatMap(genreKeysOf))];
   const shared = ordered(filter.difficulty);
   const open = filter.excluded.size === 0 && filter.perGenre === null && shared.min <= 0 && shared.max >= 100;
 
@@ -86,7 +89,7 @@ export function playlistSelection(
 export function hasChoices(items: readonly Selectable[]): boolean {
   const ready = items.filter((item) => item.readiness.ready);
   return (
-    new Set(ready.map(genreKeyOf)).size > 1 ||
+    new Set(ready.flatMap(genreKeysOf)).size > 1 ||
     ready.some((item) => mediaDifficulty(item) !== null) ||
     ready.length > LENGTHS[0]
   );

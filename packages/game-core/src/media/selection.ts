@@ -34,6 +34,28 @@ export function genreKeyOf(item: { category: string | null }): string {
 }
 
 /**
+ * Every genre an item plays in: its own first, then the others it was also
+ * filed under (`payload.alsoIn`).
+ *
+ * A catalogue round has one genre that decides its difficulty scale and its
+ * answer prompt, and may be listed in more: a Stromae song is chanson and
+ * electro, a 2003 rap hit is rap and its era. A room that keeps any of them
+ * hears it.
+ */
+export function genreKeysOf(item: { category: string | null; payload?: unknown }): string[] {
+  const own = genreKeyOf(item);
+  return [own, ...alsoInOf(item.payload).filter((other) => other !== own)];
+}
+
+/** The other genres in a payload, `[]` for none or a malformed list. */
+export function alsoInOf(payload: unknown): string[] {
+  if (typeof payload !== 'object' || payload === null) return [];
+  const list = (payload as { alsoIn?: unknown }).alsoIn;
+  if (!Array.isArray(list)) return [];
+  return [...new Set(list.filter((entry): entry is string => typeof entry === 'string' && entry !== ''))];
+}
+
+/**
  * The difficulty stored on an item, or null when it has none.
  *
  * Only blind tests carry one today, and an old one may not. Read from the
@@ -49,7 +71,8 @@ export function mediaDifficulty(item: { payload: unknown }): number | null {
 /**
  * The items the room keeps, in the order they came.
  *
- * An item whose genre is not listed is dropped. One with no difficulty stays,
+ * An item none of whose genres is listed is dropped; one listed in several is
+ * kept when any of their windows takes it. One with no difficulty stays,
  * whatever the window: "unknown" must not read as "too hard", or a narrow window
  * over a quiz of hand-written questions would quietly empty it. The window's ends
  * are ordered on read, so a slider dragged past itself still means something.
@@ -66,9 +89,11 @@ export function selectByGenre<T extends { category: string | null; payload: unkn
   }
 
   return items.filter((item) => {
-    const window = windows.get(genreKeyOf(item));
-    if (!window) return false;
     const rating = mediaDifficulty(item);
-    return rating === null || (rating >= window.min && rating <= window.max);
+    return genreKeysOf(item).some((key) => {
+      const window = windows.get(key);
+      if (!window) return false;
+      return rating === null || (rating >= window.min && rating <= window.max);
+    });
   });
 }

@@ -1,5 +1,5 @@
 import { and, eq, isNull } from 'drizzle-orm';
-import { normalizeAnswer } from 'game-core';
+import { genreKeysOf, normalizeAnswer } from 'game-core';
 
 import { db } from '../db/index.js';
 import { blindtestGenreDismissals, media } from '../db/schema.js';
@@ -63,6 +63,8 @@ export interface GenreCheckItem {
   id: number;
   category: string | null;
   answers: { key: string; label: string; value: string }[];
+  /** Where its other genres are, `alsoIn`. */
+  payload?: unknown;
 }
 
 /** The part of a genre the check reads. The catalogue's `Genre` fits it. */
@@ -136,7 +138,15 @@ export function checkGenres(
       }
 
       const family = familyOf(genre);
-      if (seeded && seeded.size > 0 && !seeded.has(family) && index.harvested.has(family)) {
+      // Every family it plays in: listed in the genre its seeds are in, it is
+      // where they are, even when its own genre is another.
+      const families = new Set(
+        genreKeysOf(item).flatMap((id) => {
+          const other = byId.get(id);
+          return other ? [familyOf(other)] : [];
+        })
+      );
+      if (seeded && seeded.size > 0 && ![...families].some((id) => seeded.has(id)) && index.harvested.has(family)) {
         return { reason: 'seed-elsewhere', suggestions: seededOfShape.filter((id) => id !== family) };
       }
 
@@ -147,7 +157,8 @@ export function checkGenres(
           const alongside = (counts.get(family) ?? 0) - 1;
           const elsewhere = [...counts.entries()].filter(([other]) => other !== family);
           const total = elsewhere.reduce((sum, [, n]) => sum + n, 0);
-          if (alongside === 0 && total >= 2) {
+          const listedThere = elsewhere.some(([other]) => families.has(other));
+          if (alongside === 0 && total >= 2 && !listedThere) {
             return {
               reason: 'artist-elsewhere',
               suggestions: elsewhere.sort((left, right) => right[1] - left[1]).map(([other]) => other)
@@ -222,7 +233,15 @@ export type SetGenreResult =
 export async function setLibraryGenre(
   mediaId: number,
   genreId: string,
-  options: { allByArtist?: boolean } = {}
+  options: {
+    allByArtist?: boolean;
+    /**
+     * The genres it plays in besides `genreId`, replacing the ones it had.
+     * Absent leaves them as they are. Genres of another answer shape, unknown
+     * ones and `genreId` itself are dropped. See `genreKeysOf`.
+     */
+    alsoIn?: readonly string[];
+  } = {}
 ): Promise<SetGenreResult> {
   const row = await libraryRow(mediaId);
   if (!row) return { ok: false, reason: 'not-found' };
@@ -247,10 +266,18 @@ export async function setLibraryGenre(
         .filter((candidate) => shapeOf(candidate) === genre.answerShape)
     : [view];
 
+  const alsoIn = options.alsoIn && [
+    ...new Set(options.alsoIn.filter((id) => id !== genre.id && genreById.get(id)?.answerShape === genre.answerShape))
+  ];
+
   const calibrations = readCalibrations(db);
   const moved = db.transaction((tx) =>
     targets.flatMap((target) => {
       const next = refiled(target, genre, calibrations);
+      if (alsoIn) {
+        next.payload = { ...next.payload, alsoIn };
+        if (alsoIn.length === 0) delete next.payload.alsoIn;
+      }
       const [updated] = tx
         .update(media)
         .set({ ...next, answers: JSON.stringify(next.answers), payload: JSON.stringify(next.payload) })

@@ -593,10 +593,11 @@ export const api = {
    * `allByArtist` moves every song by its artist too, and files their later
    * songs there. `moved` is every entry rewritten, this one included.
    */
-  blindtestSetGenre: (mediaId: number, genreId: string, allByArtist = false) =>
+  /** Files an entry under `genreId`; `alsoIn` replaces the other genres it plays in, absent keeps them. */
+  blindtestSetGenre: (mediaId: number, genreId: string, allByArtist = false, alsoIn?: string[]) =>
     request<{ item: MediaItem; moved: MediaItem[] }>('/blindtest/library/genre', {
       method: 'POST',
-      body: { mediaId, genreId, allByArtist }
+      body: { mediaId, genreId, allByArtist, ...(alsoIn ? { alsoIn } : {}) }
     }),
   /** Rewrites every old `field.work` prompt whose genre is known. */
   blindtestFixLabels: () => request<{ fixed: number }>('/blindtest/library/fix-labels', { method: 'POST' }),

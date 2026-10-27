@@ -382,8 +382,12 @@ export interface SessionView {
 }
 
 export const sessionConfigSchema = z.object({
-  /** Play the playlist in a random order. */
-  shuffle: z.boolean().default(false),
+  /**
+   * Play the playlist in a random order. On unless asked otherwise: a playlist
+   * heard in its saved order is the same evening every time, and the catalogue
+   * is saved in the order the rounds were found.
+   */
+  shuffle: z.boolean().default(true),
   /**
    * With `shuffle`, what the room has heard least comes first, most of the
    * time: still a shuffle, weighted by how often each item has been played.

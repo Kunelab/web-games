@@ -55,6 +55,29 @@ describe('checkGenres', () => {
     assert.deepEqual(flags, [{ mediaId: 1, reason: 'label-disagrees', suggestions: ['films-musique'] }]);
   });
 
+  it('does not flag a song also listed where its seeds are', () => {
+    const seeds = index({ artists: { stromae: ['electro'] }, works: {} });
+    const listed = { ...song(1, 'chanson-fr', 'Stromae'), payload: { alsoIn: ['electro'] } };
+    const { flags } = checkGenres([listed], GENRES, { ...seeds, harvested: new Set(['electro', 'chanson-fr']) }, none);
+    assert.deepEqual(flags, []);
+    const alone = checkGenres(
+      [song(1, 'chanson-fr', 'Stromae')],
+      GENRES,
+      { ...seeds, harvested: new Set(['electro', 'chanson-fr']) },
+      none
+    );
+    assert.equal(alone.flags[0]?.reason, 'seed-elsewhere');
+  });
+
+  it('does not flag an artist alone in its genre when also listed where the others are', () => {
+    const items = [
+      { ...song(1, 'pop', 'Angèle'), payload: { alsoIn: ['chanson-fr'] } },
+      song(2, 'chanson-fr', 'Angèle'),
+      song(3, 'chanson-fr', 'Angèle')
+    ];
+    assert.deepEqual(checkGenres(items, GENRES, index(), none).flags, []);
+  });
+
   it('believes the seeds over the filing', () => {
     const seeds = index({ artists: { 'bruno mars': ['pop'], booba: ['rap-fr'] } });
     const { flags } = checkGenres(

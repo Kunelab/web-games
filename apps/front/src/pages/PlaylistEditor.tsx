@@ -11,7 +11,7 @@ import {
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { normalizeAnswer } from 'game-core';
+import { alsoInOf, genreKeysOf, normalizeAnswer } from 'game-core';
 import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -213,6 +213,9 @@ interface DuplicateInfo {
 
 const DUPLICATE_RANK: Record<DuplicateReason, number> = { 'same-video': 0, 'same-track': 1, similar: 2 };
 
+/** How the part of the song a drawn clip plays is named on its row. */
+const ANGLE_KEYS = { intro: 'ple.angle.intro', verse: 'ple.angle.verse', chorus: 'ple.angle.chorus' } as const;
+
 function duplicateReasonKey(reason: DuplicateReason): MsgKey {
   if (reason === 'same-video') return 'ple.duplicate.sameVideo';
   if (reason === 'same-track') return 'ple.duplicate.sameTrack';
@@ -331,6 +334,8 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   /** The entry whose genre the admin is looking at, and the genre picked for it. */
   const [genreTargetId, setGenreTargetId] = useState<number | null>(null);
   const [genreChoice, setGenreChoice] = useState('');
+  /** The other genres the entry plays in, as the dialog will save them. */
+  const [genreAlso, setGenreAlso] = useState<ReadonlySet<string>>(() => new Set());
   const [genreBusy, setGenreBusy] = useState<'apply' | 'applyAll' | 'dismiss' | 'fixAll' | null>(null);
   /**
    * Entries moved to another genre from this screen, as the server saved them.
@@ -482,6 +487,16 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
     return section ? `${section} · ${genre.label}` : genre.label;
   }
 
+  /** Its own genre, then the others it plays in, then the part of the song: "Rap · Rap FR + Rap 90s · refrain". */
+  function genresLabel(item: MediaItem): string {
+    const others = alsoInOf(item.payload).filter((id) => id !== item.category);
+    const genres = [genreName(item.category), ...others.map((id) => genreById.get(id)?.label ?? id)].join(' + ');
+    const angle = (item.payload as { angle?: unknown } | null)?.angle;
+    return typeof angle === 'string' && angle in ANGLE_KEYS
+      ? `${genres} · ${t(msg(ANGLE_KEYS[angle as keyof typeof ANGLE_KEYS]))}`
+      : genres;
+  }
+
   const genreTarget = genreTargetId !== null ? byId.get(genreTargetId) : undefined;
   const genreFlag = genreTargetId !== null ? genreFlagById.get(genreTargetId) : undefined;
   /** The artist as the entry spells it, and as the server matches it: the whole answer, normalised. */
@@ -513,19 +528,21 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
     const current = item.category;
     const first = (catalog.data?.genres ?? []).find((genre) => genre.answerShape === shape)?.id ?? '';
     setGenreChoice(suggestion ?? (current && fits(current) ? current : first));
+    setGenreAlso(new Set(alsoInOf(item.payload)));
     setGenreTargetId(item.id);
   }
 
   /**
-   * Files the entry under the chosen genre; its prompt, title tag and
-   * difficulty follow on the server. With `allByArtist`, every song by its
+   * Files the entry under the chosen genre, and in the other genres ticked;
+   * its prompt and difficulty follow on the server. With `allByArtist`, every song by its
    * artist goes too, and the artist's later songs are filed there.
    */
   async function applyGenre(item: MediaItem, allByArtist = false) {
     if (!genreChoice) return;
     setGenreBusy(allByArtist ? 'applyAll' : 'apply');
     try {
-      const { moved } = await api.blindtestSetGenre(item.id, genreChoice, allByArtist);
+      const alsoIn = [...genreAlso].filter((id) => id !== genreChoice);
+      const { moved } = await api.blindtestSetGenre(item.id, genreChoice, allByArtist, alsoIn);
       setRefiledItems((current) => {
         const next = new Map(current);
         for (const entry of moved) next.set(entry.id, entry);
@@ -665,7 +682,10 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
    * rows with no genre at all.
    */
   const genreCounts = new Map<string, number>();
-  for (const item of chosen) genreCounts.set(item.category ?? '', (genreCounts.get(item.category ?? '') ?? 0) + 1);
+  for (const item of chosen) {
+    // Under every genre it plays in, as a room choosing that genre would hear it.
+    for (const key of genreKeysOf(item)) genreCounts.set(key, (genreCounts.get(key) ?? 0) + 1);
+  }
   const playlistGenres = [...genreCounts.entries()].sort((left, right) => right[1] - left[1]);
 
   /**
@@ -674,7 +694,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
    */
   const shownChosen = chosen.filter((item) => {
     if (chosenSearch && !item.title.toLowerCase().includes(chosenSearch.toLowerCase())) return false;
-    if (genreFilter !== null && (item.category ?? '') !== genreFilter) return false;
+    if (genreFilter !== null && !genreKeysOf(item).includes(genreFilter)) return false;
     if (problemFilter === 'any' && !hasAnyProblem(item)) return false;
     if (problemFilter && problemFilter !== 'any' && !hasProblem[problemFilter](item)) return false;
     return true;
@@ -939,7 +959,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                       item={item}
                       index={positionOf.get(item.id) ?? 0}
                       canEdit={mayEditMedia(item)}
-                      categoryLabel={curating ? genreName(item.category) : undefined}
+                      categoryLabel={curating ? genresLabel(item) : undefined}
                       duplicate={curating ? dupById.get(item.id) : undefined}
                       hiddenInGames={curating && hiddenIds.has(item.id)}
                       extreme={curating ? extremeById.get(item.id) : undefined}
@@ -1101,7 +1121,9 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
         onOpenChange={(open) => {
           if (!open) setGenreTargetId(null);
         }}
-        title={t(msg('ple.genre.title'))}
+        title={t(
+          msg(genreFlag || (genreTarget && legacyIds.has(genreTarget.id)) ? 'ple.genre.title' : 'ple.genre.editTitle')
+        )}
         description={genreTarget?.title}
         actions={
           <>
@@ -1154,6 +1176,29 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                 <Select id={fieldId} value={genreChoice} onValueChange={setGenreChoice} options={genreOptions} />
               )}
             </Field>
+            <div className="stack-2">
+              <p className="pl-dup-reason">{t(msg('ple.genre.alsoIn'))}</p>
+              <div className="pl-genre-also">
+                {genreOptions
+                  .filter((option) => option.value !== genreChoice)
+                  .map((option) => (
+                    <Chip
+                      key={option.value}
+                      active={genreAlso.has(option.value)}
+                      aria-pressed={genreAlso.has(option.value)}
+                      onClick={() =>
+                        setGenreAlso((current) => {
+                          const next = new Set(current);
+                          if (!next.delete(option.value)) next.add(option.value);
+                          return next;
+                        })
+                      }
+                    >
+                      {option.label}
+                    </Chip>
+                  ))}
+              </div>
+            </div>
           </div>
         )}
       </Dialog>
@@ -1271,11 +1316,15 @@ function SortableRow({
             <Badge tone="warn">{t(msg('ple.genre.legacyBadge'))}</Badge>
           </button>
         )}
-        {genreFlag && (
+        {/*
+          On every catalogue row, so an entry nothing flagged can still be
+          moved or listed in more genres. Coloured only when the check doubts it.
+        */}
+        {(genreFlag || categoryLabel !== undefined) && onShowGenre && (
           <IconButton
             icon={<GenreIcon />}
-            className="pl-dup-flag"
-            label={t(msg('ple.genre.flag', { title: item.title }))}
+            className={genreFlag ? 'pl-dup-flag' : undefined}
+            label={t(msg(genreFlag ? 'ple.genre.flag' : 'ple.genre.edit', { title: item.title }))}
             onClick={onShowGenre}
           />
         )}

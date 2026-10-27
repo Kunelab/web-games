@@ -29,6 +29,24 @@ describe('playlistSelection', () => {
     assert.equal(selection.kept, 3);
   });
 
+  it('offers a round under every genre it is in, and keeps it while any of them is kept', () => {
+    const stromae = {
+      id: 6,
+      category: 'chanson-fr',
+      payload: { difficulty: 30, alsoIn: ['electro'] },
+      readiness: { ready: true }
+    };
+    const items = [stromae, item(7, 'chanson-fr', 30)];
+    const onlyElectro = playlistSelection(items, { ...OPEN_FILTER, excluded: new Set(['chanson-fr']) });
+    assert.deepEqual(
+      onlyElectro.genres?.map((genre) => genre.category),
+      ['electro']
+    );
+    assert.equal(onlyElectro.kept, 1);
+    assert.equal(playlistSelection(items, { ...OPEN_FILTER, excluded: new Set(['electro']) }).kept, 2);
+    assert.ok(hasChoices([stromae]));
+  });
+
   it('applies the shared window to every genre, and keeps what has no difficulty', () => {
     const selection = playlistSelection(playlist, { ...OPEN_FILTER, difficulty: { min: 60, max: 20 } });
     assert.ok(selection.genres?.every((genre) => genre.difficultyMin === 20 && genre.difficultyMax === 60));

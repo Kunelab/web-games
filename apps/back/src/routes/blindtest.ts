@@ -375,7 +375,8 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
    * Files a catalogue entry under a genre, rewriting its work prompt to match.
    *
    * Sending the genre it already has is how an old `field.work` prompt is fixed
-   * one entry at a time. Refused across answer shapes; see `setLibraryGenre`.
+   * one entry at a time, and how its other genres (`alsoIn`) are changed.
+   * Refused across answer shapes; see `setLibraryGenre`.
    * `allByArtist` takes every song by the same artist along, and remembers
    * the artist under that genre for the songs kept later.
    */
@@ -387,7 +388,9 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
         body: z.object({
           mediaId: z.coerce.number().int().positive(),
           genreId: z.string().min(1).max(40),
-          allByArtist: z.boolean().optional()
+          allByArtist: z.boolean().optional(),
+          /** The genres it also plays in, replacing the ones it had. Absent leaves them. */
+          alsoIn: z.array(z.string().min(1).max(40)).max(20).optional()
         })
       }
     },
@@ -395,8 +398,8 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!isAdmin(request.currentUser)) {
         throw app.httpErrors.forbidden('Réservé à un administrateur');
       }
-      const { mediaId, genreId, allByArtist } = request.body;
-      const result = await setLibraryGenre(mediaId, genreId, { allByArtist });
+      const { mediaId, genreId, allByArtist, alsoIn } = request.body;
+      const result = await setLibraryGenre(mediaId, genreId, { allByArtist, alsoIn });
       if (result.ok) return { item: result.item, moved: result.moved };
       if (result.reason === 'not-found') throw app.httpErrors.notFound('Entrée du catalogue introuvable');
       if (result.reason === 'unknown-genre') {

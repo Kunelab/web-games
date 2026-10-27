@@ -1,4 +1,4 @@
-import { genreKeyOf, mediaDifficulty, selectByGenre } from 'game-core';
+import { genreKeysOf, mediaDifficulty } from 'game-core';
 import { msg } from 'i18n';
 import { useMemo } from 'react';
 
@@ -46,9 +46,13 @@ export function PlaylistSource({
   const catalog = useAsync(() => api.blindtestCatalog().catch(() => null), []);
 
   const ready = useMemo(() => items.filter((item) => item.readiness.ready), [items]);
-  const keys = useMemo(() => [...new Set(ready.map(genreKeyOf))], [ready]);
+  // A round listed in more than one genre is offered under each of them.
+  const keys = useMemo(() => [...new Set(ready.flatMap(genreKeysOf))], [ready]);
   /** Genres with at least one rated media: the only ones a window can narrow. */
-  const rated = useMemo(() => new Set(ready.filter((item) => mediaDifficulty(item) !== null).map(genreKeyOf)), [ready]);
+  const rated = useMemo(
+    () => new Set(ready.filter((item) => mediaDifficulty(item) !== null).flatMap(genreKeysOf)),
+    [ready]
+  );
 
   /**
    * The playlist's genres, grouped: the endless mode's sections first, in its
@@ -79,16 +83,17 @@ export function PlaylistSource({
   /** What each genre has inside its window, kept or not, so setting one aside shows what it costs. */
   const counts = useMemo(() => {
     const result = new Map<string, number>();
-    const windows = keys.map((key) => {
-      const window = windowOf(value, key);
-      return { category: key, difficultyMin: window.min, difficultyMax: window.max };
-    });
-    for (const item of selectByGenre(ready, windows)) {
-      const key = genreKeyOf(item);
-      result.set(key, (result.get(key) ?? 0) + 1);
+    // Under every genre it is in, so each count says what that genre alone would play.
+    for (const item of ready) {
+      const rating = mediaDifficulty(item);
+      for (const key of genreKeysOf(item)) {
+        const window = windowOf(value, key);
+        if (rating !== null && (rating < window.min || rating > window.max)) continue;
+        result.set(key, (result.get(key) ?? 0) + 1);
+      }
     }
     return result;
-  }, [ready, keys, value]);
+  }, [ready, value]);
 
   const { kept } = playlistSelection(items, value);
 

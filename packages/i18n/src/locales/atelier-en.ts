@@ -410,6 +410,12 @@ export const atelierEn = {
   "ple.genre.suggested": "Suggested: {genres}",
   "ple.genre.none": "none",
   "ple.genre.choose": "Genre",
+  "ple.genre.alsoIn": "Also plays in",
+  "ple.genre.edit": "Genres of {title}",
+  "ple.genre.editTitle": "Genres",
+  "ple.angle.intro": "intro",
+  "ple.angle.verse": "verse",
+  "ple.angle.chorus": "chorus",
   "ple.genre.apply": "Apply",
   "ple.genre.applyAll": "All {count} songs by {artist}",
   "ple.genre.applyAllHint":

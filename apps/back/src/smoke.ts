@@ -61,6 +61,9 @@ import {
 import type { MediaView } from './services/media-service.js';
 import { resultsService } from './services/results-service.js';
 
+/** The checks below follow a playlist round by round, so they play it in its order. */
+const inOrder = { ...defaultSessionConfig, shuffle: false };
+
 const app = await buildApp();
 await app.ready();
 
@@ -701,7 +704,7 @@ const state = createSession({
   playlistId: null,
   hostUserId: 1,
   items: playable,
-  config: defaultSessionConfig,
+  config: inOrder,
   code: HAND_BUILT_CODE
 });
 
@@ -837,7 +840,7 @@ section('pooled answers');
     playlistId: playlistView.id,
     hostUserId: 1,
     items: [item],
-    config: sessionConfigSchema.parse({ attemptsPerField: 2 }),
+    config: sessionConfigSchema.parse({ shuffle: false, attemptsPerField: 2 }),
     code: HAND_BUILT_CODE
   });
   const solo = joinSession(pool, 'Solo', undefined).player;
@@ -871,7 +874,7 @@ section('pooled answers');
     playlistId: playlistView.id,
     hostUserId: 1,
     items: [item],
-    config: sessionConfigSchema.parse({ attemptsPerField: 2 }),
+    config: sessionConfigSchema.parse({ shuffle: false, attemptsPerField: 2 }),
     code: HAND_BUILT_CODE
   });
   const waster = joinSession(spam, 'Waster', undefined).player;
@@ -916,7 +919,7 @@ section('estimation');
     playlistId: playlistView.id,
     hostUserId: 1,
     items: [item],
-    config: defaultSessionConfig,
+    config: inOrder,
     code: HAND_BUILT_CODE
   });
   const near = joinSession(est, 'Near', undefined).player;
@@ -1013,7 +1016,7 @@ section('who gets the media');
     playlistId: playlistView.id,
     hostUserId: 1,
     items: [item],
-    config: defaultSessionConfig,
+    config: inOrder,
     code: HAND_BUILT_CODE
   });
   const alone = joinSession(noTv, 'Phone', undefined).player;
@@ -1026,7 +1029,7 @@ section('who gets the media');
     playlistId: playlistView.id,
     hostUserId: 1,
     items: [item],
-    config: { ...defaultSessionConfig, tv: true },
+    config: { ...inOrder, tv: true },
     code: HAND_BUILT_CODE
   });
   const seated = joinSession(withTv, 'Phone', undefined).player;
@@ -1084,7 +1087,7 @@ section('who gets the media');
     playlistId: playlistView.id,
     hostUserId: 1,
     items: [picture],
-    config: defaultSessionConfig,
+    config: inOrder,
     code: HAND_BUILT_CODE
   });
   const looker = joinSession(noTvPicture, 'Phone', undefined).player;
@@ -1120,7 +1123,7 @@ section('who gets the media');
     playlistId: playlistView.id,
     hostUserId: 1,
     items: [picture, question],
-    config: { ...defaultSessionConfig, tv: true },
+    config: { ...inOrder, tv: true },
     code: HAND_BUILT_CODE
   });
   const watcher = joinSession(pictureOnTv, 'Phone', undefined).player;
@@ -1286,7 +1289,7 @@ section('a game ended early still banks its tokens');
     playlistId: playlistView.id,
     hostUserId: 1,
     items: [quizItem],
-    config: defaultSessionConfig,
+    config: inOrder,
     code: HAND_BUILT_CODE
   });
   const quitter = joinSession(early, 'Earlybird', undefined).player;
@@ -1324,7 +1327,7 @@ section('oral mode');
     // decides whether the game moves on by itself. The launch form turns the
     // second one off when you pick the first, but the engine keeps them apart so a
     // hands-off run through a playlist stays possible.
-    config: sessionConfigSchema.parse({ oral: true, autoAdvance: false }),
+    config: sessionConfigSchema.parse({ shuffle: false, oral: true, autoAdvance: false }),
     code: HAND_BUILT_CODE
   });
 
@@ -1360,7 +1363,7 @@ section('oral mode');
     playlistId: playlistView.id,
     hostUserId: 1,
     items: playable,
-    config: sessionConfigSchema.parse({ oral: true, autoAdvance: true }),
+    config: sessionConfigSchema.parse({ shuffle: false, oral: true, autoAdvance: true }),
     code: HAND_BUILT_CODE
   });
   advance(auto, (id) => playable.find((item) => item.id === id));
@@ -1443,7 +1446,7 @@ const publicStart = await app.inject({
   method: 'POST',
   url: '/api/play/sessions',
   headers,
-  payload: { playlistId: playlistView.id, config: { public: true } }
+  payload: { playlistId: playlistView.id, config: { public: true, shuffle: false } }
 });
 const publicSession = JSON.parse(publicStart.body) as { code: string };
 

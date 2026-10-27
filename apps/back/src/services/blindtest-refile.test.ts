@@ -25,7 +25,7 @@ process.on('exit', () => {
   }
 });
 
-const { retagTitle, rescoredForGenre } = await import('./blindtest-refile.js');
+const { alsoInAfterMove, rescoredForGenre } = await import('./blindtest-refile.js');
 const { genreById } = await import('./blindtest-catalog.js');
 const { setLibraryGenre } = await import('./blindtest-genres.js');
 const { correctLibraryRound, rememberPlayedRound } = await import('./blindtest-library.js');
@@ -40,7 +40,7 @@ function dealt(code: string, artist: string, title: string): MediaView {
   return {
     id: -1,
     kind: 'blindtest',
-    title: `${artist} - ${title} [rap-us/verse]`,
+    title: `${artist} - ${title}`,
     category: 'rap-us',
     date: null,
     answers: [
@@ -56,21 +56,25 @@ function dealt(code: string, artist: string, title: string): MediaView {
       volume: 100,
       difficulty: 90,
       difficultyBy: 'auto',
-      fame: looked
+      fame: looked,
+      angle: 'verse'
     },
     timing: null
   } as unknown as MediaView;
 }
 
-describe('retagTitle', () => {
-  it('names the new genre and keeps the part of the song', () => {
-    assert.equal(retagTitle('Gradur - Broly [rap-us/verse]', 'rap-fr'), 'Gradur - Broly [rap-fr/verse]');
-    assert.equal(retagTitle('Naruto [anime-ed/chorus]', 'anime-op'), 'Naruto [anime-op/chorus]');
+describe('alsoInAfterMove', () => {
+  it('drops the genre that became its own from the others', () => {
+    assert.deepEqual(alsoInAfterMove({ code: 'x', alsoIn: ['rap-fr', 'rap-90s'] }, 'rap-fr'), {
+      code: 'x',
+      alsoIn: ['rap-90s']
+    });
+    assert.deepEqual(alsoInAfterMove({ code: 'x', alsoIn: ['rap-fr'] }, 'rap-fr'), { code: 'x' });
   });
 
-  it('leaves a title without a tag alone', () => {
-    assert.equal(retagTitle('Gradur - Broly', 'rap-fr'), 'Gradur - Broly');
-    assert.equal(retagTitle('Live [2019] - Encore', 'rap-fr'), 'Live [2019] - Encore');
+  it('leaves a payload that did not list it as it was', () => {
+    const payload = { code: 'x', alsoIn: ['rap-90s'] };
+    assert.equal(alsoInAfterMove(payload, 'rap-fr'), payload);
   });
 });
 
@@ -110,7 +114,7 @@ describe('moving an artist', () => {
     );
     const moved = result.moved.find((entry) => entry.id === second!.id)!;
     assert.equal(moved.category, 'rap-fr');
-    assert.equal(moved.title, 'Ninho - Filon [rap-fr/verse]');
+    assert.equal(moved.title, 'Ninho - Filon');
     assert.notEqual((moved.payload as { difficulty: number }).difficulty, 90);
     // Not an edit: a rescoring still treats the round as the draw's.
     assert.equal(moved.last_modified, second!.last_modified);
@@ -118,7 +122,6 @@ describe('moving an artist', () => {
 
     const later = await rememberPlayedRound(dealt('ninhoaaaaa4', 'Ninho', 'Jefe'));
     assert.equal(later?.category, 'rap-fr');
-    assert.equal(later?.title, 'Ninho - Jefe [rap-fr/verse]');
   });
 
   it('moves one song alone without remembering anything', async () => {
@@ -133,13 +136,39 @@ describe('moving an artist', () => {
 });
 
 describe('a genre corrected at a reveal', () => {
-  it('retags the title, and is not stamped as an edit when nothing else changed', async () => {
+  it('is not stamped as an edit when nothing else changed', async () => {
     const kept = await rememberPlayedRound(dealt('hostaaaaaa1', 'Gazo', 'Die'));
     assert.ok(await correctLibraryRound('hostaaaaaa1', [], {}, rapFr));
 
     const result = await setLibraryGenre(kept!.id, 'rap-fr');
     assert.ok(result.ok);
-    assert.equal(result.item.title, 'Gazo - Die [rap-fr/verse]');
+    assert.equal(result.item.category, 'rap-fr');
     assert.equal(result.item.last_modified, kept!.last_modified);
+  });
+});
+
+describe('the other genres a round plays in', () => {
+  it('replaces them, keeping only genres of its answer shape, and leaves them when not sent', async () => {
+    const kept = await rememberPlayedRound(dealt('alsoaaaaaa1', 'Stromae', 'Papaoutai'));
+    const listed = await setLibraryGenre(kept!.id, 'rap-fr', {
+      alsoIn: ['rap-90s', 'rap-fr', 'films-musique', 'nope']
+    });
+    assert.ok(listed.ok);
+    assert.equal(listed.item.category, 'rap-fr');
+    assert.deepEqual((listed.item.payload as { alsoIn?: string[] }).alsoIn, ['rap-90s']);
+    assert.equal((listed.item.payload as { angle?: string }).angle, 'verse');
+
+    const untouched = await setLibraryGenre(kept!.id, 'rap-fr');
+    assert.ok(untouched.ok);
+    assert.deepEqual((untouched.item.payload as { alsoIn?: string[] }).alsoIn, ['rap-90s']);
+
+    // Made its own genre, it is no longer one of the others.
+    const promoted = await setLibraryGenre(kept!.id, 'rap-90s');
+    assert.ok(promoted.ok);
+    assert.equal((promoted.item.payload as { alsoIn?: string[] }).alsoIn, undefined);
+
+    const cleared = await setLibraryGenre(kept!.id, 'rap-90s', { alsoIn: [] });
+    assert.ok(cleared.ok);
+    assert.equal((cleared.item.payload as { alsoIn?: string[] }).alsoIn, undefined);
   });
 });

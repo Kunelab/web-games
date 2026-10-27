@@ -339,7 +339,9 @@ function toMediaView(entry: PoolEntry, difficultyTarget: number): MediaView {
     difficultyBy: 'auto' as const,
     timingBy: 'auto' as const,
     /** What the number was scored from, so a later rescoring need not ask again. */
-    fame: fameOf(entry)
+    fame: fameOf(entry),
+    /** Which part of the song the clip plays: its intro, a verse or its chorus. */
+    angle: plan.angle
   };
 
   const item = { kind: 'blindtest', timing: null, payload };
@@ -349,12 +351,9 @@ function toMediaView(entry: PoolEntry, difficultyTarget: number): MediaView {
     id: nextEphemeralId--,
     user_id: null,
     kind: 'blindtest',
-    // Librarian-facing only; players never see it. Carries the provenance so a
-    // log or the host screen can say where a round came from.
-    title:
-      entry.answerShape === 'artist-title'
-        ? `${entry.artist} - ${entry.title} [${entry.genreId}/${plan.angle}]`
-        : `${entry.work} [${entry.genreId}/${plan.angle}]`,
+    // Librarian-facing only; players never see it. The genre and the part of
+    // the song played have their own fields, `category` and `payload.angle`.
+    title: entry.answerShape === 'artist-title' ? `${entry.artist} - ${entry.title}` : entry.work,
     category: entry.genreId,
     date: entry.year ? `${entry.year}-01-01` : null,
     answers,

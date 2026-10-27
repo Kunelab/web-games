@@ -1,13 +1,31 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { genreKeyOf, mediaDifficulty, selectByGenre } from './selection.js';
+import { alsoInOf, genreKeyOf, genreKeysOf, mediaDifficulty, selectByGenre } from './selection.js';
 
 function item(id: number, category: string | null, difficulty?: number | null) {
   return { id, category, payload: difficulty === undefined ? {} : { difficulty } };
 }
 
 describe('selectByGenre', () => {
+  it("keeps an item listed in another genre too, in that genre's window", () => {
+    const stromae = { id: 1, category: 'chanson-fr', payload: { difficulty: 40, alsoIn: ['electro'] } };
+    const items = [stromae, item(2, 'chanson-fr', 40)];
+    assert.deepEqual(
+      selectByGenre(items, [{ category: 'electro', difficultyMin: 0, difficultyMax: 100 }]).map((entry) => entry.id),
+      [1]
+    );
+    assert.deepEqual(selectByGenre(items, [{ category: 'electro', difficultyMin: 50, difficultyMax: 100 }]), []);
+    // Kept once, whichever of its genres let it in.
+    assert.deepEqual(
+      selectByGenre(items, [
+        { category: 'electro', difficultyMin: 0, difficultyMax: 100 },
+        { category: 'chanson-fr', difficultyMin: 0, difficultyMax: 100 }
+      ]).map((entry) => entry.id),
+      [1, 2]
+    );
+  });
+
   it('keeps only the genres listed', () => {
     const items = [item(1, 'rap-fr', 10), item(2, 'rock', 10), item(3, 'rap-fr', 20)];
     const kept = selectByGenre(items, [{ category: 'rap-fr', difficultyMin: 0, difficultyMax: 100 }]);
@@ -73,5 +91,21 @@ describe('the keys it reads', () => {
   it('matches a category as stored', () => {
     assert.equal(genreKeyOf({ category: 'Années 80' }), 'Années 80');
     assert.equal(genreKeyOf({ category: null }), '');
+  });
+});
+
+describe('genreKeysOf', () => {
+  it('lists the own genre first, then the others once each', () => {
+    assert.deepEqual(genreKeysOf({ category: 'pop', payload: { alsoIn: ['electro', 'pop', 'electro', ''] } }), [
+      'pop',
+      'electro'
+    ]);
+    assert.deepEqual(genreKeysOf({ category: null, payload: {} }), ['']);
+  });
+
+  it('reads a malformed list as none', () => {
+    assert.deepEqual(alsoInOf({ alsoIn: 'electro' }), []);
+    assert.deepEqual(alsoInOf(null), []);
+    assert.deepEqual(alsoInOf({ alsoIn: [3, 'rock'] }), ['rock']);
   });
 });

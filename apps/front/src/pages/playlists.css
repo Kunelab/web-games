@@ -362,3 +362,10 @@
   grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
   gap: var(--space-4);
 }
+
+/* The other genres an entry plays in, toggled in the genre dialog. */
+.pl-genre-also {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

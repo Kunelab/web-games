@@ -395,6 +395,12 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.genre.suggested": "Suggéré : {genres}",
   "ple.genre.none": "aucun",
   "ple.genre.choose": "Genre",
+  "ple.genre.alsoIn": "Joue aussi dans",
+  "ple.genre.edit": "Genres de {title}",
+  "ple.genre.editTitle": "Genres",
+  "ple.angle.intro": "intro",
+  "ple.angle.verse": "couplet",
+  "ple.angle.chorus": "refrain",
   "ple.genre.apply": "Appliquer",
   "ple.genre.applyAll": "Tous les titres de {artist} ({count})",
   "ple.genre.applyAllHint":

@@ -105,7 +105,18 @@ export const blindtestPayloadSchema = z
     difficultyBy: z.enum(['auto', 'human']).optional(),
     timingBy: z.enum(['auto', 'human']).optional(),
     /** The evidence an automatic difficulty came from. See `blindtestFameSchema`. */
-    fame: blindtestFameSchema.optional()
+    fame: blindtestFameSchema.optional(),
+    /**
+     * Which part of the song the clip was cut from when it was drawn: its
+     * intro, a verse or its chorus. A note for the librarian, used to sit at the
+     * end of the title. Absent on a round made by hand.
+     */
+    angle: z.enum(['intro', 'verse', 'chorus']).optional(),
+    /**
+     * The genres this round plays in besides its own `category`, which still
+     * decides its difficulty scale and its answer prompt. See `genreKeysOf`.
+     */
+    alsoIn: z.array(z.string().min(1).max(80)).max(20).optional()
   })
   .refine((payload) => payload.endGuess > payload.startGuess, {
     message: 'La fin du extrait doit être après le début',
