@@ -1,18 +1,29 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { eq } from 'drizzle-orm';
+
+import { openDb } from '../db/open.js';
+import { blindtestSeeds } from '../db/schema.js';
+
 import {
+  albumGenre,
   anilistSeeds,
   buildOracle,
   byArtistOf,
+  CHARTS,
+  chartGenre,
+  chartYear,
   channelsFor,
   compositionSeeds,
   compositionsQuery,
+  createSeedStock,
   curatedPlaylists,
   deezerSeeds,
   editorPlaylists,
   fameWeight,
   genreEditors,
+  HIT_FAME,
   otherNames,
   planFromSeeds,
   qleverQuery,
@@ -26,7 +37,8 @@ import {
   videosFor,
   weightedSample,
   wikidataSeeds,
-  type Seed
+  type Seed,
+  type SeededGenre
 } from './blindtest-seeds.js';
 
 function seed(id: number, artist: string, title: string, fame = 0.5, extra: Partial<Seed> = {}): Seed {
@@ -556,5 +568,234 @@ describe('buildOracle', () => {
     assert.deepEqual(oracle.tracks.get(trackOracleKey('OrelSan', 'Basique')), { fame: 0.9, duration: null });
     assert.equal(oracle.works.get('shingeki no kyojin')?.year, 2013);
     assert.deepEqual(oracle.works.get('attack on titan')?.names, ['Attack on Titan', 'Shingeki no Kyojin']);
+  });
+});
+
+describe('the charts', () => {
+  it('reads the yearly lists from 1990 on', () => {
+    assert.equal(chartYear('Top Hits 1995'), 1995);
+    assert.equal(chartYear('Top Hits 2023'), 2023);
+    assert.equal(chartYear('Top Hits 1985'), null);
+    assert.equal(chartYear('Best of Hits 2016'), null);
+  });
+
+  it('reads the French decade lists, and not the American ones or the eighties', () => {
+    const french = [
+      'Variété Française des années 90',
+      'Années 90 : variété française | Tubes 90s',
+      'Bleu blanc hits 90',
+      'Musique française années 90',
+      'Tubes français des années 70 80 90 2000 2010 2020'
+    ];
+    for (const title of french) assert.ok(CHARTS.frenchTitle.test(title), title);
+    for (const title of ['Le Rap US des années 90', 'Variété française années 80', 'Les tubes des années 90']) {
+      assert.ok(!CHARTS.frenchTitle.test(title), title);
+    }
+  });
+
+  it("reads an album's genre", () => {
+    assert.equal(albumGenre({ genre_id: 116 }), 116);
+    assert.equal(albumGenre({ genre_id: -1 }), null);
+    assert.equal(albumGenre({ error: { code: 800 } }), null);
+  });
+
+  const genres = new Set(['pop', 'rock', 'metal', 'electro', 'chanson-fr', 'rap-fr', 'rap-us']);
+
+  it("files a song where most of its artist's seeds are", () => {
+    const artists = new Map([
+      [
+        'guns n roses',
+        new Map([
+          ['rock', 11],
+          ['pop', 5],
+          ['metal', 4]
+        ])
+      ]
+    ]);
+    assert.equal(chartGenre("Guns N' Roses", 'world', artists, 152, genres), 'rock');
+  });
+
+  it("ignores a genre that takes no hits, where most of the artist's seeds may be", () => {
+    const artists = new Map([['beethoven', new Map([['classique', 40]])]]);
+    assert.equal(chartGenre('Beethoven', 'world', artists, null, genres), 'pop');
+  });
+
+  it("goes by the album's genre for an artist no genre knows, rap by the list's side", () => {
+    const none = new Map<string, Map<string, number>>();
+    assert.equal(chartGenre('Mousse T.', 'world', none, 113, genres), 'electro');
+    assert.equal(chartGenre('MC Solaar', 'france', none, 116, genres), 'rap-fr');
+    assert.equal(chartGenre('Coolio', 'world', none, 116, genres), 'rap-us');
+  });
+
+  it('falls back on pop, or French chanson for a French list', () => {
+    const none = new Map<string, Map<string, number>>();
+    assert.equal(chartGenre('Enigma', 'world', none, 132, genres), 'pop');
+    assert.equal(chartGenre('Lorie', 'france', none, null, genres), 'chanson-fr');
+    assert.equal(chartGenre('Lorie', 'france', none, null, new Set(['rock'])), null);
+  });
+});
+
+describe('the chart harvest', () => {
+  const GENRES: SeededGenre[] = ['pop', 'rock', 'metal', 'electro', 'chanson-fr', 'rap-fr', 'rap-us'].map((id) => ({
+    id,
+    answerShape: 'artist-title',
+    seeds: [{ kind: 'deezer', playlistQueries: [], titleMatch: /x/ }]
+  }));
+
+  const LISTS: Record<number, { artist: string; title: string; album: number }[]> = {
+    1: [
+      { artist: "Guns N' Roses", title: 'November Rain', album: 100 },
+      { artist: 'Enigma', title: 'Sadeness', album: 200 },
+      { artist: 'Mousse T.', title: 'Horny', album: 300 }
+    ],
+    2: [{ artist: 'Kim Wilde', title: 'Cambodia', album: 600 }],
+    10: [
+      { artist: 'Lorie', title: 'Près de moi', album: 400 },
+      { artist: 'MC Solaar', title: 'Bouge de là', album: 500 },
+      { artist: "Guns N' Roses", title: 'November Rain', album: 100 }
+    ]
+  };
+  const ALBUMS: Record<number, number> = { 200: 132, 300: 113, 500: 116 };
+
+  function stockOver(db: ReturnType<typeof openDb>['db']) {
+    const albums: number[] = [];
+    const stock = createSeedStock({
+      sources: {
+        deezer: {
+          async searchPlaylists(query) {
+            if (query !== CHARTS.frenchQueries[0]) return { data: [] };
+            return {
+              data: [
+                { id: 10, title: 'Variété Française des années 90', nb_tracks: 99, user: { name: 'Filtr France' } },
+                { id: 11, title: 'Le Rap US des années 90', nb_tracks: 99, user: { name: 'Digster France' } }
+              ]
+            };
+          },
+          async userPlaylists(userId) {
+            if (userId !== CHARTS.yearlyEditor) return { data: [] };
+            return {
+              data: [
+                { id: 1, title: 'Top Hits 1995', nb_tracks: 50, creator: { name: 'Deezer Best Of' } },
+                { id: 2, title: 'Top Hits 1985', nb_tracks: 50, creator: { name: 'Deezer Best Of' } }
+              ]
+            };
+          },
+          async playlistTracks(playlistId) {
+            return {
+              data: (LISTS[playlistId] ?? []).map((track, index) => ({
+                id: playlistId * 100 + index,
+                title: track.title,
+                rank: 900_000 - index,
+                artist: { name: track.artist },
+                album: { id: track.album }
+              }))
+            };
+          },
+          async album(albumId) {
+            albums.push(albumId);
+            return { genre_id: ALBUMS[albumId] ?? 0 };
+          }
+        },
+        anilist: async () => null,
+        sparql: async () => null
+      },
+      db,
+      clock: { now: () => Date.parse('2026-10-27T12:00:00Z') }
+    });
+    return { stock, albums };
+  }
+
+  function seedOf(db: ReturnType<typeof openDb>['db'], genreId: string, artist: string, count: number) {
+    for (let index = 0; index < count; index++) {
+      db.insert(blindtestSeeds)
+        .values({
+          genre_id: genreId,
+          source: 'deezer',
+          source_key: `${artist}-${genreId}-${index}`,
+          artist,
+          title: `${index}`
+        })
+        .run();
+    }
+  }
+
+  function charted(db: ReturnType<typeof openDb>['db']) {
+    return db
+      .select()
+      .from(blindtestSeeds)
+      .where(eq(blindtestSeeds.source, 'chart'))
+      .all()
+      .map((row) => [row.artist, row.genre_id, row.fame >= HIT_FAME] as const)
+      .sort();
+  }
+
+  it('files every song once, as a hit, where its artist is or by its album', async () => {
+    const { db } = openDb(':memory:');
+    seedOf(db, 'rock', "Guns N' Roses", 3);
+    seedOf(db, 'pop', "Guns N' Roses", 1);
+    const { stock, albums } = stockOver(db);
+
+    assert.equal(await stock.harvestCharts(GENRES), 5);
+
+    assert.deepEqual(charted(db), [
+      ['Enigma', 'pop', true],
+      ["Guns N' Roses", 'rock', true],
+      ['Lorie', 'chanson-fr', true],
+      ['MC Solaar', 'rap-fr', true],
+      ['Mousse T.', 'electro', true]
+    ]);
+    // Not for an artist the seeds already place, and nothing from 1985 or the American list.
+    assert.deepEqual(albums.sort(), [200, 300, 400, 500]);
+  });
+
+  it('is fetched again a month later, not the next day', async () => {
+    const { db } = openDb(':memory:');
+    let now = Date.parse('2026-10-27T12:00:00Z');
+    let asked = 0;
+    const { stock } = stockOver(db);
+    const counting = createSeedStock({
+      sources: {
+        deezer: {
+          searchPlaylists: async () => ({ data: [] }),
+          playlistTracks: async () => ({ data: [] }),
+          album: async () => ({}),
+          async userPlaylists() {
+            asked += 1;
+            return { data: [] };
+          }
+        },
+        anilist: async () => null,
+        sparql: async () => null
+      },
+      db,
+      clock: { now: () => now }
+    });
+    await stock.harvestCharts(GENRES);
+
+    now += 2 * 24 * 60 * 60 * 1000;
+    // A genre the warm did not start queues behind everything it did.
+    const LAST: SeededGenre = { ...GENRES[0]!, id: 'last' };
+    counting.warm(GENRES);
+    await counting.harvest(LAST);
+    assert.equal(asked, 0);
+
+    now += 30 * 24 * 60 * 60 * 1000;
+    counting.warm(GENRES);
+    await counting.harvest(LAST);
+    assert.equal(asked, 1);
+  });
+
+  it('moves a song whose artist has since gone to another genre', async () => {
+    const { db } = openDb(':memory:');
+    seedOf(db, 'rock', "Guns N' Roses", 3);
+    await stockOver(db).stock.harvestCharts(GENRES);
+
+    seedOf(db, 'metal', "Guns N' Roses", 5);
+    await stockOver(db).stock.harvestCharts(GENRES);
+
+    assert.deepEqual(
+      charted(db).filter(([artist]) => artist === "Guns N' Roses"),
+      [["Guns N' Roses", 'metal', true]]
+    );
   });
 });

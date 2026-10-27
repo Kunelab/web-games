@@ -48,7 +48,7 @@
  * and what to keep, with the stock in the database and the few caches over it
  * held by one `createSeedStock`, so that a test can have its own.
  */
-import { and, count, eq, gte, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, count, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { normalizeAnswer } from 'game-core';
 import { z } from 'zod';
 
@@ -139,7 +139,7 @@ export interface SeededGenre {
 
 /** One harvested seed, before it is stored. */
 export interface RawSeed {
-  source: 'deezer' | 'anilist' | 'wikidata';
+  source: 'deezer' | 'anilist' | 'wikidata' | 'chart';
   sourceKey: string;
   artist: string;
   title: string;
@@ -256,6 +256,8 @@ const VIDEO_INDEX_RETRY_MS = 60 * 60 * 1000;
 const VIDEO_INDEX_ATTEMPTS = [0, 30_000, 60_000, 2 * 60_000, 5 * 60_000, 10 * 60_000];
 /** Where the index is kept between restarts. */
 const VIDEO_INDEX_KEY = 'blindtest_video_index';
+/** The charts' row in `BlindtestSeedHarvests`, beside the genres'. */
+const CHARTS_HARVEST = 'charts';
 
 /* ----------------------------------------------------------------- sources */
 
@@ -281,6 +283,8 @@ export interface SeedSources {
     userPlaylists(userId: number, page: DeezerPage): Promise<unknown>;
     /** `GET /playlist/:id/tracks`. */
     playlistTracks(playlistId: number, page: DeezerPage): Promise<unknown>;
+    /** `GET /album/:id`, for its genre. */
+    album(albumId: number): Promise<unknown>;
   };
   /** One page, from 1, of AniList's most popular TV series, fifty to a page. */
   anilist(page: number): Promise<unknown>;
@@ -465,7 +469,8 @@ const deezerTracks = z.object({
         rank: z.number().default(0),
         duration: z.number().optional(),
         readable: z.boolean().optional(),
-        artist: z.object({ name: z.string().default('') }).optional()
+        artist: z.object({ name: z.string().default('') }).optional(),
+        album: z.object({ id: z.number() }).optional()
       })
     )
     .default([]),
@@ -559,9 +564,14 @@ const NOT_AN_ARTIST = /soundtrack|motion picture|various artists|original cast|\
 
 /** A page of playlist tracks, as seeds. */
 export function deezerSeeds(raw: unknown): RawSeed[] {
+  return deezerTrackSeeds(raw).map((track) => track.seed);
+}
+
+/** The same, each with its album, whose genre a chart song may be filed by. */
+function deezerTrackSeeds(raw: unknown): { seed: RawSeed; album: number | null }[] {
   const parsed = deezerTracks.safeParse(raw);
   if (!parsed.success) return [];
-  const seeds: RawSeed[] = [];
+  const seeds: { seed: RawSeed; album: number | null }[] = [];
   for (const track of parsed.data.data) {
     if (track.readable === false) continue;
     const artist = track.artist?.name.trim() ?? '';
@@ -573,18 +583,129 @@ export function deezerSeeds(raw: unknown): RawSeed[] {
     // genre from ever recycling. See `ensure`.
     if (!normalizeAnswer(artist)) continue;
     seeds.push({
-      source: 'deezer',
-      sourceKey: String(track.id),
-      artist,
-      title,
-      search: '',
-      aliases: [],
-      year: null,
-      popularity: track.rank,
-      duration: track.duration && track.duration > 0 ? track.duration : null
+      seed: {
+        source: 'deezer',
+        sourceKey: String(track.id),
+        artist,
+        title,
+        search: '',
+        aliases: [],
+        year: null,
+        popularity: track.rank,
+        duration: track.duration && track.duration > 0 ? track.duration : null
+      },
+      album: track.album?.id ?? null
     });
   }
   return seeds;
+}
+
+/* --------------------------------------------------------------- charts */
+
+/**
+ * The hits of each year since 1990, filed into the music genres.
+ *
+ * The genres' editorial playlists are what people stream now, and the
+ * catalogue showed it: ten thousand rounds from 2015 on, nine hundred from the
+ * whole of the nineties, and no "My Heart Will Go On", "Ketchup Song" or
+ * "What Is Love" among the seeds at all. Deezer's "Deezer Best Of" publishes a
+ * "Top Hits 1995" for every year, fifty to eighty songs, mostly American and
+ * British. Nobody publishes a French one, so the French side is the labels'
+ * decade lists of French hits.
+ *
+ * A chart is every genre at once, and the seeds are each genre's oracle, so a
+ * song goes where its artist already is: the genre holding most of their
+ * seeds. An artist no genre knows goes by its album's genre on Deezer. See
+ * `chartGenre`. Every chart song is a hit (see `HIT_FAME`), searched or looked
+ * up as itself.
+ */
+export const CHARTS = {
+  /** `Deezer Best Of`, whose "Top Hits <year>" lists these are. */
+  yearlyEditor: 4036701362,
+  yearlyTitle: /^Top Hits ((?:19|20)\d\d)$/,
+  since: 1990,
+  frenchQueries: [
+    'variété française années 90',
+    'musique française années 90',
+    'tubes années 90',
+    'variété française années 2000',
+    'tubes français années 2000',
+    'tubes français des années'
+  ],
+  /** French, and a decade from the nineties on: not "Années 80", not "Rap US des années 90". */
+  frenchTitle: /^(?=.*(?:fran[cç]|vari[ée]t[ée]|bleu blanc))(?=.*(?:90|2000)).*$/i
+};
+
+/** The chart side a list is from, which decides where an unknown rapper goes. */
+export type ChartSide = 'world' | 'france';
+
+/** Deezer's album genres, as this catalogue's genres. Null where it has none. */
+function genreOfAlbum(deezerGenre: number | null, side: ChartSide): string | null {
+  switch (deezerGenre) {
+    case 116:
+      return side === 'france' ? 'rap-fr' : 'rap-us';
+    case 152:
+    case 85:
+      return 'rock';
+    case 113:
+    case 106:
+      return 'electro';
+    case 144:
+      return 'reggae';
+    case 464:
+      return 'metal';
+    case 52:
+      return 'chanson-fr';
+    case 16:
+      return 'kpop';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Where a chart song is filed, among the genres that take hits.
+ *
+ * Its artist's genre first: the one holding most of their seeds, which put
+ * Guns N' Roses in rock (11) over pop (5) and metal (4), and every Dire Straits
+ * or U2 song with the rest of theirs. Then its album's genre on Deezer. Then
+ * pop, or French chanson for a French list: they are chart hits, and pop is
+ * what the editors file a hit under when it is nothing more particular.
+ */
+export function chartGenre(
+  artist: string,
+  side: ChartSide,
+  artistGenres: ReadonlyMap<string, ReadonlyMap<string, number>>,
+  albumGenre: number | null,
+  genreIds: ReadonlySet<string>
+): string | null {
+  let best: string | null = null;
+  let most = 0;
+  for (const [genreId, seeds] of artistGenres.get(normalizeAnswer(artist)) ?? []) {
+    if (genreIds.has(genreId) && seeds > most) {
+      best = genreId;
+      most = seeds;
+    }
+  }
+  if (best) return best;
+  const byAlbum = genreOfAlbum(albumGenre, side);
+  if (byAlbum && genreIds.has(byAlbum)) return byAlbum;
+  const fallback = side === 'france' ? 'chanson-fr' : 'pop';
+  return genreIds.has(fallback) ? fallback : null;
+}
+
+/** The year a "Top Hits" list is of, if it is one this harvest reads. */
+export function chartYear(title: string): number | null {
+  const year = Number(CHARTS.yearlyTitle.exec(title.trim())?.[1]);
+  return Number.isFinite(year) && year >= CHARTS.since ? year : null;
+}
+
+const deezerAlbum = z.object({ genre_id: z.number().nullable().optional() });
+
+/** An album's main genre on Deezer, or null. */
+export function albumGenre(raw: unknown): number | null {
+  const genre = deezerAlbum.safeParse(raw).data?.genre_id;
+  return typeof genre === 'number' && genre > 0 ? genre : null;
 }
 
 /** How many tracks a page carried, filtered or not, to know whether there is another. */
@@ -1265,8 +1386,10 @@ export interface SeedStock {
    * where every source failed is recorded as an error.
    */
   harvest(genre: SeededGenre): Promise<number>;
-  /** Starts every due harvest, one after another, without waiting for any. */
+  /** Starts every due harvest, one after another, without waiting for any, the charts last. */
   warm(genres: readonly SeededGenre[]): void;
+  /** Fetches the charts and files their songs into these genres. See `CHARTS`. Returns how many songs. */
+  harvestCharts(genres: readonly SeededGenre[]): Promise<number>;
   /** Makes sure a genre has seeds to search, harvesting when it is due. */
   ensure(genre: SeededGenre): Promise<void>;
   /** The next searches for a genre, from seeds nobody has searched yet. */
@@ -1461,11 +1584,140 @@ export function createSeedStock({
     return { seeds: wikidataSeeds(await sources.sparql('wikidata', wdqsQuery(source))), failed: 0 };
   }
 
+  /** One chart's tracks, every page of them. */
+  async function chartTracks(
+    playlistId: number,
+    counted: (raw: unknown) => unknown
+  ): Promise<{ seed: RawSeed; album: number | null }[]> {
+    const tracks: { seed: RawSeed; album: number | null }[] = [];
+    for (let index = 0; index < DEEZER_TRACKS_PER_PLAYLIST; index += 100) {
+      const raw = counted(await sources.deezer.playlistTracks(playlistId, { index, limit: 100 }));
+      tracks.push(...deezerTrackSeeds(raw));
+      if (trackPageSize(raw) < 100) break;
+    }
+    return tracks;
+  }
+
+  /**
+   * The year-end charts and the French decade lists, filed into the genres. See `CHARTS`.
+   *
+   * After the genres' own harvests, since an artist is filed where their seeds
+   * are. A song filed under another genre last month and somewhere else now is
+   * moved: it is the same seed, and two of it would be searched twice.
+   */
+  async function harvestChartsNow(genres: readonly SeededGenre[]): Promise<number> {
+    const genreIds = new Set(genres.filter(searchesHits).map((genre) => genre.id));
+    if (genreIds.size === 0) return 0;
+    let failed = 0;
+    const counted = (raw: unknown) => {
+      if (raw === null) failed += 1;
+      return raw;
+    };
+
+    const charts = new Map<number, ChartSide>();
+    for (let index = 0; index < DEEZER_PLAYLISTS_PER_EDITOR; index += 100) {
+      const raw = counted(await sources.deezer.userPlaylists(CHARTS.yearlyEditor, { index, limit: 100 }));
+      for (const playlist of deezerPlaylists.safeParse(raw).data?.data ?? []) {
+        if (chartYear(playlist.title) !== null) charts.set(playlist.id, 'world');
+      }
+      if (pageSize(raw) < 100) break;
+    }
+    for (const query of CHARTS.frenchQueries) {
+      const raw = counted(await sources.deezer.searchPlaylists(query, { index: 0, limit: 50 }));
+      for (const playlist of curatedPlaylists(raw, CHARTS.frenchTitle)) {
+        if (!charts.has(playlist.id)) charts.set(playlist.id, 'france');
+      }
+    }
+
+    // One seed a song: the same hit is on a year's list and on two decade lists.
+    const songs = new Map<string, { seed: RawSeed; album: number | null; side: ChartSide }>();
+    for (const [playlistId, side] of charts) {
+      for (const track of await chartTracks(playlistId, counted)) {
+        const key = hitSongKey(track.seed);
+        if (!songs.has(key)) songs.set(key, { ...track, seed: { ...track.seed, source: 'chart' }, side });
+      }
+    }
+    if (songs.size === 0) {
+      recordHarvest(CHARTS_HARVEST, 0, failed > 0 ? `${failed} request(s) failed` : 'no chart found');
+      return 0;
+    }
+
+    const artistGenres = new Map<string, Map<string, number>>();
+    const rows = db
+      .select({ artist: blindtestSeeds.artist, genreId: blindtestSeeds.genre_id, seeds: count() })
+      .from(blindtestSeeds)
+      .where(sql`${blindtestSeeds.source} <> 'chart'`)
+      .groupBy(blindtestSeeds.artist, blindtestSeeds.genre_id)
+      .all();
+    for (const row of rows) {
+      const key = normalizeAnswer(row.artist);
+      if (!key) continue;
+      const genres = artistGenres.get(key) ?? new Map<string, number>();
+      genres.set(row.genreId, (genres.get(row.genreId) ?? 0) + row.seeds);
+      artistGenres.set(key, genres);
+    }
+
+    // Asked only for the artists no genre knows: a tenth of them, measured.
+    const albums = new Map<number, number | null>();
+    const byGenre = new Map<string, RawSeed[]>();
+    for (const { seed, album, side } of songs.values()) {
+      if (!artistGenres.has(normalizeAnswer(seed.artist)) && album !== null && !albums.has(album)) {
+        albums.set(album, albumGenre(counted(await sources.deezer.album(album))));
+      }
+      const genreId = chartGenre(
+        seed.artist,
+        side,
+        artistGenres,
+        album === null ? null : (albums.get(album) ?? null),
+        genreIds
+      );
+      if (genreId) byGenre.set(genreId, [...(byGenre.get(genreId) ?? []), seed]);
+    }
+
+    // All of them hits, the best known of them first.
+    const fame = new Map(
+      rankFame([...songs.values()].map((song) => song.seed)).map((seed) => [seed.sourceKey, seed.fame])
+    );
+    for (const [genreId, seeds] of byGenre) {
+      db.delete(blindtestSeeds)
+        .where(
+          and(
+            eq(blindtestSeeds.source, 'chart'),
+            sql`${blindtestSeeds.genre_id} <> ${genreId}`,
+            inArray(
+              blindtestSeeds.source_key,
+              seeds.map((seed) => seed.sourceKey)
+            )
+          )
+        )
+        .run();
+      storeRanked(
+        genreId,
+        seeds.map((seed) => ({ ...seed, fame: HIT_FAME + (1 - HIT_FAME) * (fame.get(seed.sourceKey) ?? 0) }))
+      );
+    }
+    invalidateOracles();
+    recordHarvest(CHARTS_HARVEST, songs.size, failed > 0 ? `partial: ${failed} request(s) failed` : null);
+    return songs.size;
+  }
+
+  function harvestCharts(genres: readonly SeededGenre[]): Promise<number> {
+    const running = harvesting.get(CHARTS_HARVEST);
+    if (running) return running;
+    const run = harvestQueue.then(() => harvestChartsNow(genres)).finally(() => harvesting.delete(CHARTS_HARVEST));
+    harvestQueue = run.catch(() => 0);
+    harvesting.set(CHARTS_HARVEST, run);
+    return run;
+  }
+
   /* ------------------------------------------------------------- storage */
 
   /** Stores a harvest. Known seeds keep their search history; their fame moves. */
   function storeSeeds(genreId: string, seeds: RawSeed[]): void {
-    const ranked = rankFame(seeds);
+    storeRanked(genreId, rankFame(seeds));
+  }
+
+  function storeRanked(genreId: string, ranked: (RawSeed & { fame: number })[]): void {
     db.transaction((tx) => {
       for (const seed of ranked) {
         tx.insert(blindtestSeeds)
@@ -1518,7 +1770,8 @@ export function createSeedStock({
     return (
       age > HARVEST_TTL_MS ||
       (state.error !== null && age > HARVEST_RETRY_MS) ||
-      (freshCount(genreId) < LOW_STOCK && age > DAY_MS)
+      // The charts have no seeds of their own under their name: running low means nothing for them.
+      (genreId !== CHARTS_HARVEST && freshCount(genreId) < LOW_STOCK && age > DAY_MS)
     );
   }
 
@@ -1614,6 +1867,8 @@ export function createSeedStock({
         void harvest(genre).catch(() => 0);
       }
     }
+    // Queued behind the genres', whose seeds say where each artist goes.
+    if (genres.some(searchesHits) && harvestDue(CHARTS_HARVEST)) void harvestCharts(genres).catch(() => 0);
   }
 
   /**
@@ -2049,6 +2304,7 @@ export function createSeedStock({
   return {
     harvest,
     warm,
+    harvestCharts,
     ensure,
     plan,
     markSearched,

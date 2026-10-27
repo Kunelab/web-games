@@ -139,6 +139,9 @@ function fakeSources(world: World = {}) {
         async userPlaylists() {
           return { data: [] };
         },
+        async album() {
+          return {};
+        },
         async playlistTracks(playlistId) {
           const tracks = world.deezer?.(playlists[playlistId - 1] ?? '') ?? [];
           return {
