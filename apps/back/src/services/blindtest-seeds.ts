@@ -481,7 +481,7 @@ const deezerTracks = z.object({
         rank: z.number().default(0),
         duration: z.number().optional(),
         readable: z.boolean().optional(),
-        artist: z.object({ name: z.string().default('') }).optional(),
+        artist: z.object({ id: z.number().optional(), name: z.string().default('') }).optional(),
         album: z.object({ id: z.number() }).optional()
       })
     )
@@ -666,6 +666,12 @@ export interface SeedRequest {
   missed: number;
   /** Not searched yet. */
   waiting: number;
+  /**
+   * Of those, the ones only a YouTube search can file: a work, or a song whose
+   * free lookups (Wikidata's video list, the artist's channel) found nothing.
+   * A fill run with `searches=0` leaves these waiting.
+   */
+  needSearch: number;
 }
 
 export type RequestResult =
@@ -688,8 +694,71 @@ export function requestable(genre: SeededGenre): boolean {
 }
 
 const deezerArtists = z.object({
-  data: z.array(z.object({ id: z.number(), name: z.string().default('') })).default([])
+  data: z
+    .array(
+      z.object({
+        id: z.number(),
+        name: z.string().default(''),
+        nb_fan: z.number().default(0),
+        picture_small: z.string().optional()
+      })
+    )
+    .default([])
 });
+
+/** One of Deezer's answers to an artist's name, for an admin to pick from. */
+export interface ArtistCandidate {
+  id: number;
+  name: string;
+  fans: number;
+  picture: string | null;
+}
+
+/** How many of Deezer's answers an admin is shown. */
+const CANDIDATES = 5;
+
+/**
+ * Deezer's answers to a name, the most followed first, for an admin to pick
+ * from before a request is made. By fans rather than by spelling: the Thai
+ * singer called exactly "Korn" has 87, KoЯn two and a half million.
+ */
+export function artistCandidates(raw: unknown): ArtistCandidate[] {
+  const artists = deezerArtists.safeParse(raw).data?.data ?? [];
+  return [...artists]
+    .sort((left, right) => right.nb_fan - left.nb_fan)
+    .slice(0, CANDIDATES)
+    .map((artist) => ({
+      id: artist.id,
+      name: artist.name,
+      fans: artist.nb_fan,
+      picture: artist.picture_small ?? null
+    }));
+}
+
+/**
+ * An artist's own songs among their top tracks, each title once.
+ *
+ * Deezer's top tracks include the ones the artist is only featured on, under
+ * the other artist's name ("Pitbull - Timber" for Kesha), and the live and
+ * studio versions of one song as two tracks. Those are left out.
+ */
+export function ownTopTracks(raw: unknown, artistId: number, count: number): RawSeed[] {
+  const own = new Set(
+    (deezerTracks.safeParse(raw).data?.data ?? [])
+      .filter((track) => track.artist?.id === undefined || track.artist.id === artistId)
+      .map((track) => String(track.id))
+  );
+  const titles = new Set<string>();
+  return deezerSeeds(raw)
+    .filter((seed) => {
+      if (!own.has(seed.sourceKey)) return false;
+      const title = normalizeAnswer(seed.title.replace(/\s*[([].*$/, ''));
+      if (titles.has(title)) return false;
+      titles.add(title);
+      return true;
+    })
+    .slice(0, count);
+}
 
 /**
  * The artist an admin meant, among Deezer's answers to their name.
@@ -701,7 +770,8 @@ const deezerArtists = z.object({
 export function pickArtist(raw: unknown, name: string): { id: number; name: string } | null {
   const artists = deezerArtists.safeParse(raw).data?.data ?? [];
   const wanted = normalizeAnswer(name);
-  return artists.find((artist) => normalizeAnswer(artist.name) === wanted) ?? artists[0] ?? null;
+  const artist = artists.find((candidate) => normalizeAnswer(candidate.name) === wanted) ?? artists[0];
+  return artist ? { id: artist.id, name: artist.name } : null;
 }
 
 /** The chart side a list is from, which decides where an unknown rapper goes. */
@@ -1486,14 +1556,18 @@ export interface SeedStock {
   request(
     genre: SeededGenre,
     name: string,
-    options?: { count?: number; userId?: number | null }
+    options?: { count?: number; userId?: number | null; artistId?: number }
   ): Promise<RequestResult>;
+  /** Deezer's artists for a name, to pick the one meant. Null when Deezer did not answer. */
+  artistCandidates(name: string): Promise<ArtistCandidate[] | null>;
   /** Every request, newest first, with how far the fills have got. */
   requests(): SeedRequest[];
   /** Forgets a request and its seeds. Whether there was one. */
   cancelRequest(id: number): boolean;
   /** The genres holding requested seeds nobody has searched yet. */
   requestedGenres(): Set<string>;
+  /** Hits not searched yet whose videos are known: what a fill files without a search. */
+  knownVideosWaiting(): number;
   /** Makes sure a genre has seeds to search, harvesting when it is due. */
   ensure(genre: SeededGenre): Promise<void>;
   /** The next searches for a genre, from seeds nobody has searched yet. */
@@ -1836,7 +1910,7 @@ export function createSeedStock({
   async function request(
     genre: SeededGenre,
     name: string,
-    options: { count?: number; userId?: number | null } = {}
+    options: { count?: number; userId?: number | null; artistId?: number } = {}
   ): Promise<RequestResult> {
     const asked = name.trim();
     if (!requestable(genre) || !asked) return { ok: false, reason: 'not-requestable' };
@@ -1859,13 +1933,18 @@ export function createSeedStock({
     } else {
       const found = await sources.deezer.searchArtists(asked);
       if (found === null) return { ok: false, reason: 'unavailable' };
-      const artist = pickArtist(found, asked);
+      // The one the admin picked, among the same answers they were shown.
+      const artist =
+        options.artistId === undefined
+          ? pickArtist(found, asked)
+          : (artistCandidates(found).find((candidate) => candidate.id === options.artistId) ?? null);
       if (!artist) return { ok: false, reason: 'not-found' };
       const count = Math.min(REQUEST_SONGS_MAX, Math.max(1, Math.round(options.count ?? REQUEST_SONGS)));
-      const top = await sources.deezer.artistTop(artist.id, count);
+      // Twice as many, since the featured and the second versions are left out.
+      const top = await sources.deezer.artistTop(artist.id, Math.min(100, count * 2));
       if (top === null) return { ok: false, reason: 'unavailable' };
       foundAs = artist.name;
-      seeds = deezerSeeds(top).slice(0, count);
+      seeds = ownTopTracks(top, artist.id, count);
       if (seeds.length === 0) return { ok: false, reason: 'not-found' };
     }
 
@@ -1900,6 +1979,13 @@ export function createSeedStock({
     return stored ? { ok: true, request: stored } : { ok: false, reason: 'not-found' };
   }
 
+  async function candidatesFor(name: string): Promise<ArtistCandidate[] | null> {
+    const asked = name.trim();
+    if (!asked) return [];
+    const found = await sources.deezer.searchArtists(asked);
+    return found === null ? null : artistCandidates(found);
+  }
+
   /** The request a seed belongs to, from its key: `12:3135556` is request 12's. */
   const requestIdOf = (sourceKey: string) => Number(sourceKey.slice(0, sourceKey.indexOf(':')));
 
@@ -1909,19 +1995,23 @@ export function createSeedStock({
         key: blindtestSeeds.source_key,
         artist: blindtestSeeds.artist,
         searched: blindtestSeeds.searched_at,
-        found: blindtestSeeds.found
+        found: blindtestSeeds.found,
+        videos: blindtestSeeds.videos
       })
       .from(blindtestSeeds)
       .where(eq(blindtestSeeds.source, 'request'))
       .all();
-    const counts = new Map<number, { seeds: number; filed: number; missed: number; waiting: number }>();
+    const empty = { seeds: 0, filed: 0, missed: 0, waiting: 0, needSearch: 0 };
+    const counts = new Map<number, typeof empty>();
     for (const seed of seeds) {
       const id = requestIdOf(seed.key);
-      const count = counts.get(id) ?? { seeds: 0, filed: 0, missed: 0, waiting: 0 };
+      const count = counts.get(id) ?? { ...empty };
       count.seeds += 1;
       // A song's `found` says whether it was filed; a work's, how many videos its search found.
-      if (seed.searched === null) count.waiting += 1;
-      else if (seed.found > 0) count.filed += 1;
+      if (seed.searched === null) {
+        count.waiting += 1;
+        if (seed.artist === '' || seed.videos === '[]') count.needSearch += 1;
+      } else if (seed.found > 0) count.filed += 1;
       else count.missed += 1;
       counts.set(id, count);
     }
@@ -1936,7 +2026,7 @@ export function createSeedStock({
         name: row.name,
         foundAs: row.found_as,
         createdAt: row.created_at,
-        ...(counts.get(row.id) ?? { seeds: 0, filed: 0, missed: 0, waiting: 0 })
+        ...(counts.get(row.id) ?? empty)
       }));
   }
 
@@ -1958,6 +2048,23 @@ export function createSeedStock({
       .where(and(eq(blindtestSeeds.source, 'request'), isNull(blindtestSeeds.searched_at)))
       .all();
     return new Set(rows.map((row) => row.genreId));
+  }
+
+  function knownVideosWaiting(): number {
+    return (
+      db
+        .select({ n: count() })
+        .from(blindtestSeeds)
+        .where(
+          and(
+            isNull(blindtestSeeds.searched_at),
+            gte(blindtestSeeds.fame, HIT_FAME),
+            isNotNull(blindtestSeeds.videos),
+            sql`${blindtestSeeds.videos} <> '[]'`
+          )
+        )
+        .get()?.n ?? 0
+    );
   }
 
   /* ------------------------------------------------------------- storage */
@@ -2558,9 +2665,11 @@ export function createSeedStock({
     harvestCharts,
     chartsReady,
     request,
+    artistCandidates: candidatesFor,
     requests,
     cancelRequest,
     requestedGenres,
+    knownVideosWaiting,
     ensure,
     plan,
     markSearched,

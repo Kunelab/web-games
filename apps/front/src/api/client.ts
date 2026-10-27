@@ -604,11 +604,19 @@ export const api = {
   /** The asks for more of an artist or a work, and the genres one can be made in. Admin only. */
   blindtestRequests: () => request<{ requests: BlindtestRequest[]; genres: string[] }>('/blindtest/requests'),
   /** Asks the next fill for an artist's top tracks (`count` of them) or a work. */
-  blindtestRequest: (genreId: string, name: string, count?: number) =>
+  blindtestRequest: (genreId: string, name: string, count?: number, artistId?: number) =>
     request<{ request: BlindtestRequest }>('/blindtest/requests', {
       method: 'POST',
-      body: { genreId, name, ...(count ? { count } : {}) }
+      body: { genreId, name, ...(count ? { count } : {}), ...(artistId ? { artistId } : {}) }
     }),
+  /** Deezer's artists for a name, to pick from before asking. */
+  blindtestArtistCandidates: (name: string) =>
+    request<{ artists: BlindtestArtistCandidate[] }>(`/blindtest/requests/artists?name=${encodeURIComponent(name)}`),
+  /** The fill under way or the last one, with how far it has to go. Admin only. */
+  blindtestPrefill: () => request<BlindtestPrefillStatus>('/blindtest/prefill'),
+  /** Starts a fill now: `0` searches for the free lookups only, a number for at most that many. */
+  blindtestRunPrefill: (searches: number) =>
+    request<unknown>(`/blindtest/prefill?searches=${searches}`, { method: 'POST' }),
   blindtestCancelRequest: (id: number) =>
     request<{ cancelled: boolean }>(`/blindtest/requests/${id}`, { method: 'DELETE' }),
   mafiaMe: () => request<MafiaCareer>('/mafia/me')
@@ -626,6 +634,36 @@ export interface BlindtestRequest {
   filed: number;
   missed: number;
   waiting: number;
+  /** Of the waiting, the ones only a YouTube search can file: a fill without searches leaves them. */
+  needSearch: number;
+}
+
+/** One of Deezer's artists for a name, to pick the one a request means. */
+export interface BlindtestArtistCandidate {
+  id: number;
+  name: string;
+  fans: number;
+  picture: string | null;
+}
+
+/** A catalogue fill, running or the last one. */
+export interface BlindtestPrefillStatus {
+  running: boolean;
+  report: {
+    startedAt: string;
+    finishedAt: string | null;
+    searches: number;
+    lookups: number;
+    saved: number;
+    byGenre: Record<string, number>;
+    stopped: string;
+    maxSearches: number | null;
+    searching: boolean;
+    phase: 'loading' | 'filling' | null;
+    genre: string | null;
+  } | null;
+  progress: { knownVideosLeft: number; searchesLeft: number | null; expectedEnd: string | null } | null;
+  searches: { day: string; used: number; budget: number };
 }
 
 /** One selectable genre. `facet` marks an era filter over another genre's pool. */

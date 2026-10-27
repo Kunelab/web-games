@@ -432,7 +432,9 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
         body: z.object({
           genreId: z.string().min(1).max(40),
           name: z.string().trim().min(1).max(120),
-          count: z.coerce.number().int().min(1).max(REQUEST_SONGS_MAX).optional()
+          count: z.coerce.number().int().min(1).max(REQUEST_SONGS_MAX).optional(),
+          /** The Deezer artist picked from `/blindtest/requests/artists`. Absent takes the best match. */
+          artistId: z.coerce.number().int().positive().optional()
         })
       }
     },
@@ -440,8 +442,8 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!isAdmin(request.currentUser)) {
         throw app.httpErrors.forbidden('Réservé à un administrateur');
       }
-      const { genreId, name, count } = request.body;
-      const result = await catalogue.request(genreId, name, { count, userId: request.currentUser.id });
+      const { genreId, name, count, artistId } = request.body;
+      const result = await catalogue.request(genreId, name, { count, artistId, userId: request.currentUser.id });
       if (result.ok) return { request: result.request };
       if (result.reason === 'not-requestable') {
         return reply.code(400).send({ message: `On ne peut pas demander de titres dans ce genre : ${genreId}` });
@@ -450,6 +452,20 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
         return reply.code(404).send({ message: `Deezer ne connaît aucun titre de « ${name} »` });
       }
       return reply.code(503).send({ message: 'Deezer ne répond pas, réessayez dans un moment' });
+    }
+  );
+
+  /** Deezer's artists for a name, so an admin picks the one they mean before asking. */
+  app.get(
+    '/blindtest/requests/artists',
+    { preHandler: app.requireAuth, schema: { querystring: z.object({ name: z.string().trim().min(1).max(120) }) } },
+    async (request, reply) => {
+      if (!isAdmin(request.currentUser)) {
+        throw app.httpErrors.forbidden('Réservé à un administrateur');
+      }
+      const artists = await catalogue.artistCandidates(request.query.name);
+      if (artists === null) return reply.code(503).send({ message: 'Deezer ne répond pas, réessayez dans un moment' });
+      return { artists };
     }
   );
 
@@ -489,6 +505,14 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
     };
   });
 
+  /** The fill under way, or the last one, with how far it has to go. Polled by the catalogue editor. */
+  app.get('/blindtest/prefill', { preHandler: app.requireAuth }, async (request) => {
+    if (!isAdmin(request.currentUser)) {
+      throw app.httpErrors.forbidden('Réservé à un administrateur');
+    }
+    return { ...prefillStatus(), searches: catalogue.searchesToday() };
+  });
+
   /**
    * Spends what is left of today's searches on the catalogue, now.
    *
@@ -497,7 +521,8 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
    * shows it going.
    *
    * `?searches=0` runs only what costs no search: the hits whose videos are
-   * known, and the artists' channels, at a unit a page. See `prefillCatalogue`.
+   * known, and the artists' channels, at a unit a page. `?searches=15` spends
+   * at most fifteen, the requested genres first. See `prefillCatalogue`.
    */
   app.post(
     '/blindtest/prefill',
@@ -505,10 +530,15 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
       preHandler: app.requireAuth,
       schema: {
         querystring: z.object({
+          /** `0` for none, a number for at most that many, absent for what is left of the day's. */
           searches: z
             .string()
             .optional()
-            .transform((value) => value !== '0' && value !== 'false')
+            .transform((value) => {
+              if (value === '0' || value === 'false') return { searches: false };
+              const most = Number(value);
+              return Number.isInteger(most) && most > 0 ? { searches: true, maxSearches: most } : { searches: true };
+            })
         })
       }
     },
@@ -519,7 +549,7 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!catalogAvailable()) {
         return reply.code(503).send({ message: "La recherche YouTube n'est pas configurée sur ce serveur" });
       }
-      void prefillCatalogue(app.log, { searches: request.query.searches });
+      void prefillCatalogue(app.log, request.query.searches);
       return reply.code(202).send(prefillStatus());
     }
   );

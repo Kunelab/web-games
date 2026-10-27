@@ -266,6 +266,49 @@
 .pl-requests-status {
   color: var(--ink-soft);
 }
+/* Deezer's artists for the name typed, one of them to pick. */
+.pl-requests-pick {
+  margin-top: var(--space-3);
+}
+.pl-requests-candidates {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+}
+.pl-requests-candidate {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  margin-bottom: var(--space-2);
+}
+.pl-requests-candidate:hover,
+.pl-requests-candidate:focus-visible {
+  border-color: var(--accent);
+}
+.pl-requests-candidate img,
+.pl-requests-candidate > span:first-child {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex: none;
+}
+/* The catalogue fill, running or the last one. */
+.pl-fill {
+  margin: 0 0 var(--space-3);
+  color: var(--ink-soft);
+}
+.pl-fill-live {
+  color: var(--ink);
+}
 
 /* --------------------------------------------------------------- launch --- */
 

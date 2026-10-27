@@ -88,6 +88,7 @@ import {
   uploadsPlaylist,
   videosFor,
   type GenreOracle,
+  type ArtistCandidate,
   type RequestResult,
   type Seed,
   type SeedRequest,
@@ -1381,7 +1382,13 @@ export interface Catalogue {
   /** Waits for the charts' songs to be filed into the genres, when a fetch is under way or due. */
   loadCharts(): Promise<void>;
   /** An admin's ask for more of an artist or a work in a genre. See `SeedStock.request`. */
-  request(genreId: string, name: string, options?: { count?: number; userId?: number | null }): Promise<RequestResult>;
+  request(
+    genreId: string,
+    name: string,
+    options?: { count?: number; userId?: number | null; artistId?: number }
+  ): Promise<RequestResult>;
+  /** Deezer's artists for a name, to pick the one a request means. Null when Deezer did not answer. */
+  artistCandidates(name: string): Promise<ArtistCandidate[] | null>;
   /** Every request, newest first, with how far the fills have got. */
   requests(): SeedRequest[];
   cancelRequest(id: number): boolean;
@@ -1389,6 +1396,8 @@ export interface Catalogue {
   requestableGenres(): string[];
   /** The genres holding requested seeds nobody has searched yet. */
   requestedGenres(): Set<string>;
+  /** Hits whose videos are known and not filed yet. See `SeedStock.knownVideosWaiting`. */
+  knownVideosWaiting(): number;
   /** Which genres' seeds know each name. For the genre check on the shared catalogue. */
   seedIndex(): SeedIndex;
   /** Today's search spending, by the Pacific day Google resets the quota on. */
@@ -2446,10 +2455,12 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
       const genre = genreById.get(genreId);
       return genre ? stock.request(genre, name, options) : Promise.resolve({ ok: false, reason: 'not-requestable' });
     },
+    artistCandidates: (name) => stock.artistCandidates(name),
     requests: () => stock.requests(),
     cancelRequest: (id) => stock.cancelRequest(id),
     requestableGenres: () => GENRES.filter((genre) => !genre.facetOf && requestable(genre)).map((genre) => genre.id),
     requestedGenres: () => stock.requestedGenres(),
+    knownVideosWaiting: () => stock.knownVideosWaiting(),
     seedIndex: () => stock.index(),
     searchesToday: () => {
       const day = quotaDay(clock);

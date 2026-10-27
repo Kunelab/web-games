@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { eq } from 'drizzle-orm';
+import { eq, isNull } from 'drizzle-orm';
 
 import { openDb } from '../db/open.js';
 import { blindtestSeeds } from '../db/schema.js';
@@ -895,18 +895,37 @@ describe('an admin request', () => {
           album: async () => ({}),
           async searchArtists(name) {
             if (deezerDown) return null;
-            return name === 'nobody' ? { data: [] } : { data: [{ id: 7, name: 'Francky Vincent' }] };
+            if (name === 'nobody') return { data: [] };
+            if (name === 'korn') {
+              return {
+                data: [
+                  { id: 1, name: 'KoЯn', nb_fan: 3_000_000 },
+                  { id: 2, name: 'Korn', nb_fan: 900, picture_small: 'https://e-cdns/korn.jpg' }
+                ]
+              };
+            }
+            return { data: [{ id: 7, name: 'Francky Vincent', nb_fan: 80_000 }] };
           },
           async artistTop(artistId, limit) {
             asked.artist = artistId;
             asked.limit = limit;
             return {
-              data: ['Fruit de la passion', 'Alice ça glisse', 'Tu veux mon zizi'].map((title, index) => ({
-                id: 100 + index,
-                title,
-                rank: 1000 - index,
-                artist: { name: 'Francky Vincent' }
-              }))
+              data: [
+                ...['Fruit de la passion', 'Alice ça glisse', 'Tu veux mon zizi'].map((title, index) => ({
+                  id: 100 + index,
+                  title,
+                  rank: 1000 - index,
+                  artist: { id: artistId, name: 'Francky Vincent' }
+                })),
+                // Featured on someone else's song, and a second version of one of the three.
+                { id: 200, title: 'Zouk Party', rank: 900, artist: { id: 99, name: 'Zouk Machine' } },
+                {
+                  id: 201,
+                  title: 'Fruit de la passion (Live)',
+                  rank: 800,
+                  artist: { id: artistId, name: 'Francky Vincent' }
+                }
+              ]
             };
           }
         },
@@ -928,10 +947,31 @@ describe('an admin request', () => {
     assert.ok(result.ok);
     assert.equal(result.request.foundAs, 'Francky Vincent');
     assert.deepEqual([result.request.seeds, result.request.waiting], [3, 3]);
-    assert.deepEqual(asked, { artist: 7, limit: 3 });
+    // Twice as many asked, since the featured and the second versions are left out.
+    assert.deepEqual(asked, { artist: 7, limit: 6 });
+    const stored0 = db.select().from(blindtestSeeds).where(eq(blindtestSeeds.source, 'request')).all();
+    assert.deepEqual(
+      stored0.map((row) => row.title),
+      ['Fruit de la passion', 'Alice ça glisse', 'Tu veux mon zizi']
+    );
     assert.deepEqual(stock.requestedGenres(), new Set(['pop']));
     const stored = db.select().from(blindtestSeeds).where(eq(blindtestSeeds.source, 'request')).all();
     assert.ok(stored.every((row) => row.fame >= HIT_FAME && row.genre_id === 'pop'));
+  });
+
+  it('lists the artists Deezer knows by a name, the most followed first, and asks for the one picked', async () => {
+    const { db } = openDb(':memory:');
+    const { stock, asked } = stockOver(db);
+
+    assert.deepEqual(await stock.artistCandidates('korn'), [
+      { id: 1, name: 'KoЯn', fans: 3_000_000, picture: null },
+      { id: 2, name: 'Korn', fans: 900, picture: 'https://e-cdns/korn.jpg' }
+    ]);
+    const result = await stock.request(POP, 'korn', { artistId: 1, count: 2 });
+    assert.ok(result.ok);
+    assert.equal(result.request.foundAs, 'KoЯn');
+    assert.equal(asked.artist, 1);
+    assert.deepEqual(await stock.request(POP, 'korn', { artistId: 42 }), { ok: false, reason: 'not-found' });
   });
 
   it('stores a work as itself', async () => {
@@ -968,8 +1008,12 @@ describe('an admin request', () => {
       .where(eq(blindtestSeeds.id, second.id))
       .run();
 
-    const [status] = stock.requests();
-    assert.deepEqual([status?.filed, status?.missed, status?.waiting], [1, 1, 1]);
+    let [status] = stock.requests();
+    assert.deepEqual([status?.filed, status?.missed, status?.waiting, status?.needSearch], [1, 1, 1, 0]);
+    // Looked up for free and nothing found: only a search can file it now.
+    db.update(blindtestSeeds).set({ videos: '[]' }).where(isNull(blindtestSeeds.searched_at)).run();
+    [status] = stock.requests();
+    assert.equal(status?.needSearch, 1);
 
     assert.ok(stock.cancelRequest(result.request.id));
     assert.deepEqual(stock.requests(), []);

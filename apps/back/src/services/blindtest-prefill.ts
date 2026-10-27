@@ -98,14 +98,58 @@ export interface PrefillReport {
   stopped: string;
   /** Wikidata's list of song videos and artist channels, when the run ended. See `VideoIndexStatus`. */
   videoIndex: VideoIndexStatus | null;
+  /** The most searches this run may spend, when it was given fewer than the day's. Null for the day's. */
+  maxSearches: number | null;
+  /** Whether it may search at all. */
+  searching: boolean;
+  /** What it is doing now: loading its lists, or filing a genre. Null once finished. */
+  phase: 'loading' | 'filling' | null;
+  /** The genre it is filing now. */
+  genre: string | null;
+  /** When it started filing, after its lists loaded: what its pace is measured from. */
+  fillingSince: string | null;
+}
+
+/**
+ * How far a running fill has to go, measured at the moment it is asked.
+ *
+ * Its work left is the famous songs whose videos are known and the searches it
+ * may still spend; its pace is what it has done since it started filing. The
+ * end is that work at that pace, which is rough: a lookup that files nothing
+ * is quick, and the last genres are the slow ones.
+ */
+export interface PrefillProgress {
+  knownVideosLeft: number;
+  searchesLeft: number | null;
+  /** Estimated, ISO. Null until it has done enough to have a pace. */
+  expectedEnd: string | null;
 }
 
 let running: PrefillReport | null = null;
 let lastReport: PrefillReport | null = null;
 
-/** The run in progress, or the last one, for the diagnostics endpoint. */
-export function prefillStatus(): { running: boolean; report: PrefillReport | null } {
-  return { running: running !== null, report: running ?? lastReport };
+/** The run in progress, or the last one, for the diagnostics endpoint and the editor's banner. */
+export function prefillStatus(): { running: boolean; report: PrefillReport | null; progress: PrefillProgress | null } {
+  return { running: running !== null, report: running ?? lastReport, progress: running ? progressOf(running) : null };
+}
+
+/** Units of work done before a pace is worth reading. */
+const PACE_AFTER = 5;
+
+function progressOf(report: PrefillReport, now = Date.now()): PrefillProgress {
+  const knownVideosLeft = catalogue.knownVideosWaiting();
+  const searchesLeft = !report.searching
+    ? 0
+    : report.maxSearches !== null
+      ? Math.max(0, report.maxSearches - report.searches)
+      : Math.max(0, catalogue.searchesToday().budget - PREFILL_KEEP - catalogue.searchesToday().used);
+  const done = report.lookups + report.searches;
+  let expectedEnd: string | null = null;
+  if (report.fillingSince && done >= PACE_AFTER) {
+    const perUnit = (now - Date.parse(report.fillingSince)) / done;
+    expectedEnd = new Date(now + perUnit * (knownVideosLeft + searchesLeft)).toISOString();
+  }
+  return { knownVideosLeft, searchesLeft: report.searching ? searchesLeft : null, expectedEnd };
 }
 
 function pause(ms: number): Promise<void> {
@@ -127,7 +171,11 @@ function pause(ms: number): Promise<void> {
  */
 export async function prefillCatalogue(
   log?: FastifyBaseLogger,
-  options: { searches?: boolean } = {}
+  options: {
+    searches?: boolean;
+    /** At most this many searches, for a run started by hand to file what was asked for. */
+    maxSearches?: number;
+  } = {}
 ): Promise<PrefillReport> {
   if (running) return running;
 
@@ -140,11 +188,19 @@ export async function prefillCatalogue(
     saved: 0,
     byGenre: {},
     stopped: '',
-    videoIndex: null
+    videoIndex: null,
+    maxSearches: options.searches !== false && options.maxSearches !== undefined ? options.maxSearches : null,
+    searching: options.searches !== false,
+    phase: 'loading',
+    genre: null,
+    fillingSince: null
   };
   running = report;
   const day = quotaDay();
-  const budget = Math.max(0, env.BLINDTEST_SEARCH_BUDGET - PREFILL_KEEP);
+  const dayBudget = Math.max(0, env.BLINDTEST_SEARCH_BUDGET - PREFILL_KEEP);
+  // The budget is the day's count to stop at: a capped run stops that many after where the day is now.
+  const budget =
+    report.maxSearches === null ? dayBudget : Math.min(dayBudget, catalogue.searchesToday().used + report.maxSearches);
 
   try {
     /**
@@ -185,6 +241,8 @@ export async function prefillCatalogue(
      * no search, after another has spent the last one.
      */
     const done = new Set<string>();
+    report.phase = 'filling';
+    report.fillingSince = new Date().toISOString();
     rounds: for (;;) {
       let searched = false;
       for (const genre of genres) {
@@ -194,6 +252,7 @@ export async function prefillCatalogue(
           break rounds;
         }
 
+        report.genre = genre.id;
         const result = await catalogue.searchForCatalogue(genre.id, budget, { searches: options.searches });
         if (!result || (result.spent === 0 && result.free === 0 && result.channels === 0)) {
           done.add(genre.id);
@@ -235,6 +294,8 @@ export async function prefillCatalogue(
   } finally {
     report.videoIndex = catalogue.videoIndexStatus();
     report.finishedAt = new Date().toISOString();
+    report.phase = null;
+    report.genre = null;
     lastReport = report;
     running = null;
   }
