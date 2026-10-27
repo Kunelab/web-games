@@ -23,6 +23,7 @@ import {
 import { extremeDoubt, resolveCalibration, type ExtremeDoubt } from './blindtest-difficulty.js';
 import type { DrawHistory } from './blindtest-draw.js';
 import { hiddenDuplicates } from './blindtest-duplicates.js';
+import { withEras } from './blindtest-eras.js';
 import { refiled, underRememberedGenre } from './blindtest-refile.js';
 import { weightedSample } from './blindtest-seeds.js';
 import { playKeyOf, recentPlays } from './media-plays.js';
@@ -223,8 +224,13 @@ export async function rememberPlayedRound(item: MediaView): Promise<MediaView | 
     if (twin) return twin;
   }
 
-  // Filed where an admin said this artist belongs, whatever search found it.
-  const filed = underRememberedGenre(item);
+  // Filed where an admin said this artist belongs, whatever search found it,
+  // and in the eras of that genre its year is in.
+  const remembered = underRememberedGenre(item);
+  const filed = {
+    ...remembered,
+    payload: withEras((remembered.payload ?? {}) as Record<string, unknown>, remembered.category, remembered.date)
+  };
   const [row] = await db
     .insert(media)
     .values({

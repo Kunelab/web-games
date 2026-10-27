@@ -172,3 +172,22 @@ describe('the other genres a round plays in', () => {
     assert.equal((cleared.item.payload as { alsoIn?: string[] }).alsoIn, undefined);
   });
 });
+
+describe('the eras a round is filed in', () => {
+  it("files a round in its genre's era, follows it to another genre, and keeps an admin's choice", async () => {
+    const round = { ...dealt('eraaaaaaaa1', 'Nas', 'N.Y. State of Mind'), date: '1994-01-01' } as MediaView;
+    const kept = await rememberPlayedRound(round);
+    assert.deepEqual((kept!.payload as { alsoIn?: string[] }).alsoIn, ['rap-90s']);
+
+    const moved = await setLibraryGenre(kept!.id, 'rap-fr');
+    assert.ok(moved.ok);
+    assert.deepEqual((moved.item.payload as { alsoIn?: string[] }).alsoIn, ['rap-fr-90s']);
+
+    const ticked = await setLibraryGenre(kept!.id, 'rap-fr', { alsoIn: ['rap-fr-2000s'] });
+    assert.ok(ticked.ok);
+    assert.deepEqual((ticked.item.payload as { alsoIn?: string[] }).alsoIn, ['rap-fr-2000s']);
+    const again = await setLibraryGenre(kept!.id, 'rap-fr');
+    assert.ok(again.ok);
+    assert.deepEqual((again.item.payload as { alsoIn?: string[] }).alsoIn, ['rap-fr-2000s']);
+  });
+});

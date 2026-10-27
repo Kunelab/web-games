@@ -543,8 +543,11 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
     if (!genreChoice) return;
     setGenreBusy(allByArtist ? 'applyAll' : 'apply');
     try {
+      // Sent only when changed: untouched, the eras follow the round's genre and year on their own.
       const alsoIn = [...genreAlso].filter((id) => id !== genreChoice);
-      const { moved } = await api.blindtestSetGenre(item.id, genreChoice, allByArtist, alsoIn);
+      const before = alsoInOf(item.payload);
+      const changed = alsoIn.length !== before.length || alsoIn.some((id) => !before.includes(id));
+      const { moved } = await api.blindtestSetGenre(item.id, genreChoice, allByArtist, changed ? alsoIn : undefined);
       setRefiledItems((current) => {
         const next = new Map(current);
         for (const entry of moved) next.set(entry.id, entry);
@@ -1395,7 +1398,7 @@ function PlayIcon() {
 function clipOf(item: MediaItem): { code: string; guess: [number, number]; reveal: [number, number] } | null {
   if (item.kind !== 'blindtest') return null;
   const payload = (item.payload ?? {}) as Record<string, unknown>;
-  const number = (key: string) => (typeof payload[key] === 'number' ? (payload[key]) : null);
+  const number = (key: string) => (typeof payload[key] === 'number' ? payload[key] : null);
   const code = typeof payload.code === 'string' ? payload.code : '';
   const [startGuess, endGuess, startReveal, endReveal] = ['startGuess', 'endGuess', 'startReveal', 'endReveal'].map(
     number

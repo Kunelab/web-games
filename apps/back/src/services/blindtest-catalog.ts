@@ -323,6 +323,43 @@ export const GENRES: Genre[] = [
     yearRange: { from: 2010, to: 2019 }
   },
 
+  {
+    id: 'rap-fr-90s',
+    label: 'Rap FR 90s',
+    section: 'rap',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'rap-fr',
+    yearRange: { from: 1988, to: 1999 }
+  },
+  {
+    id: 'rap-fr-2000s',
+    label: 'Rap FR 2000s',
+    section: 'rap',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'rap-fr',
+    yearRange: { from: 2000, to: 2009 }
+  },
+  {
+    id: 'rap-fr-2010s',
+    label: 'Rap FR 2010s',
+    section: 'rap',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'rap-fr',
+    yearRange: { from: 2010, to: 2019 }
+  },
+  {
+    id: 'rap-2000s',
+    label: 'Rap 2000s',
+    section: 'rap',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'rap-us',
+    yearRange: { from: 2000, to: 2009 }
+  },
+
   /* -------------------------------------------------------------- pop-rock */
   {
     id: 'pop',
@@ -351,6 +388,78 @@ export const GENRES: Genre[] = [
         titleMatch: /rock|grunge|punk|indie/i
       }
     ]
+  },
+  {
+    id: 'pop-80s',
+    label: 'Pop 80s',
+    section: 'pop-rock',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'pop',
+    yearRange: { from: 1980, to: 1989 }
+  },
+  {
+    id: 'pop-90s',
+    label: 'Pop 90s',
+    section: 'pop-rock',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'pop',
+    yearRange: { from: 1990, to: 1999 }
+  },
+  {
+    id: 'pop-2000s',
+    label: 'Pop 2000s',
+    section: 'pop-rock',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'pop',
+    yearRange: { from: 2000, to: 2009 }
+  },
+  {
+    id: 'pop-2010s',
+    label: 'Pop 2010s',
+    section: 'pop-rock',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'pop',
+    yearRange: { from: 2010, to: 2019 }
+  },
+  {
+    id: 'rock-70s',
+    label: 'Rock 60s-70s',
+    section: 'pop-rock',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'rock',
+    yearRange: { from: 1960, to: 1979 }
+  },
+  {
+    id: 'rock-80s',
+    label: 'Rock 80s',
+    section: 'pop-rock',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'rock',
+    yearRange: { from: 1980, to: 1989 }
+  },
+  {
+    id: 'rock-90s',
+    label: 'Rock 90s',
+    section: 'pop-rock',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'rock',
+    yearRange: { from: 1990, to: 1999 }
+  },
+  {
+    id: 'rock-2000s',
+    label: 'Rock 2000s',
+    section: 'pop-rock',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'rock',
+    yearRange: { from: 2000, to: 2009 }
   },
   {
     id: 'metal',
@@ -419,6 +528,34 @@ export const GENRES: Genre[] = [
     yearRange: { from: 1975, to: 1989 }
   },
 
+  {
+    id: 'variete-90s',
+    label: 'Variété 90s',
+    section: 'chanson',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'chanson-fr',
+    yearRange: { from: 1990, to: 1999 }
+  },
+  {
+    id: 'variete-2000s',
+    label: 'Variété 2000s',
+    section: 'chanson',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'chanson-fr',
+    yearRange: { from: 2000, to: 2009 }
+  },
+  {
+    id: 'variete-2010s',
+    label: 'Variété 2010s',
+    section: 'chanson',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'chanson-fr',
+    yearRange: { from: 2010, to: 2019 }
+  },
+
   /* --------------------------------------------------------------- electro */
   {
     id: 'electro',
@@ -440,6 +577,25 @@ export const GENRES: Genre[] = [
         titleMatch: /[ée]lectro|house|edm|techno|dance|french touch|club/i
       }
     ]
+  },
+
+  {
+    id: 'dance-90s',
+    label: 'Dance 90s',
+    section: 'electro',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'electro',
+    yearRange: { from: 1988, to: 1999 }
+  },
+  {
+    id: 'electro-2000s',
+    label: 'Électro 2000s',
+    section: 'electro',
+    answerShape: 'artist-title',
+    queries: [],
+    facetOf: 'electro',
+    yearRange: { from: 2000, to: 2009 }
   },
 
   /* ----------------------------------------------------------------- anime */

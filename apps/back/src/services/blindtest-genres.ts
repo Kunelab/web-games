@@ -310,7 +310,8 @@ export async function setLibraryGenre(
     targets.flatMap((target) => {
       const next = refiled(target, genre, calibrations);
       if (alsoIn) {
-        next.payload = { ...next.payload, alsoIn };
+        // As ticked, eras included: no longer kept in step with its year.
+        next.payload = { ...next.payload, alsoIn, alsoInBy: 'human' };
         if (alsoIn.length === 0) delete next.payload.alsoIn;
       }
       const [updated] = tx

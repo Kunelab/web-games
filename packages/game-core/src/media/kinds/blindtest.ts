@@ -116,7 +116,12 @@ export const blindtestPayloadSchema = z
      * The genres this round plays in besides its own `category`, which still
      * decides its difficulty scale and its answer prompt. See `genreKeysOf`.
      */
-    alsoIn: z.array(z.string().min(1).max(80)).max(20).optional()
+    alsoIn: z.array(z.string().min(1).max(80)).max(20).optional(),
+    /**
+     * Set when an admin chose `alsoIn` by hand. Without it the eras in it are
+     * kept in step with the round's year and genre automatically.
+     */
+    alsoInBy: z.enum(['human']).optional()
   })
   .refine((payload) => payload.endGuess > payload.startGuess, {
     message: 'La fin du extrait doit être après le début',

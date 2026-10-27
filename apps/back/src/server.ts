@@ -2,6 +2,7 @@ import { buildApp } from './app.js';
 import { closeDb } from './db/index.js';
 import { env } from './env.js';
 import { catalogAvailable } from './services/blindtest-catalog.js';
+import { tagEras } from './services/blindtest-eras.js';
 import { reopenLostHitsOnce, schedulePrefill } from './services/blindtest-prefill.js';
 import { catalogue } from './services/catalogue-service.js';
 
@@ -50,6 +51,14 @@ try {
  * that waits for them. Skipped where the blind test cannot run.
  */
 if (catalogAvailable()) catalogue.warmSeeds();
+
+// Every catalogue round in the eras its year is in; next to nothing after the first boot.
+try {
+  const tagged = tagEras();
+  if (tagged > 0) app.log.info({ tagged }, 'blind test rounds filed in their eras');
+} catch (error) {
+  app.log.warn({ err: error }, 'could not file the blind test rounds in their eras');
+}
 
 // And the day's unused searches spent on the catalogue before they lapse, once
 // the hits the old artist searches lost are back in the stock.

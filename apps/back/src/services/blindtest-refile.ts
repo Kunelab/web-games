@@ -4,6 +4,7 @@ import { alsoInOf, normalizeAnswer, type BlindtestFame } from 'game-core';
 import { db } from '../db/index.js';
 import { blindtestArtistGenres } from '../db/schema.js';
 import { GENRES, genreById, readCalibrations, type Genre } from './blindtest-catalog.js';
+import { withEras } from './blindtest-eras.js';
 import { applyPlan, planRescore } from './blindtest-rescore.js';
 
 /**
@@ -114,6 +115,8 @@ export function rescoredForGenre(
 /** The fields of a catalogue entry that a move to another genre rewrites. */
 export interface RefileableEntry<A extends { key: string; label: string }> {
   category: string | null;
+  /** Its release date, which decides the eras it is filed in. */
+  date?: string | null;
   answers: A[];
   payload: unknown;
   created_at: string | null;
@@ -132,7 +135,12 @@ export function refiled<A extends { key: string; label: string }>(
   genre: Genre,
   calibrations?: Calibrations
 ): { category: string; answers: A[]; payload: Record<string, unknown> } {
-  const payload = alsoInAfterMove((entry.payload ?? {}) as Record<string, unknown>, genre.id);
+  // Its other genres without the one now its own, and the eras of the genre it moved to.
+  const payload = withEras(
+    alsoInAfterMove((entry.payload ?? {}) as Record<string, unknown>, genre.id),
+    genre.id,
+    entry.date
+  );
   return {
     category: genre.id,
     answers: answersForGenre(entry.answers, genre),
