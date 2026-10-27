@@ -78,6 +78,18 @@ describe('checkGenres', () => {
     assert.deepEqual(checkGenres(items, GENRES, index(), none).flags, []);
   });
 
+  it("believes an admin's choice for an artist over the seeds", () => {
+    const seeds = {
+      ...index({ artists: { 'francky vincent': ['rap-fr'] } }),
+      harvested: new Set(['rap-fr', 'chanson-fr'])
+    };
+    const remembered = new Map([['francky vincent', 'chanson-fr']]);
+    const there = checkGenres([song(1, 'chanson-fr', 'Francky Vincent')], GENRES, seeds, none, remembered);
+    assert.deepEqual(there.flags, []);
+    const elsewhere = checkGenres([song(1, 'pop', 'Francky Vincent')], GENRES, seeds, none, remembered);
+    assert.deepEqual(elsewhere.flags, [{ mediaId: 1, reason: 'artist-elsewhere', suggestions: ['chanson-fr'] }]);
+  });
+
   it('believes the seeds over the filing', () => {
     const seeds = index({ artists: { 'bruno mars': ['pop'], booba: ['rap-fr'] } });
     const { flags } = checkGenres(

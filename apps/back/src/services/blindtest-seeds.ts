@@ -54,7 +54,13 @@ import { z } from 'zod';
 
 import type { Clock } from '../clock.js';
 import type { Db } from '../db/open.js';
-import { blindtestRequests, blindtestSeedHarvests, blindtestSeeds, metaData } from '../db/schema.js';
+import {
+  blindtestArtistGenres,
+  blindtestRequests,
+  blindtestSeedHarvests,
+  blindtestSeeds,
+  metaData
+} from '../db/schema.js';
 
 /* ------------------------------------------------------------------ config */
 
@@ -739,8 +745,12 @@ export function chartGenre(
   side: ChartSide,
   artistGenres: ReadonlyMap<string, ReadonlyMap<string, number>>,
   albumGenre: number | null,
-  genreIds: ReadonlySet<string>
+  genreIds: ReadonlySet<string>,
+  /** Where an admin filed each artist, by normalised name: first, over any seed. */
+  remembered: ReadonlyMap<string, string> = new Map()
 ): string | null {
+  const chosen = remembered.get(normalizeAnswer(artist));
+  if (chosen && genreIds.has(chosen)) return chosen;
   let best: string | null = null;
   let most = 0;
   for (const [genreId, seeds] of artistGenres.get(normalizeAnswer(artist)) ?? []) {
@@ -1751,11 +1761,21 @@ export function createSeedStock({
       artistGenres.set(key, genres);
     }
 
+    // An admin's "all this artist's songs go here" outranks every seed.
+    const remembered = new Map(
+      db
+        .select()
+        .from(blindtestArtistGenres)
+        .all()
+        .map((row) => [row.artist, row.genre_id])
+    );
+
     // Asked only for the artists no genre knows: a tenth of them, measured.
     const albums = new Map<number, number | null>();
     const byGenre = new Map<string, RawSeed[]>();
     for (const { seed, album, side } of songs.values()) {
-      if (!artistGenres.has(normalizeAnswer(seed.artist)) && album !== null && !albums.has(album)) {
+      const known = artistGenres.has(normalizeAnswer(seed.artist)) || remembered.has(normalizeAnswer(seed.artist));
+      if (!known && album !== null && !albums.has(album)) {
         albums.set(album, albumGenre(counted(await sources.deezer.album(album))));
       }
       const genreId = chartGenre(
@@ -1763,7 +1783,8 @@ export function createSeedStock({
         side,
         artistGenres,
         album === null ? null : (albums.get(album) ?? null),
-        genreIds
+        genreIds,
+        remembered
       );
       if (genreId) byGenre.set(genreId, [...(byGenre.get(genreId) ?? []), seed]);
     }

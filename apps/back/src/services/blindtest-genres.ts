@@ -2,7 +2,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { genreKeysOf, normalizeAnswer } from 'game-core';
 
 import { db } from '../db/index.js';
-import { blindtestGenreDismissals, media } from '../db/schema.js';
+import { blindtestArtistGenres, blindtestGenreDismissals, media } from '../db/schema.js';
 import { GENRES, genreById, readCalibrations, type AnswerShape } from './blindtest-catalog.js';
 import { listLibrary } from './blindtest-library.js';
 import { answersForGenre, artistKeyOf, refiled, rememberArtistGenre } from './blindtest-refile.js';
@@ -94,7 +94,12 @@ export function checkGenres(
   items: GenreCheckItem[],
   genres: readonly GenreInfo[],
   index: SeedIndex,
-  dismissed: ReadonlyMap<number, string>
+  dismissed: ReadonlyMap<number, string>,
+  /**
+   * Where an admin filed each artist ("all this artist's songs"), by
+   * normalised name. It outranks the seeds and the catalogue's own spread.
+   */
+  remembered: ReadonlyMap<string, string> = new Map()
 ): GenreCheck {
   const byId = new Map(genres.map((genre) => [genre.id, genre]));
   const value = (item: GenreCheckItem, key: string) => item.answers.find((answer) => answer.key === key)?.value ?? '';
@@ -146,6 +151,13 @@ export function checkGenres(
           return other ? [familyOf(other)] : [];
         })
       );
+      const chosen = shape === 'artist-title' && key ? remembered.get(key) : undefined;
+      const chosenGenre = chosen ? byId.get(chosen) : undefined;
+      if (chosenGenre) {
+        if (families.has(familyOf(chosenGenre))) return null;
+        return { reason: 'artist-elsewhere', suggestions: [chosenGenre.id] };
+      }
+
       if (seeded && seeded.size > 0 && ![...families].some((id) => seeded.has(id)) && index.harvested.has(family)) {
         return { reason: 'seed-elsewhere', suggestions: seededOfShape.filter((id) => id !== family) };
       }
@@ -179,7 +191,14 @@ export function checkGenres(
 export async function findLibraryGenreFlags(seeds: SeedIndex): Promise<GenreCheck> {
   const items = await listLibrary();
   const dismissals = db.select().from(blindtestGenreDismissals).all();
-  return checkGenres(items, GENRES, seeds, new Map(dismissals.map((row) => [row.media_id, row.category])));
+  const remembered = db.select().from(blindtestArtistGenres).all();
+  return checkGenres(
+    items,
+    GENRES,
+    seeds,
+    new Map(dismissals.map((row) => [row.media_id, row.category])),
+    new Map(remembered.map((row) => [row.artist, row.genre_id]))
+  );
 }
 
 /** A catalogue row, which is what these writes are allowed to touch: ownerless blind test entries. */

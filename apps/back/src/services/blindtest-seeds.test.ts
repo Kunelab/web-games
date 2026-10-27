@@ -617,6 +617,12 @@ describe('the charts', () => {
     assert.equal(chartGenre("Guns N' Roses", 'world', artists, 152, genres), 'rock');
   });
 
+  it("files an artist where an admin put them, over the artist's seeds", () => {
+    const artists = new Map([['francky vincent', new Map([['rap-fr', 10]])]]);
+    const remembered = new Map([['francky vincent', 'chanson-fr']]);
+    assert.equal(chartGenre('Francky Vincent', 'france', artists, 116, genres, remembered), 'chanson-fr');
+  });
+
   it("ignores a genre that takes no hits, where most of the artist's seeds may be", () => {
     const artists = new Map([['beethoven', new Map([['classique', 40]])]]);
     assert.equal(chartGenre('Beethoven', 'world', artists, null, genres), 'pop');
@@ -956,10 +962,7 @@ describe('an admin request', () => {
     assert.ok(result.ok);
 
     const [first, second] = db.select().from(blindtestSeeds).where(eq(blindtestSeeds.source, 'request')).all();
-    db.update(blindtestSeeds)
-      .set({ searched_at: '2026-10-27', found: 1 })
-      .where(eq(blindtestSeeds.id, first.id))
-      .run();
+    db.update(blindtestSeeds).set({ searched_at: '2026-10-27', found: 1 }).where(eq(blindtestSeeds.id, first.id)).run();
     db.update(blindtestSeeds)
       .set({ searched_at: '2026-10-27', found: 0 })
       .where(eq(blindtestSeeds.id, second.id))
