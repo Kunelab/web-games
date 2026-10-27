@@ -420,3 +420,16 @@
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+
+/* The clip as a room hears it, from the catalogue editor. */
+.pl-listen {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  margin-bottom: var(--space-2);
+}
+.pl-listen iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: var(--radius-md);
+}

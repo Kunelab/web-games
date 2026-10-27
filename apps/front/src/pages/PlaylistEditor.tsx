@@ -316,6 +316,8 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   const [dirty, setDirty] = useState(false);
   /** The entry whose duplicate flag the admin is settling, by id. */
   const [dupTargetId, setDupTargetId] = useState<number | null>(null);
+  /** The row whose clip is being listened to. */
+  const [listening, setListening] = useState<MediaItem | null>(null);
   const [dupBusy, setDupBusy] = useState<'clear' | 'delete' | null>(null);
   /** Whether the "delete every exact duplicate" confirmation is open, and whether it is running. */
   const [redundantOpen, setRedundantOpen] = useState(false);
@@ -964,6 +966,7 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                       hiddenInGames={curating && hiddenIds.has(item.id)}
                       extreme={curating ? extremeById.get(item.id) : undefined}
                       onShowDuplicate={() => setDupTargetId(item.id)}
+                      onListen={curating && clipOf(item) ? () => setListening(item) : undefined}
                       genreFlag={curating ? genreFlagById.get(item.id) : undefined}
                       legacyLabel={curating && legacyIds.has(item.id)}
                       onShowGenre={() => openGenre(item)}
@@ -1116,6 +1119,8 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
         )}
       </Dialog>
 
+      <ListenDialog item={listening} onClose={() => setListening(null)} />
+
       <Dialog
         open={genreTarget !== undefined}
         onOpenChange={(open) => {
@@ -1235,6 +1240,7 @@ function SortableRow({
   hiddenInGames = false,
   extreme,
   onShowDuplicate,
+  onListen,
   genreFlag,
   legacyLabel = false,
   onShowGenre,
@@ -1251,6 +1257,8 @@ function SortableRow({
   /** At either end of the scale, with nothing to back it. */
   extreme?: { difficulty: number; reason: ExtremeDoubt };
   onShowDuplicate?: () => void;
+  /** Opens the clip as a room hears it. On the catalogue only. */
+  onListen?: () => void;
   genreFlag?: GenreFlagInfo;
   /** Still asking for "a film, series or game". */
   legacyLabel?: boolean;
@@ -1353,6 +1361,9 @@ function SortableRow({
           A real anchor rather than a button, so it also behaves the way a link
           should: the middle click and the context menu both work.
         */}
+        {onListen && (
+          <IconButton icon={<PlayIcon />} label={t(msg('ple.listen.open', { title: item.title }))} onClick={onListen} />
+        )}
         {canEdit && (
           <a
             className="btn btn-icon"
@@ -1368,6 +1379,84 @@ function SortableRow({
         <IconButton icon={<MinusIcon />} label={t(msg('ple.remove', { title: item.title }))} onClick={onRemove} />
       </span>
     </li>
+  );
+}
+
+/** A play triangle, at the same weight as the pencil beside it. */
+function PlayIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M7 5v14l12-7L7 5Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** A blind test's video and the two windows a room hears of it, or null for anything else. */
+function clipOf(item: MediaItem): { code: string; guess: [number, number]; reveal: [number, number] } | null {
+  if (item.kind !== 'blindtest') return null;
+  const payload = (item.payload ?? {}) as Record<string, unknown>;
+  const number = (key: string) => (typeof payload[key] === 'number' ? (payload[key]) : null);
+  const code = typeof payload.code === 'string' ? payload.code : '';
+  const [startGuess, endGuess, startReveal, endReveal] = ['startGuess', 'endGuess', 'startReveal', 'endReveal'].map(
+    number
+  );
+  if (!code || startGuess === null || endGuess === null) return null;
+  return {
+    code,
+    guess: [startGuess, endGuess],
+    reveal: [startReveal ?? startGuess, endReveal ?? endGuess]
+  };
+}
+
+/**
+ * The clip a room hears, without starting a game: the guess window, and the
+ * reveal one at a press. A plain embed told where to start and stop, so it
+ * needs nothing loaded; checking a timing should not cost a session.
+ */
+function ListenDialog({ item, onClose }: { item: MediaItem | null; onClose: () => void }) {
+  const t = useT();
+  const [part, setPart] = useState<'guess' | 'reveal'>('guess');
+  const clip = item ? clipOf(item) : null;
+  const [from, to] = clip ? clip[part] : [0, 0];
+  const answers = item?.answers.map((answer) => answer.value).join(' · ') ?? '';
+  const difficulty = (item?.payload as { difficulty?: unknown } | null)?.difficulty;
+  return (
+    <Dialog
+      open={item !== null}
+      onOpenChange={(open) => {
+        if (!open) {
+          setPart('guess');
+          onClose();
+        }
+      }}
+      title={item?.title ?? ''}
+      actions={
+        <>
+          <Button variant={part === 'guess' ? 'primary' : 'ghost'} size="sm" onClick={() => setPart('guess')}>
+            {t(msg('ple.listen.guess', { from: Math.round(from), to: Math.round(to) }))}
+          </Button>
+          <Button variant={part === 'reveal' ? 'primary' : 'ghost'} size="sm" onClick={() => setPart('reveal')}>
+            {t(msg('ple.listen.reveal'))}
+          </Button>
+        </>
+      }
+    >
+      {clip && (
+        <div className="pl-listen">
+          <iframe
+            key={`${clip.code}:${part}`}
+            src={`https://www.youtube-nocookie.com/embed/${clip.code}?start=${Math.floor(from)}&end=${Math.ceil(to)}&autoplay=1&rel=0`}
+            title={item?.title ?? ''}
+            allow="autoplay; encrypted-media"
+            allowFullScreen
+          />
+        </div>
+      )}
+      <p className="pl-dup-reason">
+        {answers}
+        {typeof difficulty === 'number' ? ` · ${t(msg('ple.listen.difficulty', { difficulty }))}` : ''}
+      </p>
+    </Dialog>
   );
 }
 

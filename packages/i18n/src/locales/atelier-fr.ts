@@ -391,6 +391,10 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.request.status":
     "{filed}/{seeds} ajouté(s) · {waiting} en attente · {missed} introuvable(s)",
   "ple.request.cancel": "Annuler",
+  "ple.listen.open": "Écouter l’extrait de {title}",
+  "ple.listen.guess": "Extrait ({from}–{to} s)",
+  "ple.listen.reveal": "Révélation",
+  "ple.listen.difficulty": "difficulté {difficulty}",
   "ple.gaps.title": "Ce qui manque au catalogue",
   "ple.gaps.explain":
     "Les artistes connus dont le catalogue a peu de titres, tous genres confondus, et les œuvres connues qui n’y sont pas encore. Ce qui est déjà demandé n’y figure pas.",

@@ -406,6 +406,10 @@ export const atelierEn = {
   "ple.request.status":
     "{filed}/{seeds} added · {waiting} waiting · {missed} not found",
   "ple.request.cancel": "Cancel",
+  "ple.listen.open": "Listen to the clip of {title}",
+  "ple.listen.guess": "Clip ({from}–{to} s)",
+  "ple.listen.reveal": "Reveal",
+  "ple.listen.difficulty": "difficulty {difficulty}",
   "ple.gaps.title": "What the catalogue is missing",
   "ple.gaps.explain":
     "Well-known artists the catalogue has few songs of, across all genres, and well-known works it does not have yet. What is already asked for is left out.",
