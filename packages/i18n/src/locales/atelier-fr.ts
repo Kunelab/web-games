@@ -342,7 +342,9 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.duplicate.deleteRedundantTitle": "Supprimer les doublons exacts",
   "ple.duplicate.deleteRedundantExplains":
     "{count} copie(s) d’une même vidéo ou d’un même morceau seront supprimées. La copie la plus vue de chacun est gardée ; les entrées seulement « très ressemblantes » ne sont pas touchées.",
-  "ple.duplicate.deleteRedundantConfirm": "Supprimer",
+  "ple.duplicate.deleteRedundantConfirm": "Supprimer ({count})",
+  "ple.duplicate.keeps": "garde : {title} · {genre} ({reason})",
+  "ple.duplicate.keepsUnknown": "garde l’autre copie",
   "ple.duplicate.hiddenMeta": " · écarté des parties",
   "ple.duplicate.hidden":
     "Cette entrée est écartée des parties tant que le doublon n’est pas réglé : l’entrée la plus vue est jouée à sa place.",

@@ -327,12 +327,22 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
    * "very similar" pair is left for a person, since a typo away is sometimes
    * another song. Returns the ids deleted.
    */
-  app.post('/blindtest/library/duplicates/delete-redundant', { preHandler: app.requireAuth }, async (request) => {
-    if (!isAdmin(request.currentUser)) {
-      throw app.httpErrors.forbidden('Réservé à un administrateur');
+  app.post(
+    '/blindtest/library/duplicates/delete-redundant',
+    {
+      preHandler: app.requireAuth,
+      schema: {
+        // The copies the admin left ticked. Absent deletes every one; either way only redundant copies go.
+        body: z.object({ mediaIds: z.array(z.coerce.number().int().positive()).max(5000).optional() }).nullish()
+      }
+    },
+    async (request) => {
+      if (!isAdmin(request.currentUser)) {
+        throw app.httpErrors.forbidden('Réservé à un administrateur');
+      }
+      return { deleted: await deleteRedundantDuplicates(request.body?.mediaIds) };
     }
-    return { deleted: await deleteRedundantDuplicates() };
-  });
+  );
 
   /**
    * Entries that look filed under the wrong genre, and the ones still carrying

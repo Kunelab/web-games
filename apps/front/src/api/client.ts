@@ -565,9 +565,12 @@ export const api = {
       /** The copies exact pairs alone leave out, which `blindtestDeleteRedundant` deletes. */
       redundant: number[];
     }>('/blindtest/library/duplicates'),
-  /** Deletes every copy an exact duplicate leaves out of games. Returns the ids deleted. */
-  blindtestDeleteRedundant: () =>
-    request<{ deleted: number[] }>('/blindtest/library/duplicates/delete-redundant', { method: 'POST' }),
+  /** Deletes the copies an exact duplicate leaves out of games, these ones only. Returns the ids deleted. */
+  blindtestDeleteRedundant: (mediaIds: number[]) =>
+    request<{ deleted: number[] }>('/blindtest/library/duplicates/delete-redundant', {
+      method: 'POST',
+      body: { mediaIds }
+    }),
   /** Catalogue rounds at either end of the scale that nothing backs. Admin only. */
   blindtestExtremeFlags: () =>
     request<{ flags: { mediaId: number; difficulty: number; reason: ExtremeDoubt }[] }>('/blindtest/library/extremes'),

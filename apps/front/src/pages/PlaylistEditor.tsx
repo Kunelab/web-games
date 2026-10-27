@@ -322,6 +322,8 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
   /** Whether the "delete every exact duplicate" confirmation is open, and whether it is running. */
   const [redundantOpen, setRedundantOpen] = useState(false);
   const [redundantBusy, setRedundantBusy] = useState(false);
+  /** Copies unticked in the delete dialog: kept, flag and all. */
+  const [redundantKept, setRedundantKept] = useState<ReadonlySet<number>>(() => new Set());
   /**
    * Entries deleted from this screen, until the page is next loaded.
    *
@@ -626,18 +628,31 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
 
   /** The copies exact duplicates leave out of games, which one press deletes. */
   const redundantIds = (duplicates.data?.redundant ?? []).filter((mediaId) => !deletedIds.has(mediaId));
+  const redundantSet = new Set(redundantIds);
+  /**
+   * Each copy to delete beside the one that stays, and why they are the same.
+   * The one that stays is its exact partner that is not deleted itself.
+   */
+  const redundantRows = redundantIds.map((mediaId) => {
+    const partner = (duplicates.data?.pairs ?? [])
+      .filter((pair) => pair.reason !== 'similar' && (pair.a === mediaId || pair.b === mediaId))
+      .map((pair) => ({ id: pair.a === mediaId ? pair.b : pair.a, reason: pair.reason }))
+      .sort((left, right) => Number(redundantSet.has(left.id)) - Number(redundantSet.has(right.id)))[0];
+    return { mediaId, partner };
+  });
+  const redundantTicked = redundantIds.filter((mediaId) => !redundantKept.has(mediaId));
 
   /**
-   * Deletes every copy an exact duplicate leaves out, keeping the most viewed.
+   * Deletes the ticked copies an exact duplicate leaves out, keeping the most viewed.
    *
    * The server works the list out again rather than trusting this page's, and
-   * says what it deleted; the rows go from the order the way a single delete
+   * deletes only the ticked ones still on it, and says what it deleted; the rows go from the order the way a single delete
    * does, without a reload. See `deletedIds`.
    */
   async function deleteRedundant() {
     setRedundantBusy(true);
     try {
-      const { deleted } = await api.blindtestDeleteRedundant();
+      const { deleted } = await api.blindtestDeleteRedundant(redundantTicked);
       const gone = new Set(deleted);
       setOrder((current) => current.filter((mediaId) => !gone.has(mediaId)));
       setDeletedIds((current) => new Set([...current, ...deleted]));
@@ -1214,7 +1229,10 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
       <Dialog
         open={redundantOpen}
         onOpenChange={(open) => {
-          if (!open && !redundantBusy) setRedundantOpen(false);
+          if (!open && !redundantBusy) {
+            setRedundantOpen(false);
+            setRedundantKept(new Set());
+          }
         }}
         title={t(msg('ple.duplicate.deleteRedundantTitle'))}
         actions={
@@ -1222,13 +1240,57 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
             <Button variant="ghost" disabled={redundantBusy} onClick={() => setRedundantOpen(false)}>
               {t(msg('ple.duplicate.cancel'))}
             </Button>
-            <Button variant="danger" busy={redundantBusy} onClick={() => void deleteRedundant()}>
-              {t(msg('ple.duplicate.deleteRedundantConfirm'))}
+            <Button
+              variant="danger"
+              busy={redundantBusy}
+              disabled={redundantTicked.length === 0}
+              onClick={() => void deleteRedundant()}
+            >
+              {t(msg('ple.duplicate.deleteRedundantConfirm', { count: redundantTicked.length }))}
             </Button>
           </>
         }
       >
         <p className="dialog-desc">{t(msg('ple.duplicate.deleteRedundantExplains', { count: redundantIds.length }))}</p>
+        <ul className="pl-redundant">
+          {redundantRows.map(({ mediaId, partner }) => {
+            const copy = byId.get(mediaId);
+            const kept = partner ? byId.get(partner.id) : undefined;
+            return (
+              <li key={mediaId}>
+                <label className="pl-redundant-row">
+                  <input
+                    type="checkbox"
+                    checked={!redundantKept.has(mediaId)}
+                    onChange={() =>
+                      setRedundantKept((current) => {
+                        const next = new Set(current);
+                        if (!next.delete(mediaId)) next.add(mediaId);
+                        return next;
+                      })
+                    }
+                  />
+                  <span>
+                    <span className="pl-dup-partner">{copy?.title ?? `#${mediaId}`}</span>
+                    <span className="pl-dup-reason"> · {genreName(copy?.category)}</span>
+                    <br />
+                    <span className="pl-dup-reason">
+                      {kept
+                        ? t(
+                            msg('ple.duplicate.keeps', {
+                              title: kept.title,
+                              genre: genreName(kept.category),
+                              reason: t(msg(duplicateReasonKey(partner.reason)))
+                            })
+                          )
+                        : t(msg('ple.duplicate.keepsUnknown'))}
+                    </span>
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
       </Dialog>
     </>
   );

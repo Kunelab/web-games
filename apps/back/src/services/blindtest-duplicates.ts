@@ -492,16 +492,20 @@ function redundantCopies(
 }
 
 /**
- * Deletes every redundant copy at once. Returns their ids.
+ * Deletes the redundant copies at once, every one or those listed. Returns their ids.
  *
  * Worked out again here rather than taken from the client, so what is deleted
  * is what the flags say now, not what they said when the page loaded. The
  * playlist links go with the rows, by the foreign key's cascade, and the pairs
  * and index rows are forgotten at the next read, as for any deletion.
  */
-export async function deleteRedundantDuplicates(): Promise<number[]> {
+export async function deleteRedundantDuplicates(
+  /** Only these, of the redundant copies: the ones the admin left ticked. Anything else sent is ignored. */
+  only?: readonly number[]
+): Promise<number[]> {
   const { ids, live, views } = await settledFlags();
-  const redundant = [...redundantCopies(ids, live, views)];
+  const wanted = only && new Set(only);
+  const redundant = [...redundantCopies(ids, live, views)].filter((id) => !wanted || wanted.has(id));
   if (redundant.length === 0) return [];
   const deleted = db
     .delete(media)

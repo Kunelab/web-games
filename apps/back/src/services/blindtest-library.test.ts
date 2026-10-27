@@ -127,8 +127,12 @@ describe('a possible duplicate in a game', () => {
     assert.ok(flags.pairs.some((pair) => pair.reason === 'similar' && [pair.a, pair.b].includes(road.id)));
     assert.ok(!flags.redundant.includes(road.id) && !flags.redundant.includes(rode.id));
 
-    const deleted = await deleteRedundantDuplicates();
-    assert.ok(deleted.includes(quiet.id));
+    // Unticked, nothing goes; and an id that is not a redundant copy is never deleted.
+    assert.deepEqual(await deleteRedundantDuplicates([]), []);
+    assert.deepEqual(await deleteRedundantDuplicates([loud.id, road.id]), []);
+
+    const deleted = await deleteRedundantDuplicates([quiet.id, loud.id]);
+    assert.deepEqual(deleted, [quiet.id]);
     const left = new Set((await listLibrary()).map((row) => row.id));
     assert.ok(!left.has(quiet.id));
     assert.ok(left.has(loud.id) && left.has(road.id) && left.has(rode.id));

@@ -357,7 +357,9 @@ export const atelierEn = {
   "ple.duplicate.deleteRedundantTitle": "Delete exact duplicates",
   "ple.duplicate.deleteRedundantExplains":
     "{count} copies of the same video or the same song will be deleted. The most viewed copy of each is kept; entries that are only “very similar” are left alone.",
-  "ple.duplicate.deleteRedundantConfirm": "Delete",
+  "ple.duplicate.deleteRedundantConfirm": "Delete ({count})",
+  "ple.duplicate.keeps": "keeps: {title} · {genre} ({reason})",
+  "ple.duplicate.keepsUnknown": "keeps the other copy",
   "ple.duplicate.hiddenMeta": " · left out of games",
   "ple.duplicate.hidden":
     "This entry sits out of every game until the flag is settled: the most viewed entry plays instead.",
