@@ -157,6 +157,12 @@ export async function prefillCatalogue(
      * it, for the rest, when QLever will not answer.
      */
     await catalogue.loadVideoIndex();
+    /**
+     * And the charts' songs, for the same reason: the boot fetches them, and a
+     * run started in the minute after it found none of them filed yet and
+     * stopped at once, with nothing to look up.
+     */
+    await catalogue.loadCharts();
 
     // A facet reads its parent's pool and has no seeds of its own.
     const genres = GENRES.filter((genre) => !genre.facetOf && genre.seeds && genre.seeds.length > 0);

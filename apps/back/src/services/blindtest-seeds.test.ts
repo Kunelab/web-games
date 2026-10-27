@@ -785,6 +785,30 @@ describe('the chart harvest', () => {
     assert.equal(asked, 1);
   });
 
+  it('is waited for by whoever needs it: the fetch under way, or one that is due', async () => {
+    const { db } = openDb(':memory:');
+    seedOf(db, 'rock', "Guns N' Roses", 3);
+    const { stock, albums } = stockOver(db);
+
+    // Never fetched: due, so fetched and waited for.
+    await stock.chartsReady(GENRES);
+    assert.equal(charted(db).length, 5);
+
+    // Fresh: nothing asked again.
+    const asked = albums.length;
+    await stock.chartsReady(GENRES);
+    assert.equal(albums.length, asked);
+  });
+
+  it('is waited for while the boot is fetching it', async () => {
+    const { db } = openDb(':memory:');
+    const { stock } = stockOver(db);
+    stock.warm(GENRES);
+
+    await stock.chartsReady(GENRES);
+    assert.equal(charted(db).length, 5);
+  });
+
   it('moves a song whose artist has since gone to another genre', async () => {
     const { db } = openDb(':memory:');
     seedOf(db, 'rock', "Guns N' Roses", 3);

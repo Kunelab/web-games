@@ -1390,6 +1390,8 @@ export interface SeedStock {
   warm(genres: readonly SeededGenre[]): void;
   /** Fetches the charts and files their songs into these genres. See `CHARTS`. Returns how many songs. */
   harvestCharts(genres: readonly SeededGenre[]): Promise<number>;
+  /** Waits for the charts: the fetch under way, or one that is due. Nothing when they are filed and fresh. */
+  chartsReady(genres: readonly SeededGenre[]): Promise<void>;
   /** Makes sure a genre has seeds to search, harvesting when it is due. */
   ensure(genre: SeededGenre): Promise<void>;
   /** The next searches for a genre, from seeds nobody has searched yet. */
@@ -1708,6 +1710,12 @@ export function createSeedStock({
     harvestQueue = run.catch(() => 0);
     harvesting.set(CHARTS_HARVEST, run);
     return run;
+  }
+
+  async function chartsReady(genres: readonly SeededGenre[]): Promise<void> {
+    const running = harvesting.get(CHARTS_HARVEST);
+    if (running) await running.catch(() => 0);
+    else if (genres.some(searchesHits) && harvestDue(CHARTS_HARVEST)) await harvestCharts(genres).catch(() => 0);
   }
 
   /* ------------------------------------------------------------- storage */
@@ -2305,6 +2313,7 @@ export function createSeedStock({
     harvest,
     warm,
     harvestCharts,
+    chartsReady,
     ensure,
     plan,
     markSearched,

@@ -1375,6 +1375,8 @@ export interface Catalogue {
    * failed less than an hour ago. Whether it loaded.
    */
   loadVideoIndex(): Promise<boolean>;
+  /** Waits for the charts' songs to be filed into the genres, when a fetch is under way or due. */
+  loadCharts(): Promise<void>;
   /** Which genres' seeds know each name. For the genre check on the shared catalogue. */
   seedIndex(): SeedIndex;
   /** Today's search spending, by the Pacific day Google resets the quota on. */
@@ -2427,6 +2429,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     seedStats: () => stock.stats(),
     videoIndexStatus: () => stock.videoIndexStatus(),
     loadVideoIndex: async () => (await stock.videoIndex(true, true)) !== null,
+    loadCharts: () => stock.chartsReady(GENRES),
     seedIndex: () => stock.index(),
     searchesToday: () => {
       const day = quotaDay(clock);
