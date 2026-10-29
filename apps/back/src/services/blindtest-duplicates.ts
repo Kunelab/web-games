@@ -1,9 +1,9 @@
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
-import { normalizeAnswer } from 'game-core';
 
 import { db } from '../db/index.js';
 import { blindtestDuplicateDismissals, blindtestDuplicateIndex, blindtestDuplicatePairs, media } from '../db/schema.js';
 import { listLibrary } from './blindtest-library.js';
+import { normalizedAnswer } from './normalized-answer.js';
 import { fetchVideoFacts } from './youtube-service.js';
 
 /**
@@ -108,7 +108,7 @@ interface NormalizedItem {
 }
 
 function normalized(item: DuplicateItem): NormalizedItem {
-  return { id: item.id, code: item.code, artist: normalizeAnswer(item.artist), title: normalizeAnswer(item.title) };
+  return { id: item.id, code: item.code, artist: normalizedAnswer(item.artist), title: normalizedAnswer(item.title) };
 }
 
 /** The strongest reason two entries look like one recording, if any. */

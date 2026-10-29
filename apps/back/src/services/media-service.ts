@@ -46,6 +46,73 @@ export interface MediaView {
 const answersSchema = z.array(answerFieldSchema);
 
 /**
+ * Rows already parsed, by id, each beside the row it was parsed from.
+ *
+ * Every look at the shared catalogue parsed every one of its rows through
+ * Zod: the playlists list, the launch screen, the endless mode's counts, each
+ * of them a hundred milliseconds of a single-threaded server at ten thousand
+ * rounds, spent re-checking rows that had not changed since the last look.
+ *
+ * Kept by content, not by date: a cached view is used only when every column
+ * of the row read now is identical to the one it was parsed from, so a row
+ * written by any path at all, with or without touching `last_modified`, is
+ * parsed afresh. Comparing a row's strings costs microseconds; parsing it is
+ * what cost the time.
+ */
+const parsedRows = new Map<number, { row: MediaRow; columns: number; view: MediaView }>();
+
+/**
+ * How many parsed rows to keep before starting over.
+ *
+ * Well above the catalogue's size, so a full read of it stays cached, and low
+ * enough that the map cannot grow without end on a server that keeps running.
+ */
+const MAX_PARSED_ROWS = 60_000;
+
+/**
+ * A media row as the API returns it, parsed once per version of the row.
+ *
+ * Each caller gets its own copy. Views are changed after they are handed out
+ * (a session relabels its round's answers, a correction rewrites a payload),
+ * and a change made to the cached object would reach every later reader of
+ * the row. Copying plain JSON is a tenth of the cost of parsing it.
+ */
+export function toMediaView(row: MediaRow): MediaView {
+  const cached = parsedRows.get(row.id);
+  if (cached && sameRow(cached, row)) return copied(cached.view);
+
+  const view = parseRow(row);
+  if (parsedRows.size >= MAX_PARSED_ROWS) parsedRows.clear();
+  parsedRows.set(row.id, { row: { ...row }, columns: Object.keys(row).length, view });
+  return copied(view);
+}
+
+// Plain loops in the two below: they run once per row and per value on every
+// read, and the iterator forms measured several times slower here.
+
+function sameRow(cached: { row: MediaRow; columns: number }, row: MediaRow): boolean {
+  let columns = 0;
+  for (const key in row) {
+    columns += 1;
+    if (cached.row[key as keyof MediaRow] !== row[key as keyof MediaRow]) return false;
+  }
+  return columns === cached.columns;
+}
+
+/** A deep copy of parsed JSON: plain objects, arrays and primitives only. */
+function copied<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    const copy: unknown[] = new Array(value.length);
+    for (let index = 0; index < value.length; index++) copy[index] = copied(value[index]);
+    return copy as T;
+  }
+  const copy: Record<string, unknown> = {};
+  for (const key in value) copy[key] = copied((value as Record<string, unknown>)[key]);
+  return copy as T;
+}
+
+/**
  * Rows are parsed defensively.
  *
  * A row can predate a schema change or come from the legacy migration, and one bad
@@ -53,7 +120,7 @@ const answersSchema = z.array(answerFieldSchema);
  * to the kind's default and surfaces as not-ready, which is visible in the editor
  * rather than a 500.
  */
-export function toMediaView(row: MediaRow): MediaView {
+function parseRow(row: MediaRow): MediaView {
   let answers: AnswerField[] = [];
   const parsedAnswers = answersSchema.safeParse(safeJson(row.answers));
   if (parsedAnswers.success) {

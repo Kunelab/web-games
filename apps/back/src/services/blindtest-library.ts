@@ -2,7 +2,6 @@ import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import {
   genreKeysOf,
   getMediaKind,
-  normalizeAnswer,
   withHandEdits,
   type BlindtestFame,
   type BlindtestPayload
@@ -28,6 +27,7 @@ import { refiled, underRememberedGenre } from './blindtest-refile.js';
 import { weightedSample } from './blindtest-seeds.js';
 import { playKeyOf, recentPlays } from './media-plays.js';
 import { toMediaView, type MediaView } from './media-service.js';
+import { normalizedAnswer } from './normalized-answer.js';
 
 /**
  * The library the endless blind test writes into.
@@ -91,8 +91,8 @@ export const EVERYTHING_PLAYLIST_NAME = 'Tout (généré)';
  */
 export function trackKeyOf(item: { answers: { key: string; value: string }[] }): string {
   const value = (key: string): string => item.answers.find((answer) => answer.key === key)?.value ?? '';
-  const left = normalizeAnswer(value('artist'));
-  const right = normalizeAnswer(value('title') || value('work'));
+  const left = normalizedAnswer(value('artist'));
+  const right = normalizedAnswer(value('title') || value('work'));
   return left ? `${left}::${right}` : right;
 }
 
