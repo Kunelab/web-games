@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import { brotliDecompressSync } from 'node:zlib';
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import {
   answerFieldSchema,
@@ -517,6 +517,58 @@ check(
 );
 
 await app.inject({ method: 'DELETE', url: `/api/playlists/${clonedView.id}`, headers });
+
+/* ---------------------------- database explorer --------------------------- */
+section('database explorer');
+
+{
+  const memberLook = await app.inject({ method: 'GET', url: '/api/admin/db/tables', headers });
+  check('a member cannot open the explorer', memberLook.statusCode === 403, memberLook.statusCode);
+
+  /**
+   * Promoted for this block only, on the session itself.
+   *
+   * The role is read from the session, which is why the CLI signs people out:
+   * a fresh sign-in is what copies a new role in. Signing in again here would
+   * run into the login limit the throttling checks above have just used up,
+   * so the session row gets the role a fresh sign-in would have given it, and
+   * gets it back afterwards, before anything below relies on a member.
+   */
+  const setRole = (role: string) =>
+    db
+      .update(sessions)
+      .set({ data: sql`json_set(${sessions.data}, '$.user.role', ${role})` })
+      .where(sql`json_extract(${sessions.data}, '$.user.login') = ${login}`)
+      .run();
+  setRole('super-admin');
+  const superHeaders = headers;
+
+  const tables = await app.inject({ method: 'GET', url: '/api/admin/db/tables', headers: superHeaders });
+  const listed = (JSON.parse(tables.body) as { tables?: { name: string }[] }).tables ?? [];
+  check(
+    'a super-admin lists the tables',
+    tables.statusCode === 200 && listed.some((t) => t.name === 'Users'),
+    tables.body
+  );
+
+  const people = await app.inject({ method: 'GET', url: '/api/admin/db/tables/Users', headers: superHeaders });
+  const page = JSON.parse(people.body) as { columns: { name: string }[]; rows: { cells: unknown[] }[] };
+  const at = (column: string) => page.columns.findIndex((candidate) => candidate.name === column);
+  const mine = page.rows.find((row) => row.cells[at('login')] === login);
+  check('and reads usernames', mine !== undefined, people.body.slice(0, 300));
+  check('but never an e-mail address', !people.body.includes('@example.com'), mine?.cells[at('email')]);
+
+  const sorted = await app.inject({
+    method: 'GET',
+    url: '/api/admin/db/tables/Users?sort=email',
+    headers: superHeaders
+  });
+  check('nor sorts by one', sorted.statusCode === 400, sorted.statusCode);
+
+  setRole('member');
+  const demoted = await app.inject({ method: 'GET', url: '/api/admin/db/tables', headers });
+  check('and the role goes with the session', demoted.statusCode === 403, demoted.statusCode);
+}
 
 /* --------------------------- cross-user isolation ------------------------- */
 section('isolation');

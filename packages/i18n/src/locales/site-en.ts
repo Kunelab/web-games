@@ -33,6 +33,7 @@ export const siteEn = {
   "site.account.language": "Language",
   "site.account.settings": "⚙️ Settings",
   "site.account.signOut": "🚪 Sign out",
+  "site.account.database": "🗄️ Database",
 
   /* ------------------------------ the front page ---------------------------- */
   "site.home.title": "Three games, one room, everybody’s phone.",
@@ -146,6 +147,19 @@ export const siteEn = {
   "site.notFound.title": "Page not found",
   "site.notFound.lede":
     "This link leads nowhere. The menu at the top gets you back to familiar ground.",
+
+  /* The database explorer, for the super-admin. */
+  "dbx.title": "Database",
+  "dbx.lede":
+    "Every table, read only. Personal data and secrets are masked: of a person, only the username shows.",
+  "dbx.tables": "Tables",
+  "dbx.rows": "{count} row(s)",
+  "dbx.pick": "Pick a table to see its rows.",
+  "dbx.empty": "This table is empty.",
+  "dbx.masked": "Masked",
+  "dbx.sortBy": "Sort by {column}",
+  "dbx.row": "{table} · row {rowid}",
+  "dbx.close": "Close",
 } satisfies Catalogue;
 
 export default siteEn;

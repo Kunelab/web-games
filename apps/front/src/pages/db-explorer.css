@@ -1,0 +1,174 @@
+/* The database explorer: the tables down one side, a page of rows beside them. */
+
+.dbx {
+  display: grid;
+  grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.dbx-tables {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: var(--space-4);
+  max-height: calc(100vh - 2 * var(--space-4));
+  overflow-y: auto;
+}
+
+.dbx-table {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dbx-table:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+.dbx-table.on {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.dbx-table-name {
+  overflow-wrap: anywhere;
+}
+
+.dbx-table-count,
+.dbx-total {
+  color: var(--ink-faint);
+  font-size: var(--text-xs);
+}
+
+.dbx-main {
+  min-width: 0;
+}
+
+/* Wide tables scroll inside their own box, never the page. */
+.dbx-grid {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  margin-block-end: var(--space-4);
+}
+
+.dbx-grid.is-loading {
+  opacity: 0.6;
+}
+
+.dbx-grid table {
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  width: 100%;
+}
+
+.dbx-grid th,
+.dbx-grid td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+  max-width: 28rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dbx-grid thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-raised);
+}
+
+.dbx-grid tbody tr {
+  cursor: pointer;
+}
+
+.dbx-grid tbody tr:hover,
+.dbx-grid tbody tr:focus-visible {
+  background: var(--bg-hover);
+}
+
+.dbx-head {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+span.dbx-head {
+  color: var(--ink-faint);
+  cursor: default;
+}
+
+.dbx-null {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.dbx-masked {
+  color: var(--ink-faint);
+  letter-spacing: 0.1em;
+}
+
+/* One row, a column per line. */
+.dbx-row {
+  display: grid;
+  gap: var(--space-2);
+  max-height: 65vh;
+  overflow-y: auto;
+  margin: 0;
+}
+
+.dbx-row-field {
+  display: grid;
+  gap: 2px;
+}
+
+.dbx-row dt {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+
+.dbx-row dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.dbx-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
+@media (max-width: 720px) {
+  .dbx {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The tables become a strip that wraps above the rows. */
+  .dbx-tables {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    max-height: none;
+  }
+}

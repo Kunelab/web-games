@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 
 import { api } from '../api/client';
-import { useAuth } from '../hooks/useAuth';
+import { isSuperAdmin, useAuth } from '../hooks/useAuth';
 import { useT } from '../i18n/locale-context';
 import { ChevronDown, PortalContainerProvider } from '../ui';
 import AccountMenu from './AccountMenu';
@@ -75,7 +75,12 @@ export function AtelierShell() {
 
             <div className="topbar-end">
               {user ? (
-                <AccountMenu login={user.login} container={shell} onLogout={() => void logout()} />
+                <AccountMenu
+                  login={user.login}
+                  superAdmin={isSuperAdmin(user)}
+                  container={shell}
+                  onLogout={() => void logout()}
+                />
               ) : (
                 <NavLink to="/connexion" className="navlink">
                   {t(msg('site.nav.signIn'))}

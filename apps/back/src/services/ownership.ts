@@ -8,6 +8,16 @@ export function isAdmin(user: SessionUser): boolean {
 }
 
 /**
+ * The one role above admin, and what it alone opens: the database explorer.
+ *
+ * Granted only from the shell, like every role (see `cli/admin.ts`), so no
+ * request can make an account one.
+ */
+export function isSuperAdmin(user: SessionUser): boolean {
+  return user.role === 'super-admin';
+}
+
+/**
  * Replaces the old `checkUserRole(req)` helper. Admins see every row, everyone
  * else is scoped to their own; returning `undefined` for admins lets the caller
  * drop it straight into `and(...)`.

@@ -20,6 +20,7 @@ const Playlists = lazy(() => import('../pages/Playlists'));
 const PlaylistEditor = lazy(() => import('../pages/PlaylistEditor'));
 const Launch = lazy(() => import('../pages/Launch'));
 const History = lazy(() => import('../pages/History'));
+const DbExplorer = lazy(() => import('../pages/DbExplorer'));
 const CoronaZSetup = lazy(() => import('../pages/zombie/CoronaZSetup'));
 const CoronaZTv = lazy(() => import('../pages/zombie/CoronaZTv'));
 const CoronaZPlayer = lazy(() => import('../pages/zombie/CoronaZPlayer'));
@@ -143,6 +144,16 @@ const router = createBrowserRouter([
         element: (
           <RequireAuth>
             <History />
+          </RequireAuth>
+        )
+      },
+      {
+        // Offered to super-admins only; anyone else who types the address is
+        // refused by the API, and the page says so.
+        path: '/base-de-donnees',
+        element: (
+          <RequireAuth>
+            <DbExplorer />
           </RequireAuth>
         )
       },

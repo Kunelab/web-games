@@ -23,3 +23,8 @@ export function useAuth(): AuthValue {
 export function isAdmin(user: AuthUser | null | undefined): boolean {
   return user?.role === 'admin' || user?.role === 'super-admin';
 }
+
+/** Mirrors `isSuperAdmin` in the API: the one role that opens the database explorer. */
+export function isSuperAdmin(user: AuthUser | null | undefined): boolean {
+  return user?.role === 'super-admin';
+}

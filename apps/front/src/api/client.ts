@@ -160,6 +160,38 @@ export interface Playlist {
   notReadyCount: number;
 }
 
+/**
+ * One cell from the database explorer. Masked is a value of its own, never a
+ * string that could be read as data; a long text comes as its start and length.
+ */
+export type DbCell = null | number | string | { masked: true } | { preview: string; length: number } | { blob: number };
+
+export interface DbColumn {
+  name: string;
+  type: string;
+  masked: boolean;
+}
+
+export interface DbTable {
+  name: string;
+  rows: number;
+  columns: DbColumn[];
+}
+
+export interface DbRow {
+  rowid: number;
+  cells: DbCell[];
+}
+
+export interface DbPage {
+  table: string;
+  columns: DbColumn[];
+  total: number;
+  page: number;
+  pageSize: number;
+  rows: DbRow[];
+}
+
 /** A playlist as the lists get it: its rounds counted, not sent. */
 export type PlaylistSummary = Omit<Playlist, 'items'> & { itemCount: number };
 
@@ -411,6 +443,18 @@ export const api = {
       method: 'POST',
       body: { playlistRef, category }
     }),
+
+  /* the database explorer, super-admin only */
+  dbTables: () => request<{ tables: DbTable[] }>('/admin/db/tables'),
+  dbPage: (table: string, options: { page: number; sort?: string; direction: 'asc' | 'desc' }) => {
+    const query = new URLSearchParams({ page: String(options.page), direction: options.direction });
+    if (options.sort) query.set('sort', options.sort);
+    return request<DbPage>(`/admin/db/tables/${encodeURIComponent(table)}?${query.toString()}`);
+  },
+  dbRow: (table: string, rowid: number) =>
+    request<{ table: string; columns: DbColumn[]; row: DbRow }>(
+      `/admin/db/tables/${encodeURIComponent(table)}/rows/${rowid}`
+    ),
 
   /* playlists */
   listPlaylists: () => request<PlaylistSummary[]>('/playlists'),

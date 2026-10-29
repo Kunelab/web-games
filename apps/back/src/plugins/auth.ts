@@ -1,6 +1,8 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 
+import { isSuperAdmin } from '../services/ownership.js';
+
 /**
  * Provides `app.requireAuth`, the replacement for the old `isAuthenticated`
  * Express middleware. Beyond returning 401 it also copies the session user onto
@@ -14,7 +16,7 @@ export default fp(
     // is set per request by requireAuth below.
     app.decorateRequest('currentUser');
 
-    app.decorate('requireAuth', async function requireAuth(request: FastifyRequest, _reply: FastifyReply) {
+    async function requireAuth(request: FastifyRequest, _reply: FastifyReply) {
       const user = request.session?.user;
 
       if (!user) {
@@ -24,6 +26,21 @@ export default fp(
       }
 
       request.currentUser = user;
+    }
+
+    app.decorate('requireAuth', requireAuth);
+
+    /**
+     * `requireAuth`, then 403 for anyone below super-admin, admins included.
+     *
+     * Read from the session like every role check, so a grant from the CLI
+     * applies at the next sign-in, which is when the CLI's sign-out sends them.
+     */
+    app.decorate('requireSuperAdmin', async function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) {
+      await requireAuth(request, reply);
+      if (!isSuperAdmin(request.currentUser)) {
+        throw app.httpErrors.forbidden('Réservé au super-administrateur');
+      }
     });
   },
   { name: 'auth', dependencies: ['@fastify/sensible'] }

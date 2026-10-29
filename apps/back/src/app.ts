@@ -20,6 +20,7 @@ import { MafiaManager } from './mafia/manager.js';
 import authPlugin from './plugins/auth.js';
 import { QuickplayManager } from './quickplay/manager.js';
 import { registerRealtime } from './realtime/index.js';
+import adminDbRoutes from './routes/admin-db.js';
 import bugRoutes from './routes/bugs.js';
 import lobbyRoutes from './routes/lobbies.js';
 import lockerRoutes from './routes/locker.js';
@@ -198,6 +199,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(lobbyRoutes);
       await api.register(lockerRoutes);
       await api.register(bugRoutes);
+      await api.register(adminDbRoutes);
     },
     { prefix: '/api' }
   );

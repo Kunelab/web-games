@@ -40,10 +40,13 @@ const LANGUAGES = [
 
 export default function AccountMenu({
   login,
+  superAdmin = false,
   container,
   onLogout
 }: {
   login: string;
+  /** Offers the database explorer, which the API refuses to anyone else anyway. */
+  superAdmin?: boolean;
   container: HTMLElement | null;
   onLogout: () => void;
 }) {
@@ -131,6 +134,11 @@ export default function AccountMenu({
       <NavLink to="/compte" role="menuitem" className="accountmenu-item" onClick={() => setOpen(false)}>
         {t(msg('site.account.settings'))}
       </NavLink>
+      {superAdmin && (
+        <NavLink to="/base-de-donnees" role="menuitem" className="accountmenu-item" onClick={() => setOpen(false)}>
+          {t(msg('site.account.database'))}
+        </NavLink>
+      )}
       <button type="button" role="menuitem" className="accountmenu-item" onClick={onLogout}>
         {t(msg('site.account.signOut'))}
       </button>

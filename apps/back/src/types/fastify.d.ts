@@ -45,6 +45,8 @@ declare module 'fastify' {
      * route-level `preHandler`.
      */
     requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    /** `requireAuth`, plus 403 for anyone who is not a super-admin. */
+    requireSuperAdmin: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 
   interface FastifyRequest {

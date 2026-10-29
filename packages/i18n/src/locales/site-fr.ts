@@ -30,6 +30,7 @@ export const siteFr: TranslationOf<typeof siteEn> = {
   "site.account.language": "Langue",
   "site.account.settings": "⚙️ Réglages",
   "site.account.signOut": "🚪 Déconnexion",
+  "site.account.database": "🗄️ Base de données",
 
   /* ------------------------------- l’accueil -------------------------------- */
   "site.home.title": "Trois jeux, un salon, des téléphones.",
@@ -141,6 +142,19 @@ export const siteFr: TranslationOf<typeof siteEn> = {
   "site.notFound.title": "Page introuvable",
   "site.notFound.lede":
     "Ce lien ne mène à rien. Le menu en haut ramène en terrain connu.",
+
+  /* L’explorateur de la base, pour le super-administrateur. */
+  "dbx.title": "Base de données",
+  "dbx.lede":
+    "Toutes les tables, en lecture seule. Les données personnelles et les secrets sont masqués : d’une personne, seul le pseudo apparaît.",
+  "dbx.tables": "Tables",
+  "dbx.rows": "{count} ligne(s)",
+  "dbx.pick": "Choisis une table pour voir ses lignes.",
+  "dbx.empty": "Cette table est vide.",
+  "dbx.masked": "Masqué",
+  "dbx.sortBy": "Trier par {column}",
+  "dbx.row": "{table} · ligne {rowid}",
+  "dbx.close": "Fermer",
 };
 
 export default siteFr;

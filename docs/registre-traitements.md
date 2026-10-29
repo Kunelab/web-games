@@ -157,6 +157,14 @@ aucune revente, aucun partage à des fins marketing.
 - Invalidation de toutes les sessions d'un compte au changement ou à la
   réinitialisation de son mot de passe, et au changement de rôle
 - Jetons de réinitialisation stockés hachés, à usage unique, expirant en 1 heure
+- Explorateur de la base réservé au rôle `super-admin`, accordé uniquement en
+  ligne de commande sur le serveur (`apps/back/src/cli/admin.ts`) : lecture
+  seule (connexion SQLite ouverte en lecture), données personnelles et secrets
+  masqués avant de quitter le serveur (seul le pseudo d'une personne est
+  visible ; adresse email, empreinte de mot de passe, dates de compte,
+  identifiants de session, jetons et navigateur ne le sont pas), chaque
+  consultation journalisée avec l'identifiant de son auteur
+  (`apps/back/src/services/db-explorer.ts`)
 - CORS sur liste blanche d'origines
 - Sauvegardes dans `/data/backups`
 
