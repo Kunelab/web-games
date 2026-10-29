@@ -1,6 +1,6 @@
 import { defaultSessionConfig, type SessionConfig } from 'game-core';
 import { msg } from 'i18n';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import QRCode from 'react-qr-code';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -52,7 +52,7 @@ export default function Launch({ source = 'playlist' }: { source?: LaunchSource 
   // `useAsync` is given something that resolves rather than a conditional hook.
   // Asked for as a game would deal it, so the counts below are the room's.
   const playlist = useAsync(
-    () => (isBlindtest ? Promise.resolve(null) : api.getPlaylist(playlistId, { forPlay: true })),
+    () => (isBlindtest ? Promise.resolve(null) : api.getPlaylistForPlay(playlistId)),
     [playlistId, isBlindtest]
   );
 
@@ -75,6 +75,17 @@ export default function Launch({ source = 'playlist' }: { source?: LaunchSource 
     hostToken: string;
     skipped: { title: string; missing: string[] }[];
   } | null>(null);
+
+  /**
+   * What the filter keeps, and whether there is anything to filter.
+   *
+   * Once per filter rather than once per render: each is a pass over every
+   * round, and on the catalogue that is thousands of them for every key typed
+   * into the room's name.
+   */
+  const items = playlist.data?.items;
+  const kept = useMemo(() => (items ? playlistSelection(items, filter).kept : 0), [items, filter]);
+  const narrowable = useMemo(() => (items ? hasChoices(items) : false), [items]);
 
   async function start() {
     setStarting(true);
@@ -114,8 +125,6 @@ export default function Launch({ source = 'playlist' }: { source?: LaunchSource 
   /** What this room is playing, in the reader's words. Also the unnamed room's name. */
   const subject = isBlindtest ? t(msg('launch.blindtest')) : (playlist.data?.name ?? t(msg('launch.backPlaylist')));
   const ready = playlist.data ? playlist.data.items.length - playlist.data.notReadyCount : 0;
-  /** What the filter keeps of the playlist: the start button's count on this side. */
-  const kept = playlist.data ? playlistSelection(playlist.data.items, filter).kept : 0;
 
   if (started) {
     const url = joinUrl(started.code);
@@ -229,7 +238,7 @@ export default function Launch({ source = 'playlist' }: { source?: LaunchSource 
 
       {/* A quiz of twenty with one category and no difficulty has nothing to
           narrow, and is not asked. */}
-      {!isBlindtest && playlist.data && hasChoices(playlist.data.items) && (
+      {!isBlindtest && playlist.data && narrowable && (
         <div className="editor-section">
           <h2 className="editor-section-title">{t(msg('launch.filter.title'))}</h2>
           <PlaylistSource items={playlist.data.items} value={filter} onChange={setFilter} />

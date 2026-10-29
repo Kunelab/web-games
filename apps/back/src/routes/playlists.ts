@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { withoutHiddenDuplicates } from '../services/blindtest-duplicates.js';
 import { EVERYTHING_PLAYLIST_NAME } from '../services/blindtest-library.js';
+import type { MediaView } from '../services/media-service.js';
 import { PLAYLIST_BODY_LIMIT, playlistInputSchema, playlistService } from '../services/playlist-service.js';
 import { idParamSchema } from './schemas.js';
 
@@ -10,12 +11,10 @@ const playlistRoutes: FastifyPluginAsyncZod = async (app) => {
   app.addHook('preHandler', app.requireAuth);
 
   /**
-   * Playlists visible to the caller, contents included.
+   * Playlists visible to the caller, their contents counted rather than sent.
    *
-   * There is no separate "full" variant any more. The old API had `/playlists` and
-   * `/playlists/full` returning different shapes, and every caller used the full
-   * one; with a single media table the join is cheap enough that splitting them
-   * bought nothing.
+   * Every caller is a list that shows a count; the one that needs the rounds,
+   * the editor, asks for its playlist by id. See `PlaylistSummary`.
    */
   app.get('/playlists', async (request) => {
     return playlistService.list(request.currentUser.id);
@@ -27,6 +26,11 @@ const playlistRoutes: FastifyPluginAsyncZod = async (app) => {
    * `forPlay` asks for what a game would deal: possible duplicates waiting for
    * an admin are left out, so the launch screen counts the rounds the room will
    * actually get. The editor asks without it and sees everything.
+   *
+   * And only what the launch screen filters by, which is a genre, a difficulty
+   * and whether the round can be played. The game is dealt from the server's
+   * own copy, so the answers and the clip never had to come this way, and on
+   * the catalogue they were nearly all of a response measured in megabytes.
    */
   app.get(
     '/playlists/:id',
@@ -48,7 +52,11 @@ const playlistRoutes: FastifyPluginAsyncZod = async (app) => {
       }
       if (!request.query.forPlay) return playlist;
       const items = await withoutHiddenDuplicates(playlist.items);
-      return { ...playlist, items, notReadyCount: items.filter((item) => !item.readiness.ready).length };
+      return {
+        ...playlist,
+        items: items.map(selectable),
+        notReadyCount: items.filter((item) => !item.readiness.ready).length
+      };
     }
   );
 
@@ -118,5 +126,19 @@ const playlistRoutes: FastifyPluginAsyncZod = async (app) => {
     return reply.code(204).send();
   });
 };
+
+/** What the launch screen's filter reads of a round. See `Selectable` in the front. */
+function selectable(item: MediaView) {
+  const payload = (item.payload ?? {}) as { difficulty?: unknown; alsoIn?: unknown };
+  return {
+    id: item.id,
+    category: item.category,
+    payload: {
+      ...(typeof payload.difficulty === 'number' ? { difficulty: payload.difficulty } : {}),
+      ...(Array.isArray(payload.alsoIn) ? { alsoIn: payload.alsoIn as unknown[] } : {})
+    },
+    readiness: { ready: item.readiness.ready }
+  };
+}
 
 export default playlistRoutes;

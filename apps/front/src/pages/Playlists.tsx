@@ -2,7 +2,7 @@ import { msg } from 'i18n';
 import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
-import { api, type Playlist } from '../api/client';
+import { api, type PlaylistSummary } from '../api/client';
 import { kindColor, kindName } from '../app/kinds';
 import { useAsync } from '../hooks/useAsync';
 import { useAuth } from '../hooks/useAuth';
@@ -60,7 +60,7 @@ export default function Playlists() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<Playlist | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PlaylistSummary | null>(null);
   /** The playlist being copied, so only its own button shows the pending state. */
   const [duplicating, setDuplicating] = useState<number | null>(null);
   /** Two taps to end a game, since one tap would end somebody's evening. */
@@ -94,7 +94,7 @@ export default function Playlists() {
    * items, because the media belongs to its author. Saying so is better than
    * handing over an empty playlist and letting them work out why.
    */
-  async function duplicate(playlist: Playlist) {
+  async function duplicate(playlist: PlaylistSummary) {
     setDuplicating(playlist.id);
     setNotice(null);
     try {
@@ -270,10 +270,10 @@ function PlaylistGrid({
   onDuplicate,
   onDelete
 }: {
-  playlists: Playlist[];
+  playlists: PlaylistSummary[];
   duplicating: number | null;
-  onDuplicate: (playlist: Playlist) => void;
-  onDelete?: (playlist: Playlist) => void;
+  onDuplicate: (playlist: PlaylistSummary) => void;
+  onDelete?: (playlist: PlaylistSummary) => void;
 }) {
   const t = useT();
   const paged = usePaged(playlists, CARD_PAGE_SIZE);
@@ -282,7 +282,7 @@ function PlaylistGrid({
     <>
       <ul className="playlist-grid" ref={gridRef}>
         {paged.pageItems.map((playlist) => {
-          const playable = playlist.items.length - playlist.notReadyCount;
+          const playable = playlist.itemCount - playlist.notReadyCount;
 
           return (
             <li className="playlist-card" key={playlist.id}>
@@ -308,9 +308,9 @@ function PlaylistGrid({
               </div>
 
               <p className="playlist-meta">
-                {playlist.items.length === 0
+                {playlist.itemCount === 0
                   ? t(msg('pl.emptyMeta'))
-                  : t(msg('pl.mediaCount', { count: playlist.items.length }))}
+                  : t(msg('pl.mediaCount', { count: playlist.itemCount }))}
                 {playlist.owner && ` · ${playlist.owner.login ?? ''}`}
                 {playlist.public && t(msg('pl.publicMeta'))}
               </p>
@@ -328,7 +328,7 @@ function PlaylistGrid({
               <div className="playlist-card-foot">
                 {playlist.notReadyCount > 0 ? (
                   <Badge tone="warn">{t(msg('pl.toFinish', { count: playlist.notReadyCount }))}</Badge>
-                ) : playlist.items.length > 0 ? (
+                ) : playlist.itemCount > 0 ? (
                   <Badge tone="ok">{t(msg('pl.ready'))}</Badge>
                 ) : (
                   <span />

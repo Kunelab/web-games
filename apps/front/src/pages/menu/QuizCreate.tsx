@@ -2,7 +2,7 @@ import { msg } from 'i18n';
 import { useRef } from 'react';
 import { Link } from 'react-router';
 
-import { api, type Playlist } from '../../api/client';
+import { api, type PlaylistSummary } from '../../api/client';
 import { gameEntry } from '../../app/games';
 import { kindColor, kindName } from '../../app/kinds';
 import { useAuth } from '../../hooks/useAuth';
@@ -94,7 +94,7 @@ function Shelf({
   title: string;
   empty: string;
   action?: React.ReactNode;
-  playlists: Playlist[];
+  playlists: PlaylistSummary[];
 }) {
   const t = useT();
   const paged = usePaged(playlists, CARD_PAGE_SIZE);
@@ -108,7 +108,7 @@ function Shelf({
       ) : (
         <div className="menu-grid" ref={gridRef}>
           {paged.pageItems.map((playlist) => {
-            const ready = playlist.items.length - playlist.notReadyCount;
+            const ready = playlist.itemCount - playlist.notReadyCount;
             return (
               <Link
                 key={playlist.id}

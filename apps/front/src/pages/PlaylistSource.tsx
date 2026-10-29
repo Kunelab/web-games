@@ -2,12 +2,19 @@ import { genreKeysOf, mediaDifficulty } from 'game-core';
 import { msg } from 'i18n';
 import { useMemo } from 'react';
 
-import { api, type MediaItem } from '../api/client';
+import { api } from '../api/client';
 import { useAsync } from '../hooks/useAsync';
 import { useT } from '../i18n/locale-context';
 import { Field, Select, Switch } from '../ui';
 import { DifficultySlider } from './BlindtestSource';
-import { LENGTHS, ordered, playlistSelection, windowOf, type PlaylistFilter } from './playlist-selection';
+import {
+  LENGTHS,
+  ordered,
+  playlistSelection,
+  windowOf,
+  type PlaylistFilter,
+  type Selectable
+} from './playlist-selection';
 import './blindtest.css';
 
 /**
@@ -36,7 +43,7 @@ export function PlaylistSource({
   value,
   onChange
 }: {
-  items: readonly MediaItem[];
+  items: readonly Selectable[];
   value: PlaylistFilter;
   onChange: (next: PlaylistFilter) => void;
 }) {
@@ -95,7 +102,7 @@ export function PlaylistSource({
     return result;
   }, [ready, value]);
 
-  const { kept } = playlistSelection(items, value);
+  const { kept } = useMemo(() => playlistSelection(items, value), [items, value]);
 
   function setExcluded(next: Set<string>) {
     onChange({ ...value, excluded: next });

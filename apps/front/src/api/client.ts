@@ -160,6 +160,20 @@ export interface Playlist {
   notReadyCount: number;
 }
 
+/** A playlist as the lists get it: its rounds counted, not sent. */
+export type PlaylistSummary = Omit<Playlist, 'items'> & { itemCount: number };
+
+/** A round as the launch screen gets it: only what its filter reads. */
+export interface PlayableItem {
+  id: number;
+  category: string | null;
+  payload: { difficulty?: number; alsoIn?: string[] };
+  readiness: { ready: boolean };
+}
+
+/** A playlist about to be played: what a game would deal, as `PlayableItem`s. */
+export type PlayablePlaylist = Omit<Playlist, 'items'> & { items: PlayableItem[] };
+
 export interface MediaInputBody {
   kind: string;
   title: string;
@@ -399,10 +413,10 @@ export const api = {
     }),
 
   /* playlists */
-  listPlaylists: () => request<Playlist[]>('/playlists'),
-  /** `forPlay` leaves out what a game would not deal: possible duplicates awaiting review. */
-  getPlaylist: (id: number, options: { forPlay?: boolean } = {}) =>
-    request<Playlist>(`/playlists/${id}${options.forPlay ? '?forPlay=1' : ''}`),
+  listPlaylists: () => request<PlaylistSummary[]>('/playlists'),
+  getPlaylist: (id: number) => request<Playlist>(`/playlists/${id}`),
+  /** Leaves out what a game would not deal: possible duplicates awaiting review. */
+  getPlaylistForPlay: (id: number) => request<PlayablePlaylist>(`/playlists/${id}?forPlay=1`),
   createPlaylist: (body: { name: string; public?: boolean; mediaIds?: number[] }) =>
     request<Playlist>('/playlists', { method: 'POST', body }),
   updatePlaylist: (

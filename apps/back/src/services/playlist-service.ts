@@ -64,6 +64,20 @@ export interface PlaylistView {
 }
 
 /**
+ * A playlist as a list of playlists shows it: its contents counted, not sent.
+ *
+ * The lists read a name, an owner, a count and the counts by kind, and nothing
+ * of any round. Sending the rounds meant the shared catalogue, public and so
+ * in every member's list, went out whole each time somebody opened the quiz
+ * menu: megabytes of answers and fame evidence for one number on a card.
+ */
+export type PlaylistSummary = Omit<PlaylistView, 'items'> & { itemCount: number };
+
+function summarise({ items, ...playlist }: PlaylistView): PlaylistSummary {
+  return { ...playlist, itemCount: items.length };
+}
+
+/**
  * Loads playlists with their contents.
  *
  * Four flat queries and an in-memory stitch. The polymorphic version needed a
@@ -163,9 +177,9 @@ function visibleTo(userId: number) {
 }
 
 export const playlistService = {
-  async list(userId: number): Promise<PlaylistView[]> {
+  async list(userId: number): Promise<PlaylistSummary[]> {
     const rows = await db.select().from(playlists).where(visibleTo(userId));
-    return attachItems(rows);
+    return (await attachItems(rows)).map(summarise);
   },
 
   async getById(id: number, userId: number): Promise<PlaylistView | undefined> {
