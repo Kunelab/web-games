@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import compress from '@fastify/compress';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
@@ -80,6 +81,24 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.setSerializerCompiler(serializerCompiler);
 
   await app.register(sensible);
+
+  /**
+   * Responses compressed here rather than left to the proxy in front.
+   *
+   * The Kune box's Apache gzips by content type, and its list is the stock
+   * one: HTML, CSS and JavaScript, not `application/json`. So every API
+   * response went out raw, the shared catalogue's megabytes included, while
+   * the page around them was compressed. Doing it in the app makes it true
+   * wherever the image runs, and a proxy leaves a response that already says
+   * how it is encoded alone.
+   *
+   * Brotli first, gzip for anything that does not ask for it. Brotli at the
+   * plugin's quality 4, not the maximum: these are compressed per request,
+   * and 11 costs many times the CPU for a few percent. Registered before the
+   * routes, which is when the plugin attaches itself to them, and so before
+   * the static frontend as well.
+   */
+  await app.register(compress, { encodings: ['br', 'gzip'] });
 
   app.log.info({ allowedOrigins }, 'CORS allow-list');
 

@@ -7,6 +7,7 @@
  * file directly would write to whatever DATABASE_FILE points at.
  */
 import assert from 'node:assert/strict';
+import { brotliDecompressSync } from 'node:zlib';
 
 import { eq } from 'drizzle-orm';
 
@@ -698,6 +699,22 @@ clearAssets();
 
 const items = await app.inject({ method: 'GET', url: `/api/playlists/${playlistView.id}`, headers });
 const playable = (JSON.parse(items.body) as { items: MediaView[] }).items;
+
+/**
+ * JSON is compressed by the app. The proxy in front only compresses the types
+ * on its own list, and `application/json` was not on it.
+ */
+const squeezed = await app.inject({
+  method: 'GET',
+  url: `/api/playlists/${playlistView.id}`,
+  headers: { ...headers, 'accept-encoding': 'br, gzip' }
+});
+check('the API answers in brotli when asked', squeezed.headers['content-encoding'] === 'br', squeezed.headers);
+check(
+  'and it unpacks to the same response',
+  brotliDecompressSync(squeezed.rawPayload).toString() === items.body,
+  squeezed.rawPayload.length
+);
 
 const state = createSession({
   playlistName: 'test',
