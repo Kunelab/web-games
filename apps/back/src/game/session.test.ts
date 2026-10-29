@@ -15,6 +15,7 @@ import {
   correctPayloadNumbers,
   libraryCodeOf,
   holdRound,
+  nextClipOf,
   closeAnswers,
   createSession,
   expireBuzzWindow,
@@ -25,6 +26,7 @@ import {
   resolveBuzzRace,
   submitAnswer,
   toRoundView,
+  toSessionView,
   upcomingMediaId,
   type SessionState
 } from './session.js';
@@ -688,6 +690,89 @@ describe('the round a room will play next', () => {
     }
 
     assert.deepEqual(dealt, [...state.order, null]);
+  });
+});
+
+describe('a round everybody is done with', () => {
+  it('closes on the last answer anybody had left to give', () => {
+    const { state, ids } = playing(['Ana', 'Bo'], { buzzer: false });
+    const [ana, bo] = ids as [string, string];
+
+    answer(state, ana, 'title', 'Dune', 1_500);
+    answer(state, ana, 'year', '1984', 1_600);
+    answer(state, bo, 'title', 'Dune', 1_700);
+    assert.equal(state.round?.phase, 'answering', 'Bo still has the year to find');
+
+    const last = answer(state, bo, 'year', '1984', 1_800);
+    assert.equal(last.closed, true);
+    assert.equal(state.round?.phase, 'reveal');
+    assert.ok((state.round?.scored?.[bo] ?? 0) > 0, 'scored as at any other close');
+  });
+
+  it('counts a player out of tries as done', () => {
+    const { state, ids } = playing(['Ana', 'Bo'], { buzzer: false, attemptsPerField: 1 });
+    const [ana, bo] = ids as [string, string];
+
+    answer(state, ana, 'title', 'Dune', 1_500);
+    answer(state, ana, 'year', '1984', 1_600);
+    answer(state, bo, 'title', 'Alien', 1_700);
+    assert.equal(state.round?.phase, 'answering');
+
+    answer(state, bo, 'title', 'Blade Runner', 1_800);
+    assert.equal(state.round?.phase, 'reveal');
+  });
+
+  it('does not wait on a phone that has dropped out', () => {
+    const { state, ids } = playing(['Ana', 'Bo'], { buzzer: false });
+    const [ana, bo] = ids as [string, string];
+    state.players[bo].connected = false;
+
+    answer(state, ana, 'title', 'Dune', 1_500);
+    const last = answer(state, ana, 'year', '1984', 1_600);
+
+    assert.equal(last.closed, true);
+    assert.equal(state.round?.phase, 'reveal');
+  });
+});
+
+describe('the next clip', () => {
+  const clip = (overrides: Record<string, unknown> = {}) => ({
+    code: 'dQw4w9WgXcQ',
+    startGuess: 80,
+    endGuess: 100,
+    startReveal: 99,
+    endReveal: 109,
+    volume: 70,
+    ...overrides
+  });
+
+  it('is the window the room will hear of it', () => {
+    assert.deepEqual(nextClipOf(media({ kind: 'blindtest', payload: clip() })), {
+      code: 'dQw4w9WgXcQ',
+      start: 85,
+      end: 100,
+      volume: 70
+    });
+  });
+
+  it('is nothing for a round that is not a clip', () => {
+    assert.equal(nextClipOf(media()), null);
+    assert.equal(nextClipOf(media({ kind: 'blindtest', payload: clip({ code: '' }) })), null);
+    assert.equal(nextClipOf(undefined), null);
+  });
+
+  it('reaches the stages during the reveal and not before', () => {
+    const { state, ids } = playing(['Ana'], { buzzer: false, tv: false }, media({ kind: 'blindtest', payload: clip() }));
+    const next = nextClipOf(media({ kind: 'blindtest', payload: clip({ code: 'W3q8Od5qJio' }) }));
+
+    const guessing = toSessionView(state, ids[0] ?? null, false, CONTEXT, '', null, next);
+    assert.equal(guessing.stageRound?.next, undefined);
+
+    closeAnswers(state, 2_000);
+    const revealing = toSessionView(state, ids[0] ?? null, false, CONTEXT, '', null, next);
+    assert.equal(revealing.stageRound?.next?.code, 'W3q8Od5qJio');
+    const host = toSessionView(state, null, true, CONTEXT, '', null, next);
+    assert.equal(host.hostRound?.next?.code, 'W3q8Od5qJio');
   });
 });
 

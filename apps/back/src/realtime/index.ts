@@ -923,8 +923,11 @@ export function registerRealtime(
        * way the deadline the server is waiting on has just changed — so the timer
        * has to be re-armed or the round would sit on a window that no longer
        * exists. `afterTransition` does all three.
+       *
+       * And so does the answer that was the last one anybody had left to give,
+       * in either format: the round has just closed under the whole room.
        */
-      if (isBuzzerRound(state)) {
+      if (isBuzzerRound(state) || result.closed) {
         void games.afterTransition(state);
         return;
       }

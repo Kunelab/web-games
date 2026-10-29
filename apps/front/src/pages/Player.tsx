@@ -155,6 +155,7 @@ export default function Player() {
             }
             payload={session.stageRound?.payload}
             phase={session.stageRound?.phase ?? ''}
+            next={session.stageRound?.next}
           />
         )}
 

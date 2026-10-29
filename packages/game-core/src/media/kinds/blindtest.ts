@@ -168,20 +168,62 @@ export function withHandEdits(previous: unknown, next: BlindtestPayload): Blindt
   return merged;
 }
 
-/** The timing schema's own bounds, so a derived duration cannot fall outside them. */
+/** The shortest round the timing schema allows, so a derived one cannot fall below it. */
 const MIN_ANSWER_MS = 3_000;
-const MAX_ANSWER_MS = 600_000;
 
 /**
- * How long the excerpt runs, in milliseconds, clamped to something playable.
+ * The most a room hears of the guess window, in seconds: its last fifteen.
  *
- * The payload guarantees the window is at least one second wide and at most a
- * day, neither of which is a round: a one second clip needs a moment to answer
- * in even after it has stopped, and nobody is playing a six hour round.
+ * The window is cut from the front and keeps its end. Drawn windows are placed
+ * to finish where the chorus starts, so the seconds that go are the ones
+ * furthest from it, and what is left is the build-up into the part people
+ * know. A round of twenty seconds was mostly a room waiting for the hook.
+ */
+export const BLINDTEST_GUESS_SECONDS = 15;
+
+/**
+ * The most a room hears of the reveal window, in seconds: its first five.
+ *
+ * Cut from the back, so the reveal still lands on the moment it was placed
+ * on. It is long enough to hear that the answer was right and short enough
+ * that the next song comes before anybody reaches for their phone.
+ */
+export const BLINDTEST_REVEAL_SECONDS = 5;
+
+export interface ClipWindows {
+  startGuess: number;
+  endGuess: number;
+  startReveal: number;
+  endReveal: number;
+}
+
+/**
+ * The windows a room actually hears, cut down from the authored ones.
+ *
+ * Applied where the clip is played and where the round is timed, never to
+ * what is stored: the author's window stays what they set, so the editor and
+ * the host's correction form keep showing and saving it whole, and changing
+ * either limit here changes every round without rewriting a row.
+ */
+export function playedWindows(windows: ClipWindows): ClipWindows {
+  return {
+    startGuess: Math.max(windows.startGuess, windows.endGuess - BLINDTEST_GUESS_SECONDS),
+    endGuess: windows.endGuess,
+    startReveal: windows.startReveal,
+    endReveal: Math.min(windows.endReveal, windows.startReveal + BLINDTEST_REVEAL_SECONDS)
+  };
+}
+
+/**
+ * How long the excerpt runs, in milliseconds, at least something playable.
+ *
+ * The payload guarantees the window is at least one second wide, which is not
+ * a round: a one second clip needs a moment to answer in even after it has
+ * stopped. The top is `BLINDTEST_GUESS_SECONDS`, by way of `playedWindows`.
  */
 function guessWindowMs(payload: BlindtestPayload): number {
-  const seconds = payload.endGuess - payload.startGuess;
-  return Math.min(MAX_ANSWER_MS, Math.max(MIN_ANSWER_MS, Math.round(seconds * 1000)));
+  const played = playedWindows(payload);
+  return Math.max(MIN_ANSWER_MS, Math.round((played.endGuess - played.startGuess) * 1000));
 }
 
 export const blindtest = defineKind<BlindtestPayload>({
@@ -258,7 +300,8 @@ export const blindtest = defineKind<BlindtestPayload>({
   ],
   answersEditable: true,
 
-  defaultTiming: { answerMs: 30_000, revealMs: 12_000 },
+  // The reveal is as long as what plays of it. See `BLINDTEST_REVEAL_SECONDS`.
+  defaultTiming: { answerMs: 30_000, revealMs: BLINDTEST_REVEAL_SECONDS * 1000 },
 
   /**
    * The round lasts as long as the clip, not thirty seconds regardless.

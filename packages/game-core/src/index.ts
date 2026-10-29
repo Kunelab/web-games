@@ -49,12 +49,16 @@ export {
 
 export {
   blindtest,
+  BLINDTEST_GUESS_SECONDS,
+  BLINDTEST_REVEAL_SECONDS,
   changedByHand,
   blindtestFameSchema,
   blindtestPayloadSchema,
+  playedWindows,
   withHandEdits,
   type BlindtestFame,
-  type BlindtestPayload
+  type BlindtestPayload,
+  type ClipWindows
 } from './media/kinds/blindtest.js';
 export { quiz, quizPayloadSchema, type QuizPayload } from './media/kinds/quiz.js';
 export { imageReveal, imageRevealPayloadSchema, type ImageRevealPayload } from './media/kinds/image-reveal.js';
@@ -112,6 +116,7 @@ export {
   type FinalAward,
   type GameReward,
   type HostRoundView,
+  type NextClipView,
   type PlayerView,
   type RevealView,
   type RoundPhase,

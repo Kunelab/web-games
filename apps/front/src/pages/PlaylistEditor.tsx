@@ -11,7 +11,7 @@ import {
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { alsoInOf, genreKeysOf, normalizeAnswer } from 'game-core';
+import { alsoInOf, genreKeysOf, normalizeAnswer, playedWindows } from 'game-core';
 import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -1466,10 +1466,17 @@ function clipOf(item: MediaItem): { code: string; guess: [number, number]; revea
     number
   );
   if (!code || startGuess === null || endGuess === null) return null;
+  // Cut as a game cuts them, so this is what a room hears and not what was authored.
+  const played = playedWindows({
+    startGuess,
+    endGuess,
+    startReveal: startReveal ?? startGuess,
+    endReveal: endReveal ?? endGuess
+  });
   return {
     code,
-    guess: [startGuess, endGuess],
-    reveal: [startReveal ?? startGuess, endReveal ?? endGuess]
+    guess: [played.startGuess, played.endGuess],
+    reveal: [played.startReveal, played.endReveal]
   };
 }
 

@@ -18,6 +18,21 @@
       network. The manifest alone is enough for the install prompt.
     -->
     <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!--
+      The blind test's hosts, warmed before the first clip is asked for.
+
+      The clip player's script comes from youtube.com, the player itself from
+      youtube-nocookie.com and its stills from i.ytimg.com. Each is a DNS lookup
+      and a TLS handshake that otherwise happens in the lobby at best and in
+      round one at worst. A preconnect opens the socket and sends nothing, so it
+      sets no cookie: the consent reasoning in `useYoutube` is unchanged. The
+      stream itself is not warmed, because its host is one of googlevideo.com's
+      many, picked per video by the player.
+    -->
+    <link rel="preconnect" href="https://www.youtube.com" />
+    <link rel="preconnect" href="https://www.youtube-nocookie.com" />
+    <link rel="preconnect" href="https://i.ytimg.com" />
     <link rel="apple-touch-icon" href="/favicon.png" />
 
     <!--

@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import { answerFieldSchema, type AnswerField } from './answer-field.js';
 import { mediaReadiness, partitionPlayable } from './readiness.js';
-import { blindtest } from './kinds/blindtest.js';
+import { blindtest, playedWindows } from './kinds/blindtest.js';
 import { quiz } from './kinds/quiz.js';
 import { imageReveal } from './kinds/image-reveal.js';
 import { resolveTiming, validateMedia } from './registry.js';
@@ -139,14 +139,14 @@ describe('resolveTiming', () => {
     const timing = resolveTiming({
       kind: 'blindtest',
       timing: null,
-      payload: { ...blindtest.defaultPayload, startGuess: 30, endGuess: 55 }
+      payload: { ...blindtest.defaultPayload, startGuess: 30, endGuess: 42 }
     });
-    assert.equal(timing.answerMs, 25_000);
+    assert.equal(timing.answerMs, 12_000);
   });
 
-  it('leaves the reveal alone', () => {
+  it('reveals for five seconds', () => {
     const timing = resolveTiming({ kind: 'blindtest', timing: null, payload: blindtest.defaultPayload });
-    assert.equal(timing.revealMs, blindtest.defaultTiming.revealMs);
+    assert.equal(timing.revealMs, 5_000);
   });
 
   it('still lets the item overrule it', () => {
@@ -172,12 +172,28 @@ describe('resolveTiming', () => {
     assert.equal(timing.answerMs, 3_000);
   });
 
-  it('or longer than ten minutes', () => {
+  it('or longer than the fifteen seconds a room hears', () => {
     const timing = resolveTiming({
       kind: 'blindtest',
       timing: null,
-      payload: { ...blindtest.defaultPayload, startGuess: 0, endGuess: 86_400 }
+      payload: { ...blindtest.defaultPayload, startGuess: 80, endGuess: 100 }
     });
-    assert.equal(timing.answerMs, 600_000);
+    assert.equal(timing.answerMs, 15_000);
+  });
+});
+
+describe('playedWindows', () => {
+  it('keeps the last fifteen seconds of the guess and the first five of the reveal', () => {
+    assert.deepEqual(playedWindows({ startGuess: 80, endGuess: 100, startReveal: 99, endReveal: 109 }), {
+      startGuess: 85,
+      endGuess: 100,
+      startReveal: 99,
+      endReveal: 104
+    });
+  });
+
+  it('leaves windows already shorter than that alone', () => {
+    const windows = { startGuess: 10, endGuess: 20, startReveal: 20, endReveal: 23 };
+    assert.deepEqual(playedWindows(windows), windows);
   });
 });

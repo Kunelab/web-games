@@ -1,3 +1,4 @@
+import { playedWindows, type ClipWindows, type NextClipView } from 'game-core';
 import { msg } from 'i18n';
 import { useEffect, useRef, useState } from 'react';
 
@@ -27,6 +28,37 @@ const AUTOPLAY_GRACE_MS = 1_600;
  */
 const RUNNING_STATES = new Set<number>([1, 3]);
 
+/** PLAYING, the state a buffering clip reaches once it has enough to play. */
+const PLAYING = 1;
+
+/** One of the two players. See "Two players" below. */
+type Slot = 0 | 1;
+
+const other = (slot: Slot): Slot => (slot === 0 ? 1 : 0);
+
+/** The clip the player that is not playing is buffering: this reveal, or the next round. */
+interface Buffered {
+  slot: Slot;
+  code: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * The windows the room hears, cut down from the authored ones.
+ *
+ * The payload is the authored window, as stored; `playedWindows` is what the
+ * server timed the round by, so the clip and the countdown end together.
+ */
+function heard(payload: unknown): Partial<ClipWindows> & { volume?: number } {
+  const authored = (payload ?? {}) as Partial<ClipWindows> & { volume?: number };
+  const { startGuess, endGuess, startReveal, endReveal } = authored;
+  if (startGuess === undefined || endGuess === undefined || startReveal === undefined || endReveal === undefined) {
+    return authored;
+  }
+  return { ...playedWindows({ startGuess, endGuess, startReveal, endReveal }), volume: authored.volume };
+}
+
 /**
  * Plays the clip: audible while the room guesses, visible once it is revealed.
  *
@@ -55,6 +87,23 @@ const RUNNING_STATES = new Set<number>([1, 3]);
  * silently is still worth having. It stays in step with the server's clock, so
  * the tap that buys sound lands in the middle of the song rather than starting
  * it over ten seconds late.
+ *
+ * ## Two players
+ *
+ * A clip loaded when its phase starts loads with the clock running: a second
+ * or two of every round went on YouTube fetching the video, out of the room's
+ * listening time, and as much again out of a reveal that only lasts five. So
+ * there are two players, and while one plays, the other loads what comes
+ * after it, silently, and stops on its first frame: this round's reveal while
+ * the room guesses, the next round's clip (`next`) during the reveal. When
+ * the phase changes the two swap, the buffered one is unmuted and played, and
+ * the other is free to load what follows.
+ *
+ * The reveal waits for the guess to be playing before it is fetched, so the
+ * two downloads never compete for the opening second of a round. Anything
+ * that is not what was buffered — a host who skipped, a window corrected
+ * mid-round — loads the usual way, so a wrong guess costs nothing but the
+ * guess.
  */
 /**
  * Player errors that mean this clip will never play here.
@@ -73,6 +122,7 @@ export function BlindtestAudio({
   code,
   payload,
   phase,
+  next,
   onUnplayable
 }: {
   /**
@@ -86,6 +136,8 @@ export function BlindtestAudio({
   code: string;
   payload: unknown;
   phase: string;
+  /** The next round's clip, sent during the reveal, to buffer in the idle player. */
+  next?: NextClipView | null;
   /**
    * Called once when the clip is definitively not going to play.
    *
@@ -101,13 +153,7 @@ export function BlindtestAudio({
   const t = useT();
   // Only a clip is ever shown: with none loaded, the frame holds whatever played last.
   const revealing = phase === 'reveal' && code !== '';
-  const window_ = (payload ?? {}) as {
-    startGuess?: number;
-    endGuess?: number;
-    startReveal?: number;
-    endReveal?: number;
-    volume?: number;
-  };
+  const window_ = heard(payload);
 
   const volume = window_.volume ?? DEFAULT_VOLUME;
 
@@ -152,42 +198,96 @@ export function BlindtestAudio({
     onUnplayableRef.current = onUnplayable;
   });
 
-  const { YoutubePlayer, player, ready } = useYoutubePlayer({
-    width: 640,
-    height: 360,
-    playerVars: {
-      /**
-       * No controls, no keyboard, no fullscreen, no related videos at the end.
-       *
-       * A blind test is a question, and a question with a seek bar under it is
-       * not one: the answer is a drag away, and on the guess screen even the
-       * elapsed time gives away how long the clip is. `disablekb` matters as
-       * much as the bar itself — space and arrow keys are how somebody scrubs a
-       * video without noticing there was a rule against it.
-       */
-      controls: 0,
-      disablekb: 1,
-      fs: 0,
-      rel: 0,
-      modestbranding: 1,
-      autoplay: 1,
-      playsinline: 1
-    },
-    events: {
-      onError: (event) => {
-        console.error('youtube error', event.data);
-        if (FATAL_ERRORS.has(event.data)) {
-          // Reported once per clip: a player can fire this more than once while
-          // it gives up, and advancing a round twice would skip an innocent one.
-          const current = codeRef.current;
-          if (current && reported.current !== current) {
-            reported.current = current;
-            onUnplayableRef.current?.(event.data);
-          }
-        }
+  /**
+   * Which player is the room's, and what the other one is buffering.
+   *
+   * Refs for the same reason as `codeRef`: the players' event handlers are
+   * built once and read them long after. `active` is also state, because which
+   * of the two is shown at the reveal is a matter of rendering.
+   */
+  const [active, setActive] = useState<Slot>(0);
+  const activeRef = useRef<Slot>(0);
+  const buffered = useRef<Buffered | null>(null);
+
+  /**
+   * The clip the active player was last given, and the last one heard playing.
+   *
+   * As `code:start:end`. The second is state because it is what lets the
+   * reveal start buffering: not before the guess it follows is under way.
+   */
+  const activeKey = useRef<string | null>(null);
+  const [started, setStarted] = useState<string | null>(null);
+
+  /**
+   * No controls, no keyboard, no fullscreen, no related videos at the end.
+   *
+   * A blind test is a question, and a question with a seek bar under it is
+   * not one: the answer is a drag away, and on the guess screen even the
+   * elapsed time gives away how long the clip is. `disablekb` matters as
+   * much as the bar itself — space and arrow keys are how somebody scrubs a
+   * video without noticing there was a rule against it.
+   */
+  const playerVars: YT.PlayerVars = {
+    controls: 0,
+    disablekb: 1,
+    fs: 0,
+    rel: 0,
+    modestbranding: 1,
+    autoplay: 1,
+    playsinline: 1
+  };
+
+  const onError = (slot: Slot, event: YT.OnErrorEvent) => {
+    // The idle player's clip is only a guess at the next round; if it cannot
+    // play, the round loads it the usual way and reports it then.
+    if (slot !== activeRef.current) {
+      if (buffered.current?.slot === slot) buffered.current = null;
+      return;
+    }
+    console.error('youtube error', event.data);
+    if (FATAL_ERRORS.has(event.data)) {
+      // Reported once per clip: a player can fire this more than once while
+      // it gives up, and advancing a round twice would skip an innocent one.
+      const current = codeRef.current;
+      if (current && reported.current !== current) {
+        reported.current = current;
+        onUnplayableRef.current?.(event.data);
       }
     }
+  };
+
+  /**
+   * The buffering player stops on its first frame.
+   *
+   * Reaching PLAYING is the sign it has enough to start; paused there it
+   * keeps what it fetched and waits for its round. Not sought back to the
+   * start afterwards: a seek cancels the end of the window, and the fraction
+   * of a second it ran for is not worth a clip that plays past its end.
+   */
+  const onStateChange = (slot: Slot, event: YT.OnStateChangeEvent) => {
+    const state: number = event.data;
+    if (state !== PLAYING) return;
+    if (slot === activeRef.current) {
+      setStarted(activeKey.current);
+      return;
+    }
+    if (buffered.current?.slot === slot) event.target.pauseVideo();
+  };
+
+  const first = useYoutubePlayer({
+    width: 640,
+    height: 360,
+    playerVars,
+    events: { onError: (event) => onError(0, event), onStateChange: (event) => onStateChange(0, event) }
   });
+  const second = useYoutubePlayer({
+    width: 640,
+    height: 360,
+    playerVars,
+    events: { onError: (event) => onError(1, event), onStateChange: (event) => onStateChange(1, event) }
+  });
+  const slots = [first, second] as const;
+  const activeReady = slots[active].ready;
 
   const start = revealing ? window_.startReveal : window_.startGuess;
   const end = revealing ? window_.endReveal : window_.endGuess;
@@ -197,22 +297,55 @@ export function BlindtestAudio({
   const grace = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    if (!code || !ready) return;
+    if (!code || !activeReady) return;
 
-    /**
-     * Unmuted *before* the load, not after.
-     *
-     * `loadVideoById` starts playback, and the mute state at that moment is what
-     * the autoplay policy judges. Unmuting afterwards leaves the opening second
-     * silent at best, and on a browser that let the clip through only because it
-     * was muted, it is the moment playback gets cut off.
-     */
-    player.unMute();
-    player.setVolume(volume);
-    player.loadVideoById({ videoId: code, startSeconds: start, endSeconds: end });
+    const pending = buffered.current;
+    activeKey.current = `${code}:${start}:${end}`;
+    const swap =
+      pending !== null &&
+      pending.slot !== activeRef.current &&
+      slots[pending.slot].ready &&
+      pending.code === code &&
+      pending.start === start &&
+      pending.end === end;
+
+    if (swap) {
+      // What was buffered: play it where it stopped, and silence what the other
+      // player is still on.
+      const previous = slots[activeRef.current].player;
+      activeRef.current = pending.slot;
+      buffered.current = null;
+      setActive(pending.slot);
+      previous.stopVideo();
+      const player = slots[pending.slot].player;
+      player.unMute();
+      player.setVolume(volume);
+      player.playVideo();
+    } else {
+      // A phase that is not the one buffered leaves the buffer stale, and a
+      // stale clip still loading would only compete for the network.
+      if (pending) {
+        slots[pending.slot].player.stopVideo();
+        buffered.current = null;
+      }
+
+      const player = slots[activeRef.current].player;
+      /**
+       * Unmuted *before* the load, not after.
+       *
+       * `loadVideoById` starts playback, and the mute state at that moment is what
+       * the autoplay policy judges. Unmuting afterwards leaves the opening second
+       * silent at best, and on a browser that let the clip through only because it
+       * was muted, it is the moment playback gets cut off.
+       */
+      player.unMute();
+      player.setVolume(volume);
+      player.loadVideoById({ videoId: code, startSeconds: start, endSeconds: end });
+    }
 
     clearTimeout(grace.current);
     grace.current = setTimeout(() => {
+      const player = slots[activeRef.current].player;
       if (RUNNING_STATES.has(player.getPlayerState())) {
         setSilenced(false);
         return;
@@ -226,9 +359,51 @@ export function BlindtestAudio({
     }, AUTOPLAY_GRACE_MS);
 
     return () => clearTimeout(grace.current);
-    // `player` is stable for the life of the hook.
+    // The players are stable for the life of their hooks, and which one is
+    // active is read from its ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, start, end, ready, volume]);
+  }, [code, start, end, activeReady, volume]);
+
+  /**
+   * What comes after the clip playing, into the player that is not playing.
+   *
+   * During the guess, this round's reveal, once the guess is heard playing.
+   * During the reveal, the next round's clip, which the server sends then.
+   *
+   * Muted, so no autoplay policy refuses it and nobody hears it; the handler
+   * above stops it once it has started. Loaded once per clip: the views repeat
+   * the same windows and must not restart the buffering.
+   */
+  const guessing = code !== '' && !revealing ? `${code}:${start}:${end}` : null;
+  const upcoming: NextClipView | null = revealing
+    ? (next ?? null)
+    : guessing !== null &&
+        started === guessing &&
+        window_.startReveal !== undefined &&
+        window_.endReveal !== undefined
+      ? { code, start: window_.startReveal, end: window_.endReveal, volume }
+      : null;
+  const idleReady = slots[other(active)].ready;
+  useEffect(() => {
+    if (!upcoming || !idleReady) return;
+    const idle = other(activeRef.current);
+    const pending = buffered.current;
+    if (
+      pending?.slot === idle &&
+      pending.code === upcoming.code &&
+      pending.start === upcoming.start &&
+      pending.end === upcoming.end
+    ) {
+      return;
+    }
+
+    buffered.current = { slot: idle, code: upcoming.code, start: upcoming.start, end: upcoming.end };
+    const player = slots[idle].player;
+    player.mute();
+    player.setVolume(upcoming.volume);
+    player.loadVideoById({ videoId: upcoming.code, startSeconds: upcoming.start, endSeconds: upcoming.end });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upcoming?.code, upcoming?.start, upcoming?.end, idleReady]);
 
   /**
    * And nothing to play stops whatever was playing.
@@ -238,16 +413,18 @@ export function BlindtestAudio({
    * would carry on under the next round.
    */
   useEffect(() => {
-    if (code || !ready) return;
-    player.stopVideo();
+    if (code || !activeReady) return;
+    slots[activeRef.current].player.stopVideo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, ready]);
+  }, [code, activeReady]);
 
   return (
     <>
-      <div className={revealing ? 'yt-visible' : 'yt-hidden'}>
-        <YoutubePlayer />
-      </div>
+      {slots.map(({ YoutubePlayer }, slot) => (
+        <div key={slot} className={revealing && slot === active ? 'yt-visible' : 'yt-hidden'}>
+          <YoutubePlayer />
+        </div>
+      ))}
       {silenced && code && (
         /**
          * A sibling of the wrapper, not a child of it — and that is the whole
@@ -265,6 +442,7 @@ export function BlindtestAudio({
             // The click is the gesture the policy was waiting for. No reload and
             // no seek: the clip is already at the right second, it is only quiet.
             setSilenced(false);
+            const player = slots[activeRef.current].player;
             player.unMute();
             player.setVolume(volume);
             player.playVideo();

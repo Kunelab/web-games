@@ -272,8 +272,8 @@ check('answer defaults are filled in', blindItem.answers[0]?.tolerance === 0.17,
  */
 check('the round is as long as the excerpt', blindItem.effectiveTiming.answerMs === 10_000, blindItem.effectiveTiming);
 check(
-  'and the reveal keeps the kind default',
-  blindItem.effectiveTiming.revealMs === 12_000,
+  'and the reveal is the five seconds a room hears of it',
+  blindItem.effectiveTiming.revealMs === 5_000,
   blindItem.effectiveTiming
 );
 
@@ -844,6 +844,8 @@ section('pooled answers');
     code: HAND_BUILT_CODE
   });
   const solo = joinSession(pool, 'Solo', undefined).player;
+  // Somebody still thinking, so the round stays open once Solo has found everything.
+  joinSession(pool, 'Idle', undefined);
   advance(pool, () => item);
 
   const into = (value: string, fieldKey: string) =>
@@ -878,6 +880,7 @@ section('pooled answers');
     code: HAND_BUILT_CODE
   });
   const waster = joinSession(spam, 'Waster', undefined).player;
+  joinSession(spam, 'Idle', undefined);
   advance(spam, () => item);
   const guesses = [1, 2, 3, 4, 5].map((n) =>
     submitAnswer({

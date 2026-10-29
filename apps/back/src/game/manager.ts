@@ -20,6 +20,7 @@ import {
   closeAnswers,
   createSession,
   expireBuzzWindow,
+  nextClipOf,
   nextDeadline,
   upcomingMediaId,
   openAnswers,
@@ -272,8 +273,20 @@ export class GameManager {
   view(state: SessionState, playerId: string | null, isHost: boolean) {
     // The host screen shows which item is playing, which the engine state does not
     // carry: it stores the answers and payload, not the librarian-facing title.
-    const item = state.round ? this.mediaBySession.get(state.code)?.get(state.round.mediaId) : undefined;
-    return toSessionView(state, playerId, isHost, this.viewContext(state), item?.title ?? '', item?.category ?? null);
+    const media = this.mediaBySession.get(state.code);
+    const item = state.round ? media?.get(state.round.mediaId) : undefined;
+    // And the stages buffer the next clip during the reveal, which only the items know.
+    const nextId = state.round?.phase === 'reveal' ? upcomingMediaId(state) : null;
+    const next = nextId === null ? null : nextClipOf(media?.get(nextId));
+    return toSessionView(
+      state,
+      playerId,
+      isHost,
+      this.viewContext(state),
+      item?.title ?? '',
+      item?.category ?? null,
+      next
+    );
   }
 
   /** The genre of the round on screen, as its item carries it. */

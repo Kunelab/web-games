@@ -10,6 +10,7 @@ import {
   maxCompensationMs,
   parseEstimate,
   partitionPlayable,
+  playedWindows,
   pooledFields,
   redactAnswerField,
   scoreEstimationRound,
@@ -17,6 +18,7 @@ import {
   type AnswerField,
   type BuzzView,
   type GameReward,
+  type NextClipView,
   type PlayerView,
   type RevealView,
   type RoundPhase,
@@ -1139,6 +1141,8 @@ export interface SubmitResult {
   error?: string;
   correct?: boolean;
   attemptsLeft?: number;
+  /** This answer left nobody anything to answer, and closed the round. */
+  closed?: boolean;
 }
 
 /**
@@ -1340,6 +1344,17 @@ export function submitAnswer(options: SubmitOptions): SubmitResult {
     }
   }
 
+  /**
+   * And in the simultaneous format, the round is over once nobody is left in it.
+   *
+   * The clock used to be the only thing that closed it, so a room that had all
+   * named the song in four seconds sat through the other eleven watching a
+   * countdown, with nothing to type and nothing to hear but a clip they had
+   * already named.
+   */
+  const closed = !isBuzzerRound(state) && everyoneDone(state, round);
+  if (closed) closeAnswers(state, receivedAt);
+
   const after = round.submissions.filter((submission) => submission.playerId === playerId);
 
   if (pooled) {
@@ -1347,7 +1362,8 @@ export function submitAnswer(options: SubmitOptions): SubmitResult {
       ok: true,
       correct,
       // What is left for the round, since a pooled guess is not aimed at a prompt.
-      attemptsLeft: Math.max(0, pooledAttemptBudget(state, round.answers) - wrongPooledAttempts(after, round.answers))
+      attemptsLeft: Math.max(0, pooledAttemptBudget(state, round.answers) - wrongPooledAttempts(after, round.answers)),
+      closed
     };
   }
 
@@ -1356,8 +1372,40 @@ export function submitAnswer(options: SubmitOptions): SubmitResult {
   return {
     ok: true,
     correct,
-    attemptsLeft: Math.max(0, state.config.attemptsPerField - wrongAfter)
+    attemptsLeft: Math.max(0, state.config.attemptsPerField - wrongAfter),
+    closed
   };
+}
+
+/**
+ * Every player still at the table has found or spent every answer.
+ *
+ * Per player, which is the simultaneous format's reading: each of them is
+ * racing to name the same things, so one finishing ends nothing, and the last
+ * one finishing ends everything. A field is done for a player once they have
+ * named it or have no tries left on it, the same two locks `submitAnswer`
+ * enforces, pooled answers sharing one allowance.
+ *
+ * Only the connected count. A phone that dropped out cannot answer, and
+ * waiting on it is the clock's job, as it always was.
+ */
+function everyoneDone(state: SessionState, round: RoundState): boolean {
+  const present = Object.values(state.players).filter((player) => player.connected);
+  if (present.length === 0 || round.answers.length === 0) return false;
+
+  const budget = pooledAttemptBudget(state, round.answers);
+  return present.every((player) => {
+    const mine = round.submissions.filter((submission) => submission.playerId === player.id);
+    const solved = new Set(mine.filter((submission) => submission.correct).map((submission) => submission.fieldKey));
+    const poolSpent = wrongPooledAttempts(mine, round.answers) >= budget;
+
+    return round.answers.every((field) => {
+      if (solved.has(field.key)) return true;
+      if (!field.choices?.length) return poolSpent;
+      const wrong = mine.filter((submission) => submission.fieldKey === field.key && !submission.correct).length;
+      return wrong >= state.config.attemptsPerField;
+    });
+  });
 }
 
 /**
@@ -1661,7 +1709,12 @@ export function toRevealView(state: SessionState): RevealView | null {
  * the session was created, so this is the one path where the payload and the answers
  * are allowed out.
  */
-function toHostRoundView(state: SessionState, title: string, category?: string | null): HostRoundView | null {
+function toHostRoundView(
+  state: SessionState,
+  title: string,
+  category: string | null,
+  next: NextClipView | null
+): HostRoundView | null {
   const round = state.round;
   if (!round) return null;
 
@@ -1687,7 +1740,8 @@ function toHostRoundView(state: SessionState, title: string, category?: string |
       value: field.value,
       aliases: field.aliases,
       points: field.points
-    }))
+    })),
+    ...(next && round.phase === 'reveal' ? { next } : {})
   };
 }
 
@@ -1705,7 +1759,7 @@ function toHostRoundView(state: SessionState, title: string, category?: string |
  * the answer in a filename for no gain at all. Today that means the blind test,
  * and it says so by asking the kind rather than by naming it.
  */
-function toStageRoundView(state: SessionState): StageRoundView | null {
+function toStageRoundView(state: SessionState, next: NextClipView | null): StageRoundView | null {
   const round = state.round;
   if (!round) return null;
   if (!getMediaKind(round.kind).presentedByHost) return null;
@@ -1719,8 +1773,31 @@ function toStageRoundView(state: SessionState): StageRoundView | null {
     phaseStartAt: round.phaseStartAt,
     phaseEndsAt: round.phaseEndsAt,
     answerMs: round.timing.answerMs,
-    payload: round.payload
+    payload: round.payload,
+    ...(next && round.phase === 'reveal' ? { next } : {})
   };
+}
+
+/**
+ * What a stage should buffer for the round after this one, if it is a clip.
+ *
+ * The item is the next one in the order, which is the one `advance` deals
+ * unless it has been deleted since; a guess that misses costs nothing, since a
+ * stage that finds a different clip simply loads it as it always did.
+ */
+export function nextClipOf(item: Pick<MediaView, 'kind' | 'payload'> | undefined): NextClipView | null {
+  if (item?.kind !== 'blindtest') return null;
+  const payload = item.payload as {
+    code?: string;
+    startGuess: number;
+    endGuess: number;
+    startReveal: number;
+    endReveal: number;
+    volume?: number;
+  };
+  if (!payload.code) return null;
+  const played = playedWindows(payload);
+  return { code: payload.code, start: played.startGuess, end: played.endGuess, volume: payload.volume ?? 100 };
 }
 
 /**
@@ -1750,7 +1827,9 @@ export function toSessionView(
   context: ViewContext,
   currentTitle = '',
   /** The dealt item's category, which the engine state does not carry either. */
-  currentCategory: string | null = null
+  currentCategory: string | null = null,
+  /** The clip the next round opens with, for a stage to buffer. See `NextClipView`. */
+  nextClip: NextClipView | null = null
 ): SessionView {
   const television = televisionOf(state);
 
@@ -1770,7 +1849,7 @@ export function toSessionView(
     isHost,
     // Read back by the host screen and by nobody else; see `SessionView.password`.
     password: isHost && state.config.password ? state.config.password : undefined,
-    hostRound: isHost ? toHostRoundView(state, currentTitle, currentCategory) : null,
+    hostRound: isHost ? toHostRoundView(state, currentTitle, currentCategory, nextClip) : null,
     /**
      * The stage goes to every phone unless a television has claimed it.
      *
@@ -1783,7 +1862,7 @@ export function toSessionView(
      */
     stageRound:
       playerId !== null && (!television.tvOnly || television.tvPlayerId === playerId)
-        ? toStageRoundView(state)
+        ? toStageRoundView(state, nextClip)
         : undefined,
     skipped: isHost ? state.skipped : undefined,
     // The ceremony. An oral game scored nothing, so it has nothing to hand out.

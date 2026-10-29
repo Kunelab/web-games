@@ -202,6 +202,28 @@ export interface HostRoundView {
    * remove a wrong spelling that is handing out points.
    */
   answers: { key: string; label: string; value: string; aliases: string[]; points: number }[];
+  /** The next round's clip, during the reveal. See `NextClipView`. */
+  next?: NextClipView;
+}
+
+/**
+ * The clip the next round opens with, handed to a stage during this reveal.
+ *
+ * So the stage can load it into a second, silent player while the room is
+ * reading the answer, and start the next round on a clip that is already
+ * buffered rather than one that starts loading with the clock running. The
+ * window is the one the room hears (see `playedWindows`), so the stage
+ * buffers exactly the seconds it will play.
+ *
+ * Only the reveal, and only the video: the next round's id reaches a stage a
+ * reveal earlier than it used to, which is a few more seconds to look it up
+ * in another tab, and nothing else about the round travels with it.
+ */
+export interface NextClipView {
+  code: string;
+  start: number;
+  end: number;
+  volume: number;
 }
 
 /**
@@ -297,6 +319,8 @@ export interface StageRoundView {
   phaseEndsAt: number | null;
   answerMs: number;
   payload: unknown;
+  /** The next round's clip, during the reveal. See `NextClipView`. */
+  next?: NextClipView;
 }
 
 export interface SessionView {

@@ -533,6 +533,7 @@ export default function Host() {
               code={blindtestCode}
               payload={round?.payload}
               phase={round?.phase ?? ''}
+              next={round?.next}
               /**
                * A clip that cannot play is not a round, so move on.
                *
