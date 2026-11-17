@@ -30,6 +30,7 @@ import {
   qleverQuery,
   rankFame,
   requestable,
+  sqliteStamp,
   songKeys,
   songTitle,
   trackOracleKey,
@@ -1019,5 +1020,64 @@ describe('an admin request', () => {
     assert.deepEqual(stock.requests(), []);
     assert.equal(db.select().from(blindtestSeeds).all().length, 0);
     assert.ok(!stock.cancelRequest(result.request.id));
+  });
+});
+
+describe('a plan filtered to new seeds', () => {
+  const ANIME: SeededGenre = { id: 'anime-op', answerShape: 'work', seeds: [{ kind: 'anilist' }] };
+
+  function stockWith(rows: { title: string; source: string; created: string }[]) {
+    const { db } = openDb(':memory:');
+    for (const [index, row] of rows.entries()) {
+      db.insert(blindtestSeeds)
+        .values({
+          genre_id: ANIME.id,
+          source: row.source,
+          source_key: String(index),
+          title: row.title,
+          fame: 0.5,
+          created_at: row.created
+        })
+        .run();
+    }
+    const stock = createSeedStock({
+      sources: {
+        deezer: {
+          searchPlaylists: async () => ({ data: [] }),
+          userPlaylists: async () => ({ data: [] }),
+          playlistTracks: async () => ({ data: [] }),
+          album: async () => ({}),
+          searchArtists: async () => ({ data: [] }),
+          artistTop: async () => ({ data: [] })
+        },
+        anilist: async () => null,
+        sparql: async () => null
+      },
+      db,
+      clock: { now: () => Date.parse('2026-11-15T05:00:00Z') }
+    });
+    return stock;
+  }
+
+  const planned = (stock: ReturnType<typeof stockWith>, filter?: Parameters<typeof stock.plan>[3]) =>
+    stock
+      .plan(ANIME, 10, undefined, filter)
+      .flatMap((search) => search.seeds.map((seed) => seed.title))
+      .sort();
+
+  it('writes an instant the way SQLite stamps a row', () => {
+    assert.equal(sqliteStamp('2026-11-15T05:00:00.123Z'), '2026-11-15 05:00:00');
+  });
+
+  it('takes only what was stored since the last refresh, and only from the sources asked', () => {
+    const stock = stockWith([
+      { title: 'Old', source: 'anilist', created: '2026-09-01 10:00:00' },
+      { title: 'New', source: 'anilist', created: '2026-11-15 05:00:02' },
+      { title: 'Asked', source: 'request', created: '2026-11-15 05:00:03' }
+    ]);
+    assert.deepEqual(planned(stock), ['Asked', 'New', 'Old']);
+    assert.deepEqual(planned(stock, { since: '2026-11-15T05:00:00Z' }), ['Asked', 'New']);
+    assert.deepEqual(planned(stock, { since: '2026-11-15T05:00:00Z', sources: ['anilist'] }), ['New']);
+    assert.deepEqual(planned(stock, { sources: ['request'] }), ['Asked']);
   });
 });

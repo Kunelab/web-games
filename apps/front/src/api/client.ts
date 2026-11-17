@@ -751,7 +751,7 @@ export type DuplicateReason = 'same-video' | 'same-track' | 'similar';
  * end millions of views contradict, either scored before any figure was kept,
  * or an answer no catalogue found at all. See `extremeDoubt` on the server.
  */
-export type ExtremeDoubt = 'easy-unconfirmed' | 'hard-contradicted' | 'unscored' | 'not-found';
+export type ExtremeDoubt = 'easy-unconfirmed' | 'hard-contradicted' | 'unscored' | 'not-found' | 'deep-cut';
 
 /** Why an entry's genre is in question. See `blindtest-genres` on the server. */
 export type GenreFlagReason =

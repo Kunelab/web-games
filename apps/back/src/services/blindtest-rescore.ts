@@ -1,9 +1,8 @@
 import type { BlindtestFame } from 'game-core';
 
-import { audienceOf, profileFor, sourceGenreFor, type Genre } from './blindtest-catalog.js';
+import { audienceOf, profileFor, scoreContextOf, sourceGenreFor, type Genre } from './blindtest-catalog.js';
 import {
   fitCalibrations,
-  resolveCalibration,
   scoreBreakdown,
   type CalibrationKey,
   type CalibrationSample,
@@ -117,7 +116,13 @@ export function placedAgain(genre: Genre): boolean {
 function sampleOf(row: RescoreRow): CalibrationSample | null {
   if (!row.fame) return null;
   const source = sourceGenreFor(row.genre);
-  return { genreId: source.id, shape: source.answerShape, audience: audienceOf(row.genre), fame: row.fame };
+  return {
+    genreId: source.id,
+    shape: source.answerShape,
+    audience: audienceOf(row.genre),
+    fame: row.fame,
+    piece: source.pieceFame
+  };
 }
 
 export function planRescore(
@@ -134,15 +139,7 @@ export function planRescore(
     const unmarked = (by: unknown) => by === undefined && edited && !options.includeEdited;
     const before = typeof row.payload.difficulty === 'number' ? row.payload.difficulty : null;
 
-    const source = sourceGenreFor(row.genre);
-    const score = row.fame
-      ? scoreBreakdown(row.fame, {
-          shape: source.answerShape,
-          audience: audienceOf(row.genre),
-          calibration: resolveCalibration(scales, source.id, source.answerShape),
-          piece: source.pieceFame
-        })
-      : null;
+    const score = row.fame ? scoreBreakdown(row.fame, scoreContextOf(row.genre, scales)) : null;
     // Found nowhere: no reason to replace a number with one made of what is left.
     const keepDifficulty =
       row.payload.difficultyBy === 'human' ||

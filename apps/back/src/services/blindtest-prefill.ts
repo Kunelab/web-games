@@ -8,12 +8,32 @@ import { GENRES, catalogAvailable, refitCalibrations } from './blindtest-catalog
 import { catalogueRound } from './blindtest-draw.js';
 import { indexCatalogueEntry } from './blindtest-duplicates.js';
 import { countLibrary, libraryVideoCodes, rememberPlayedRound } from './blindtest-library.js';
-import type { VideoIndexStatus } from './blindtest-seeds.js';
+import type { SeedFilter, VideoIndexStatus } from './blindtest-seeds.js';
 import { catalogue } from './catalogue-service.js';
 import { quotaDay } from './youtube-budget.js';
 import { playableIn } from './youtube-service.js';
 
 /**
+ * The catalogue's scheduled run, and the same run started by hand.
+ *
+ * ## What the schedule spends
+ *
+ * It used to spend every night's unused searches on whatever seeds were
+ * waiting, about a thousand rows a night, and the catalogue outgrew what the
+ * players could ever hear while the model calls added up. Now, at the same
+ * hour (see `schedulePrefill`):
+ *
+ * - once a month, on `BLINDTEST_REFRESH_DAY`, a `refresh`: the charts and the
+ *   anime and film lists fetched again, and only what entered them since the
+ *   last refresh searched, at most `BLINDTEST_REFRESH_SEARCHES`;
+ * - the other nights, a `requests` pass: only the songs and works an admin
+ *   asked for, at most `BLINDTEST_REQUEST_SEARCHES`, and nothing at all when
+ *   nobody asked.
+ *
+ * A `full` run, the old night, is still there for an admin to start by hand.
+ *
+ * ## The full run
+ *
  * The day's unused searches, spent on the catalogue before they lapse.
  *
  * The YouTube quota is a daily allowance that resets at midnight Pacific (9:00
@@ -82,7 +102,21 @@ export function msUntilQuotaReset(now = new Date()): number {
   return DAY_MS - elapsed;
 }
 
+/** What a run plans. See the header. */
+export type PrefillMode = 'full' | 'refresh' | 'requests';
+
+/**
+ * The genres whose works a refresh files: the anime and the films, whose lists
+ * are by popularity, so what is new on them is what got popular. Their own
+ * harvest is fetched again first. The music genres file only the charts' songs.
+ */
+export const REFRESH_WORK_GENRES = ['anime-op', 'anime-ed', 'films-musique'] as const;
+
+/** Left in `MetaData` by every finished refresh: when it started, ISO. */
+const REFRESH_KEY = 'blindtest_refresh_last';
+
 export interface PrefillReport {
+  mode: PrefillMode;
   startedAt: string;
   finishedAt: string | null;
   /** YouTube searches spent. */
@@ -175,11 +209,15 @@ export async function prefillCatalogue(
     searches?: boolean;
     /** At most this many searches, for a run started by hand to file what was asked for. */
     maxSearches?: number;
+    /** `full` when absent. See the header. */
+    mode?: PrefillMode;
   } = {}
 ): Promise<PrefillReport> {
   if (running) return running;
+  const mode = options.mode ?? 'full';
 
   const report: PrefillReport = {
+    mode,
     startedAt: new Date().toISOString(),
     finishedAt: null,
     searches: 0,
@@ -218,10 +256,30 @@ export async function prefillCatalogue(
      * run started in the minute after it found none of them filed yet and
      * stopped at once, with nothing to look up.
      */
-    await catalogue.loadCharts();
+    // A refresh fetches the charts again whether or not they are due: their new songs are what it is for.
+    if (mode === 'refresh') await catalogue.refreshCharts();
+    else await catalogue.loadCharts();
 
     // A facet reads its parent's pool and has no seeds of its own.
-    const genres = GENRES.filter((genre) => !genre.facetOf && genre.seeds && genre.seeds.length > 0);
+    let genres = GENRES.filter((genre) => !genre.facetOf && genre.seeds && genre.seeds.length > 0);
+    const filters = new Map<string, SeedFilter>();
+    if (mode === 'refresh') {
+      const since = (await lastRefresh()) ?? report.startedAt;
+      for (const id of REFRESH_WORK_GENRES) await catalogue.harvest(id);
+      genres = genres.filter((genre) => {
+        if ((REFRESH_WORK_GENRES as readonly string[]).includes(genre.id)) {
+          filters.set(genre.id, { since });
+          return true;
+        }
+        if (genre.answerShape !== 'artist-title') return false;
+        filters.set(genre.id, { since, sources: ['chart'] });
+        return true;
+      });
+    } else if (mode === 'requests') {
+      const requested = catalogue.requestedGenres();
+      genres = genres.filter((genre) => requested.has(genre.id));
+      for (const genre of genres) filters.set(genre.id, { sources: ['request'] });
+    }
     const stock = await countLibrary(
       genres.map((genre) => genre.id),
       { min: 0, max: 100 }
@@ -253,7 +311,10 @@ export async function prefillCatalogue(
         }
 
         report.genre = genre.id;
-        const result = await catalogue.searchForCatalogue(genre.id, budget, { searches: options.searches });
+        const result = await catalogue.searchForCatalogue(genre.id, budget, {
+          searches: options.searches,
+          filter: filters.get(genre.id)
+        });
         if (!result || (result.spent === 0 && result.free === 0 && result.channels === 0)) {
           done.add(genre.id);
           continue;
@@ -306,8 +367,10 @@ export async function prefillCatalogue(
       "Wikidata's list of song videos would not load: no famous song was looked up on Wikidata or an artist's channel"
     );
   }
+  if (mode === 'refresh' && !report.stopped.startsWith('failed')) await markRefreshed(report.startedAt);
   log?.info(
     {
+      mode,
       searches: report.searches,
       lookups: report.lookups,
       channels: report.channels,
@@ -320,8 +383,8 @@ export async function prefillCatalogue(
 
   /**
    * And each genre's spread, refitted from the rounds rescored since: the ones
-   * this run filed and the ones rooms played. Once a night, at an hour nobody
-   * plays, which is all a spread needs; see `refitCalibrations`.
+   * this run filed and the ones rooms played. At an hour nobody plays, which is
+   * all a spread needs; see `refitCalibrations`.
    */
   try {
     const genres = refitCalibrations(db);
@@ -365,8 +428,59 @@ export async function reopenLostHitsOnce(log?: FastifyBaseLogger): Promise<void>
   log?.info({ reopened }, 'blind test hits put back for the prefill');
 }
 
+async function lastRefresh(): Promise<string | null> {
+  const [row] = await db
+    .select({ value: metaData.value })
+    .from(metaData)
+    .where(and(eq(metaData.content_id, 0), eq(metaData.key, REFRESH_KEY)))
+    .limit(1);
+  return row?.value ?? null;
+}
+
+async function markRefreshed(startedAt: string): Promise<void> {
+  const now = new Date().toISOString();
+  await db
+    .insert(metaData)
+    .values({ content_id: 0, key: REFRESH_KEY, value: startedAt, type: 'schedule', createdAt: now, updatedAt: now })
+    .onConflictDoUpdate({ target: [metaData.content_id, metaData.key], set: { value: startedAt, updatedAt: now } });
+}
+
+/** A date in Paris, `YYYY-MM-DD`, which is how the refresh day is read. */
+const PARIS_DATE = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/Paris',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit'
+});
+
 /**
- * Runs the prefill every day, `BLINDTEST_PREFILL_HOURS` before the reset.
+ * Whether the monthly refresh is due. Pure, for the tests.
+ *
+ * Due from `day` of the month in Paris until a refresh has started on or after
+ * it, so a box that was off on the day catches up at the next run, and a
+ * refresh started by hand earlier in the month does not count for this one.
+ */
+export function refreshDue(last: string | null, day: number, now = new Date()): boolean {
+  const today = PARIS_DATE.format(now);
+  const from = `${today.slice(0, 8)}${String(day).padStart(2, '0')}`;
+  if (today < from) return false;
+  return last === null || PARIS_DATE.format(new Date(last)) < from;
+}
+
+/** What tonight's run is, or null when there is nothing to do. */
+async function tonightsRun(): Promise<{ mode: PrefillMode; maxSearches: number } | null> {
+  if (refreshDue(await lastRefresh(), env.BLINDTEST_REFRESH_DAY)) {
+    return { mode: 'refresh', maxSearches: env.BLINDTEST_REFRESH_SEARCHES };
+  }
+  if (env.BLINDTEST_REQUEST_SEARCHES > 0 && catalogue.requestedGenres().size > 0) {
+    return { mode: 'requests', maxSearches: env.BLINDTEST_REQUEST_SEARCHES };
+  }
+  return null;
+}
+
+/**
+ * Starts tonight's run, `BLINDTEST_PREFILL_HOURS` before the reset: the
+ * monthly refresh when it is due, else what admins asked for, else nothing.
  *
  * A boot inside the window starts it straight away, which matters on a box
  * that restarts after every power cut. Nothing is scheduled where it could not
@@ -377,18 +491,29 @@ export function schedulePrefill(log: FastifyBaseLogger): void {
   if (lead <= 0 || !catalogAvailable() || apiSlots.length === 0) return;
 
   const later = (ms: number) => setTimeout(plan, Math.max(1_000, ms)).unref();
+  const next = () => {
+    // Still inside today's window: wait out the reset. Past it (a long run):
+    // straight to the next window, which waiting for a reset would skip.
+    const left = msUntilQuotaReset();
+    later(left <= lead ? left + 60_000 : left - lead);
+  };
   function plan(): void {
     const toReset = msUntilQuotaReset();
     if (toReset > lead) {
       later(toReset - lead);
       return;
     }
-    void prefillCatalogue(log).finally(() => {
-      // Still inside today's window: wait out the reset. Past it (a long run):
-      // straight to the next window, which waiting for a reset would skip.
-      const left = msUntilQuotaReset();
-      later(left <= lead ? left + 60_000 : left - lead);
-    });
+    void (async () => {
+      const run = await tonightsRun();
+      if (!run) return;
+      await prefillCatalogue(log, { mode: run.mode, maxSearches: run.maxSearches });
+      // The night of a refresh still files what was asked for, with its own allowance.
+      if (run.mode === 'refresh' && env.BLINDTEST_REQUEST_SEARCHES > 0 && catalogue.requestedGenres().size > 0) {
+        await prefillCatalogue(log, { mode: 'requests', maxSearches: env.BLINDTEST_REQUEST_SEARCHES });
+      }
+    })()
+      .catch((error: unknown) => log.warn({ err: error }, 'blind test scheduled run failed'))
+      .finally(next);
   }
   plan();
 }

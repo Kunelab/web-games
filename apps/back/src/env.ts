@@ -157,6 +157,24 @@ const envSchema = z.object({
   BLINDTEST_PREFILL_HOURS: z.coerce.number().min(0).max(12).default(3),
 
   /**
+   * The day of the month the catalogue looks for new hits, at the prefill's hour.
+   *
+   * The other nights only search what an admin asked for. A box that was off
+   * that day catches up at the first prefill hour after. See `blindtest-prefill`.
+   */
+  BLINDTEST_REFRESH_DAY: z.coerce.number().int().min(1).max(28).default(15),
+
+  /**
+   * The most YouTube searches the monthly refresh spends. Each also costs a
+   * couple of model calls. A hit whose video is already known costs none and
+   * is not counted.
+   */
+  BLINDTEST_REFRESH_SEARCHES: z.coerce.number().int().min(0).max(100).default(60),
+
+  /** The most searches a night spends on what admins asked for. 0 leaves the asks to rooms and the manual run. */
+  BLINDTEST_REQUEST_SEARCHES: z.coerce.number().int().min(0).max(100).default(20),
+
+  /**
    * Brains for the Mafia bots, in the order they are tried.
    *
    * A comma-separated chain rather than one name: `openai,ollama` means "a free

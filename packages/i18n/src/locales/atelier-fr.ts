@@ -357,6 +357,8 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
     "Noté {difficulty}, pourtant très vu ou bien classé sur Deezer : l’artiste n’a sans doute pas été trouvé sous ce nom.",
   "ple.extreme.unscored":
     "Noté {difficulty} à l’ancienne, sans aucun chiffre pour le confirmer.",
+  "ple.extreme.deepCut":
+    "Noté {difficulty} : presque personne ne connaît ce titre. Supprimez-le, ou fixez sa difficulté à la main pour le garder.",
   "ple.extreme.notFound":
     "Introuvable sur Deezer, Wikipedia et AniList : la réponse est peut-être fausse (le chanteur ou la chanson au lieu de l’anime) ou mal écrite. Difficulté {difficulty} gardée telle quelle.",
   /* ---------- genres in question in the generated-rounds catalogue (admin) ---------- */

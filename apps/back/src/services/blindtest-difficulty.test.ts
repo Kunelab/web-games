@@ -5,13 +5,17 @@ import type { BlindtestFame } from 'game-core';
 
 import {
   bellTarget,
+  curveAt,
+  DEEP_CUT,
   extremeDoubt,
   fitCalibrations,
   normalCdf,
   normalQuantile,
+  pooledCalibration,
   resolveCalibration,
   scoreBreakdown,
   scoreDifficulty,
+  zAt,
   type CalibrationSample,
   type FameAudience
 } from './blindtest-difficulty.js';
@@ -339,5 +343,132 @@ describe('the bell the draw aims on', () => {
     for (const p of [0.001, 0.02, 0.3, 0.5, 0.77, 0.99]) {
       assert.ok(Math.abs(normalCdf(normalQuantile(p)) - p) < 1e-5);
     }
+  });
+});
+
+describe('a curve per genre', () => {
+  const KPOP = { center: 70 };
+
+  it('runs from 1 to 100 whatever the centre, and through the centre at the middle', () => {
+    for (const center of [45, 50, 70]) {
+      assert.equal(Math.round(curveAt(0, { center })), center);
+      assert.ok(curveAt(2.25, { center }) <= 1.0001, String(center));
+      assert.ok(curveAt(-2.25, { center }) >= 99.999, String(center));
+      for (const difficulty of [1, 20, center, 80, 100]) {
+        assert.ok(Math.abs(curveAt(zAt(difficulty, { center }), { center }) - difficulty) < 1e-9);
+      }
+    }
+  });
+
+  it('puts the same fame higher in a niche genre, and keeps its classics reachable', () => {
+    const scored = (center: number) =>
+      scoreBreakdown(REGIONAL_HIT, {
+        shape: 'artist-title',
+        audience: 'any',
+        calibration: resolveCalibration(fitted, 'reggae', 'artist-title'),
+        curve: { center }
+      }).difficulty;
+    assert.ok(scored(70) > scored(50), `${scored(70)} vs ${scored(50)}`);
+    const marley = scoreBreakdown(BOB_MARLEY, {
+      shape: 'artist-title',
+      audience: 'any',
+      calibration: resolveCalibration(fitted, 'reggae', 'artist-title'),
+      curve: KPOP
+    });
+    assert.ok(marley.difficulty <= 20, JSON.stringify(marley));
+  });
+
+  it("aims a niche room's rounds around its own centre", () => {
+    let seed = 7;
+    const random = () => {
+      seed = (seed * 16807) % 2147483647;
+      return seed / 2147483647;
+    };
+    const targets = Array.from({ length: 2000 }, () => bellTarget(0, 100, random, KPOP)).sort((a, b) => a - b);
+    const median = targets[targets.length / 2];
+    assert.ok(Math.abs(median - 70) <= 3, String(median));
+  });
+
+  it('keeps the easy end for songs that are hits across every genre, not only in their own', () => {
+    // A genre-wide hit whose figures are ordinary next to every genre's.
+    const pooled = pooledCalibration(
+      new Map([
+        [
+          '*artist-title',
+          {
+            deezerRank: { mean: 5.9, sd: 0.2, top: 5.98 },
+            lastfmListeners: { mean: 6.5, sd: 0.5, top: 7 },
+            views: { mean: 8.5, sd: 0.5, top: 9 }
+          }
+        ]
+      ]),
+      'artist-title'
+    );
+    const context = {
+      shape: 'artist-title' as const,
+      audience: 'any' as const,
+      calibration: resolveCalibration(fitted, 'reggae', 'artist-title'),
+      curve: KPOP
+    };
+    const genreHit: BlindtestFame = { ...BOB_MARLEY, seedFame: 0.95, views: 50_000_000, lastfmListeners: 500_000 };
+    assert.ok(scoreDifficulty(genreHit, context) <= 10);
+    assert.ok(scoreDifficulty(genreHit, { ...context, pooled }) >= 15);
+  });
+
+  it('lists a deep cut nothing contradicts for an admin, and not one that is widely watched', () => {
+    const context = {
+      shape: 'artist-title' as const,
+      audience: 'any' as const,
+      calibration: resolveCalibration(fitted, 'reggae', 'artist-title'),
+      curve: KPOP
+    };
+    assert.equal(extremeDoubt(DEEP_CUT, NOBODY, context), 'deep-cut');
+    assert.equal(
+      extremeDoubt(DEEP_CUT, { ...NOBODY, deezerFans: 5_000, views: 20_000_000 }, context),
+      'hard-contradicted'
+    );
+    assert.equal(extremeDoubt(DEEP_CUT - 1, NOBODY, context), null);
+  });
+});
+
+describe('a classical piece, read against every work', () => {
+  // Classical's own scales: most of its rounds have next to no Wikipedia, so an article at all is "famous".
+  const classical = {
+    wikiLanguages: { mean: 0.46, sd: 0.34 },
+    enPageviews: { mean: 1.87, sd: 0.8 },
+    frPageviews: { mean: 1.7, sd: 0.5 }
+  };
+  const works = {
+    wikiLanguages: { mean: 1.28, sd: 0.46 },
+    enPageviews: { mean: 4.1, sd: 1.05 },
+    frPageviews: { mean: 2.9, sd: 0.95, top: 4.06 }
+  };
+  const piece = (wikiLanguages: number, enPageviews: number, frPageviews: number): BlindtestFame => ({
+    looked: true,
+    wikiLanguages,
+    enPageviews,
+    frPageviews
+  });
+  const SWAN_LAKE = piece(62, 82_000, 9_800);
+  const PIERROT_LUNAIRE = piece(15, 4_900, 700);
+  const context = {
+    shape: 'artist-title' as const,
+    audience: 'any' as const,
+    calibration: classical,
+    piece: true,
+    curve: { center: 68 }
+  };
+
+  it('tells a famous piece from a merely notable one', () => {
+    const alone = [SWAN_LAKE, PIERROT_LUNAIRE].map((fame) => scoreDifficulty(fame, context));
+    assert.equal(alone[0], alone[1], 'against classical alone both saturate');
+    const read = [SWAN_LAKE, PIERROT_LUNAIRE].map((fame) => scoreDifficulty(fame, { ...context, works }));
+    assert.ok(read[1] - read[0] >= 15, JSON.stringify(read));
+  });
+
+  it('keeps the easy end for a piece people actually read about', () => {
+    const withWorks = { ...context, works, calibration: { ...classical, composite: { mean: -1, sd: 0.6 } } };
+    assert.ok(scoreDifficulty(SWAN_LAKE, withWorks) <= 10);
+    assert.ok(scoreDifficulty(PIERROT_LUNAIRE, withWorks) >= 15);
   });
 });

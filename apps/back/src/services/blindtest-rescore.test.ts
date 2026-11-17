@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { genreById } from './blindtest-catalog.js';
+import { curveAt } from './blindtest-difficulty.js';
 import { planRescore, type RescoreRow } from './blindtest-rescore.js';
 
 /**
@@ -64,7 +65,8 @@ describe('the scale a rescoring uses', () => {
 
   it('scores a partial run against the spreads the server uses, and saves none', () => {
     const result = planRescore([row()], { ...options, partial: true, stored });
-    assert.equal(result.rows[0]?.difficulty, 28);
+    // A whole deviation above the genre's middle, on reggae's own curve.
+    assert.equal(result.rows[0]?.difficulty, Math.round(curveAt(1, { center: reggae.difficultyCenter ?? 50 })));
     assert.equal(result.calibration, null);
   });
 

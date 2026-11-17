@@ -266,7 +266,8 @@ const EXTREME_REASON_KEYS: Record<ExtremeDoubt, MsgKey> = {
   'easy-unconfirmed': 'ple.extreme.easyUnconfirmed',
   'hard-contradicted': 'ple.extreme.hardContradicted',
   unscored: 'ple.extreme.unscored',
-  'not-found': 'ple.extreme.notFound'
+  'not-found': 'ple.extreme.notFound',
+  'deep-cut': 'ple.extreme.deepCut'
 };
 
 /** Every row, the rows with any problem, or the rows with one problem in particular. */

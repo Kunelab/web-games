@@ -26,15 +26,23 @@ import type { BlindtestFame } from 'game-core';
  * Except in the French genres, French rap and chanson, where only French fame
  * counts: a French rapper unknown abroad is not therefore obscure to the room.
  *
- * ## A bell curve, with fixed ends
+ * ## A bell curve per genre, over the whole scale
  *
- * The blend is turned into a number around 50 with a spread of 22, so in a
- * genre its two or three most famous percent land at 1 to 5, half the rounds
- * between 35 and 65, and the deepest cuts above 85. Two rules hold whatever the
- * blend says:
- * an answer the genre's fans all know is never above 20, and one that nobody
- * anywhere has heard of, few views and no catalogue that knows it, is never
- * below 95.
+ * Fame is measured within the genre, but how hard the genre is is not: a
+ * middling K-pop song is far harder for the room than a middling pop one, and
+ * plenty of 30s in pop are already hard while a K-pop 30 was impossible. So
+ * each genre has its own centre (see `GenreCurve`): 45 for pop, 70 for K-pop.
+ * Around it the curve stretches to both ends, 1 at `Z_END` standard deviations
+ * above the genre's middle and 100 at as many below, so a niche genre spends
+ * most of the scale at the hard end and its real classics still reach 1.
+ *
+ * Rules that hold whatever the blend says:
+ * an answer the genre's fans all know is never above 20 (a little more in a
+ * niche genre), one famous across every genre is never above 20 either, and
+ * one that nobody anywhere has heard of, few views and no catalogue that knows
+ * it, is never below 95. The easy end, 1 to 10, needs the song to be a hit
+ * across the whole catalogue, not only in its genre. And from `DEEP_CUT` up an
+ * answer is a deep cut: an admin keeps it or deletes it (see `extremeDoubt`).
  *
  * ## What does not count much
  *
@@ -94,13 +102,26 @@ export type FameAudience = 'fr' | 'any';
 export type FameShape = 'artist-title' | 'work';
 
 /**
- * The middle of the curve and its spread: one standard deviation is 22 points.
- *
- * Wide enough that the head of a genre reaches the bottom of the scale: Bob
- * Marley is a 1 in reggae, not a 9, to somebody who picked reggae.
+ * The middle of the scale, and how far one standard deviation of the model's
+ * own 0 to 100 opinion goes: what the model's number is read against.
  */
 const MIDDLE = 50;
 const SPREAD = 22;
+
+/**
+ * How many standard deviations of fame from the genre's middle reach an end of
+ * the scale: 1 above it, 100 below it. At a centre of 50 that is 22 points a
+ * deviation, the single bell every genre used to share.
+ */
+export const Z_END = 2.25;
+
+/**
+ * A genre's bell: where its middling round sits on the scale. See the header.
+ * Absent, 50.
+ */
+export interface GenreCurve {
+  center: number;
+}
 
 /**
  * How far one figure may stand from its genre's middle, in standard deviations.
@@ -111,9 +132,12 @@ const SPREAD = 22;
  */
 const MAX_Z = 3.5;
 
-/** Kept off the very ends, which would read as "certain". */
+/** The ends of the scale. 100 is a song almost nobody has heard: a friend's upload with fifty views. */
 const FLOOR = 1;
-const CEILING = 99;
+const CEILING = 100;
+
+/** From here up, a deep cut: listed for an admin to keep or delete. See `extremeDoubt`. */
+export const DEEP_CUT = 97;
 
 /**
  * Where each figure sits before a genre has been calibrated.
@@ -223,6 +247,11 @@ const HIT_SEED = 0.9;
 const HARD_END = 90;
 const CONTRADICTED_CAP = 85;
 const CONTRADICTING_VIEWS = 1_000_000;
+/**
+ * In a genre harder than the middle, a million views is ordinary: the median
+ * K-pop upload has two. It takes ten there to say the room knows it.
+ */
+const CONTRADICTING_VIEWS_NICHE = 10_000_000;
 
 /* ------------------------------------------------------------------ the bell */
 
@@ -277,6 +306,28 @@ export function normalQuantile(p: number): number {
   );
 }
 
+/** The centre of a curve, kept inside the scale. */
+function centerOf(curve: GenreCurve | undefined): number {
+  return Math.min(CEILING - 1, Math.max(FLOOR + 1, curve?.center ?? MIDDLE));
+}
+
+/**
+ * Fame, in standard deviations from the genre's middle, as a difficulty on its
+ * curve. Unrounded and unclamped. See the header.
+ */
+export function curveAt(z: number, curve?: GenreCurve): number {
+  const center = centerOf(curve);
+  return z >= 0 ? center - (z * (center - FLOOR)) / Z_END : center - (z * (CEILING - center)) / Z_END;
+}
+
+/** The other way: where a difficulty sits on the curve, in standard deviations of fame. */
+export function zAt(difficulty: number, curve?: GenreCurve): number {
+  const center = centerOf(curve);
+  return difficulty <= center
+    ? ((center - difficulty) * Z_END) / (center - FLOOR)
+    : ((center - difficulty) * Z_END) / (CEILING - center);
+}
+
 /**
  * A difficulty to aim the next round at, inside the room's window.
  *
@@ -284,15 +335,16 @@ export function normalQuantile(p: number): number {
  * the window. Even, a room on the default 0 to 100 aimed one round in five at
  * the easiest twentieth of the catalogue, and the same few household names came
  * round every evening; on the bell it hears them about as often as they exist.
+ * A room of several genres aims on a curve centred on theirs.
  */
-export function bellTarget(min: number, max: number, random: () => number = Math.random): number {
+export function bellTarget(min: number, max: number, random: () => number = Math.random, curve?: GenreCurve): number {
   const low = Math.min(min, max);
   const high = Math.max(min, max);
   // Difficulty runs the other way from fame: a high z is an easy round.
-  const from = normalCdf((MIDDLE - high) / SPREAD);
-  const to = normalCdf((MIDDLE - low) / SPREAD);
+  const from = normalCdf(zAt(high, curve));
+  const to = normalCdf(zAt(low, curve));
   const z = normalQuantile(from + random() * (to - from));
-  return Math.min(high, Math.max(low, Math.round(MIDDLE - SPREAD * z)));
+  return Math.min(high, Math.max(low, Math.round(curveAt(z, curve))));
 }
 
 /* ----------------------------------------------------------------- scoring */
@@ -369,10 +421,49 @@ export interface ScoreContext {
    * whose Wikipedia figures are the piece's and not its composer's.
    */
   piece?: boolean;
+  /** The genre's curve. Absent, centred on 50. */
+  curve?: GenreCurve;
+  /**
+   * For a piece (see `piece`): every work genre's scales together, which its
+   * Wikipedia figures are read against. See `PIECE_SIGNALS`.
+   */
+  works?: Calibration;
+  /**
+   * The scales of every genre of this shape together (`pooledKey`), for what
+   * must hold across genres: the easy end and the famous cap. Absent, the
+   * genre's own stand in, as they did before.
+   */
+  pooled?: Calibration;
+}
+
+/**
+ * The figures that are a classical piece's own, read against every work's.
+ *
+ * Against classical's own, they could not tell one piece from another: most
+ * of its rounds have nearly no Wikipedia at all, so any piece with an article
+ * stood three deviations above the middle, and Pierrot Lunaire with fifteen
+ * languages scored the same 1 as Swan Lake with sixty. Films, anime and games
+ * spread the same figures over the range a piece's really runs.
+ */
+const PIECE_SIGNALS: readonly FameSignal[] = ['wikiLanguages', 'frPageviews', 'enPageviews'];
+
+/** A context's scales with a piece's own figures read against every work's. */
+export function pieceCalibration(calibration: Calibration, works: Calibration | undefined): Calibration {
+  if (!works) return calibration;
+  const merged: Calibration = { ...calibration };
+  for (const signal of PIECE_SIGNALS) merged[signal] = works[signal] ?? DEFAULT_SCALES[signal];
+  return merged;
+}
+
+/** Whether the genre is harder than the middle of the scale. */
+function niche(context: ScoreContext): boolean {
+  return centerOf(context.curve) > MIDDLE;
 }
 
 /** The two sides and the blend, before the genre's spread is applied. */
-function blend(fame: BlindtestFame, { shape, audience, calibration }: ScoreContext) {
+function blend(fame: BlindtestFame, context: ScoreContext) {
+  const { shape, audience } = context;
+  const calibration = context.piece ? pieceCalibration(context.calibration, context.works) : context.calibration;
   const sides = SIDES[shape];
   const french = weightedMean(sides.french.map(([signal, w]) => [zOf(fame, signal, calibration), w]));
   const international = weightedMean(sides.international.map(([signal, w]) => [zOf(fame, signal, calibration), w]));
@@ -452,33 +543,59 @@ function nobodyKnows(fame: BlindtestFame, shape: FameShape): boolean {
 }
 
 /**
- * The song itself is a hit in its genre, not only its artist. See `EASY_END`.
+ * The song itself is a hit, not only its artist. See `EASY_END`.
  *
+ * Measured against every genre (`ScoreContext.pooled`), except a classical
+ * piece, whose figures are the piece's and are read against other pieces.
  * Always so of a work, whose figures are the work's own: there is no artist
  * to lend it fame.
  */
 export function songIsHit(fame: BlindtestFame, context: ScoreContext): boolean {
   if (context.shape === 'work') return true;
-  const hit = (signal: FameSignal) => {
+  const hit = (signal: FameSignal, scales: Calibration) => {
     const logged = logFigure(fame, signal);
     if (logged === null) return false;
-    const scale = scaleOf(context.calibration, signal);
+    const scale = scaleOf(scales, signal);
     return logged >= (scale.top ?? DEFAULT_SCALES[signal].top ?? scale.mean + HIT_Z * scale.sd);
   };
+  // Against every genre: the top tenth of K-pop on Deezer is not a hit to the room.
+  const everywhere = context.pooled ?? context.calibration;
+  /**
+   * A piece: read by more than the average work on the English Wikipedia, or
+   * by as many as a famous one on the French. How many languages cover it says
+   * how notable it is, which is not whether the room would hum it.
+   */
+  if (context.piece === true) {
+    const works = context.works ?? context.calibration;
+    const read = (signal: FameSignal, at: 'mean' | 'top') => {
+      const logged = logFigure(fame, signal);
+      if (logged === null) return false;
+      const scale = scaleOf(works, signal);
+      return logged >= (at === 'mean' ? scale.mean : (scale.top ?? scale.mean + HIT_Z * scale.sd));
+    };
+    return read('enPageviews', 'mean') || read('frPageviews', 'top') || hit('views', everywhere);
+  }
   return (
-    hit('deezerRank') ||
-    hit('lastfmListeners') ||
-    hit('views') ||
-    (typeof fame.seedFame === 'number' && fame.seedFame >= HIT_SEED) ||
-    // A piece's Wikipedia is its own, not its composer's: see `ScoreContext.piece`.
-    (context.piece === true && (hit('wikiLanguages') || hit('frPageviews') || hit('enPageviews')))
+    // In a niche genre Deezer's rank is its fans streaming this month's release, not the room knowing it.
+    (!niche(context) && hit('deezerRank', everywhere)) ||
+    hit('lastfmListeners', everywhere) ||
+    hit('views', everywhere) ||
+    // A seed's fame is its rank within the genre's lists, which in a niche genre says nothing to the room.
+    (!niche(context) && typeof fame.seedFame === 'number' && fame.seedFame >= HIT_SEED)
   );
 }
 
-/** Something says people know it after all: a million views, or a Deezer rank above the genre's middle. */
+/**
+ * Something says people know it after all: a million views (ten in a niche
+ * genre), or a Deezer rank above the middle of every genre's.
+ */
 export function knownAfterAll(fame: BlindtestFame, context: ScoreContext): boolean {
-  if (typeof fame.views === 'number' && fame.views >= CONTRADICTING_VIEWS) return true;
-  return context.shape === 'artist-title' && (zOf(fame, 'deezerRank', context.calibration) ?? -Infinity) >= 0;
+  const views = niche(context) ? CONTRADICTING_VIEWS_NICHE : CONTRADICTING_VIEWS;
+  if (typeof fame.views === 'number' && fame.views >= views) return true;
+  return (
+    context.shape === 'artist-title' &&
+    (zOf(fame, 'deezerRank', context.pooled ?? context.calibration) ?? -Infinity) >= 0
+  );
 }
 
 /** What the catalogues give, as opposed to the views, the model and the seeds. */
@@ -520,7 +637,7 @@ function withoutCatalogues(fame: BlindtestFame): BlindtestFame {
 }
 
 /** Why a stored difficulty is in doubt. See `extremeDoubt`. */
-export type ExtremeDoubt = 'easy-unconfirmed' | 'hard-contradicted' | 'unscored' | 'not-found';
+export type ExtremeDoubt = 'easy-unconfirmed' | 'hard-contradicted' | 'unscored' | 'not-found' | 'deep-cut';
 
 /**
  * Why a difficulty at either end is in doubt, or null when nothing says so.
@@ -533,6 +650,10 @@ export type ExtremeDoubt = 'easy-unconfirmed' | 'hard-contradicted' | 'unscored'
  *
  * And, wherever it sits, a round no catalogue found at all: its number was
  * kept rather than made up, and the answer itself is the likeliest culprit.
+ *
+ * And a deep cut, from `DEEP_CUT` up, that nothing contradicts: almost nobody
+ * will name it, and an admin decides whether it stays. Setting its difficulty
+ * by hand keeps it and takes it off the list.
  */
 export function extremeDoubt(
   difficulty: number,
@@ -543,7 +664,8 @@ export function extremeDoubt(
   if (difficulty > EASY_END && difficulty < HARD_END) return null;
   if (!fame?.looked) return 'unscored';
   if (difficulty <= EASY_END) return songIsHit(fame, context) ? null : 'easy-unconfirmed';
-  return knownAfterAll(fame, context) ? 'hard-contradicted' : null;
+  if (knownAfterAll(fame, context)) return 'hard-contradicted';
+  return difficulty >= DEEP_CUT ? 'deep-cut' : null;
 }
 
 /** The difficulty, and how it came out. */
@@ -551,17 +673,28 @@ export function scoreBreakdown(fame: BlindtestFame, context: ScoreContext): Scor
   const missing = fame.looked === true && unfound(fame, context.shape);
   const { french, international, counted, composite } = blend(missing ? withoutCatalogues(fame) : fame, context);
 
-  let difficulty = MIDDLE;
+  let difficulty = Math.round(centerOf(context.curve));
   if (composite !== null) {
     const { mean, sd } = scaleOf(context.calibration, 'composite');
-    const z = (composite - mean) / sd;
-    difficulty = Math.round(MIDDLE - SPREAD * z);
+    difficulty = Math.round(curveAt((composite - mean) / sd, context.curve));
   }
   difficulty = Math.min(CEILING, Math.max(FLOOR, difficulty));
 
+  /**
+   * The genre's top twentieth: never above 20, or where that fame sits on a
+   * niche genre's curve (24 in K-pop). Famous across every genre: never above 20.
+   */
+  const genreCap = Math.max(FAMOUS_CAP, Math.round(curveAt(FAMOUS_Z, context.curve)));
+  const everywhere =
+    context.pooled !== undefined &&
+    (blend(missing ? withoutCatalogues(fame) : fame, { ...context, calibration: context.pooled }).counted ??
+      -Infinity) >= FAMOUS_Z;
   let rule: ScoreBreakdown['rule'] = null;
-  if (counted !== null && counted >= FAMOUS_Z && difficulty > FAMOUS_CAP) {
+  if (everywhere && difficulty > FAMOUS_CAP) {
     difficulty = FAMOUS_CAP;
+    rule = 'famous';
+  } else if (counted !== null && counted >= FAMOUS_Z && difficulty > genreCap) {
+    difficulty = genreCap;
     rule = 'famous';
   } else if (nobodyKnows(fame, context.shape) && difficulty < OBSCURE_FLOOR) {
     difficulty = OBSCURE_FLOOR;
@@ -593,6 +726,8 @@ export interface CalibrationSample {
   shape: FameShape;
   audience: FameAudience;
   fame: BlindtestFame;
+  /** A classical piece, whose own figures are read against every work's. See `PIECE_SIGNALS`. */
+  piece?: boolean;
 }
 
 /** The calibration a whole answer shape shares, for a genre too small for its own. */
@@ -666,7 +801,9 @@ export function fitCalibrations(samples: readonly CalibrationSample[], minSample
         compositeOf(sample.fame, {
           shape: sample.shape,
           audience: sample.audience,
-          calibration: resolveCalibration(fitted, sample.genreId, sample.shape, false)
+          calibration: resolveCalibration(fitted, sample.genreId, sample.shape, false),
+          piece: sample.piece,
+          works: sample.piece ? resolveCalibration(fitted, pooledKey('work'), 'work', false) : undefined
         })
       )
       .filter((value): value is number => value !== null);
@@ -678,6 +815,14 @@ export function fitCalibrations(samples: readonly CalibrationSample[], minSample
   }
 
   return fitted;
+}
+
+/** Every genre of a shape together: what `ScoreContext.pooled` is. */
+export function pooledCalibration(
+  fitted: ReadonlyMap<string, Partial<Record<CalibrationKey, Scale>>>,
+  shape: FameShape
+): Calibration {
+  return resolveCalibration(fitted, pooledKey(shape), shape);
 }
 
 /**

@@ -458,9 +458,16 @@ export async function drawRounds(
   const missed = new Set<PoolEntry>();
   let misses = 0;
 
+  // The room's genres' curve: their centres averaged. See `GenreCurve`.
+  const curve = {
+    center:
+      buckets.reduce((sum, bucket) => sum + (sourceGenreFor(bucket.genre).difficultyCenter ?? 50), 0) /
+      Math.max(1, buckets.length)
+  };
+
   for (let round = 0; round < count; round++) {
     // Aimed on the same bell the catalogue is scored on; see `bellTarget`.
-    const target = bellTarget(settings.difficultyMin, settings.difficultyMax);
+    const target = bellTarget(settings.difficultyMin, settings.difficultyMax, Math.random, curve);
 
     const remaining = buckets.map((bucket) => ({
       genre: bucket.genre,

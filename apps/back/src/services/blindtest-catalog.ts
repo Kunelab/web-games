@@ -43,13 +43,14 @@ import type { AliasLookup } from './blindtest-aliases.js';
 import {
   POOLED_PREFIX,
   fitCalibrations,
+  pooledCalibration,
   resolveCalibration,
   scoreDifficulty,
-  type Calibration,
   type CalibrationKey,
   type CalibrationSample,
   type FameAudience,
-  type Scale
+  type Scale,
+  type ScoreContext
 } from './blindtest-difficulty.js';
 import {
   animeThemeFor,
@@ -98,6 +99,7 @@ import {
   type SeedSources,
   type SeedStats,
   type VideoIndexStatus,
+  type SeedFilter,
   type VideosFrom
 } from './blindtest-seeds.js';
 import { chargeUnits, quotaDay, searchesOn, spendSearch, unitsLeft } from './youtube-budget.js';
@@ -227,6 +229,11 @@ export interface Genre {
    * question. See `FameTarget.piece`.
    */
   pieceFame?: boolean;
+  /**
+   * Where the genre's middling round sits on the 1 to 100 scale: 45 for pop,
+   * 70 for K-pop. Absent, 50. A facet uses its parent's. See `GenreCurve`.
+   */
+  difficultyCenter?: number;
 }
 
 export interface Section {
@@ -259,6 +266,7 @@ export const GENRES: Genre[] = [
   /* ------------------------------------------------------------------- rap */
   {
     id: 'rap-fr',
+    difficultyCenter: 45,
     label: 'Rap français',
     section: 'rap',
     answerShape: 'artist-title',
@@ -281,6 +289,7 @@ export const GENRES: Genre[] = [
   },
   {
     id: 'rap-us',
+    difficultyCenter: 52,
     label: 'Rap US',
     section: 'rap',
     answerShape: 'artist-title',
@@ -363,6 +372,7 @@ export const GENRES: Genre[] = [
   /* -------------------------------------------------------------- pop-rock */
   {
     id: 'pop',
+    difficultyCenter: 45,
     label: 'Pop internationale',
     section: 'pop-rock',
     answerShape: 'artist-title',
@@ -377,6 +387,7 @@ export const GENRES: Genre[] = [
   },
   {
     id: 'rock',
+    difficultyCenter: 48,
     label: 'Rock',
     section: 'pop-rock',
     answerShape: 'artist-title',
@@ -463,6 +474,7 @@ export const GENRES: Genre[] = [
   },
   {
     id: 'metal',
+    difficultyCenter: 60,
     label: 'Metal',
     section: 'pop-rock',
     answerShape: 'artist-title',
@@ -491,6 +503,7 @@ export const GENRES: Genre[] = [
   /* --------------------------------------------------------------- chanson */
   {
     id: 'chanson-fr',
+    difficultyCenter: 45,
     label: 'Chanson française',
     section: 'chanson',
     answerShape: 'artist-title',
@@ -559,6 +572,7 @@ export const GENRES: Genre[] = [
   /* --------------------------------------------------------------- electro */
   {
     id: 'electro',
+    difficultyCenter: 55,
     label: 'Électro',
     section: 'electro',
     answerShape: 'artist-title',
@@ -601,6 +615,7 @@ export const GENRES: Genre[] = [
   /* ----------------------------------------------------------------- anime */
   {
     id: 'anime-op',
+    difficultyCenter: 60,
     label: 'Openings',
     section: 'anime',
     answerShape: 'work',
@@ -615,6 +630,7 @@ export const GENRES: Genre[] = [
   },
   {
     id: 'anime-ed',
+    difficultyCenter: 68,
     label: 'Endings',
     section: 'anime',
     answerShape: 'work',
@@ -631,6 +647,7 @@ export const GENRES: Genre[] = [
   /* ---------------------------------------------------------------- écrans */
   {
     id: 'films-musique',
+    difficultyCenter: 45,
     label: 'Musiques de films',
     section: 'ecrans',
     answerShape: 'work',
@@ -644,6 +661,7 @@ export const GENRES: Genre[] = [
   },
   {
     id: 'series-tv',
+    difficultyCenter: 48,
     label: 'Génériques de séries',
     section: 'ecrans',
     answerShape: 'work',
@@ -659,6 +677,7 @@ export const GENRES: Genre[] = [
   /* ------------------------------------------------------------------ jeux */
   {
     id: 'jeux-video',
+    difficultyCenter: 58,
     label: 'Musiques de jeux',
     section: 'jeux',
     answerShape: 'work',
@@ -674,6 +693,7 @@ export const GENRES: Genre[] = [
   /* ----------------------------------------------------------------- monde */
   {
     id: 'reggae',
+    difficultyCenter: 65,
     label: 'Reggae',
     section: 'monde',
     answerShape: 'artist-title',
@@ -698,6 +718,7 @@ export const GENRES: Genre[] = [
   },
   {
     id: 'kpop',
+    difficultyCenter: 70,
     label: 'K-pop',
     section: 'monde',
     answerShape: 'artist-title',
@@ -728,6 +749,7 @@ export const GENRES: Genre[] = [
   /* ------------------------------------------------------------- classique */
   {
     id: 'classique',
+    difficultyCenter: 68,
     label: 'Musique classique',
     section: 'classique',
     answerShape: 'artist-title',
@@ -761,6 +783,23 @@ export function sourceGenreFor(genre: Genre): Genre {
 /** Whose fame counts in this genre; a facet's is its parent's. */
 export function audienceOf(genre: Genre): FameAudience {
   return sourceGenreFor(genre).fameAudience ?? 'any';
+}
+
+/** Everything a round of this genre is scored with, from the fitted scales. See `blindtest-difficulty`. */
+export function scoreContextOf(
+  genre: Genre,
+  fitted: ReadonlyMap<string, Partial<Record<CalibrationKey, Scale>>>
+): ScoreContext {
+  const source = sourceGenreFor(genre);
+  return {
+    shape: source.answerShape,
+    audience: audienceOf(genre),
+    calibration: resolveCalibration(fitted, source.id, source.answerShape),
+    piece: source.pieceFame,
+    curve: { center: source.difficultyCenter ?? 50 },
+    pooled: pooledCalibration(fitted, source.answerShape),
+    works: source.pieceFame ? pooledCalibration(fitted, 'work') : undefined
+  };
 }
 
 /* ------------------------------------------------------------------ entries */
@@ -1135,7 +1174,13 @@ export function refitCalibrations(db: Db): number {
     }
     if (!fame || typeof fame !== 'object') continue;
     const source = sourceGenreFor(genre);
-    samples.push({ genreId: source.id, shape: source.answerShape, audience: audienceOf(genre), fame });
+    samples.push({
+      genreId: source.id,
+      shape: source.answerShape,
+      audience: audienceOf(genre),
+      fame,
+      piece: source.pieceFame
+    });
   }
 
   const merged = readCalibrations(db);
@@ -1514,7 +1559,7 @@ export interface Catalogue {
   searchForCatalogue(
     genreId: string,
     budget: number,
-    options?: { searches?: boolean }
+    options?: { searches?: boolean; filter?: SeedFilter }
   ): Promise<CatalogueSearch | null>;
   /**
    * Puts back, in every genre, the hits that were spent without their song
@@ -1537,6 +1582,8 @@ export interface Catalogue {
   loadVideoIndex(): Promise<boolean>;
   /** Waits for the charts' songs to be filed into the genres, when a fetch is under way or due. */
   loadCharts(): Promise<void>;
+  /** Fetches the charts again now, due or not, and files their songs. How many songs. */
+  refreshCharts(): Promise<number>;
   /** An admin's ask for more of an artist or a work in a genre. See `SeedStock.request`. */
   request(
     genreId: string,
@@ -1664,7 +1711,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
   /** Each genre's spread, read from the database now and then. See `readCalibrations`. */
   let calibrations: { at: number; fitted: ReturnType<typeof readCalibrations> } | null = null;
 
-  function calibrationFor(genre: Genre): Calibration {
+  function contextFor(genre: Genre): ScoreContext {
     if (!calibrations || clock.now() - calibrations.at >= CALIBRATION_TTL_MS) {
       let fitted: ReturnType<typeof readCalibrations>;
       try {
@@ -1674,7 +1721,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
       }
       calibrations = { at: clock.now(), fitted };
     }
-    return resolveCalibration(calibrations.fitted, sourceGenreFor(genre).id, genre.answerShape);
+    return scoreContextOf(genre, calibrations.fitted);
   }
 
   /**
@@ -1685,12 +1732,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
    * is not given an easy end of its own.
    */
   function rescore(genre: Genre, entries: PoolEntry[]): void {
-    const context = {
-      shape: genre.answerShape,
-      audience: audienceOf(genre),
-      calibration: calibrationFor(genre),
-      piece: sourceGenreFor(genre).pieceFame
-    };
+    const context = contextFor(genre);
     for (const entry of entries) {
       entry.difficulty = scoreDifficulty(fameOf(entry), context);
     }
@@ -1715,6 +1757,8 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
       progress?: { channels: number };
       /** Whether to wait for Wikidata's list when it is not loaded: the prefill does, a room does not. */
       waitForIndex?: boolean;
+      /** Which seeds it may plan. See `SeedFilter`. */
+      filter?: SeedFilter;
     }
   ): Promise<SearchStep[]> {
     if (genre.seeds && genre.seeds.length > 0) {
@@ -1722,10 +1766,10 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
       if (searchesHits(genre)) {
         // A hit is spent once its song is in the catalogue, whichever room or night filed it.
         stock.settleHits(genre, await librarySongKeysIn(db));
-        const channels = await lookUpVideos(genre, options.budget, options.waitForIndex ?? false);
+        const channels = await lookUpVideos(genre, options.budget, options.waitForIndex ?? false, options.filter);
         if (options.progress) options.progress.channels += channels;
       }
-      const planned = stock.plan(genre, searches, options.window);
+      const planned = stock.plan(genre, searches, options.window, options.filter);
       if (planned.length > 0) {
         return planned.map((seed) => ({
           query: seed.query,
@@ -1751,8 +1795,13 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
    * them: the hits whose channel has not been read yet wait for a later plan,
    * and the night's prefill, which plans a hundred times, reads them all.
    */
-  async function lookUpVideos(genre: Genre, budget: number, waitForIndex: boolean): Promise<number> {
-    const pending = stock.pendingVideos(genre);
+  async function lookUpVideos(
+    genre: Genre,
+    budget: number,
+    waitForIndex: boolean,
+    filter?: SeedFilter
+  ): Promise<number> {
+    const pending = stock.pendingVideos(genre, filter);
     if (pending.length === 0) return 0;
     const index = await stock.videoIndex(waitForIndex);
     if (!index) return 0;
@@ -2036,12 +2085,18 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
   async function searchForCatalogue(
     genreId: string,
     budget: number,
-    options: { searches?: boolean } = {}
+    options: { searches?: boolean; filter?: SeedFilter } = {}
   ): Promise<CatalogueSearch | null> {
     const genre = genreById.get(genreId);
     if (!genre) return null;
     const progress = { channels: 0 };
-    const planned = await searchPlan(genre, 1, { allowFixed: false, budget, progress, waitForIndex: true });
+    const planned = await searchPlan(genre, 1, {
+      allowFixed: false,
+      budget,
+      progress,
+      waitForIndex: true,
+      filter: options.filter
+    });
     // The lookups come first in a plan, so a plan without one has none left.
     const steps = options.searches === false ? planned.filter((step) => step.seed?.videoIds) : planned;
     if (steps.length === 0) {
@@ -2531,7 +2586,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
           : null;
       const chorus = song ? await sources.lyrics(song.artist, song.title) : null;
 
-      calibrationFor(genre);
+      contextFor(genre);
       const [plan] = planRescore(
         [
           {
@@ -2607,6 +2662,7 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
     videoIndexStatus: () => stock.videoIndexStatus(),
     loadVideoIndex: async () => (await stock.videoIndex(true, true)) !== null,
     loadCharts: () => stock.chartsReady(GENRES),
+    refreshCharts: () => stock.harvestCharts(GENRES),
     request: (genreId, name, options) => {
       const genre = genreById.get(genreId);
       return genre ? stock.request(genre, name, options) : Promise.resolve({ ok: false, reason: 'not-requestable' });

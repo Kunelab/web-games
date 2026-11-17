@@ -541,7 +541,9 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
    *
    * `?searches=0` runs only what costs no search: the hits whose videos are
    * known, and the artists' channels, at a unit a page. `?searches=15` spends
-   * at most fifteen, the requested genres first. See `prefillCatalogue`.
+   * at most fifteen, the requested genres first. `?mode=refresh` is the monthly
+   * run of new hits, `?mode=requests` the nightly one of admins' asks. See
+   * `prefillCatalogue`.
    */
   app.post(
     '/blindtest/prefill',
@@ -557,7 +559,9 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
               if (value === '0' || value === 'false') return { searches: false };
               const most = Number(value);
               return Number.isInteger(most) && most > 0 ? { searches: true, maxSearches: most } : { searches: true };
-            })
+            }),
+          /** `refresh` for the monthly new hits, `requests` for only what admins asked for; `full` by default. */
+          mode: z.enum(['full', 'refresh', 'requests']).default('full')
         })
       }
     },
@@ -568,7 +572,7 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!catalogAvailable()) {
         return reply.code(503).send({ message: "La recherche YouTube n'est pas configurée sur ce serveur" });
       }
-      void prefillCatalogue(app.log, request.query.searches);
+      void prefillCatalogue(app.log, { ...request.query.searches, mode: request.query.mode });
       return reply.code(202).send(prefillStatus());
     }
   );

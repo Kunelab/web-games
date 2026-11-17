@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { msUntilQuotaReset } from './blindtest-prefill.js';
+import { msUntilQuotaReset, refreshDue } from './blindtest-prefill.js';
 
 const HOUR = 60 * 60 * 1000;
 
@@ -23,5 +23,20 @@ describe('msUntilQuotaReset', () => {
       const left = msUntilQuotaReset(new Date(Date.UTC(2026, 8, 29, 0, minute)));
       assert.ok(left > 0 && left <= 24 * HOUR, String(left));
     }
+  });
+});
+
+describe('refreshDue', () => {
+  it('is due from the day in Paris until a refresh has started on or after it', () => {
+    // The 14th at 23:30 in Paris is not the 15th yet; half an hour later it is.
+    assert.equal(refreshDue(null, 15, new Date('2026-11-14T22:30:00Z')), false);
+    assert.equal(refreshDue(null, 15, new Date('2026-11-14T23:30:00Z')), true);
+    assert.equal(refreshDue('2026-10-15T05:00:00Z', 15, new Date('2026-11-15T05:00:00Z')), true);
+    assert.equal(refreshDue('2026-11-15T05:00:00Z', 15, new Date('2026-11-16T05:00:00Z')), false);
+  });
+
+  it('catches up after a box that was off on the day, and ignores a run by hand earlier that month', () => {
+    assert.equal(refreshDue('2026-10-15T05:00:00Z', 15, new Date('2026-11-20T05:00:00Z')), true);
+    assert.equal(refreshDue('2026-11-03T05:00:00Z', 15, new Date('2026-11-15T05:00:00Z')), true);
   });
 });

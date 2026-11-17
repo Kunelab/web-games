@@ -645,8 +645,38 @@ export const CHARTS = {
     'tubes français des années'
   ],
   /** French, and a decade from the nineties on: not "Années 80", not "Rap US des années 90". */
-  frenchTitle: /^(?=.*(?:fran[cç]|vari[ée]t[ée]|bleu blanc))(?=.*(?:90|2000)).*$/i
+  frenchTitle: /^(?=.*(?:fran[cç]|vari[ée]t[ée]|bleu blanc))(?=.*(?:90|2000)).*$/i,
+  /**
+   * Deezer's live top 100s, "Deezer Charts" playlists updated every week.
+   *
+   * The year-end lists only say what was a hit once the year is over, and the
+   * monthly refresh is about what is a hit now: a song that entered these since
+   * the last refresh is the new hit it files. See `blindtest-prefill`.
+   */
+  current: [
+    { id: 1109890291, side: 'france' },
+    { id: 3155776842, side: 'world' }
+  ] as const
 };
+
+/**
+ * Which unsearched seeds a plan may take. Every one when absent.
+ *
+ * The monthly refresh plans only what arrived since the last one, from the
+ * charts or a genre's own harvest; the daily pass plans only what an admin
+ * asked for. A room's fill takes anything.
+ */
+export interface SeedFilter {
+  /** Seeds stored at or after this instant, ISO. */
+  since?: string;
+  /** Only seeds from these sources: `chart`, `deezer`, `anilist`, `request`… */
+  sources?: readonly string[];
+}
+
+/** An ISO instant as SQLite's `CURRENT_TIMESTAMP` writes it, which `created_at` holds: comparable as text. */
+export function sqliteStamp(iso: string): string {
+  return new Date(iso).toISOString().replace('T', ' ').slice(0, 19);
+}
 
 /* ------------------------------------------------------------- requests */
 
@@ -1571,7 +1601,7 @@ export interface SeedStock {
   /** Makes sure a genre has seeds to search, harvesting when it is due. */
   ensure(genre: SeededGenre): Promise<void>;
   /** The next searches for a genre, from seeds nobody has searched yet. */
-  plan(genre: SeededGenre, searches: number, window?: { min: number; max: number }): SeedSearch[];
+  plan(genre: SeededGenre, searches: number, window?: { min: number; max: number }, filter?: SeedFilter): SeedSearch[];
   /**
    * Marks a search's seeds as spent, with what they produced.
    *
@@ -1603,7 +1633,7 @@ export interface SeedStock {
    * A genre's unspent hits nobody has looked for a video for yet. They wait,
    * unplanned, until somebody has: see `lookUpVideos` in the catalogue.
    */
-  pendingVideos(genre: SeededGenre): { id: number; artist: string; title: string }[];
+  pendingVideos(genre: SeededGenre, filter?: SeedFilter): { id: number; artist: string; title: string }[];
   /** What was found for these hits: their videos, or none. */
   recordVideos(found: { id: number; videos: string[]; from: VideosFrom | null }[]): void;
   /**
@@ -1792,7 +1822,7 @@ export function createSeedStock({
       return raw;
     };
 
-    const charts = new Map<number, ChartSide>();
+    const charts = new Map<number, ChartSide>(CHARTS.current.map((chart) => [chart.id, chart.side]));
     for (let index = 0; index < DEEZER_PLAYLISTS_PER_EDITOR; index += 100) {
       const raw = counted(await sources.deezer.userPlaylists(CHARTS.yearlyEditor, { index, limit: 100 }));
       for (const playlist of deezerPlaylists.safeParse(raw).data?.data ?? []) {
@@ -2267,7 +2297,20 @@ export function createSeedStock({
 
   /* ------------------------------------------------------------ planning */
 
-  function plan(genre: SeededGenre, searches: number, window?: { min: number; max: number }): SeedSearch[] {
+  /** The `where` clauses of a `SeedFilter`. */
+  function filtered(filter: SeedFilter | undefined) {
+    return [
+      filter?.sources ? inArray(blindtestSeeds.source, [...filter.sources]) : undefined,
+      filter?.since ? gte(blindtestSeeds.created_at, sqliteStamp(filter.since)) : undefined
+    ];
+  }
+
+  function plan(
+    genre: SeededGenre,
+    searches: number,
+    window?: { min: number; max: number },
+    filter?: SeedFilter
+  ): SeedSearch[] {
     if (!genre.seeds || genre.seeds.length === 0) return [];
     const rested = stamp(clock.now() - HIT_REST_MS);
     const rows = db
@@ -2288,6 +2331,7 @@ export function createSeedStock({
         and(
           eq(blindtestSeeds.genre_id, genre.id),
           isNull(blindtestSeeds.searched_at),
+          ...filtered(filter),
           or(isNull(blindtestSeeds.tried_at), lt(blindtestSeeds.tried_at, rested)),
           // A hit whose video nobody has looked for yet waits: it may cost no search at all.
           searchesHits(genre) ? or(lt(blindtestSeeds.fame, HIT_FAME), isNotNull(blindtestSeeds.videos)) : undefined
@@ -2346,7 +2390,7 @@ export function createSeedStock({
   }
 
   /** A genre's hits, spent or not. */
-  function hitsOf(genre: SeededGenre) {
+  function hitsOf(genre: SeededGenre, filter?: SeedFilter) {
     return db
       .select({
         id: blindtestSeeds.id,
@@ -2359,7 +2403,7 @@ export function createSeedStock({
         videos_from: blindtestSeeds.videos_from
       })
       .from(blindtestSeeds)
-      .where(and(eq(blindtestSeeds.genre_id, genre.id), gte(blindtestSeeds.fame, HIT_FAME)))
+      .where(and(eq(blindtestSeeds.genre_id, genre.id), gte(blindtestSeeds.fame, HIT_FAME), ...filtered(filter)))
       .all();
   }
 
@@ -2429,9 +2473,9 @@ export function createSeedStock({
 
   /* ---------------------------------------------------------- hit videos */
 
-  function pendingVideos(genre: SeededGenre): { id: number; artist: string; title: string }[] {
+  function pendingVideos(genre: SeededGenre, filter?: SeedFilter): { id: number; artist: string; title: string }[] {
     if (!searchesHits(genre)) return [];
-    return hitsOf(genre).filter((seed) => seed.searched_at === null && seed.videos === null);
+    return hitsOf(genre, filter).filter((seed) => seed.searched_at === null && seed.videos === null);
   }
 
   function recordVideos(found: { id: number; videos: string[]; from: VideosFrom | null }[]): void {

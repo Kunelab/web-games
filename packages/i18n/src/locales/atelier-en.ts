@@ -372,6 +372,8 @@ export const atelierEn = {
     "Rated {difficulty}, yet widely watched or well ranked on Deezer: the artist was probably not found under this name.",
   "ple.extreme.unscored":
     "Rated {difficulty} the old way, with no figure to back it.",
+  "ple.extreme.deepCut":
+    "Rated {difficulty}: almost nobody knows this one. Delete it, or set its difficulty by hand to keep it.",
   "ple.extreme.notFound":
     "Found nowhere on Deezer, Wikipedia or AniList: the answer may be wrong (the singer or the song instead of the anime) or misspelt. Difficulty {difficulty} kept as it was.",
   /* ---------- genres in question in the generated-rounds catalogue (admin) ---------- */

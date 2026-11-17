@@ -1,25 +1,12 @@
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
-import {
-  genreKeysOf,
-  getMediaKind,
-  withHandEdits,
-  type BlindtestFame,
-  type BlindtestPayload
-} from 'game-core';
+import { genreKeysOf, getMediaKind, withHandEdits, type BlindtestFame, type BlindtestPayload } from 'game-core';
 
 import { cleanAliases } from '../game/session.js';
 
 import { db } from '../db/index.js';
 import { media, playlistItems, playlists, type MediaRow } from '../db/schema.js';
-import {
-  audienceOf,
-  genreById,
-  libraryVideoCodesIn,
-  readCalibrations,
-  sourceGenreFor,
-  type Genre
-} from './blindtest-catalog.js';
-import { extremeDoubt, resolveCalibration, type ExtremeDoubt } from './blindtest-difficulty.js';
+import { scoreContextOf, genreById, libraryVideoCodesIn, readCalibrations, type Genre } from './blindtest-catalog.js';
+import { extremeDoubt, type ExtremeDoubt } from './blindtest-difficulty.js';
 import type { DrawHistory } from './blindtest-draw.js';
 import { hiddenDuplicates } from './blindtest-duplicates.js';
 import { withEras } from './blindtest-eras.js';
@@ -593,13 +580,7 @@ export async function findExtremeFlags(): Promise<ExtremeFlag[]> {
     if (typeof payload.difficulty !== 'number' || payload.difficultyBy === 'human') continue;
     const genre = item.category ? genreById.get(item.category) : undefined;
     if (!genre) continue;
-    const source = sourceGenreFor(genre);
-    const reason = extremeDoubt(payload.difficulty, payload.fame, {
-      shape: source.answerShape,
-      audience: audienceOf(genre),
-      calibration: resolveCalibration(calibrations, source.id, source.answerShape),
-      piece: source.pieceFame
-    });
+    const reason = extremeDoubt(payload.difficulty, payload.fame, scoreContextOf(genre, calibrations));
     if (reason) flags.push({ mediaId: item.id, difficulty: payload.difficulty, reason });
   }
   return flags;
