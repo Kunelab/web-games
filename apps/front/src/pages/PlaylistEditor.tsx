@@ -11,7 +11,7 @@ import {
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { alsoInOf, genreKeysOf, normalizeAnswer, playedWindows } from 'game-core';
+import { alsoInOf, genreKeysOf, normalizeAnswer, playedWindows, videoInDoubt } from 'game-core';
 import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -251,10 +251,11 @@ interface GenreFlagInfo {
  * In the order a curator settles them: a duplicate may be deleted outright,
  * which makes every other question about it moot.
  */
-type Problem = 'duplicate' | 'genre' | 'legacy' | 'extreme' | 'unfinished';
+type Problem = 'duplicate' | 'video' | 'genre' | 'legacy' | 'extreme' | 'unfinished';
 
 const PROBLEM_LABELS: Record<Problem, MsgKey> = {
   duplicate: 'ple.problem.duplicate',
+  video: 'ple.problem.video',
   genre: 'ple.problem.genre',
   legacy: 'ple.problem.legacy',
   extreme: 'ple.problem.extreme',
@@ -685,12 +686,14 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
    */
   const hasProblem: Record<Problem, (item: MediaItem) => boolean> = {
     duplicate: (item) => dupById.has(item.id),
+    // A cover or a namesake where the work's own music should be: replace the video.
+    video: (item) => videoInDoubt(item.payload),
     genre: (item) => genreFlagById.has(item.id),
     legacy: (item) => legacyIds.has(item.id),
     extreme: (item) => extremeById.has(item.id),
     unfinished: (item) => !item.readiness.ready
   };
-  const problems: Problem[] = curating ? ['duplicate', 'genre', 'legacy', 'extreme', 'unfinished'] : ['unfinished'];
+  const problems: Problem[] = curating ? ['duplicate', 'video', 'genre', 'legacy', 'extreme', 'unfinished'] : ['unfinished'];
   const hasAnyProblem = (item: MediaItem) => problems.some((problem) => hasProblem[problem](item));
   const problemCount = chosen.filter(hasAnyProblem).length;
   const countOf = (problem: Problem) => chosen.filter(hasProblem[problem]).length;

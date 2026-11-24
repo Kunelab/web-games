@@ -198,6 +198,18 @@ const SIDES: Record<FameShape, { french: [FameSignal, number][]; international: 
 /** Fame decides; the model, the seed's rank and the views only lean on it. */
 const WEIGHT = { fame: 4, model: 1, seed: 1, views: 0.5 };
 
+/** A song's own figures, each side's: Deezer for France, Last.fm for everywhere. */
+const SONG_WEIGHT = { deezerRank: 1, lastfmListeners: 1 };
+/** How much of a song's fame is the song's own; the rest is its artist's. */
+const SONG_SHARE = 0.65;
+
+/**
+ * A song that is a hit on two counts at once is never above this, whoever sings
+ * it: one-hit wonders are named by the whole room. Two, because Deezer's rank
+ * alone can be a hit in Abidjan or São Paulo that France never heard.
+ */
+const SONG_HIT_CAP = 40;
+
 /**
  * How much more a music video is watched than another upload of the same song.
  *
@@ -403,7 +415,10 @@ export interface ScoreBreakdown {
    * Which rule, if any, decided it: a fixed end (`famous`, `obscure`), or one
    * kept from the extremes it had not earned (`artist-only`, `contradicted`).
    */
-  rule: 'famous' | 'obscure' | 'artist-only' | 'contradicted' | null;
+  rule: 'famous' | 'obscure' | 'song-hit' | 'artist-only' | 'contradicted' | null;
+  /** A song's own fame and its artist's, in standard deviations; null for a work. See `blend`. */
+  song?: number | null;
+  artist?: number | null;
   /**
    * No catalogue found it at all, and nothing says it is obscure: scored on
    * what is left (the model, the seeds, the views), which a rescoring takes as
@@ -467,14 +482,64 @@ function blend(fame: BlindtestFame, context: ScoreContext) {
   const sides = SIDES[shape];
   const french = weightedMean(sides.french.map(([signal, w]) => [zOf(fame, signal, calibration), w]));
   const international = weightedMean(sides.international.map(([signal, w]) => [zOf(fame, signal, calibration), w]));
-  const counted =
-    audience === 'fr'
-      ? french
-      : french === null
-        ? international
-        : international === null
-          ? french
-          : Math.max(french, international);
+  const better = (fr: number | null, any: number | null) =>
+    audience === 'fr' ? fr : fr === null ? any : any === null ? fr : Math.max(fr, any);
+
+  /**
+   * A song: its own fame first, its artist's second.
+   *
+   * Taking the better of two sides that were mostly the artist's let a big name
+   * carry every song it ever released: Prince's B-sides came out at 16, and a
+   * hit by an act with no Wikipedia at all came out hard ("Soda Pop", 76). So
+   * the song's own figures (Deezer's rank for the track, Last.fm's listeners
+   * for it, its views) lead, and the artist's (fans, Wikipedia) lean on them.
+   * Each picks its own audience. Without any figure for the song itself the
+   * artist alone decides, as before, and `ARTIST_ONLY_FLOOR` keeps that off the
+   * easy end.
+   */
+  let song: number | null = null;
+  let artist: number | null = null;
+  let counted: number | null;
+  if (shape === 'artist-title' && context.piece !== true) {
+    const z = (signal: FameSignal) => zOf(fame, signal, calibration);
+    song = better(
+      weightedMean([[z('deezerRank'), SONG_WEIGHT.deezerRank]]),
+      weightedMean([[z('lastfmListeners'), SONG_WEIGHT.lastfmListeners]])
+    );
+    artist = better(
+      weightedMean([
+        [z('deezerFans'), 2],
+        [z('frPageviews'), 2]
+      ]),
+      weightedMean([
+        [z('wikiLanguages'), 3],
+        [z('enPageviews'), 1]
+      ])
+    );
+    /**
+     * Deezer's rank stops at a million, so a song's fame cannot climb past the
+     * genre's top tenth while a star's goes on: Bob Marley's biggest hit sat at
+     * 1.4 deviations and his name at 2.3. A song at the top says nothing against
+     * its artist, and is not held below them.
+     */
+    const atTop = (signal: FameSignal) => {
+      const logged = logFigure(fame, signal);
+      const scale = scaleOf(calibration, signal);
+      return logged !== null && logged >= (scale.top ?? scale.mean + HIT_Z * scale.sd);
+    };
+    if (song !== null && artist !== null && song < artist && (atTop('deezerRank') || atTop('lastfmListeners'))) {
+      song = artist;
+    }
+    counted =
+      song === null
+        ? artist
+        : weightedMean([
+            [song, SONG_SHARE],
+            [artist, 1 - SONG_SHARE]
+          ]);
+  } else {
+    counted = better(french, international);
+  }
 
   const model =
     typeof fame.model === 'number' && Number.isFinite(fame.model)
@@ -489,16 +554,22 @@ function blend(fame: BlindtestFame, context: ScoreContext) {
       ? normalQuantile(Math.min(0.98, Math.max(0.02, fame.seedFame)))
       : null;
   const views = zOf(fame, 'views', calibration);
+  /**
+   * Views make a round harder, and easier only from an official upload with a
+   * hit's count: a music video or a Topic track is the song's own, and a
+   * fan's upload of a famous song is not. See the header.
+   */
+  const official = fame.upload === 'video' || fame.upload === 'topic';
+  const leaning = views === null ? null : views < 0 ? views : official && views >= HIT_Z ? views - HIT_Z / 2 : null;
 
   const composite = weightedMean([
     [counted, WEIGHT.fame],
     [model === null ? null : (MIDDLE - model) / SPREAD, WEIGHT.model],
     [seed, WEIGHT.seed],
-    // Views only ever make it harder; see the header.
-    [views !== null && views < 0 ? views : null, WEIGHT.views]
+    [leaning, WEIGHT.views]
   ]);
 
-  return { french, international, counted, composite };
+  return { french, international, song, artist, counted, composite };
 }
 
 /** The blend alone, which the calibration fits a spread to. */
@@ -575,14 +646,30 @@ export function songIsHit(fame: BlindtestFame, context: ScoreContext): boolean {
     };
     return read('enPageviews', 'mean') || read('frPageviews', 'top') || hit('views', everywhere);
   }
-  return (
+  return songHits(fame, context) > 0;
+}
+
+/**
+ * How many of a song's own figures call it a hit, against every genre. See
+ * `songIsHit` and `SONG_HIT_CAP`. Never counts a work or a piece.
+ */
+export function songHits(fame: BlindtestFame, context: ScoreContext): number {
+  if (context.shape === 'work' || context.piece === true) return 0;
+  const everywhere = context.pooled ?? context.calibration;
+  const hit = (signal: FameSignal) => {
+    const logged = logFigure(fame, signal);
+    if (logged === null) return false;
+    const scale = scaleOf(everywhere, signal);
+    return logged >= (scale.top ?? DEFAULT_SCALES[signal].top ?? scale.mean + HIT_Z * scale.sd);
+  };
+  return [
     // In a niche genre Deezer's rank is its fans streaming this month's release, not the room knowing it.
-    (!niche(context) && hit('deezerRank', everywhere)) ||
-    hit('lastfmListeners', everywhere) ||
-    hit('views', everywhere) ||
+    !niche(context) && hit('deezerRank'),
+    hit('lastfmListeners'),
+    hit('views'),
     // A seed's fame is its rank within the genre's lists, which in a niche genre says nothing to the room.
-    (!niche(context) && typeof fame.seedFame === 'number' && fame.seedFame >= HIT_SEED)
-  );
+    !niche(context) && typeof fame.seedFame === 'number' && fame.seedFame >= HIT_SEED
+  ].filter(Boolean).length;
 }
 
 /**
@@ -671,7 +758,10 @@ export function extremeDoubt(
 /** The difficulty, and how it came out. */
 export function scoreBreakdown(fame: BlindtestFame, context: ScoreContext): ScoreBreakdown {
   const missing = fame.looked === true && unfound(fame, context.shape);
-  const { french, international, counted, composite } = blend(missing ? withoutCatalogues(fame) : fame, context);
+  const { french, international, song, artist, counted, composite } = blend(
+    missing ? withoutCatalogues(fame) : fame,
+    context
+  );
 
   let difficulty = Math.round(centerOf(context.curve));
   if (composite !== null) {
@@ -699,6 +789,9 @@ export function scoreBreakdown(fame: BlindtestFame, context: ScoreContext): Scor
   } else if (nobodyKnows(fame, context.shape) && difficulty < OBSCURE_FLOOR) {
     difficulty = OBSCURE_FLOOR;
     rule = 'obscure';
+  } else if (difficulty > SONG_HIT_CAP && songHits(fame, context) >= 2) {
+    difficulty = SONG_HIT_CAP;
+    rule = 'song-hit';
   }
 
   // And the extremes, earned or not; see `EASY_END`.
@@ -710,7 +803,7 @@ export function scoreBreakdown(fame: BlindtestFame, context: ScoreContext): Scor
     rule = 'contradicted';
   }
 
-  return { difficulty, french, international, fame: counted, composite, rule, unfound: missing };
+  return { difficulty, french, international, song, artist, fame: counted, composite, rule, unfound: missing };
 }
 
 export function scoreDifficulty(fame: BlindtestFame, context: ScoreContext): number {

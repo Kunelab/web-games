@@ -8,6 +8,7 @@ import {
   animeThemeFor,
   lookupFame,
   noFameSources,
+  sameSong,
   themeSlotOf,
   workNameVariants,
   type FameSources,
@@ -517,5 +518,34 @@ describe('which theme a clip plays', () => {
     assert.equal(animeThemeFor(themes, { type: 'OP', sequence: 2 }, 'OP')?.song, 'Second');
     assert.equal(animeThemeFor(themes, null, 'ED')?.song, 'Only ending');
     assert.equal(animeThemeFor(themes, null, 'OP'), null);
+  });
+});
+
+describe('which of a catalogue\u2019s takes is the song', () => {
+  it('refuses a live take, a session or a karaoke for the studio song', () => {
+    assert.equal(sameSong('Whenever, Wherever (El Dorado World Tour Live)', 'Whenever, Wherever'), false);
+    assert.equal(sameSong('Gold Digger (AOL Sessions)', 'Gold Digger'), false);
+    assert.equal(sameSong('Gold Digger (Made Popular By Kanye West) [Karaoke Version]', 'Gold Digger'), false);
+    assert.equal(sameSong('Wonderwall - Remastered 2014', 'Wonderwall'), true);
+    assert.equal(sameSong('Strobe (Original Mix)', 'Strobe'), true);
+  });
+
+  it('keeps a take the answer itself names, and a title that only contains the word', () => {
+    assert.equal(sameSong('Live and Let Die', 'Live and Let Die'), true);
+    assert.equal(sameSong('Hallelujah (Live)', 'Hallelujah (Live)'), true);
+  });
+
+  it('finds the song under another name with the answer in brackets', () => {
+    assert.equal(sameSong('Suerte (Whenever, Wherever)', 'Whenever, Wherever'), true);
+  });
+
+  it('allows a spelling apart on a long title, not a different word on a short one', () => {
+    assert.equal(sameSong("Knockin' On Heaven's Door", "Knocking on Heaven's Door"), true);
+    assert.equal(sameSong('Love Me Now', 'Love Me Not'), false);
+  });
+
+  it('reads through a censored title', () => {
+    assert.equal(sameSong("F**kin' Perfect", "Fuckin' Perfect"), true);
+    assert.equal(sameSong("F**kin' Perfect", 'Perfect'), false);
   });
 });

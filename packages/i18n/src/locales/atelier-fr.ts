@@ -140,6 +140,7 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
 
   /* ----------- what an item is still missing before it can be played -------- */
   "miss.youtube": "la vidéo YouTube",
+  "miss.videoDoubt": "une vidéo correcte (celle-ci est une reprise ou ne vient pas de l’œuvre : remplacez-la)",
   "miss.question": "la question",
   "miss.image": "l’image",
   "miss.panel": "la grille, ou une image de panel",
@@ -316,6 +317,7 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.problem.label": "Afficher",
   "ple.problem.any": "Tous les problèmes",
   "ple.problem.duplicate": "Doublons",
+  "ple.problem.video": "Mauvaise vidéo",
   "ple.problem.genre": "Genre",
   "ple.problem.legacy": "Ancien libellé",
   "ple.problem.extreme": "Difficulté douteuse",

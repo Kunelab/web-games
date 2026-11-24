@@ -55,6 +55,7 @@ export {
   blindtestFameSchema,
   blindtestPayloadSchema,
   playedWindows,
+  videoInDoubt,
   withHandEdits,
   type BlindtestFame,
   type BlindtestPayload,

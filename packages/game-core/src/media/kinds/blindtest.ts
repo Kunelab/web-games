@@ -121,7 +121,22 @@ export const blindtestPayloadSchema = z
      * Set when an admin chose `alsoIn` by hand. Without it the eras in it are
      * kept in step with the round's year and genre automatically.
      */
-    alsoInBy: z.enum(['human']).optional()
+    alsoInBy: z.enum(['human']).optional(),
+    /**
+     * The video is not what the round says it is, and must be replaced: a cover
+     * of a film's score, or a song that only shares the work's name.
+     *
+     * Holds the video id it was raised against, so it lapses by itself when an
+     * admin puts another video in: a doubt about a video no longer there is
+     * nothing. While it holds, the round is not played. See `videoInDoubt`.
+     */
+    videoDoubt: z
+      .object({
+        reason: z.enum(['cover', 'not-from-work']),
+        code: z.string(),
+        note: z.string().max(300).optional()
+      })
+      .optional()
   })
   .refine((payload) => payload.endGuess > payload.startGuess, {
     message: 'La fin du extrait doit être après le début',
@@ -133,6 +148,13 @@ export const blindtestPayloadSchema = z
   });
 
 export type BlindtestPayload = z.infer<typeof blindtestPayloadSchema>;
+
+/** Whether a round's current video is the one flagged as wrong. See `videoDoubt`. */
+export function videoInDoubt(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const { code, videoDoubt } = payload as { code?: unknown; videoDoubt?: { code?: unknown } };
+  return typeof code === 'string' && code !== '' && videoDoubt?.code === code;
+}
 
 const CLIP_KEYS = ['startGuess', 'endGuess', 'startReveal', 'endReveal'] as const;
 
@@ -159,6 +181,9 @@ export function withHandEdits(previous: unknown, next: BlindtestPayload): Blindt
   const before = (previous && typeof previous === 'object' ? previous : {}) as Partial<BlindtestPayload>;
   const merged: BlindtestPayload = { ...next };
   if (merged.fame === undefined && before.fame !== undefined) merged.fame = before.fame;
+  // An editor that does not show the doubt must not clear it by saving: only another video does.
+  if (merged.videoDoubt === undefined && before.videoDoubt !== undefined) merged.videoDoubt = before.videoDoubt;
+  if (merged.videoDoubt && merged.videoDoubt.code !== merged.code) delete merged.videoDoubt;
 
   const changed = changedByHand(previous, next);
   const difficultyBy = changed.difficulty ? 'human' : (next.difficultyBy ?? before.difficultyBy);
@@ -329,5 +354,5 @@ export const blindtest = defineKind<BlindtestPayload>({
   // let anyone open it on YouTube and read the title.
   playerPresentation: () => ({}),
 
-  missingForPlay: (payload) => (payload.code ? [] : ['miss.youtube'])
+  missingForPlay: (payload) => (!payload.code ? ['miss.youtube'] : videoInDoubt(payload) ? ['miss.videoDoubt'] : [])
 });

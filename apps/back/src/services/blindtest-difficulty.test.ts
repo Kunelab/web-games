@@ -177,8 +177,38 @@ describe('the ends of the scale, earned', () => {
 
   it('keeps an ordinary song by a famous artist off the easy end', () => {
     const scored = scoreBreakdown(DEEP_CUT, french);
-    assert.equal(scored.difficulty, 15);
-    assert.equal(scored.rule, 'artist-only');
+    // Off it by its own figures now, or held at 15 when the blend still lands there.
+    assert.ok(scored.difficulty > 10, JSON.stringify(scored));
+    if (scored.difficulty === 15) assert.equal(scored.rule, 'artist-only');
+  });
+
+  it('scores a star’s album track well above the star’s hit, on the song’s own figures', () => {
+    const context = { shape: 'artist-title' as const, audience: 'any' as const, calibration: resolveCalibration(fitted, 'reggae', 'artist-title') };
+    // Peter Tosh's "Mystery Babylon": his name, a track Deezer barely streams.
+    const albumTrack = { ...BOB_MARLEY, deezerRank: 60_000, lastfmListeners: 20_000, views: null, model: null, seedFame: null };
+    const hit = scoreDifficulty(BOB_MARLEY, context);
+    const deep = scoreDifficulty(albumTrack, context);
+    assert.ok(deep - hit >= 25, `hit ${hit}, album track ${deep}`);
+  });
+
+  it('caps a hit by an act nobody has an article on, when two of its own figures say hit', () => {
+    const context = { shape: 'artist-title' as const, audience: 'any' as const, calibration: resolveCalibration(fitted, 'reggae', 'artist-title') };
+    // "Soda Pop": a one-off act with no Wikipedia, a song everyone streamed.
+    const oneHit: BlindtestFame = {
+      looked: true,
+      deezerRank: 950_000,
+      deezerFans: 20_000,
+      wikiLanguages: 0,
+      frPageviews: 0,
+      enPageviews: 0,
+      views: 400_000_000,
+      upload: 'video'
+    };
+    const scored = scoreBreakdown(oneHit, context);
+    assert.ok(scored.difficulty <= 40, JSON.stringify(scored));
+    // One figure alone is not enough: Deezer's rank can be a hit elsewhere.
+    const deezerOnly = scoreBreakdown({ ...oneHit, views: null }, context);
+    assert.notEqual(deezerOnly.rule, 'song-hit');
   });
 
   it('lets it through once the song itself is a hit, by any of its own figures', () => {

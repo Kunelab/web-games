@@ -157,6 +157,7 @@ export const atelierEn = {
 
   /* ----------- what an item is still missing before it can be played -------- */
   "miss.youtube": "the YouTube video",
+  "miss.videoDoubt": "a correct video (this one is a cover or not from the work: replace it)",
   "miss.question": "the question",
   "miss.image": "the image",
   "miss.panel": "the grid, or a single panel image",
@@ -331,6 +332,7 @@ export const atelierEn = {
   "ple.problem.label": "Show",
   "ple.problem.any": "Every problem",
   "ple.problem.duplicate": "Duplicates",
+  "ple.problem.video": "Wrong video",
   "ple.problem.genre": "Genre",
   "ple.problem.legacy": "Old label",
   "ple.problem.extreme": "Doubtful difficulty",

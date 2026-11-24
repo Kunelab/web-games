@@ -254,6 +254,22 @@ export const SECTIONS: Section[] = [
 ];
 
 /**
+ * Words that mark a video as somebody's take on a work's music, not the music.
+ *
+ * Shared by every work genre, each adding its own. Film rounds were piano
+ * versions, orchestral remakes and music-box covers as often as the score:
+ * "piano tutorial" alone was refused. "Music video" and a bare "violin" stay
+ * allowed, since "My Heart Will Go On" and Schindler's List's theme are the
+ * real thing; whether a video is from the work at all is the model's to say
+ * (see `fromWork` in the annotation).
+ */
+const NOT_THE_ORIGINAL =
+  /\b(covers?|cover version|piano (version|cover|solo|arrangement|tutorial|medley)|on (the )?piano|fan[- ]?made|fan version|recreat(ed|ion)|rendition|tribute|reimagined|re-?orchestrated|orchestral (version|cover|arrangement|remake)|epic (version|orchestral|cover)|(violin|cello|guitar|harp|flute|sax|ocarina|organ) (cover|version)|music ?box|lo-?fi|8[- ]?bit|16[- ]?bit (remix|cover)|chiptune|synthesia|ukulele|kalimba|a ?cappella|remix|reaction|tutorial|how to play|sheet music|midi)\b/i;
+
+/** A genre's own refusals, on top of `NOT_THE_ORIGINAL`. */
+const andNotTheOriginal = (own: RegExp): RegExp => new RegExp(`${NOT_THE_ORIGINAL.source}|${own.source}`, 'i');
+
+/**
  * The genres, and where each draws from.
  *
  * The queries are the part worth tuning. A search returns whatever YouTube thinks
@@ -626,7 +642,7 @@ export const GENRES: Genre[] = [
     seeds: [{ kind: 'anilist' }],
     seedSuffix: 'opening',
     seedSuffixInPhrase: true,
-    reject: /\b(amv|nightcore|cover|piano|8d|reaction)\b/i
+    reject: andNotTheOriginal(/\b(amv|nightcore|piano|8d)\b/)
   },
   {
     id: 'anime-ed',
@@ -641,7 +657,7 @@ export const GENRES: Genre[] = [
     seeds: [{ kind: 'anilist' }],
     seedSuffix: 'ending',
     seedSuffixInPhrase: true,
-    reject: /\b(amv|nightcore|cover|piano|8d|reaction)\b/i
+    reject: andNotTheOriginal(/\b(amv|nightcore|piano|8d)\b/)
   },
 
   /* ---------------------------------------------------------------- écrans */
@@ -657,7 +673,7 @@ export const GENRES: Genre[] = [
     queries: ['movie soundtrack main theme', 'film score official soundtrack', 'bande originale film thème'],
     seeds: [{ kind: 'wikidata', types: ['Q11424'], minLinks: 40, dateProperty: 'P577', requireComposer: true }],
     seedSuffix: 'soundtrack theme',
-    reject: /\b(cover|piano tutorial|remix|reaction|epic music mix)\b/i
+    reject: andNotTheOriginal(/\b(epic music mix|trailer music|inspired by)\b/)
   },
   {
     id: 'series-tv',
@@ -671,7 +687,7 @@ export const GENRES: Genre[] = [
     queries: ['tv series opening theme', 'série générique officiel', 'tv show intro theme song'],
     seeds: [{ kind: 'wikidata', types: ['Q5398426', 'Q581714'], minLinks: 20, dateProperty: 'P580' }],
     seedSuffix: 'opening theme',
-    reject: /\b(cover|reaction|fan made)\b/i
+    reject: andNotTheOriginal(/\b(fan intro|intro remake|custom intro)\b/)
   },
 
   /* ------------------------------------------------------------------ jeux */
@@ -687,7 +703,7 @@ export const GENRES: Genre[] = [
     queries: ['video game soundtrack main theme', 'game ost official', 'videogame music theme'],
     seeds: [{ kind: 'wikidata', types: ['Q7889'], minLinks: 20, dateProperty: 'P577' }],
     seedSuffix: 'OST theme',
-    reject: /\b(cover|remix|piano tutorial|reaction|playthrough|gameplay)\b/i
+    reject: andNotTheOriginal(/\b(playthrough|gameplay|walkthrough|let'?s play)\b/)
   },
 
   /* ----------------------------------------------------------------- monde */
@@ -974,7 +990,7 @@ const MAX_DURATION_SECONDS = 12 * 60;
  * alone misses: a five minute "TOP 5" is within every other bound and still has
  * five answers.
  */
-const NOT_A_SINGLE_WORK =
+export const NOT_A_SINGLE_WORK =
   /\b(top\s*\d+|compilation|best[\s-]?of|les\s+meilleur|mix|megamix|mashup|medley|full\s+album|album\s+complet|playlist|\d+\s*(h|hours?|heures?)\b|reaction|react|review|analys|explain|tutorial|karaoke|instrumental|lyrics?\s+video|sped\s*up|slowed|nightcore|8d\s*audio|loop(ed)?\b|1\s*hour)/i;
 
 /**
@@ -1324,6 +1340,9 @@ function toEntry(
      * candidate is dropped rather than asked about the song by accident.
      */
     if (annotation?.kind !== 'work') return null;
+    // `fromWork` is not acted on: a full-catalogue audit found it false for nine
+    // in ten correct videos (Shirley Bassey's Moonraker, LiSA's Gurenge). Covers
+    // are caught by the genre's title refusals instead.
 
     work = annotation.answer.trim();
     if (!work) return null;
@@ -1940,7 +1959,9 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
         fact.durationSeconds !== null &&
         fact.durationSeconds >= MIN_DURATION_SECONDS &&
         fact.durationSeconds <= MAX_DURATION_SECONDS &&
-        !NOT_A_SINGLE_WORK.test(fact.title)
+        !NOT_A_SINGLE_WORK.test(fact.title) &&
+        // Before the model, not only after: a cover costs a model call and can win the work's slot.
+        !genre.reject?.test(fact.title)
     );
 
     /**
@@ -1972,7 +1993,9 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
         videoId: fact.videoId,
         title: fact.title,
         channel: fact.channel,
-        hint: origin.get(fact.videoId)?.seed?.hint
+        hint: origin.get(fact.videoId)?.seed?.hint,
+        // A work's covers say so in their description more often than in their title.
+        ...(genre.answerShape === 'work' && fact.description ? { description: fact.description } : {})
       })),
       genre.answerShape,
       // "Japanimation / Openings" rather than "Openings": the model judges fit
@@ -2005,6 +2028,8 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
 
     const entries: PoolEntry[] = [];
     const byTrack = new Map<string, number>();
+    /** The views of the video each recording is held by, so a work keeps its most watched. */
+    const viewsOf = new Map<string, number>();
 
     for (const fact of surviving) {
       const entry = toEntry(
@@ -2046,11 +2071,24 @@ export function createCatalogue({ sources, db, clock, budget: dailyBudget }: Cat
         // they start on the music rather than on a scene.
         if (incumbent && UPLOAD_RANK[entry.upload] < UPLOAD_RANK[incumbent.upload]) {
           entries[existing] = entry;
+          viewsOf.set(entry.trackKey, fact.views);
+        } else if (
+          // A work's videos of the same kind: the most watched is the score, a
+          // cover is a fraction of it. Before this, whichever the search listed
+          // first won, and that was often a piano version.
+          incumbent &&
+          genre.answerShape === 'work' &&
+          UPLOAD_RANK[entry.upload] === UPLOAD_RANK[incumbent.upload] &&
+          fact.views > (viewsOf.get(entry.trackKey) ?? Infinity)
+        ) {
+          entries[existing] = entry;
+          viewsOf.set(entry.trackKey, fact.views);
         }
         continue;
       }
 
       byTrack.set(entry.trackKey, entries.length);
+      viewsOf.set(entry.trackKey, fact.views);
       entries.push(entry);
       if (entries.length >= MAX_POOL_ENTRIES) break;
     }

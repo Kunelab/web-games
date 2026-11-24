@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { normalizeAnswer } from 'game-core';
+import { boundedLevenshtein, normalizeAnswer } from 'game-core';
 
 import type { Db } from '../db/open.js';
 import { blindtestFame } from '../db/schema.js';
@@ -259,11 +259,91 @@ function sameArtist(catalogued: string, wanted: string): boolean {
   );
 }
 
+/**
+ * The same title, allowing what catalogues spell differently: "Knockin'" and
+ * "Knocking" (and censored titles, see `censoredOf`). One letter in twelve, and
+ * only on titles long enough that a letter is not a different word: "Love Me
+ * Now" is not "Love Me Not".
+ */
 function sameTitle(left: string, right: string): boolean {
+  if (left.includes('*') !== right.includes('*')) {
+    return left.includes('*') ? censoredOf(left, right) : censoredOf(right, left);
+  }
   const a = bareTitle(left);
   const b = bareTitle(right);
   if (!a || !b) return false;
-  return a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)));
+  if (a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)))) return true;
+  if (Math.min(a.length, b.length) < 12) return false;
+  const budget = Math.floor(Math.max(a.length, b.length) / 12);
+  return boundedLevenshtein(a, b, budget) <= budget;
+}
+
+/** "F**kin' Perfect" for "Fuckin' Perfect": each run of stars stands for the letters it hides. */
+function censoredOf(censored: string, plain: string): boolean {
+  const words = (title: string) =>
+    title
+      .replace(/\s*[([].*?[)\]]/g, '')
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+  const ours = words(censored);
+  const theirs = words(plain);
+  if (ours.length !== theirs.length) return false;
+  return ours.every((word, index) => {
+    const their = theirs[index] ?? '';
+    if (!word.includes('*')) return normalizeAnswer(word) === normalizeAnswer(their);
+    const pattern = word.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*+/g, '.+');
+    return new RegExp(`^${pattern}$`).test(their);
+  });
+}
+
+/**
+ * Acts that only ever record other people's songs: "Made famous by Pink",
+ * "Hitmakers Unlimited", "Pink Piano". Their name may end in the star's, and
+ * their rank is the cover's.
+ */
+const SOUNDALIKE = /\b(made famous|famous by|in the style of|karaoke|tribute|hitmakers|cover band|covers|piano|lullaby|lullabies|sound-?alike|as made famous)\b/i;
+
+/**
+ * Words that make a catalogue's track another take of the song, not the one
+ * people play. `bareTitle` strips them so a remaster still matches; this is what
+ * keeps the live take from standing in for the original. Deezer lists "Whenever,
+ * Wherever (El Dorado World Tour Live)" above the studio cut, and "Gold Digger
+ * (AOL Sessions)" was read as Gold Digger at a quarter of its rank.
+ */
+const OTHER_TAKE =
+  /\b(live|en concert|en public|unplugged|acoustic|acoustique|sessions?|remix|rmx|club mix|dub mix|vip mix|karaoke|instrumental|cover|made popular|in the style of|tribute|demo|sped up|slowed|nightcore|piano version|orchestral|symphonic|rehearsal|bootleg)\b/i;
+
+/**
+ * What a title says about its take: only the brackets and what follows a " - ",
+ * so a song called "Live and Let Die" is not a live take of itself.
+ */
+function takeOf(title: string): string {
+  const suffixes = [...title.matchAll(/[([]([^)\]]+)[)\]]/g)].map((bracket) => bracket[1] ?? '');
+  const dash = title.split(/\s+-\s+/).slice(1).join(' ');
+  return (`${suffixes.join(' ')} ${dash}`.match(OTHER_TAKE)?.[1] ?? '').toLowerCase();
+}
+
+/** Whether `catalogued` is another take of `wanted`: marked as one, when the answer itself is not. */
+export function otherTake(catalogued: string, wanted: string): boolean {
+  const take = takeOf(catalogued);
+  return take !== '' && take !== takeOf(wanted);
+}
+
+/**
+ * The same song, as a catalogue titles one of its takes.
+ *
+ * Either the titles match once the version noise is gone, or the catalogue
+ * gives the song under another name with the answer's in brackets: Deezer's
+ * studio "Whenever, Wherever" is "Suerte (Whenever, Wherever)". And never a
+ * take that is not the original; see `OTHER_TAKE`.
+ */
+export function sameSong(catalogued: string, wanted: string): boolean {
+  if (otherTake(catalogued, wanted)) return false;
+  if (sameTitle(catalogued, wanted)) return true;
+  const target = bareTitle(wanted);
+  if (target.length < 4) return false;
+  return [...catalogued.matchAll(/[([]([^)\]]+)[)\]]/g)].some((bracket) => bareTitle(bracket[1] ?? '') === target);
 }
 
 /* ------------------------------------------------------------- Wikipedia */
@@ -410,15 +490,26 @@ async function musicFame(
    *
    * A search lists the remaster, the live take and the radio edit side by side;
    * the original is the one people play, and the one with the highest rank.
+   * Live takes, sessions, remixes and covers are not it (see `sameSong`), and
+   * every credit is searched, since "Kanye West ft. Jamie Foxx" and "Kanye West"
+   * do not return the same 25 hits: the best of all of them is the song.
    */
   let tracks: DeezerTrackHit[] | undefined;
   let track: DeezerTrackHit | undefined;
-  for (const credit of credits) {
-    tracks = settle(trace, await sources.deezerTracks(credit, target.title));
-    track = (tracks ?? [])
-      .filter((hit) => sameArtist(hit.artist.name, credit) && sameTitle(hit.title, target.title))
+  // A piece's recordings are credited to their performers, or to uploaders who
+  // took the composer's name ("Richard Wagner", one fan): no track is the piece.
+  for (const credit of target.piece ? [] : credits) {
+    const found = settle(trace, await sources.deezerTracks(credit, target.title));
+    if (found !== undefined) tracks = [...(tracks ?? []), ...found];
+    const best = (found ?? [])
+      .filter(
+        (hit) =>
+          sameArtist(hit.artist.name, credit) &&
+          !(SOUNDALIKE.test(hit.artist.name) && !SOUNDALIKE.test(credit)) &&
+          sameSong(hit.title, target.title)
+      )
       .sort((left, right) => right.rank - left.rank)[0];
-    if (track) break;
+    if (best && (!track || best.rank > track.rank)) track = best;
   }
   let artistId: number | null = track?.artist.id ?? null;
   /** The artist as Deezer names them, which the other catalogues know them by too. */
@@ -452,7 +543,7 @@ async function musicFame(
         [...hits].sort((left, right) => (right.fans ?? 0) - (left.fans ?? 0))[0];
       const artist =
         mostFollowed(artists.filter((hit) => sameName(hit.name, credit))) ??
-        mostFollowed(artists.filter((hit) => sameArtist(hit.name, credit)));
+        mostFollowed(artists.filter((hit) => sameArtist(hit.name, credit) && !(SOUNDALIKE.test(hit.name) && !SOUNDALIKE.test(credit))));
       if (artist) {
         artistId = artist.id;
         named = artist.name;
@@ -491,6 +582,19 @@ async function musicFame(
     const own = await artistByName(entity ? main : (named ?? main), sources, trace);
     if (own.entity && (!entity || wikipediaLanguages(own.entity) > wikipediaLanguages(entity))) entity = own.entity;
     absent = !entity && own.empty;
+  }
+  /**
+   * Deezer's own search misses names it has: "Henry Purcell" returns Vivaldi,
+   * Bach and Handel, "Sergei Rachmaninoff" only "Rachmaninov". Wikidata keeps
+   * the artist's Deezer id, which finds them without any spelling.
+   */
+  const deezerOfEntity = entity?.claims.P2722?.[0];
+  if (deezerOfEntity && /^\d+$/.test(deezerOfEntity) && deezerOfEntity !== facts.ids.deezerArtist) {
+    const artist = settle(trace, await sources.deezerArtist(Number(deezerOfEntity)));
+    if (artist && typeof artist.fans === 'number' && artist.fans > (facts.deezerFans ?? -1)) {
+      facts.deezerFans = artist.fans;
+      facts.ids.deezerArtist = deezerOfEntity;
+    }
   }
   if (target.piece) {
     // Only a piece Wikidata files under this composer is this piece; without the
@@ -780,9 +884,11 @@ export function fameKey(target: FameTarget): string {
  *
  * A work's lookup learned to try its other names and to follow a season to its
  * series, and an answer kept from before is asked again rather than trusted for
- * months: it is most of the works that found nothing. A song's has not changed.
+ * months: it is most of the works that found nothing. A song's learned to
+ * refuse live takes, sessions and remixes, and to keep the best take across
+ * every credit (see `sameSong`), so its answers from before are asked again.
  */
-const LOOKUP_REVISION: Record<FameTarget['shape'], number> = { 'artist-title': 1, work: 2 };
+const LOOKUP_REVISION: Record<FameTarget['shape'], number> = { 'artist-title': 3, work: 2 };
 
 function cached(db: Db, key: string, now: number, shape: FameTarget['shape']): FameFacts | null {
   const row = db.select().from(blindtestFame).where(eq(blindtestFame.key, key)).get();

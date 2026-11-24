@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { withHandEdits, type BlindtestPayload } from './blindtest.js';
+import { blindtest, blindtestPayloadSchema, videoInDoubt, withHandEdits, type BlindtestPayload } from './blindtest.js';
 
 const saved: BlindtestPayload = {
   code: 'abcdefghijk',
@@ -36,5 +36,23 @@ describe('withHandEdits', () => {
 
   it('counts clearing the difficulty as a person’s say', () => {
     assert.equal(withHandEdits(saved, { ...saved, difficulty: null }).difficultyBy, 'human');
+  });
+});
+
+describe('a video flagged as wrong', () => {
+  const base = { code: 'Ue6VQTcKPQo', startGuess: 10, endGuess: 20, startReveal: 30, endReveal: 40, volume: 100 };
+  const flagged = { ...base, videoDoubt: { reason: 'not-from-work' as const, code: 'Ue6VQTcKPQo' } };
+
+  it('keeps the round out of play while it still has that video', () => {
+    assert.equal(videoInDoubt(flagged), true);
+    assert.deepEqual(blindtest.missingForPlay(blindtestPayloadSchema.parse(flagged)), ['miss.videoDoubt']);
+  });
+
+  it('lapses once another video is put in, and survives a save that does not show it', () => {
+    assert.equal(videoInDoubt({ ...flagged, code: 'dQw4w9WgXcQ' }), false);
+    const replaced = withHandEdits(flagged, blindtestPayloadSchema.parse({ ...base, code: 'dQw4w9WgXcQ' }));
+    assert.equal(replaced.videoDoubt, undefined);
+    const resaved = withHandEdits(flagged, blindtestPayloadSchema.parse({ ...base, volume: 80 }));
+    assert.equal(resaved.videoDoubt?.code, 'Ue6VQTcKPQo');
   });
 });

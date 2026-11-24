@@ -48,6 +48,8 @@ export interface Candidate {
    * search returns neighbours as well, and the model is told so.
    */
   hint?: string;
+  /** The start of the video's description, where a cover or a fan upload usually says so. */
+  description?: string;
 }
 
 export interface Annotation {
@@ -82,6 +84,11 @@ export interface Annotation {
    */
   song: string;
   songArtist: string;
+  /**
+   * For a work: whether the clip is the work's own music, not a cover of it or a
+   * song that shares its name. Absent from a cached or older annotation.
+   */
+  fromWork?: boolean;
 }
 
 /**
@@ -106,6 +113,7 @@ const annotationSchema = z.object({
   items: z.array(
     z.object({
       index: z.number().int(),
+      id: z.string().default(''),
       kind: z.enum(['music', 'work', 'reject']),
       artist: z.string().default(''),
       answer: z.string().default(''),
@@ -116,7 +124,8 @@ const annotationSchema = z.object({
       hookFraction: z.number().nullable().default(null),
       fitsGenre: z.boolean().default(true),
       song: z.string().default(''),
-      songArtist: z.string().default('')
+      songArtist: z.string().default(''),
+      fromWork: z.boolean().default(true)
     })
   )
 });
@@ -132,6 +141,7 @@ const RESPONSE_SCHEMA = {
         additionalProperties: false,
         properties: {
           index: { type: 'integer' },
+          id: { type: 'string' },
           kind: { type: 'string', enum: ['music', 'work', 'reject'] },
           artist: { type: 'string' },
           answer: { type: 'string' },
@@ -142,10 +152,12 @@ const RESPONSE_SCHEMA = {
           hookFraction: { type: 'number' },
           fitsGenre: { type: 'boolean' },
           song: { type: 'string' },
-          songArtist: { type: 'string' }
+          songArtist: { type: 'string' },
+          fromWork: { type: 'boolean' }
         },
         required: [
           'index',
+          'id',
           'kind',
           'artist',
           'answer',
@@ -156,7 +168,8 @@ const RESPONSE_SCHEMA = {
           'hookFraction',
           'fitsGenre',
           'song',
-          'songArtist'
+          'songArtist',
+          'fromWork'
         ]
       }
     }
@@ -166,7 +179,7 @@ const RESPONSE_SCHEMA = {
 
 const SYSTEM = `You turn YouTube video titles into rounds for a blind test party game.
 
-For each numbered title, decide:
+For each numbered title, copy its id back exactly as given in "id", and decide:
 - kind: "music" when the answer is an artist and a track; "work" when the answer is the film, series, anime or game the music or dialogue belongs to; "reject" otherwise.
 - reject a compilation, a top-N list, a reaction, a full album, a mix, a remix, a cover, a live version, a karaoke or instrumental version, or anything with no single unambiguous answer.
 - for "work", the answer is the WORK, never the song title. An anime opening is answered with the anime it opens, NOT the band or the song. If you cannot tell which work it belongs to, use kind "reject" rather than answering with the song.
@@ -178,6 +191,7 @@ For each numbered title, decide:
 - fitsGenre: false when the track does not belong to the genre named below. A search for one genre returns neighbours, and a pop hit in a rap round is a bug.
 - hookFraction: for INSTRUMENTAL pieces only, and only when you know the piece well, roughly where its recognisable theme sits as a fraction of the track (0 = the very start, 0.5 = halfway). Use 0 when you are not sure, and for anything sung.
 - song and songArtist: for "work" only, the song the clip plays and who sings it, when the title names them (an anime opening's song, a series' theme song). Empty otherwise, and empty rather than guessed.
+- fromWork: for "work" only. True ONLY when the clip is the work's own music as heard in it: its score or theme by its composer, or a song from its soundtrack by its original performer. False for a cover, a piano or orchestral arrangement, a fan remake, a tribute, a music box or 8-bit version, and for a song that merely shares the work's name ("THE SIXTH SENSE" by a J-pop singer is not the film The Sixth Sense). Use the channel and the description to tell. When unsure, false. Always true for "music".
 - some lines say what the search was for. That is a hint, never a fact: a search also returns other videos. Answer with what the title actually names, and use the hint only to settle a title that could name several things.
 
 Answer in French where the work has a well-known French name. Reply with json.`;
@@ -203,7 +217,12 @@ Answer in French where the work has a well-known French name. Reply with json.`;
  */
 type Slot = ApiSlot;
 
-async function askOnce(slot: Slot, user: string): Promise<unknown> {
+async function askOnce(
+  slot: Slot,
+  user: string,
+  system: string = SYSTEM,
+  schema: object = RESPONSE_SCHEMA
+): Promise<unknown> {
   const response = await fetch(`${slot.url}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -213,12 +232,12 @@ async function askOnce(slot: Slot, user: string): Promise<unknown> {
     body: JSON.stringify({
       model: slot.model,
       messages: [
-        { role: 'system', content: SYSTEM },
+        { role: 'system', content: system },
         { role: 'user', content: user }
       ],
       temperature: 0,
       max_tokens: 4000,
-      response_format: { type: 'json_schema', json_schema: { name: 'parsed', strict: true, schema: RESPONSE_SCHEMA } }
+      response_format: { type: 'json_schema', json_schema: { name: 'parsed', strict: true, schema } }
     }),
     signal: AbortSignal.timeout(120_000)
   }).catch(() => null);
@@ -299,7 +318,9 @@ async function annotateBatch(
     batch
       .map(
         (item, index) =>
-          `${index}. ${item.title}   [channel: ${item.channel}]${item.hint ? `   [searched for: ${item.hint}]` : ''}`
+          `${index}. [id: ${item.videoId}] ${item.title}   [channel: ${item.channel}]${item.hint ? `   [searched for: ${item.hint}]` : ''}${
+            item.description ? `   [description: ${item.description.replace(/\s+/g, ' ').slice(0, 160)}]` : ''
+          }`
       )
       .join('\n')
   ].join('\n');
@@ -312,7 +333,15 @@ async function annotateBatch(
     if (!parsed.success) continue;
 
     for (const item of parsed.data.items) {
-      const candidate = batch[item.index];
+      /**
+       * By the id the line carries, which the model copies back, and never by the
+       * index alone: a model that skipped a line or counted from 1 shifted every
+       * answer after it onto the next video ("Top Gun" read as Up, Up as Star
+       * Trek), and those were filed. An index whose id disagrees is dropped.
+       */
+      const byId = item.id ? batch.find((entry) => entry.videoId === item.id.trim()) : undefined;
+      const atIndex = batch[item.index];
+      const candidate = item.id ? byId : atIndex;
       if (!candidate) continue;
       if (item.kind !== 'reject' && item.confidence < MIN_CONFIDENCE) continue;
 
@@ -333,7 +362,8 @@ async function annotateBatch(
             : null,
         fitsGenre: item.fitsGenre,
         song: item.kind === 'work' ? item.song.trim() : '',
-        songArtist: item.kind === 'work' ? item.songArtist.trim() : ''
+        songArtist: item.kind === 'work' ? item.songArtist.trim() : '',
+        fromWork: item.kind === 'work' ? item.fromWork : true
       });
     }
 
@@ -382,5 +412,53 @@ export async function annotateCandidates(
     }
   }
 
+  return all;
+}
+
+const SAME_WORK_SYSTEM = `Each line gives a YouTube video, the work a blind test round says it is from (CLAIMED), and the work a reader took it for (READ). Say whether CLAIMED and READ are the same work under different names: a translation, the original title, a romanization, a subtitle added or dropped, a re-release or remaster of the same game. Answer false when they are different works, even related ones: a sequel, a prequel, another season with its own title, a spin-off, a remake with another story, another film of the same franchise. Copy each id back exactly. Reply with json.`;
+
+const SAME_WORK_SCHEMA = {
+  type: 'object',
+  properties: {
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { id: { type: 'string' }, same: { type: 'boolean' } },
+        required: ['id', 'same'],
+        additionalProperties: false
+      }
+    }
+  },
+  required: ['items'],
+  additionalProperties: false
+} as const;
+
+const sameWorkSchema = z.object({ items: z.array(z.object({ id: z.string(), same: z.boolean() })) });
+
+/**
+ * Whether two names are one work: the second look an audit takes before it calls
+ * a round's video misfiled. A reader asked "which film is this" answers in French,
+ * or in the original language, so "The Fresh Prince of Bel-Air" against a round's
+ * "Le Prince de Bel-Air" is no mismatch, while "Star Trek Beyond" against "Star
+ * Trek Into Darkness" is. Ids missing from the result were not answered.
+ */
+export async function sameWorks(
+  pairs: { id: string; claimed: string; read: string; title: string }[]
+): Promise<Map<string, boolean>> {
+  const all = new Map<string, boolean>();
+  for (let offset = 0; offset < pairs.length; offset += BATCH_SIZE) {
+    const batch = pairs.slice(offset, offset + BATCH_SIZE);
+    const user = batch
+      .map((pair) => `[id: ${pair.id}] video: ${pair.title}   CLAIMED: ${pair.claimed}   READ: ${pair.read}`)
+      .join('\n');
+    for (const slot of apiSlots) {
+      const parsed = sameWorkSchema.safeParse(await askOnce(slot, user, SAME_WORK_SYSTEM, SAME_WORK_SCHEMA));
+      if (!parsed.success) continue;
+      const known = new Set(batch.map((pair) => pair.id));
+      for (const item of parsed.data.items) if (known.has(item.id)) all.set(item.id, item.same);
+      break;
+    }
+  }
   return all;
 }
