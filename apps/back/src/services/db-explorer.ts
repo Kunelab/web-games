@@ -147,6 +147,20 @@ export const COLUMNS: Record<string, Labels> = {
   BlindtestDuplicateIndex: { media_id: 'show', code: 'show', artist: 'show', title: 'show' },
   BlindtestDuplicatePairs: { media_a: 'show', media_b: 'show', reason: 'show' },
   BlindtestFame: { key: 'show', facts: 'scrub', expires_at: 'show' },
+  BlindtestSongFacts: {
+    key: 'show',
+    artist: 'show',
+    title: 'show',
+    artist_qid: 'show',
+    facts: 'show',
+    musicbrainz_done: 'show',
+    musicbrainz_retry: 'show',
+    wikipedia_done: 'show',
+    wikipedia_retry: 'show',
+    billboard_done: 'show',
+    priority: 'show',
+    updated_at: 'show'
+  },
   BlindtestGenreDismissals: { media_id: 'show', category: 'show', created_at: 'show' },
   BlindtestRequests: {
     id: 'show',

@@ -55,9 +55,13 @@ export {
   blindtestFameSchema,
   blindtestPayloadSchema,
   playedWindows,
+  blindtestVideoProposalSchema,
+  VIDEO_REJECTED_MAX,
   videoInDoubt,
+  videoProposalOf,
   withHandEdits,
   type BlindtestFame,
+  type BlindtestVideoProposal,
   type BlindtestPayload,
   type ClipWindows
 } from './media/kinds/blindtest.js';

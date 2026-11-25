@@ -1,0 +1,73 @@
+{
+  "count": 5,
+  "recordings": [
+    {
+      "title": "Allumer le feu",
+      "first-release-date": "2018",
+      "artist-credit": [
+        {
+          "name": "Johnny Hallyday",
+          "artist": {
+            "name": "Johnny Hallyday"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Allumer le feu",
+      "first-release-date": "1998-01-24",
+      "artist-credit": [
+        {
+          "name": "Johnny Hallyday",
+          "artist": {
+            "name": "Johnny Hallyday"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Allumer le feu",
+      "first-release-date": "2016-09",
+      "artist-credit": [
+        {
+          "name": "Johnny Hallyday",
+          "artist": {
+            "name": "Johnny Hallyday"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Allumer le feu",
+      "disambiguation": "radio edit",
+      "first-release-date": "1998-06",
+      "artist-credit": [
+        {
+          "name": "Johnny Hallyday",
+          "artist": {
+            "name": "Johnny Hallyday"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Allumer le feu (live)",
+      "first-release-date": "2013-01-07",
+      "artist-credit": [
+        {
+          "name": "Pascal Obispo",
+          "joinphrase": " feat. ",
+          "artist": {
+            "name": "Pascal Obispo"
+          }
+        },
+        {
+          "name": "Johnny Hallyday",
+          "artist": {
+            "name": "Johnny Hallyday"
+          }
+        }
+      ]
+    }
+  ]
+}

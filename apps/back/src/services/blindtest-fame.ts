@@ -209,7 +209,7 @@ function settle<T>(trace: Trace, value: T | undefined): T | undefined {
 /* ----------------------------------------------------------- name matching */
 
 /** A track title without the version noise a catalogue adds and a room never types. */
-function bareTitle(title: string): string {
+export function bareTitle(title: string): string {
   return normalizeAnswer(
     title
       .replace(/\s*[([].*?(remaster|version|edit|mix|feat|ft\.|live|mono|stereo|radio).*?[)\]]/gi, '')
@@ -246,7 +246,7 @@ export function mainArtist(credit: string): string {
  * name that ends with the other is the same person by their full name: a
  * classical round credits "Beethoven", Deezer "Ludwig van Beethoven".
  */
-function sameArtist(catalogued: string, wanted: string): boolean {
+export function sameArtist(catalogued: string, wanted: string): boolean {
   const a = normalizeAnswer(catalogued);
   const b = normalizeAnswer(wanted);
   if (!a || !b) return false;

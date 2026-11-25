@@ -1,0 +1,47 @@
+{{Infobox Musique (œuvre)
+| charte           = single
+| titre            = L'Idole des jeunes
+| artiste          = [[Johnny Hallyday]]
+| album            = [[L'Idole des jeunes (album)|L'Idole des jeunes]]
+| sorti            = [[1962 en musique|1962]]
+| enregistré       = du 26 au 28 septembre et 3 octobre 1962<ref>http://www.hallyday.com/Son/Sessions/ses62.html / consulté le 26 février 2016.</ref>
+| enregistré lieu  = Studios DMS - Blanqui ([[Paris]]) 
+| durée            = 2:28
+| genre            = [[Ballade]]
+| format           = 
+* [[45 tours]] / 17 cm / SP / tirage juke box 
+* 45 tours / 17 cm / [[Extended play|super 45 tours]]
+* [[33 tours]] / 25 cm 
+| auteur           = [[Ralph Bernet]]<Small> (adaptation)</Small>
+| compositeur      = Jack Lewis
+| producteur       = Lee Hallyday
+| label            = [[Philips Records|Philips]]
+| single précédent = [[Madison Twist (chanson)|Madison Twist]]
+| date single préc = 1962
+| single suivant   = [[La bagarre (chanson)|La bagarre]]
+| date single suiv = 1963
+}}
+== Histoire ==
+== Discographie ==
+== Classements hebdomadaires ==
+{|Class="wikitable sortable"
+|-
+!Classement (1962)
+!Meilleure position<ref>{{Lien web |titre=Classements de Johnny Hallyday |url=http://artisteschartsventes.blogspot.com/2014/10/johnny-hallyday.html |site=artisteschartsventes.blogspot.com}}.</ref>
+|-
+|{{Espagne}}
+|align="center"| 8
+|-
+|{{France}}
+|align="center"| 1
+|-
+{{singlechart|Wallonie|2|artiste=Johnny Hallyday |chanson=L'idole des jeunes|consulté le=15 décembre 2017}}
+|-
+!Classement (2017)
+!Meilleure position
+|-
+{{singlechart|France|59|artiste=Johnny Hallyday |chanson=L'idole des jeunes|consulté le=15 décembre 2017}}
+|-
+|}
+
+== Notes et références ==

@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { blindtest, blindtestPayloadSchema, videoInDoubt, withHandEdits, type BlindtestPayload } from './blindtest.js';
+import {
+  blindtest,
+  blindtestPayloadSchema,
+  videoInDoubt,
+  videoProposalOf,
+  withHandEdits,
+  type BlindtestPayload
+} from './blindtest.js';
 
 const saved: BlindtestPayload = {
   code: 'abcdefghijk',
@@ -54,5 +61,50 @@ describe('a video flagged as wrong', () => {
     assert.equal(replaced.videoDoubt, undefined);
     const resaved = withHandEdits(flagged, blindtestPayloadSchema.parse({ ...base, volume: 80 }));
     assert.equal(resaved.videoDoubt?.code, 'Ue6VQTcKPQo');
+  });
+});
+
+describe('a replacement video proposed for a doubted one', () => {
+  const base = { code: 'Ue6VQTcKPQo', startGuess: 10, endGuess: 20, startReveal: 30, endReveal: 40, volume: 100 };
+  const proposal = {
+    code: 'dQw4w9WgXcQ',
+    title: 'Main Theme (Official Soundtrack)',
+    channel: 'Composer - Topic',
+    for: 'Ue6VQTcKPQo',
+    foundAt: '2026-11-24T10:00:00.000Z'
+  };
+  const proposed = blindtestPayloadSchema.parse({
+    ...base,
+    videoDoubt: { reason: 'cover', code: 'Ue6VQTcKPQo' },
+    videoProposal: proposal,
+    videoRejected: ['aaaaaaaaaaa']
+  });
+
+  it('survives the schema and is live while the round still has the video it replaces', () => {
+    assert.deepEqual(proposed.videoProposal, proposal);
+    assert.deepEqual(videoProposalOf(proposed), proposal);
+  });
+
+  it('is nothing once the round has another video, or for a malformed one', () => {
+    assert.equal(videoProposalOf({ ...proposed, code: 'zzzzzzzzzzz' }), null);
+    assert.equal(videoProposalOf({ ...proposed, code: 'dQw4w9WgXcQ' }), null);
+    assert.equal(videoProposalOf({ ...base, videoProposal: { code: 'short' } }), null);
+    assert.equal(videoProposalOf(null), null);
+  });
+
+  it('survives a save that does not show it, and lapses with the video it replaces', () => {
+    const resaved = withHandEdits(proposed, blindtestPayloadSchema.parse({ ...base, volume: 80 }));
+    assert.deepEqual(resaved.videoProposal, proposal);
+    assert.deepEqual(resaved.videoRejected, ['aaaaaaaaaaa']);
+    const replaced = withHandEdits(proposed, blindtestPayloadSchema.parse({ ...base, code: 'bbbbbbbbbbb' }));
+    assert.equal(replaced.videoProposal, undefined);
+    assert.equal(replaced.videoDoubt, undefined);
+    // The refused videos stay whatever the video is: none is offered twice.
+    assert.deepEqual(replaced.videoRejected, ['aaaaaaaaaaa']);
+  });
+
+  it('caps the refused list', () => {
+    const tooMany = Array.from({ length: 21 }, (_, index) => `video${String(index).padStart(6, '0')}`);
+    assert.equal(blindtestPayloadSchema.safeParse({ ...base, videoRejected: tooMany }).success, false);
   });
 });

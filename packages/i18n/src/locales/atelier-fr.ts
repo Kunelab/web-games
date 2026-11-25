@@ -322,6 +322,13 @@ export const atelierFr: TranslationOf<typeof atelierEn> = {
   "ple.problem.legacy": "Ancien libellé",
   "ple.problem.extreme": "Difficulté douteuse",
   "ple.problem.unfinished": "À compléter",
+  "ple.videoProposal.label": "Vidéo proposée",
+  "ple.videoProposal.open": "Ouvrir {title} sur YouTube",
+  "ple.videoProposal.accept": "Accepter",
+  "ple.videoProposal.reject": "Refuser",
+  "ple.videoProposal.acceptLabel":
+    "Remplacer la vidéo de {title} par la vidéo proposée",
+  "ple.videoProposal.rejectLabel": "Refuser la vidéo proposée pour {title}",
   "ple.filter.genre": "Genre",
   "ple.noMatchInPlaylist": "Aucun média de la playlist ne correspond.",
   "ple.add": "Ajouter {title}",

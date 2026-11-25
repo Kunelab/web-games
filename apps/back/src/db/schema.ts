@@ -679,6 +679,29 @@ export const blindtestFame = sqliteTable('BlindtestFame', {
 });
 
 /**
+ * What the slow catalogues said about one song, and where each of their queues
+ * stands for it: `<source>_done` once that source answered (even "nothing"),
+ * `<source>_retry` when its request failed and it is to be asked again after.
+ * See `blindtest-song-facts`.
+ */
+export const blindtestSongFacts = sqliteTable('BlindtestSongFacts', {
+  key: text('key').primaryKey(),
+  artist: text('artist').notNull(),
+  title: text('title').notNull(),
+  artist_qid: text('artist_qid'),
+  /** JSON: `SongFacts`. */
+  facts: text('facts').notNull().default('{}'),
+  musicbrainz_done: text('musicbrainz_done'),
+  musicbrainz_retry: text('musicbrainz_retry'),
+  wikipedia_done: text('wikipedia_done'),
+  wikipedia_retry: text('wikipedia_retry'),
+  billboard_done: text('billboard_done'),
+  /** Read first when higher: the song's Deezer rank, so hits and oldies get their facts first. */
+  priority: real('priority').notNull().default(0),
+  updated_at: text('updated_at').notNull()
+});
+
+/**
  * How one genre's fame figures spread, on a log scale.
  *
  * A difficulty is a distance from the genre's own middle, because a room that

@@ -22,6 +22,7 @@
     "blindtest:rescore": "tsx src/cli/blindtest-rescore.ts",
     "blindtest:difficulty": "tsx src/cli/blindtest-rescore.ts --no-youtube",
     "blindtest:video-audit": "tsx src/cli/blindtest-video-audit.ts",
+    "blindtest:video-replace": "tsx src/cli/blindtest-video-replace.ts",
     "mafia:sim": "tsx src/mafia/simulate.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

@@ -1,0 +1,2155 @@
+{
+ "https://www.wikidata.org/w/api.php?format=json&formatversion=2&action=query&list=search&srsearch=haswbstatement%3AP175%3DQ1299%7CP86%3DQ1299%7CP676%3DQ1299+Hey+Jude&srlimit=20&srnamespace=0": {
+  "batchcomplete": true,
+  "query": {
+   "searchinfo": {
+    "totalhits": 6
+   },
+   "search": [
+    {
+     "ns": 0,
+     "title": "Q607742",
+     "pageid": 572209,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "original song written and composed by Lennon-McCartney; first recorded by The Beatles",
+     "timestamp": "2026-11-15T00:58:36Z"
+    },
+    {
+     "ns": 0,
+     "title": "Q60696979",
+     "pageid": 60555964,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "1968 US 7&quot; single by The Beatles; Apple Records ‎– 2276",
+     "timestamp": "2022-04-25T19:16:08Z"
+    },
+    {
+     "ns": 0,
+     "title": "Q60696782",
+     "pageid": 60555764,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "1968 UK 7&quot; single by The Beatles; Apple Records ‎– R 5722",
+     "timestamp": "2022-04-25T19:17:13Z"
+    },
+    {
+     "ns": 0,
+     "title": "Q60860674",
+     "pageid": 60715598,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "vocal track by The Beatles; 1968 studio recording",
+     "timestamp": "2025-08-30T23:35:37Z"
+    },
+    {
+     "ns": 0,
+     "title": "Q250064",
+     "pageid": 242723,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "1970 collection of non-album singles and B-sides by the Beatles",
+     "timestamp": "2026-10-29T10:20:45Z"
+    },
+    {
+     "ns": 0,
+     "title": "Q72610337",
+     "pageid": 72273101,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "1968 single by The Beatles",
+     "timestamp": "2026-04-19T00:28:35Z"
+    }
+   ]
+  }
+ },
+ "https://www.wikidata.org/w/api.php?format=json&formatversion=2&action=wbgetentities&ids=Q607742%7CQ60696979%7CQ60696782%7CQ60860674%7CQ250064%7CQ72610337&props=claims%7Csitelinks%7Clabels&languages=mul%7Cen%7Cfr": {
+  "entities": {
+   "Q607742": {
+    "id": "Q607742",
+    "labels": {
+     "en": {
+      "language": "en",
+      "value": "Hey Jude"
+     },
+     "fr": {
+      "language": "fr",
+      "value": "Hey Jude"
+     },
+     "mul": {
+      "language": "mul",
+      "value": "Hey Jude"
+     }
+    },
+    "claims": {
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 105543609,
+          "id": "Q105543609"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P86": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 1203,
+          "id": "Q1203"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      },
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 2599,
+          "id": "Q2599"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P676": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 1203,
+          "id": "Q1203"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      },
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 2599,
+          "id": "Q2599"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P577": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "time": "+1968-00-00T00:00:00Z",
+          "timezone": 0,
+          "before": 0,
+          "after": 0,
+          "precision": 9,
+          "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+         },
+         "type": "time"
+        }
+       }
+      }
+     ],
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 1299,
+          "id": "Q1299"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      },
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 312270,
+          "id": "Q312270"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      },
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 231156,
+          "id": "Q231156"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {
+     "arwiki": {
+      "site": "arwiki",
+      "title": "هاي جود (أغنية البيتلز)"
+     },
+     "arzwiki": {
+      "site": "arzwiki",
+      "title": "هاى جود"
+     },
+     "astwiki": {
+      "site": "astwiki",
+      "title": "Hey Jude"
+     },
+     "bswiki": {
+      "site": "bswiki",
+      "title": "Hey Jude"
+     },
+     "cawiki": {
+      "site": "cawiki",
+      "title": "Hey Jude"
+     },
+     "commonswiki": {
+      "site": "commonswiki",
+      "title": "Category:Hey Jude (song)"
+     },
+     "cswiki": {
+      "site": "cswiki",
+      "title": "Hey Jude"
+     },
+     "dewiki": {
+      "site": "dewiki",
+      "title": "Hey Jude"
+     },
+     "elwiki": {
+      "site": "elwiki",
+      "title": "Hey Jude"
+     },
+     "enwiki": {
+      "site": "enwiki",
+      "title": "Hey Jude"
+     },
+     "eswiki": {
+      "site": "eswiki",
+      "title": "Hey Jude"
+     },
+     "euwiki": {
+      "site": "euwiki",
+      "title": "Hey Jude"
+     },
+     "fawiki": {
+      "site": "fawiki",
+      "title": "هی جود"
+     },
+     "fiwiki": {
+      "site": "fiwiki",
+      "title": "Hey Jude"
+     },
+     "frwiki": {
+      "site": "frwiki",
+      "title": "Hey Jude"
+     },
+     "hewiki": {
+      "site": "hewiki",
+      "title": "Hey Jude"
+     },
+     "hrwiki": {
+      "site": "hrwiki",
+      "title": "Hey Jude (pjesma)"
+     },
+     "huwiki": {
+      "site": "huwiki",
+      "title": "Hey Jude"
+     },
+     "hywiki": {
+      "site": "hywiki",
+      "title": "Hey Jude"
+     },
+     "idwiki": {
+      "site": "idwiki",
+      "title": "Hey Jude"
+     },
+     "itwiki": {
+      "site": "itwiki",
+      "title": "Hey Jude"
+     },
+     "jawiki": {
+      "site": "jawiki",
+      "title": "ヘイ・ジュード"
+     },
+     "kawiki": {
+      "site": "kawiki",
+      "title": "Hey Jude"
+     },
+     "kowiki": {
+      "site": "kowiki",
+      "title": "Hey Jude"
+     },
+     "lawiki": {
+      "site": "lawiki",
+      "title": "Hey Jude"
+     },
+     "ltwiki": {
+      "site": "ltwiki",
+      "title": "Hey Jude"
+     },
+     "lvwiki": {
+      "site": "lvwiki",
+      "title": "Hey Jude"
+     },
+     "nlwiki": {
+      "site": "nlwiki",
+      "title": "Hey Jude"
+     },
+     "nnwiki": {
+      "site": "nnwiki",
+      "title": "Hey Jude"
+     },
+     "nowiki": {
+      "site": "nowiki",
+      "title": "Hey Jude"
+     },
+     "plwiki": {
+      "site": "plwiki",
+      "title": "Hey Jude"
+     },
+     "ptwiki": {
+      "site": "ptwiki",
+      "title": "Hey Jude"
+     },
+     "ruwiki": {
+      "site": "ruwiki",
+      "title": "Hey Jude"
+     },
+     "scnwiki": {
+      "site": "scnwiki",
+      "title": "Hey Jude"
+     },
+     "shwiki": {
+      "site": "shwiki",
+      "title": "Hey Jude"
+     },
+     "simplewiki": {
+      "site": "simplewiki",
+      "title": "Hey Jude"
+     },
+     "srwiki": {
+      "site": "srwiki",
+      "title": "Hey Jude"
+     },
+     "svwiki": {
+      "site": "svwiki",
+      "title": "Hey Jude"
+     },
+     "thwiki": {
+      "site": "thwiki",
+      "title": "เฮย์จูด"
+     },
+     "ukwiki": {
+      "site": "ukwiki",
+      "title": "Hey Jude"
+     },
+     "uzwiki": {
+      "site": "uzwiki",
+      "title": "Hey Jude"
+     },
+     "viwiki": {
+      "site": "viwiki",
+      "title": "Hey Jude"
+     },
+     "zh_yuewiki": {
+      "site": "zh_yuewiki",
+      "title": "Hey Jude"
+     },
+     "zhwiki": {
+      "site": "zhwiki",
+      "title": "Hey Jude"
+     }
+    }
+   },
+   "Q60696979": {
+    "id": "Q60696979",
+    "labels": {
+     "en": {
+      "language": "en",
+      "value": "Hey Jude / Revolution"
+     },
+     "fr": {
+      "language": "fr",
+      "value": "Hey Jude / Revolution"
+     }
+    },
+    "claims": {
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 108352496,
+          "id": "Q108352496"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 1299,
+          "id": "Q1299"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P577": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "time": "+1968-08-26T00:00:00Z",
+          "timezone": 0,
+          "before": 0,
+          "after": 0,
+          "precision": 11,
+          "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+         },
+         "type": "time"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {}
+   },
+   "Q60696782": {
+    "id": "Q60696782",
+    "labels": {
+     "en": {
+      "language": "en",
+      "value": "Hey Jude / Revolution"
+     },
+     "fr": {
+      "language": "fr",
+      "value": "Hey Jude / Revolution"
+     }
+    },
+    "claims": {
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 108352496,
+          "id": "Q108352496"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 1299,
+          "id": "Q1299"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P577": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "time": "+1968-08-30T00:00:00Z",
+          "timezone": 0,
+          "before": 0,
+          "after": 0,
+          "precision": 11,
+          "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+         },
+         "type": "time"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {}
+   },
+   "Q60860674": {
+    "id": "Q60860674",
+    "labels": {
+     "en": {
+      "language": "en",
+      "value": "Hey Jude"
+     },
+     "fr": {
+      "language": "fr",
+      "value": "Hey Jude"
+     },
+     "mul": {
+      "language": "mul",
+      "value": "Hey Jude"
+     }
+    },
+    "claims": {
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 55850593,
+          "id": "Q55850593"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 1299,
+          "id": "Q1299"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {}
+   },
+   "Q250064": {
+    "id": "Q250064",
+    "labels": {
+     "en": {
+      "language": "en",
+      "value": "Hey Jude – The Beatles Again"
+     },
+     "fr": {
+      "language": "fr",
+      "value": "Hey Jude"
+     }
+    },
+    "claims": {
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 1299,
+          "id": "Q1299"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 482994,
+          "id": "Q482994"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P577": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "time": "+1970-02-26T00:00:00Z",
+          "timezone": 0,
+          "before": 0,
+          "after": 0,
+          "precision": 11,
+          "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+         },
+         "type": "time"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {
+     "dewiki": {
+      "site": "dewiki",
+      "title": "Hey Jude (Album)"
+     },
+     "enwiki": {
+      "site": "enwiki",
+      "title": "Hey Jude (Beatles album)"
+     },
+     "eowiki": {
+      "site": "eowiki",
+      "title": "Hey Jude"
+     },
+     "eswiki": {
+      "site": "eswiki",
+      "title": "Hey Jude (álbum)"
+     },
+     "fiwiki": {
+      "site": "fiwiki",
+      "title": "Hey Jude (albumi)"
+     },
+     "frwiki": {
+      "site": "frwiki",
+      "title": "Hey Jude (album des Beatles)"
+     },
+     "hewiki": {
+      "site": "hewiki",
+      "title": "Hey Jude (אלבום)"
+     },
+     "huwiki": {
+      "site": "huwiki",
+      "title": "Hey Jude (album)"
+     },
+     "hywiki": {
+      "site": "hywiki",
+      "title": "Hey Jude (ալբոմ)"
+     },
+     "itwiki": {
+      "site": "itwiki",
+      "title": "Hey Jude (album The Beatles)"
+     },
+     "jawiki": {
+      "site": "jawiki",
+      "title": "ヘイ・ジュード (アルバム)"
+     },
+     "kawiki": {
+      "site": "kawiki",
+      "title": "Hey Jude (ალბომი)"
+     },
+     "kowiki": {
+      "site": "kowiki",
+      "title": "Hey Jude (비틀즈의 음반)"
+     },
+     "nlwiki": {
+      "site": "nlwiki",
+      "title": "Hey Jude (album)"
+     },
+     "nowiki": {
+      "site": "nowiki",
+      "title": "Hey Jude (album)"
+     },
+     "plwiki": {
+      "site": "plwiki",
+      "title": "Hey Jude (album)"
+     },
+     "ptwiki": {
+      "site": "ptwiki",
+      "title": "Hey Jude (álbum de The Beatles)"
+     },
+     "ruwiki": {
+      "site": "ruwiki",
+      "title": "Hey Jude (альбом)"
+     },
+     "svwiki": {
+      "site": "svwiki",
+      "title": "Hey Jude (musikalbum)"
+     }
+    }
+   },
+   "Q72610337": {
+    "id": "Q72610337",
+    "labels": {
+     "en": {
+      "language": "en",
+      "value": "Hey Jude / Revolution"
+     }
+    },
+    "claims": {
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 134556,
+          "id": "Q134556"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 1299,
+          "id": "Q1299"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P577": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "time": "+1968-08-00T00:00:00Z",
+          "timezone": 0,
+          "before": 0,
+          "after": 0,
+          "precision": 10,
+          "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+         },
+         "type": "time"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {
+     "itwiki": {
+      "site": "itwiki",
+      "title": "Hey Jude/Revolution"
+     }
+    }
+   }
+  },
+  "success": 1
+ },
+ "https://en.wikipedia.org/w/api.php?format=json&formatversion=2&action=parse&page=Hey+Jude&prop=wikitext&redirects=1": {
+  "wikitextFile": "hey-jude.en.wikitext"
+ },
+ "https://fr.wikipedia.org/w/api.php?format=json&formatversion=2&action=parse&page=Hey+Jude&prop=wikitext&redirects=1": {
+  "wikitextFile": "hey-jude.fr.wikitext"
+ },
+ "https://www.wikidata.org/w/api.php?format=json&formatversion=2&action=query&list=search&srsearch=Somebody+That+I+Used+to+Know+Gotye+haswbstatement%3AP175&srlimit=20&srnamespace=0": {
+  "batchcomplete": true,
+  "query": {
+   "searchinfo": {
+    "totalhits": 1
+   },
+   "search": [
+    {
+     "ns": 0,
+     "title": "Q1995194",
+     "pageid": 1923758,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "2011 song by Gotye",
+     "timestamp": "2026-08-30T13:51:29Z"
+    }
+   ]
+  }
+ },
+ "https://www.wikidata.org/w/api.php?format=json&formatversion=2&action=wbgetentities&ids=Q1995194&props=claims%7Csitelinks%7Clabels&languages=mul%7Cen%7Cfr": {
+  "entities": {
+   "Q1995194": {
+    "id": "Q1995194",
+    "labels": {
+     "fr": {
+      "language": "fr",
+      "value": "Somebody That I Used to Know"
+     },
+     "en": {
+      "language": "en",
+      "value": "Somebody That I Used to Know"
+     },
+     "mul": {
+      "language": "mul",
+      "value": "Somebody That I Used to Know"
+     }
+    },
+    "claims": {
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 489643,
+          "id": "Q489643"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      },
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 235182,
+          "id": "Q235182"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      },
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 486825,
+          "id": "Q486825"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 134556,
+          "id": "Q134556"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P676": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 489643,
+          "id": "Q489643"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P577": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "time": "+2011-07-05T00:00:00Z",
+          "timezone": 0,
+          "before": 0,
+          "after": 0,
+          "precision": 11,
+          "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+         },
+         "type": "time"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {
+     "be_x_oldwiki": {
+      "site": "be_x_oldwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "dawiki": {
+      "site": "dawiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "dewiki": {
+      "site": "dewiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "enwiki": {
+      "site": "enwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "eswiki": {
+      "site": "eswiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "euwiki": {
+      "site": "euwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "fawiki": {
+      "site": "fawiki",
+      "title": "کسی که قبلاً می‌شناختم"
+     },
+     "fiwiki": {
+      "site": "fiwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "frwiki": {
+      "site": "frwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "hewiki": {
+      "site": "hewiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "hywiki": {
+      "site": "hywiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "hywwiki": {
+      "site": "hywwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "idwiki": {
+      "site": "idwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "itwiki": {
+      "site": "itwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "kowiki": {
+      "site": "kowiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "lvwiki": {
+      "site": "lvwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "nlwiki": {
+      "site": "nlwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "plwiki": {
+      "site": "plwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "ptwiki": {
+      "site": "ptwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "ruwiki": {
+      "site": "ruwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "simplewiki": {
+      "site": "simplewiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "skwiki": {
+      "site": "skwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "thwiki": {
+      "site": "thwiki",
+      "title": "ซัมบอดีแดทไอยูสด์ทูโนว"
+     },
+     "trwiki": {
+      "site": "trwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "ukwiki": {
+      "site": "ukwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "viwiki": {
+      "site": "viwiki",
+      "title": "Somebody That I Used to Know"
+     },
+     "zhwiki": {
+      "site": "zhwiki",
+      "title": "熟悉的陌生人 (歌曲)"
+     }
+    }
+   }
+  },
+  "success": 1
+ },
+ "https://www.wikidata.org/w/api.php?format=json&formatversion=2&action=wbgetentities&ids=Q489643%7CQ235182%7CQ486825&props=labels&languages=mul%7Cen%7Cfr": {
+  "entities": {
+   "Q489643": {
+    "id": "Q489643",
+    "labels": {
+     "en": {
+      "language": "en",
+      "value": "Gotye"
+     },
+     "fr": {
+      "language": "fr",
+      "value": "Gotye"
+     },
+     "mul": {
+      "language": "mul",
+      "value": "Gotye"
+     }
+    }
+   },
+   "Q235182": {
+    "id": "Q235182",
+    "labels": {
+     "en": {
+      "language": "en",
+      "value": "Kimbra"
+     },
+     "fr": {
+      "language": "fr",
+      "value": "Kimbra"
+     },
+     "mul": {
+      "language": "mul",
+      "value": "Kimbra"
+     }
+    }
+   },
+   "Q486825": {
+    "id": "Q486825",
+    "labels": {
+     "fr": {
+      "language": "fr",
+      "value": "Three Days Grace"
+     },
+     "en": {
+      "language": "en",
+      "value": "Three Days Grace"
+     },
+     "mul": {
+      "language": "mul",
+      "value": "Three Days Grace"
+     }
+    }
+   }
+  },
+  "success": 1
+ },
+ "https://en.wikipedia.org/w/api.php?format=json&formatversion=2&action=parse&page=Somebody+That+I+Used+to+Know&prop=wikitext&redirects=1": {
+  "wikitextFile": "somebody-that-i-used-to-know.en.wikitext"
+ },
+ "https://fr.wikipedia.org/w/api.php?format=json&formatversion=2&action=parse&page=Somebody+That+I+Used+to+Know&prop=wikitext&redirects=1": {
+  "wikitextFile": "somebody-that-i-used-to-know.fr.wikitext"
+ },
+ "https://www.wikidata.org/w/api.php?format=json&formatversion=2&action=query&list=search&srsearch=haswbstatement%3AP175%3DQ212015%7CP86%3DQ212015%7CP676%3DQ212015+L%27idole+des+jeunes&srlimit=20&srnamespace=0": {
+  "batchcomplete": true,
+  "query": {
+   "searchinfo": {
+    "totalhits": 2
+   },
+   "search": [
+    {
+     "ns": 0,
+     "title": "Q3203981",
+     "pageid": 3059282,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "album by Johnny Hallyday",
+     "timestamp": "2023-06-29T17:48:50Z"
+    },
+    {
+     "ns": 0,
+     "title": "Q25066787",
+     "pageid": 27026060,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "1962 song performed by Johnny Hallyday, Ricky Nelson",
+     "timestamp": "2026-11-02T04:33:57Z"
+    }
+   ]
+  }
+ },
+ "https://www.wikidata.org/w/api.php?format=json&formatversion=2&action=wbgetentities&ids=Q3203981%7CQ25066787&props=claims%7Csitelinks%7Clabels&languages=mul%7Cen%7Cfr": {
+  "entities": {
+   "Q3203981": {
+    "id": "Q3203981",
+    "labels": {
+     "fr": {
+      "language": "fr",
+      "value": "L'Idole des jeunes"
+     }
+    },
+    "claims": {
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 482994,
+          "id": "Q482994"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 212015,
+          "id": "Q212015"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P577": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "time": "+1963-00-00T00:00:00Z",
+          "timezone": 0,
+          "before": 0,
+          "after": 0,
+          "precision": 9,
+          "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+         },
+         "type": "time"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {
+     "frwiki": {
+      "site": "frwiki",
+      "title": "L'Idole des jeunes (album)"
+     }
+    }
+   },
+   "Q25066787": {
+    "id": "Q25066787",
+    "labels": {
+     "fr": {
+      "language": "fr",
+      "value": "L'Idole des jeunes"
+     },
+     "en": {
+      "language": "en",
+      "value": "Teen Age Idol"
+     }
+    },
+    "claims": {
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 105543609,
+          "id": "Q105543609"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 212015,
+          "id": "Q212015"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      },
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 303207,
+          "id": "Q303207"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P577": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "time": "+1962-00-00T00:00:00Z",
+          "timezone": 0,
+          "before": 0,
+          "after": 0,
+          "precision": 9,
+          "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+         },
+         "type": "time"
+        }
+       }
+      }
+     ],
+     "P676": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 3418232,
+          "id": "Q3418232"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {
+     "enwiki": {
+      "site": "enwiki",
+      "title": "Teen Age Idol"
+     },
+     "frwiki": {
+      "site": "frwiki",
+      "title": "L'Idole des jeunes (chanson)"
+     }
+    }
+   }
+  },
+  "success": 1
+ },
+ "https://fr.wikipedia.org/w/api.php?format=json&formatversion=2&action=parse&page=L%27Idole+des+jeunes+%28chanson%29&prop=wikitext&redirects=1": {
+  "wikitextFile": "l-idole-des-jeunes-chanson.fr.wikitext"
+ },
+ "https://www.wikidata.org/w/api.php?format=json&formatversion=2&action=query&list=search&srsearch=haswbstatement%3AP175%3DQ212015%7CP86%3DQ212015%7CP676%3DQ212015+Allumer+le+feu&srlimit=20&srnamespace=0": {
+  "batchcomplete": true,
+  "query": {
+   "searchinfo": {
+    "totalhits": 1
+   },
+   "search": [
+    {
+     "ns": 0,
+     "title": "Q2838711",
+     "pageid": 2718798,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "1998 song by Johnny Hallyday",
+     "timestamp": "2026-10-18T22:17:39Z"
+    }
+   ]
+  }
+ },
+ "https://www.wikidata.org/w/api.php?format=json&formatversion=2&action=wbgetentities&ids=Q2838711&props=claims%7Csitelinks%7Clabels&languages=mul%7Cen%7Cfr": {
+  "entities": {
+   "Q2838711": {
+    "id": "Q2838711",
+    "labels": {
+     "fr": {
+      "language": "fr",
+      "value": "Allumer le feu"
+     },
+     "en": {
+      "language": "en",
+      "value": "Allumer le feu"
+     }
+    },
+    "claims": {
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 212015,
+          "id": "Q212015"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 7366,
+          "id": "Q7366"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      },
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 134556,
+          "id": "Q134556"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P86": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 719307,
+          "id": "Q719307"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      },
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 3385553,
+          "id": "Q3385553"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P577": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "time": "+1998-06-00T00:00:00Z",
+          "timezone": 0,
+          "before": 0,
+          "after": 0,
+          "precision": 10,
+          "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+         },
+         "type": "time"
+        }
+       }
+      }
+     ],
+     "P676": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 167889,
+          "id": "Q167889"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {
+     "frwiki": {
+      "site": "frwiki",
+      "title": "Allumer le feu"
+     }
+    }
+   }
+  },
+  "success": 1
+ },
+ "https://fr.wikipedia.org/w/api.php?format=json&formatversion=2&action=parse&page=Allumer+le+feu&prop=wikitext&redirects=1": {
+  "wikitextFile": "allumer-le-feu.fr.wikitext"
+ },
+ "https://www.wikidata.org/w/api.php?format=json&formatversion=2&action=query&list=search&srsearch=haswbstatement%3AP175%3DQ10708%7CP86%3DQ10708%7CP676%3DQ10708+Californication&srlimit=20&srnamespace=0": {
+  "batchcomplete": true,
+  "query": {
+   "searchinfo": {
+    "totalhits": 5
+   },
+   "search": [
+    {
+     "ns": 0,
+     "title": "Q219425",
+     "pageid": 214345,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "1999 studio album by Red Hot Chili Peppers",
+     "timestamp": "2026-09-11T02:41:28Z"
+    },
+    {
+     "ns": 0,
+     "title": "Q2087371",
+     "pageid": 2014288,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "2000 song by the band Red Hot Chili Peppers",
+     "timestamp": "2026-08-01T17:09:03Z"
+    },
+    {
+     "ns": 0,
+     "title": "Q5021324",
+     "pageid": 4798134,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "worldwide concert tour following the album release",
+     "timestamp": "2021-04-30T18:37:23Z"
+    },
+    {
+     "ns": 0,
+     "title": "Q134383405",
+     "pageid": 128231364,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "vocal track by Red Hot Chili Peppers",
+     "timestamp": "2025-05-07T01:38:40Z"
+    },
+    {
+     "ns": 0,
+     "title": "Q2292015",
+     "pageid": 2213987,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "2000 single by Red Hot Chili Peppers&#039;",
+     "timestamp": "2026-04-13T13:49:20Z"
+    }
+   ]
+  }
+ },
+ "https://www.wikidata.org/w/api.php?format=json&formatversion=2&action=wbgetentities&ids=Q219425%7CQ2087371%7CQ5021324%7CQ134383405%7CQ2292015&props=claims%7Csitelinks%7Clabels&languages=mul%7Cen%7Cfr": {
+  "entities": {
+   "Q219425": {
+    "id": "Q219425",
+    "labels": {
+     "fr": {
+      "language": "fr",
+      "value": "Californication"
+     },
+     "en": {
+      "language": "en",
+      "value": "Californication"
+     }
+    },
+    "claims": {
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 10708,
+          "id": "Q10708"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 482994,
+          "id": "Q482994"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P577": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "time": "+1999-06-07T00:00:00Z",
+          "timezone": 0,
+          "before": 0,
+          "after": 0,
+          "precision": 11,
+          "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+         },
+         "type": "time"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {
+     "azwiki": {
+      "site": "azwiki",
+      "title": "Californication (albom)"
+     },
+     "bewiki": {
+      "site": "bewiki",
+      "title": "Californication"
+     },
+     "bgwiki": {
+      "site": "bgwiki",
+      "title": "Californication (албум)"
+     },
+     "bnwiki": {
+      "site": "bnwiki",
+      "title": "ক্যালিফোর্নিকেশন (অ্যালবাম)"
+     },
+     "cawiki": {
+      "site": "cawiki",
+      "title": "Californication (àlbum)"
+     },
+     "cswiki": {
+      "site": "cswiki",
+      "title": "Californication (album)"
+     },
+     "dawiki": {
+      "site": "dawiki",
+      "title": "Californication (album)"
+     },
+     "dewiki": {
+      "site": "dewiki",
+      "title": "Californication (Album)"
+     },
+     "elwiki": {
+      "site": "elwiki",
+      "title": "Californication (άλμπουμ)"
+     },
+     "enwiki": {
+      "site": "enwiki",
+      "title": "Californication (album)"
+     },
+     "eswiki": {
+      "site": "eswiki",
+      "title": "Californication (álbum)"
+     },
+     "euwiki": {
+      "site": "euwiki",
+      "title": "Californication"
+     },
+     "fawiki": {
+      "site": "fawiki",
+      "title": "کالیفرنیکیشن (آلبوم)"
+     },
+     "fiwiki": {
+      "site": "fiwiki",
+      "title": "Californication"
+     },
+     "frwiki": {
+      "site": "frwiki",
+      "title": "Californication (album)"
+     },
+     "glwiki": {
+      "site": "glwiki",
+      "title": "Californication (álbum)"
+     },
+     "hewiki": {
+      "site": "hewiki",
+      "title": "Californication (אלבום)"
+     },
+     "hrwiki": {
+      "site": "hrwiki",
+      "title": "Californication"
+     },
+     "huwiki": {
+      "site": "huwiki",
+      "title": "Californication (album)"
+     },
+     "hywiki": {
+      "site": "hywiki",
+      "title": "Californication (ալբոմ)"
+     },
+     "idwiki": {
+      "site": "idwiki",
+      "title": "Californication"
+     },
+     "itwiki": {
+      "site": "itwiki",
+      "title": "Californication (album)"
+     },
+     "jawiki": {
+      "site": "jawiki",
+      "title": "カリフォルニケイション"
+     },
+     "kawiki": {
+      "site": "kawiki",
+      "title": "Californication (ალბომი)"
+     },
+     "kowiki": {
+      "site": "kowiki",
+      "title": "Californication (음반)"
+     },
+     "ltwiki": {
+      "site": "ltwiki",
+      "title": "Californication"
+     },
+     "lvwiki": {
+      "site": "lvwiki",
+      "title": "Californication"
+     },
+     "mkwiki": {
+      "site": "mkwiki",
+      "title": "Californication (албум)"
+     },
+     "nlwiki": {
+      "site": "nlwiki",
+      "title": "Californication (album)"
+     },
+     "nowiki": {
+      "site": "nowiki",
+      "title": "Californication (album)"
+     },
+     "plwiki": {
+      "site": "plwiki",
+      "title": "Californication (album)"
+     },
+     "ptwiki": {
+      "site": "ptwiki",
+      "title": "Californication"
+     },
+     "ruwiki": {
+      "site": "ruwiki",
+      "title": "Californication (альбом)"
+     },
+     "simplewiki": {
+      "site": "simplewiki",
+      "title": "Californication (album)"
+     },
+     "skwiki": {
+      "site": "skwiki",
+      "title": "Californication (album)"
+     },
+     "srwiki": {
+      "site": "srwiki",
+      "title": "Californication (албум)"
+     },
+     "svwiki": {
+      "site": "svwiki",
+      "title": "Californication (musikalbum)"
+     },
+     "thwiki": {
+      "site": "thwiki",
+      "title": "แคลิฟอร์นิเคชัน"
+     },
+     "trwiki": {
+      "site": "trwiki",
+      "title": "Californication (albüm)"
+     },
+     "ukwiki": {
+      "site": "ukwiki",
+      "title": "Californication (альбом)"
+     },
+     "zhwiki": {
+      "site": "zhwiki",
+      "title": "加州淘金夢 (專輯)"
+     }
+    }
+   },
+   "Q2087371": {
+    "id": "Q2087371",
+    "labels": {
+     "fr": {
+      "language": "fr",
+      "value": "Californication"
+     },
+     "en": {
+      "language": "en",
+      "value": "Californication"
+     }
+    },
+    "claims": {
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 10708,
+          "id": "Q10708"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 134556,
+          "id": "Q134556"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      },
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 7366,
+          "id": "Q7366"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P577": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "time": "+2000-01-01T00:00:00Z",
+          "timezone": 0,
+          "before": 0,
+          "after": 0,
+          "precision": 9,
+          "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+         },
+         "type": "time"
+        }
+       }
+      }
+     ],
+     "P676": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 204751,
+          "id": "Q204751"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {
+     "bgwiki": {
+      "site": "bgwiki",
+      "title": "Californication (песен)"
+     },
+     "dewiki": {
+      "site": "dewiki",
+      "title": "Californication (Lied)"
+     },
+     "elwiki": {
+      "site": "elwiki",
+      "title": "Californication (τραγούδι)"
+     },
+     "enwiki": {
+      "site": "enwiki",
+      "title": "Californication (song)"
+     },
+     "eswiki": {
+      "site": "eswiki",
+      "title": "Californication (canción)"
+     },
+     "etwiki": {
+      "site": "etwiki",
+      "title": "Californication (laul)"
+     },
+     "fiwiki": {
+      "site": "fiwiki",
+      "title": "Californication (kappale)"
+     },
+     "frwiki": {
+      "site": "frwiki",
+      "title": "Californication (chanson)"
+     },
+     "hewiki": {
+      "site": "hewiki",
+      "title": "Californication (שיר)"
+     },
+     "itwiki": {
+      "site": "itwiki",
+      "title": "Californication (singolo)"
+     },
+     "jawiki": {
+      "site": "jawiki",
+      "title": "カリフォルニケイション (曲)"
+     },
+     "kowiki": {
+      "site": "kowiki",
+      "title": "Californication (노래)"
+     },
+     "ltwiki": {
+      "site": "ltwiki",
+      "title": "Californication (daina)"
+     },
+     "nlwiki": {
+      "site": "nlwiki",
+      "title": "Californication (single)"
+     },
+     "plwiki": {
+      "site": "plwiki",
+      "title": "Californication (singel)"
+     },
+     "ptwiki": {
+      "site": "ptwiki",
+      "title": "Californication (canção)"
+     },
+     "ruwiki": {
+      "site": "ruwiki",
+      "title": "Californication (песня)"
+     },
+     "svwiki": {
+      "site": "svwiki",
+      "title": "Californication (låt)"
+     },
+     "trwiki": {
+      "site": "trwiki",
+      "title": "Californication (şarkı)"
+     },
+     "uzwiki": {
+      "site": "uzwiki",
+      "title": "Californication"
+     }
+    }
+   },
+   "Q5021324": {
+    "id": "Q5021324",
+    "labels": {
+     "en": {
+      "language": "en",
+      "value": "Californication Tour"
+     },
+     "fr": {
+      "language": "fr",
+      "value": "Californication tour"
+     }
+    },
+    "claims": {
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 1573906,
+          "id": "Q1573906"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 10708,
+          "id": "Q10708"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {
+     "enwiki": {
+      "site": "enwiki",
+      "title": "Californication Tour"
+     },
+     "frwiki": {
+      "site": "frwiki",
+      "title": "Californication Tour"
+     }
+    }
+   },
+   "Q134383405": {
+    "id": "Q134383405",
+    "labels": {
+     "mul": {
+      "language": "mul",
+      "value": "Californication"
+     }
+    },
+    "claims": {
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 55850593,
+          "id": "Q55850593"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 10708,
+          "id": "Q10708"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {}
+   },
+   "Q2292015": {
+    "id": "Q2292015",
+    "labels": {
+     "fr": {
+      "language": "fr",
+      "value": "Road Trippin"
+     },
+     "en": {
+      "language": "en",
+      "value": "Road Trippin'"
+     }
+    },
+    "claims": {
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 10708,
+          "id": "Q10708"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 134556,
+          "id": "Q134556"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P577": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "time": "+2000-11-18T00:00:00Z",
+          "timezone": 0,
+          "before": 0,
+          "after": 0,
+          "precision": 11,
+          "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+         },
+         "type": "time"
+        }
+       }
+      }
+     ],
+     "P676": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 188980,
+          "id": "Q188980"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {
+     "bgwiki": {
+      "site": "bgwiki",
+      "title": "Road Trippin'"
+     },
+     "cswiki": {
+      "site": "cswiki",
+      "title": "Road Trippin'"
+     },
+     "dewiki": {
+      "site": "dewiki",
+      "title": "Road Trippin’"
+     },
+     "elwiki": {
+      "site": "elwiki",
+      "title": "Road Trippin'"
+     },
+     "enwiki": {
+      "site": "enwiki",
+      "title": "Road Trippin'"
+     },
+     "eswiki": {
+      "site": "eswiki",
+      "title": "Road Trippin'"
+     },
+     "fiwiki": {
+      "site": "fiwiki",
+      "title": "Road Trippin’"
+     },
+     "frwiki": {
+      "site": "frwiki",
+      "title": "Road Trippin'"
+     },
+     "itwiki": {
+      "site": "itwiki",
+      "title": "Road Trippin'"
+     },
+     "ltwiki": {
+      "site": "ltwiki",
+      "title": "Road Trippin'"
+     },
+     "nlwiki": {
+      "site": "nlwiki",
+      "title": "Road Trippin'"
+     },
+     "plwiki": {
+      "site": "plwiki",
+      "title": "Road Trippin’"
+     },
+     "ptwiki": {
+      "site": "ptwiki",
+      "title": "Road Trippin'"
+     },
+     "ruwiki": {
+      "site": "ruwiki",
+      "title": "Road Trippin’"
+     },
+     "svwiki": {
+      "site": "svwiki",
+      "title": "Road Trippin'"
+     }
+    }
+   }
+  },
+  "success": 1
+ },
+ "https://en.wikipedia.org/w/api.php?format=json&formatversion=2&action=parse&page=Californication+%28song%29&prop=wikitext&redirects=1": {
+  "wikitextFile": "californication-song.en.wikitext"
+ },
+ "https://fr.wikipedia.org/w/api.php?format=json&formatversion=2&action=parse&page=Californication+%28chanson%29&prop=wikitext&redirects=1": {
+  "wikitextFile": "californication-chanson.fr.wikitext"
+ },
+ "https://www.wikidata.org/w/api.php?format=json&formatversion=2&action=query&list=search&srsearch=haswbstatement%3AP175%3DQ10708%7CP86%3DQ10708%7CP676%3DQ10708+Veronica&srlimit=20&srnamespace=0": {
+  "batchcomplete": true,
+  "query": {
+   "searchinfo": {
+    "totalhits": 1
+   },
+   "search": [
+    {
+     "ns": 0,
+     "title": "Q134383314",
+     "pageid": 128231272,
+     "size": null,
+     "wordcount": 0,
+     "snippet": "music track by Red Hot Chili Peppers",
+     "timestamp": "2025-05-07T02:21:31Z"
+    }
+   ]
+  }
+ },
+ "https://www.wikidata.org/w/api.php?format=json&formatversion=2&action=wbgetentities&ids=Q134383314&props=claims%7Csitelinks%7Clabels&languages=mul%7Cen%7Cfr": {
+  "entities": {
+   "Q134383314": {
+    "id": "Q134383314",
+    "labels": {
+     "mul": {
+      "language": "mul",
+      "value": "Veronica"
+     }
+    },
+    "claims": {
+     "P31": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 7302866,
+          "id": "Q7302866"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ],
+     "P175": [
+      {
+       "mainsnak": {
+        "datavalue": {
+         "value": {
+          "entity-type": "item",
+          "numeric-id": 10708,
+          "id": "Q10708"
+         },
+         "type": "wikibase-entityid"
+        }
+       }
+      }
+     ]
+    },
+    "sitelinks": {}
+   }
+  },
+  "success": 1
+ }
+}

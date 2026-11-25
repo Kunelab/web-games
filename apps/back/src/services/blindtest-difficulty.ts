@@ -198,10 +198,8 @@ const SIDES: Record<FameShape, { french: [FameSignal, number][]; international: 
 /** Fame decides; the model, the seed's rank and the views only lean on it. */
 const WEIGHT = { fame: 4, model: 1, seed: 1, views: 0.5 };
 
-/** A song's own figures, each side's: Deezer for France, Last.fm for everywhere. */
-const SONG_WEIGHT = { deezerRank: 1, lastfmListeners: 1 };
 /** How much of a song's fame is the song's own; the rest is its artist's. */
-const SONG_SHARE = 0.65;
+const SONG_SHARE = 0.9;
 
 /**
  * A song that is a hit on two counts at once is never above this, whoever sings
@@ -209,6 +207,14 @@ const SONG_SHARE = 0.65;
  * alone can be a hit in Abidjan or São Paulo that France never heard.
  */
 const SONG_HIT_CAP = 40;
+
+/** The easiest a song out this year or last can be without a chart to say so. */
+const RECENT_FLOOR = 25;
+
+/** This year, for `RECENT_FLOOR`. A function so a test can be written for any year. */
+function currentYear(): number {
+  return new Date().getFullYear();
+}
 
 /**
  * How much more a music video is watched than another upload of the same song.
@@ -415,7 +421,7 @@ export interface ScoreBreakdown {
    * Which rule, if any, decided it: a fixed end (`famous`, `obscure`), or one
    * kept from the extremes it had not earned (`artist-only`, `contradicted`).
    */
-  rule: 'famous' | 'obscure' | 'song-hit' | 'artist-only' | 'contradicted' | null;
+  rule: 'famous' | 'obscure' | 'song-hit' | 'artist-only' | 'contradicted' | 'recent' | null;
   /** A song's own fame and its artist's, in standard deviations; null for a work. See `blend`. */
   song?: number | null;
   artist?: number | null;
@@ -476,6 +482,77 @@ function niche(context: ScoreContext): boolean {
 }
 
 /** The two sides and the blend, before the genre's spread is applied. */
+/**
+ * How much more a figure counts the older the song, in deviations.
+ *
+ * Views, streams, listeners and followers are all counted on the internet of
+ * today, which arrived around 2010: Gangnam Style was the first video to reach
+ * a billion views, in 2012. A 1968 song with fifty million views and a 2022 one
+ * with the same did not get there the same way, so the figures are read
+ * linearly by age around 2010: a fortieth of a deviation more for every year
+ * before it, as much less for every year after. 1968 reads a little over one
+ * deviation up, 1990 half of one, 2024 a third of one down. Clamped, so a
+ * 1930s recording is not a hit for being old.
+ *
+ * Charts, certifications and Wikipedia coverage are not moved: they were
+ * counted in their own time and are already fair to it.
+ */
+export const INTERNET_ERA = 2010;
+const AGE_Z_PER_YEAR = 0.025;
+const AGE_Z_MAX = 1.25;
+const AGE_Z_MIN = -0.4;
+export function ageShift(year: number | null | undefined): number {
+  if (typeof year !== 'number' || !Number.isFinite(year)) return 0;
+  return Math.min(AGE_Z_MAX, Math.max(AGE_Z_MIN, (INTERNET_ERA - year) * AGE_Z_PER_YEAR));
+}
+
+/** The figures `ageShift` moves: everything counted today. */
+const AGED_SIGNALS: ReadonlySet<FameSignal> = new Set<FameSignal>([
+  'deezerRank',
+  'lastfmListeners',
+  'views',
+  'deezerFans',
+  'frPageviews',
+  'enPageviews'
+]);
+
+/** A song Deezer does not list by an artist it does. See `blend`. */
+const UNLISTED_SONG_Z = -1;
+
+/** A song in its genre's top tenth on Deezer. See `blend`. */
+const TOP_SONG_Z = 1.9;
+
+/**
+ * What a chart run, a certification or the song's own Wikipedia article say,
+ * on the same scale as the other figures: a number one reads like the top of
+ * every genre's Deezer ranks, a top forty like its top fifth. Fixed rather than
+ * fitted, since a chart is already a ranking: there is nothing to calibrate.
+ * The best of them stands, and none of them is a reason to call a song unknown.
+ */
+export function chartZ(fame: BlindtestFame): number | null {
+  const reads: number[] = [];
+  const peak = fame.chartPeak;
+  if (typeof peak === 'number' && peak > 0) {
+    const atPeak = peak <= 1 ? 2 : peak <= 5 ? 1.8 : peak <= 10 ? 1.6 : peak <= 20 ? 1.3 : peak <= 40 ? 1 : peak <= 100 ? 0.6 : 0.3;
+    const stay = typeof fame.chartWeeks === 'number' ? Math.min(fame.chartWeeks, 40) / 100 : 0;
+    reads.push(atPeak + stay);
+  }
+  const cert = fame.certLevel;
+  if (typeof cert === 'number' && cert > 0) {
+    reads.push(cert >= 10 ? 2.2 : cert >= 4 ? 1.9 : cert >= 2 ? 1.6 : cert >= 1 ? 1.3 : 1);
+  }
+  const languages = fame.songWikiLanguages;
+  if (typeof languages === 'number' && languages > 0) {
+    reads.push(languages >= 30 ? 2 : languages >= 15 ? 1.6 : languages >= 8 ? 1.2 : languages >= 4 ? 0.8 : languages >= 2 ? 0.4 : 0.1);
+  }
+  return reads.length > 0 ? Math.max(...reads) : null;
+}
+
+/** A top ten or a certification: the song was a hit in its day, whatever it streams now. */
+export function chartHit(fame: BlindtestFame): boolean {
+  return (typeof fame.chartPeak === 'number' && fame.chartPeak > 0 && fame.chartPeak <= 10) || (fame.certLevel ?? 0) >= 1;
+}
+
 function blend(fame: BlindtestFame, context: ScoreContext) {
   const { shape, audience } = context;
   const calibration = context.piece ? pieceCalibration(context.calibration, context.works) : context.calibration;
@@ -501,11 +578,47 @@ function blend(fame: BlindtestFame, context: ScoreContext) {
   let artist: number | null = null;
   let counted: number | null;
   if (shape === 'artist-title' && context.piece !== true) {
-    const z = (signal: FameSignal) => zOf(fame, signal, calibration);
-    song = better(
-      weightedMean([[z('deezerRank'), SONG_WEIGHT.deezerRank]]),
-      weightedMean([[z('lastfmListeners'), SONG_WEIGHT.lastfmListeners]])
-    );
+    // Today's figures, weighed by the song's age: see `ageShift`.
+    const shift = ageShift(fame.year);
+    const z = (signal: FameSignal) => {
+      const value = zOf(fame, signal, calibration);
+      return value === null ? null : value + (AGED_SIGNALS.has(signal) ? shift : 0);
+    };
+    /**
+     * The song's own fame: the best of what any source says about it. Deezer's
+     * rank is the reference, and the others can only raise it. Last.fm hardly
+     * knows French rap (Booba's "N° 10", 516 listeners), so a French audience
+     * never reads it; a chart run, a certification or the song's own Wikipedia
+     * article say "hit" whatever the song streams today, which is what lets
+     * "L'idole des jeunes" count as one.
+     */
+    // An official upload's views and the genre's own lists are the song's too.
+    // Only at a hit's count, as before: a regional song's few million views on its own clip are not a hit.
+    const officialViews = fame.upload === 'video' || fame.upload === 'topic' ? z('views') : null;
+    const ownViews = officialViews !== null && officialViews >= HIT_Z ? officialViews : null;
+    const ownSeed =
+      !niche(context) && typeof fame.seedFame === 'number' && Number.isFinite(fame.seedFame)
+        ? normalQuantile(Math.min(0.98, Math.max(0.02, fame.seedFame)))
+        : null;
+    const ownFigures = [
+      better(z('deezerRank'), z('lastfmListeners')),
+      chartZ(fame),
+      ownViews,
+      ownSeed
+    ].filter((value): value is number => value !== null);
+    /**
+     * Deezer's rank stops at a million, so the genre's biggest songs pile up
+     * under the ceiling and read barely above its good ones. A song in the
+     * genre's top tenth is a hit by its own figures, whoever sings it: read as
+     * one (`TOP_SONG_Z`), where it used to borrow its artist's fame, which made
+     * every Queen song in metal a 15.
+     */
+    const rankLogged = logFigure(fame, 'deezerRank');
+    const rankScale = scaleOf(calibration, 'deezerRank');
+    if (rankLogged !== null && rankLogged >= (rankScale.top ?? rankScale.mean + HIT_Z * rankScale.sd)) {
+      ownFigures.push(TOP_SONG_Z + shift);
+    }
+    song = ownFigures.length > 0 ? Math.max(...ownFigures) : null;
     artist = better(
       weightedMean([
         [z('deezerFans'), 2],
@@ -517,18 +630,14 @@ function blend(fame: BlindtestFame, context: ScoreContext) {
       ])
     );
     /**
-     * Deezer's rank stops at a million, so a song's fame cannot climb past the
-     * genre's top tenth while a star's goes on: Bob Marley's biggest hit sat at
-     * 1.4 deviations and his name at 2.3. A song at the top says nothing against
-     * its artist, and is not held below them.
+     * A song nobody lists, by an artist everybody does: Deezer has the artist
+     * and not the track, and no chart, certification or article knows it. That
+     * is a B-side, a bonus track, a Korean title of PSY's that only his fans
+     * know, and it used to be scored from the artist alone, as easy as "Gangnam
+     * Style". It is a hard round.
      */
-    const atTop = (signal: FameSignal) => {
-      const logged = logFigure(fame, signal);
-      const scale = scaleOf(calibration, signal);
-      return logged !== null && logged >= (scale.top ?? scale.mean + HIT_Z * scale.sd);
-    };
-    if (song !== null && artist !== null && song < artist && (atTop('deezerRank') || atTop('lastfmListeners'))) {
-      song = artist;
+    if (song === null && fame.looked === true && typeof fame.deezerFans === 'number' && fame.deezerFans > 0) {
+      song = UNLISTED_SONG_Z;
     }
     counted =
       song === null
@@ -553,7 +662,9 @@ function blend(fame: BlindtestFame, context: ScoreContext) {
     typeof fame.seedFame === 'number' && Number.isFinite(fame.seedFame)
       ? normalQuantile(Math.min(0.98, Math.max(0.02, fame.seedFame)))
       : null;
-  const views = zOf(fame, 'views', calibration);
+  const rawViews = zOf(fame, 'views', calibration);
+  // Views are today's too: see `ageShift`.
+  const views = rawViews === null ? null : rawViews + ageShift(fame.year);
   /**
    * Views make a round harder, and easier only from an official upload with a
    * hit's count: a music video or a Topic track is the song's own, and a
@@ -644,7 +755,7 @@ export function songIsHit(fame: BlindtestFame, context: ScoreContext): boolean {
       const scale = scaleOf(works, signal);
       return logged >= (at === 'mean' ? scale.mean : (scale.top ?? scale.mean + HIT_Z * scale.sd));
     };
-    return read('enPageviews', 'mean') || read('frPageviews', 'top') || hit('views', everywhere);
+    return read('enPageviews', 'mean') || read('frPageviews', 'top') || hit('views', everywhere) || chartHit(fame);
   }
   return songHits(fame, context) > 0;
 }
@@ -663,6 +774,8 @@ export function songHits(fame: BlindtestFame, context: ScoreContext): number {
     return logged >= (scale.top ?? DEFAULT_SCALES[signal].top ?? scale.mean + HIT_Z * scale.sd);
   };
   return [
+    // A top ten or a certification in its day, in any genre.
+    chartHit(fame),
     // In a niche genre Deezer's rank is its fans streaming this month's release, not the room knowing it.
     !niche(context) && hit('deezerRank'),
     hit('lastfmListeners'),
@@ -792,6 +905,21 @@ export function scoreBreakdown(fame: BlindtestFame, context: ScoreContext): Scor
   } else if (difficulty > SONG_HIT_CAP && songHits(fame, context) >= 2) {
     difficulty = SONG_HIT_CAP;
     rule = 'song-hit';
+  }
+
+  /**
+   * A song out this year or last is not a room's yet, however it streams this
+   * month: off the easy end unless a chart top ten or a certification already
+   * says it is a hit. See `RECENT_FLOOR`.
+   */
+  if (
+    typeof fame.year === 'number' &&
+    fame.year >= currentYear() - 1 &&
+    difficulty < RECENT_FLOOR &&
+    !chartHit(fame)
+  ) {
+    difficulty = RECENT_FLOOR;
+    rule = 'recent';
   }
 
   // And the extremes, earned or not; see `EASY_END`.

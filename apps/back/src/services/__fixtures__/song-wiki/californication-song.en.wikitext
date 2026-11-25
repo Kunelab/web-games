@@ -1,0 +1,146 @@
+{{Infobox song
+| name          = Californication
+| cover         = Californicationsingle.jpg
+| alt           = 
+| type          = single
+| artist        = [[Red Hot Chili Peppers]]
+| album         = [[Californication (album)|Californication]]
+| B-side        =
+* "I Could Have Lied" (live)
+* "End of Show Brisbane" (live)
+| released      = {{start date|2000|6}}
+| recorded      =
+| studio        = 
+| venue         = 
+| genre         = [[Alternative rock]]<ref>{{cite web|url=https://diffuser.fm/2000-alt-rock-videos/|title=Top 10 Alt-Rock Videos From 2000|last=Gallucci|first=Michael|date=June 22, 2013|website=[[Diffuser.fm]]|access-date=May 11, 2019}}</ref>
+| length        =
+* 5:21 (album version)
+* 5:29 (original version)
+* 3:26 ([[radio edit]])
+| label         = [[Warner Bros. Records|Warner Bros.]]
+| writer        =
+* [[Anthony Kiedis]]
+* [[Chad Smith]]
+* [[Flea (musician)|Flea]]
+* [[John Frusciante]]
+| producer      = [[Rick Rubin]]
+| prev_title    = [[Otherside]]
+| prev_year     = 1999
+| next_title    = [[Road Trippin']]
+| next_year     = 2000
+| misc          = {{External music video|{{YouTube|YlUKcNNmywk|"Californication"}}}}
+}}
+==Composition==
+==Music video==
+==Critical reception==
+==Formats and track listings==
+==Personnel==
+==Charts==
+{{col-begin}}
+{{col-2}}
+
+===Weekly charts===
+{|class="wikitable sortable plainrowheaders" style="text-align:center"
+!Chart (2000)
+!Peak<br/>position
+|-
+{{single chart|Australia|44|artist=Red Hot Chili Peppers|song=Californication|rowheader=true|access-date=January 3, 2015}}
+|-
+{{single chart|Flanders Tip|6|artist=Red Hot Chili Peppers|song=Californication|rowheader=true|access-date=November 19, 2016}}
+|-
+{{single chart|Wallonia Tip|9|artist=Red Hot Chili Peppers|song=Californication|rowheader=true|access-date=November 19, 2016}}
+|-
+{{single chart|Canada RPM|59|chartid=4893|access-date=November 19, 2016|rowheader=true}}
+|-
+{{single chart|Canada RPM Rock|1|chartid=9720|access-date=November 19, 2016|rowheader=true}}
+|-
+!scope="row"|Colombia ([[Notimex]])<ref name="El Siglo de Torreón">{{cite web|url=http://h.elsiglodetorreon.com.mx/Default/Scripting/ArticleWin.asp?From=Search&Key=EDT/2000/08/28/47/Ar04700.xml&CollName=EDT_2000_2009&DOCID=136361&PageLabelPrint=47&skin=ElSiglo&AppName=2&sLanguage=English&Content=ALL&selLanguage=&sPublication=EDT&sQuery=Thalia%2BRegresa%2Ba%2Bmi&sScopeID=DR&sDateFrom=01%252F01%252F1983&sDateTo=12%252F31%252F2000&x=0&y=0&ViewMode=HTML| title=Éxitos discográficos internacionales| publisher=El Siglo de Torreón| date=August 8, 2000| access-date=March 22, 2023}}</ref>
+|2
+|-
+!scope="row"|El Salvador ([[Notimex]])<ref>{{cite web|url=http://h.elsiglodetorreon.com.mx/Default/Scripting/ArticleWin.asp?From=Search&Key=EDT/2000/08/28/47/Ar04700.xml&CollName=EDT_2000_2009&DOCID=136361&PageLabelPrint=47&skin=ElSiglo&AppName=2&sLanguage=English&Content=ALL&selLanguage=&sPublication=EDT&sQuery=Thalia%2BRegresa%2Ba%2Bmi&sScopeID=DR&sDateFrom=01%252F01%252F1983&sDateTo=12%252F31%252F2000&x=0&y=0&ViewMode=HTML| title=Éxitos discográficos internacionales| publisher=El Siglo de Torreón| date=August 28, 2000| access-date=March 21, 2023}}</ref>
+|6
+|-
+!scope="row"|Europe ([[Eurochart Hot 100]])<ref>{{cite magazine|url=https://worldradiohistory.com/UK/Music-and-Media/00s/2000/MM-2000-08-26.pdf|title=Eurochart Hot 100 Singles|magazine=[[Music & Media]]|volume=17|issue=35|page=7|date=August 26, 2000|access-date=April 4, 2021}}</ref>
+|42
+|-
+{{single chart|Germany|63|artist=Red Hot Chili Peppers|song=Californication|songid=10041|rowheader=true|access-date=February 25, 2019|refname="ger"}}
+|-
+!scope="row"|Iceland ([[Íslenski listinn|Íslenski Listinn Topp 40]])<ref>{{cite news|url=https://timarit.is/page/3003255#page/n9/mode/2up|title=Íslenski Listinn Topp 20|newspaper=[[DV (newspaper)|Dagblaðið Vísir]]|language=is|page=10|date=July 21, 2000|access-date=October 7, 2019}}</ref>
+|1
+|-
+{{single chart|Ireland2|24|song=Californication|rowheader=true|access-date=October 7, 2019}}
+|-
+{{single chart|Italy|19|artist=Red Hot Chili Peppers|song=Californication|rowheader=true|access-date=November 19, 2016}}
+|-
+{{single chart|Dutch40|9|year=2000|week=30|rowheader=true|access-date=November 19, 2016}}
+|-
+{{single chart|Dutch100|41|artist=Red Hot Chili Peppers|song=Californication|rowheader=true|access-date=November 19, 2016}}
+|-
+{{single chart|New Zealand|8|artist=Red Hot Chili Peppers|song=Californication|rowheader=true|access-date=November 19, 2016}}
+|-
+!scope="row"|Poland Airplay (''[[Music & Media]]'')<ref>{{cite magazine|url=https://worldradiohistory.com/UK/Music-and-Media/00s/2000/MM-2000-09-09.pdf|title=Major Market Airplay – Week 37/2000|magazine=Music & Media|volume=17|issue=37|page=19|date=September 9, 2000|access-date=February 16, 2023}}</ref>
+|10
+|-
+{{single chart|Scotland|10|date=20000819|rowheader=true|access-date=October 7, 2019}}
+|-
+{{single chart|Sweden|37|artist=Red Hot Chili Peppers|song=Californication|rowheader=true|access-date=November 19, 2016}}
+|-
+{{single chart|UKsinglesbyname|16|artist=Red Hot Chili Peppers|artistid=15644|rowheader=true|access-date=April 4, 2021}}
+|-
+{{single chart|Billboardhot100|69|artist=Red Hot Chili Peppers|rowheader=true|access-date=November 19, 2016}}
+|-
+{{single chart|Billboardadultalternativesongs|17|artist=Red Hot Chili Peppers|rowheader=true|access-date=November 19, 2016}}
+|-
+{{single chart|Billboardalternativesongs|1|artist=Red Hot Chili Peppers|rowheader=true|access-date=November 19, 2016}}
+|-
+{{single chart|Billboardadultpopsongs|28|artist=Red Hot Chili Peppers|rowheader=true|access-date=November 19, 2016}}
+|-
+{{single chart|Billboardmainstreamrock|1|artist=Red Hot Chili Peppers|rowheader=true|access-date=November 19, 2016}}
+|-
+{{single chart|Billboardpopsongs|37|artist=Red Hot Chili Peppers|rowheader=true|access-date=November 19, 2016}}
+|}
+
+{|class="wikitable plainrowheaders" style="text-align:center"
+!Chart (2024)
+!Peak<br/>position
+|-
+!scope="row"|Poland ([[Polish music charts|Polish Airplay Top 100]])<ref>{{cite web|url=https://www.olis.pl/charts/oficjalna-lista-airplay|title=OLiS – oficjalna lista airplay|publisher=[[OLiS]]|language=pl|access-date=June 3, 2024|type=Select week 25.05.2024–31.05.2024.}}</ref>
+|93
+|}
+{{col-2}}
+
+===Year-end charts===
+{|class="wikitable sortable plainrowheaders" style="text-align:center"
+!Chart (2000)
+!Position
+|-
+!scope="row"|Iceland (Íslenski Listinn Topp 40)<ref>{{cite news|url=https://timarit.is/page/3010431?iabr=on#page/n9/mode/2up|title=Íslenski Listinn Topp 100|newspaper=Dagblaðið Vísir|language=is|page=10|date=January 5, 2001|access-date=February 8, 2020}}</ref>
+|36
+|-
+!scope="row"|Netherlands (Dutch Top 40)<ref>{{cite web|url=https://www.top40.nl/bijzondere-lijsten/top-100-jaaroverzichten/2000|title=Top 100–Jaaroverzicht van 2000|publisher=Dutch Top 40|access-date=December 24, 2019}}</ref>
+|73
+|-
+!scope="row"|US Adult Top 40 (''Billboard'')<ref>{{cite magazine|title=Most Played Adult Top 40 Songs of 2000|magazine=[[Airplay Monitor]]|volume=8|issue=51|page=48|date=December 22, 2000}}</ref>
+|93
+|-
+!scope="row"|US Mainstream Rock Tracks (''Billboard'')<ref>{{cite magazine|title=The Year in Music 2000: Hot Mainstream Rock Tracks|magazine=Billboard|volume=112|issue=53|page=YE-87|date=December 30, 2000}}</ref>
+|15
+|-
+!scope="row"|US Modern Rock Tracks (''Billboard'')<ref>{{cite magazine|title=The Year in Music 2000: Hot Modern Rock Tracks|magazine=Billboard|volume=112|issue=53|page=YE-88|date=December 30, 2000}}</ref>
+|15
+|}
+{{col-end}}
+
+==Certifications==
+{{Certification Table Top}}
+{{Certification Table Entry|region=Canada|type=single|artist=Red Hot Chili Peppers|title=Californication|award=Platinum|number=7|relyear=2000|certyear=2025|access-date=January 14, 2025}}
+{{Certification Table Entry|region=Denmark|type=single|artist=Red Hot Chili Peppers|title=Californication|award=Platinum|relyear=2000|certyear=2021|id=10099|access-date=March 31, 2021}}
+{{Certification Table Entry|region=Italy|type=single|artist=Red Hot Chili Peppers|title=Californication|award=Platinum|number=2|relyear=2000|certyear=2019|id=7302|access-date=January 19, 2021|note=sales since 2009}}
+{{Certification Table Entry|region=New Zealand|type=single|artist=Red Hot Chili Peppers|title=Californication|award=Platinum|number=7|source=radioscope|relyear=2000|certyear=2026|access-date=April 8, 2026}}
+{{Certification Table Entry|region=Spain|type=single|artist=Red Hot Chili Peppers|title=Californication|award=Platinum|number=2|relyear=2000|certyear=2025|certmonth=2|access-date=February 18, 2025}}
+{{Certification Table Entry|region=United Kingdom|type=single|artist=Red Hot Chili Peppers|title=Californication|award=Platinum|number=3|relyear=2000|certyear=2025|access-date=January 17, 2025|id=1153-982-1}}
+{{Certification Table Entry|region=United States|type=single|artist=Red Hot Chili Peppers|title=Californication|award=Platinum|number=6|relyear=2000|certyear=2024|access-date=July 3, 2024}}
+{{Certification Table Bottom|nosales=true|streaming=true|noshipments=true}}
+
+==Release history==
+==References==

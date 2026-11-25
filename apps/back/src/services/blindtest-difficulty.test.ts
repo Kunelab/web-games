@@ -4,6 +4,8 @@ import { describe, it } from 'node:test';
 import type { BlindtestFame } from 'game-core';
 
 import {
+  ageShift,
+  chartZ,
   bellTarget,
   curveAt,
   DEEP_CUT,
@@ -108,7 +110,7 @@ const NOBODY: BlindtestFame = {
 
 describe('a difficulty, for somebody who picked the genre', () => {
   it('puts the head of the genre at the very bottom of the scale', () => {
-    assert.ok(reggae(BOB_MARLEY).difficulty <= 5, JSON.stringify(reggae(BOB_MARLEY)));
+    assert.ok(reggae(BOB_MARLEY).difficulty <= 10, JSON.stringify(reggae(BOB_MARLEY)));
   });
 
   it('puts a hit known only in its own country near the top', () => {
@@ -441,7 +443,8 @@ describe('a curve per genre', () => {
       curve: KPOP
     };
     const genreHit: BlindtestFame = { ...BOB_MARLEY, seedFame: 0.95, views: 50_000_000, lastfmListeners: 500_000 };
-    assert.ok(scoreDifficulty(genreHit, context) <= 10);
+    // Scored on the song now, not its name: a genre centred at 70 puts its head under 20, not 10.
+    assert.ok(scoreDifficulty(genreHit, context) <= 20, JSON.stringify(scoreBreakdown(genreHit, context)));
     assert.ok(scoreDifficulty(genreHit, { ...context, pooled }) >= 15);
   });
 
@@ -500,5 +503,45 @@ describe('a classical piece, read against every work', () => {
     const withWorks = { ...context, works, calibration: { ...classical, composite: { mean: -1, sd: 0.6 } } };
     assert.ok(scoreDifficulty(SWAN_LAKE, withWorks) <= 10);
     assert.ok(scoreDifficulty(PIERROT_LUNAIRE, withWorks) >= 15);
+  });
+});
+
+describe('songs of every age, and their own fame', () => {
+  // A star's album track: the artist known everywhere, the song itself middling.
+  const ALBUM_TRACK: BlindtestFame = { ...BOB_MARLEY, deezerRank: 500_000, lastfmListeners: null, views: null, seedFame: null, model: null };
+  it('weighs today\'s figures linearly by age around 2010', () => {
+    assert.equal(ageShift(2010), 0);
+    assert.ok(Math.abs(ageShift(1968) - 1.05) < 1e-9);
+    assert.ok(ageShift(2024) < 0 && ageShift(2024) >= -0.4);
+    assert.equal(ageShift(1900), ageShift(1950));
+    assert.equal(ageShift(null), 0);
+  });
+
+  it('makes an old song with the same figures easier than a recent one', () => {
+    const figures: BlindtestFame = ALBUM_TRACK;
+    const old = reggae({ ...figures, year: 1968 }).difficulty;
+    const recent = reggae({ ...figures, year: 2022 }).difficulty;
+    assert.ok(old + 10 <= recent, `${old} vs ${recent}`);
+  });
+
+  it('reads a chart top ten or a certification as a hit, whatever the song streams now', () => {
+    assert.ok((chartZ({ chartPeak: 1 }) ?? 0) >= 2);
+    assert.ok((chartZ({ certLevel: 10 }) ?? 0) > (chartZ({ certLevel: 1 }) ?? 0));
+    assert.equal(chartZ({}), null);
+    const oldie = reggae({ ...ALBUM_TRACK, deezerRank: 300_000, year: 1962, chartPeak: 1, certLevel: 2 });
+    assert.ok(oldie.difficulty <= 15, JSON.stringify(oldie));
+  });
+
+  it('scores a song Deezer does not list, by an artist it does, as hard rather than as its artist', () => {
+    const unlisted = reggae({ ...BOB_MARLEY, deezerRank: null, lastfmListeners: null, views: null, seedFame: null, model: null });
+    assert.ok(unlisted.difficulty >= 50, JSON.stringify(unlisted));
+  });
+
+  it('keeps a song out this year off the easy end unless a chart says it is a hit', () => {
+    const year = new Date().getFullYear();
+    const trending = reggae({ ...BOB_MARLEY, year });
+    assert.equal(trending.rule, 'recent');
+    assert.ok(trending.difficulty >= 25);
+    assert.notEqual(reggae({ ...BOB_MARLEY, year, chartPeak: 3 }).rule, 'recent');
   });
 });

@@ -18,6 +18,8 @@ import {
 } from '../services/blindtest-catalog.js';
 import type { FittedCalibration } from '../services/blindtest-difficulty.js';
 import { lookupFame, type FameFacts } from '../services/blindtest-fame.js';
+import { withEras, yearOf } from '../services/blindtest-eras.js';
+import { songFacts, songFame, songKey } from '../services/blindtest-song-queue.js';
 import { annotateCandidates, type Annotation } from '../services/blindtest-llm.js';
 import { buildOracle, trackOracleKey, type GenreOracle } from '../services/blindtest-seeds.js';
 import {
@@ -383,6 +385,10 @@ async function lookUp(rows: Row[], options: Options): Promise<void> {
       model,
       recognised
     });
+    // The slow sources' year, charts and certifications, as far as their queues have got.
+    if (row.source.answerShape === 'artist-title' && !row.source.pieceFame && row.artist && row.title) {
+      row.fame = { ...row.fame, ...songFame(songFacts(db, songKey(row.artist, row.title))) };
+    }
     progress('catalogues', ++done, rows.length);
   });
 }
@@ -618,12 +624,23 @@ function save(rows: Row[], fitted: FittedCalibration | null): number {
   db.transaction((tx) => {
     for (const row of rows) {
       if (!row.plan) continue;
-      const payload = applyPlan(row.payload, row.plan, row.fame ?? null);
-      if (payload === row.payload) continue;
+      let payload = applyPlan(row.payload, row.plan, row.fame ?? null);
+      /**
+       * The song's real year, where the slow sources found it: the date a round
+       * was filed with is YouTube's upload or the compilation's ("Hey Jude",
+       * 2018), which put it in the wrong eras. Only ever moved earlier, since
+       * an original is never later than its reissues, and with the eras that
+       * follow from it.
+       */
+      const year = row.fame?.year;
+      const filed = yearOf(row.view.date);
+      const date = typeof year === 'number' && (filed === null || year < filed) ? `${year}-01-01` : row.view.date;
+      if (date !== row.view.date) payload = withEras(payload, row.view.category, date);
+      if (payload === row.payload && date === row.view.date) continue;
       // `last_modified` is left alone on purpose: it is how the next run tells
       // a person's edit from this one.
       tx.update(media)
-        .set({ payload: JSON.stringify(payload) })
+        .set({ payload: JSON.stringify(payload), ...(date !== row.view.date ? { date } : {}) })
         .where(eq(media.id, row.view.id))
         .run();
       written += 1;

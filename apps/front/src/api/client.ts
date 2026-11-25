@@ -662,6 +662,16 @@ export const api = {
     }),
   /** Rewrites every old `field.work` prompt whose genre is known. */
   blindtestFixLabels: () => request<{ fixed: number }>('/blindtest/library/fix-labels', { method: 'POST' }),
+  /**
+   * Accepts or refuses the replacement video proposed for a catalogue round in
+   * doubt. Accepting puts it in and places the clip again; refusing never
+   * offers it again. Returns the round as saved.
+   */
+  blindtestAnswerVideoProposal: (mediaId: number, answer: 'accept' | 'reject') =>
+    request<{ item: MediaItem }>(`/blindtest/library/video-proposal/${answer}`, {
+      method: 'POST',
+      body: { mediaId }
+    }),
   /** The asks for more of an artist or a work, and the genres one can be made in. Admin only. */
   blindtestRequests: () => request<{ requests: BlindtestRequest[]; genres: string[] }>('/blindtest/requests'),
   /** Asks the next fill for an artist's top tracks (`count` of them) or a work. */

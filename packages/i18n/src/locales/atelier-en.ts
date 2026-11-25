@@ -337,6 +337,13 @@ export const atelierEn = {
   "ple.problem.legacy": "Old label",
   "ple.problem.extreme": "Doubtful difficulty",
   "ple.problem.unfinished": "To finish",
+  "ple.videoProposal.label": "Proposed video",
+  "ple.videoProposal.open": "Open {title} on YouTube",
+  "ple.videoProposal.accept": "Accept",
+  "ple.videoProposal.reject": "Refuse",
+  "ple.videoProposal.acceptLabel":
+    "Replace the video of {title} with the proposed one",
+  "ple.videoProposal.rejectLabel": "Refuse the video proposed for {title}",
   "ple.filter.genre": "Genre",
   "ple.noMatchInPlaylist": "Nothing in the playlist matches.",
   "ple.add": "Add {title}",

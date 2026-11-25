@@ -1,0 +1,43 @@
+{
+  "count": 3,
+  "recordings": [
+    {
+      "title": "Hey Jude",
+      "disambiguation": "original mono studio mix",
+      "first-release-date": "1968-08-26",
+      "artist-credit": [
+        {
+          "name": "The Beatles",
+          "artist": {
+            "name": "The Beatles"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Hey Jude",
+      "disambiguation": "original stereo studio mix",
+      "first-release-date": "1970-02-26",
+      "artist-credit": [
+        {
+          "name": "The Beatles",
+          "artist": {
+            "name": "The Beatles"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Hey Jude",
+      "first-release-date": "1977",
+      "artist-credit": [
+        {
+          "name": "The Beatles Revival Band Frankfurt",
+          "artist": {
+            "name": "The Beatles Revival Band"
+          }
+        }
+      ]
+    }
+  ]
+}

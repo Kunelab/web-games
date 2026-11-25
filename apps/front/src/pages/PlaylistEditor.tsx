@@ -11,7 +11,15 @@ import {
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { alsoInOf, genreKeysOf, normalizeAnswer, playedWindows, videoInDoubt } from 'game-core';
+import {
+  alsoInOf,
+  genreKeysOf,
+  normalizeAnswer,
+  playedWindows,
+  videoInDoubt,
+  videoProposalOf,
+  type BlindtestVideoProposal
+} from 'game-core';
 import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -351,6 +359,8 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
    * rows at once, none of which should wait for a reload to say so.
    */
   const [refiledItems, setRefiledItems] = useState<ReadonlyMap<number, MediaItem>>(() => new Map());
+  /** The round whose proposed video is being accepted or refused, and which of the two. */
+  const [proposalBusy, setProposalBusy] = useState<{ id: number; answer: 'accept' | 'reject' } | null>(null);
 
   const byId = useMemo(() => {
     const map = new Map<number, MediaItem>();
@@ -573,6 +583,23 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
       genreCheck.reload();
     } finally {
       setGenreBusy(null);
+    }
+  }
+
+  /**
+   * Accepts or refuses the video proposed for a round in doubt.
+   *
+   * The round comes back as the server saved it and replaces the stale copy
+   * the way a genre move does (`refiledItems`), so an accepted one leaves the
+   * "wrong video" list at once and nothing is reloaded.
+   */
+  async function answerVideoProposal(item: MediaItem, answer: 'accept' | 'reject') {
+    setProposalBusy({ id: item.id, answer });
+    try {
+      const { item: saved } = await api.blindtestAnswerVideoProposal(item.id, answer);
+      setRefiledItems((current) => new Map(current).set(saved.id, saved));
+    } finally {
+      setProposalBusy(null);
     }
   }
 
@@ -992,6 +1019,9 @@ function Editor({ playlist, library, libraryLoading, onSaved }: EditorProps) {
                       genreFlag={curating ? genreFlagById.get(item.id) : undefined}
                       legacyLabel={curating && legacyIds.has(item.id)}
                       onShowGenre={() => openGenre(item)}
+                      videoProposal={curating && videoInDoubt(item.payload) ? videoProposalOf(item.payload) : null}
+                      proposalBusy={proposalBusy?.id === item.id ? proposalBusy.answer : null}
+                      onAnswerProposal={(answer) => void answerVideoProposal(item, answer)}
                       onRemove={() => remove(item.id)}
                     />
                   ))}
@@ -1313,6 +1343,9 @@ function SortableRow({
   genreFlag,
   legacyLabel = false,
   onShowGenre,
+  videoProposal = null,
+  proposalBusy = null,
+  onAnswerProposal,
   onRemove
 }: {
   item: MediaItem;
@@ -1332,6 +1365,11 @@ function SortableRow({
   /** Still asking for "a film, series or game". */
   legacyLabel?: boolean;
   onShowGenre?: () => void;
+  /** The video found to replace this round's, while its video is in doubt. On the catalogue only. */
+  videoProposal?: BlindtestVideoProposal | null;
+  /** Which answer to the proposal is on its way to the server. */
+  proposalBusy?: 'accept' | 'reject' | null;
+  onAnswerProposal?: (answer: 'accept' | 'reject') => void;
   onRemove: () => void;
 }) {
   const t = useT();
@@ -1447,6 +1485,57 @@ function SortableRow({
         )}
         <IconButton icon={<MinusIcon />} label={t(msg('ple.remove', { title: item.title }))} onClick={onRemove} />
       </span>
+      {/*
+        The video found to replace one in doubt, under the row it would go in:
+        its thumbnail and title open it on YouTube in a new tab, to be heard
+        before it is accepted. Accepting puts it in and places the clip again.
+      */}
+      {videoProposal && onAnswerProposal && (
+        <div className="pl-proposal">
+          <a
+            className="pl-proposal-video"
+            href={`https://www.youtube.com/watch?v=${videoProposal.code}`}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={t(msg('ple.videoProposal.open', { title: videoProposal.title }))}
+            title={videoProposal.reason ?? videoProposal.title}
+          >
+            <img
+              className="pl-proposal-thumb"
+              src={`https://i.ytimg.com/vi/${videoProposal.code}/hqdefault.jpg`}
+              alt=""
+              loading="lazy"
+            />
+            <span className="pl-item-main">
+              <span className="pl-item-meta">{t(msg('ple.videoProposal.label'))}</span>
+              <span className="pl-item-title">{videoProposal.title}</span>
+              <span className="pl-item-meta">{videoProposal.channel}</span>
+            </span>
+          </a>
+          <span className="pl-proposal-actions">
+            <Button
+              variant="ghost"
+              size="sm"
+              busy={proposalBusy === 'reject'}
+              disabled={proposalBusy !== null}
+              aria-label={t(msg('ple.videoProposal.rejectLabel', { title: item.title }))}
+              onClick={() => onAnswerProposal('reject')}
+            >
+              {t(msg('ple.videoProposal.reject'))}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              busy={proposalBusy === 'accept'}
+              disabled={proposalBusy !== null}
+              aria-label={t(msg('ple.videoProposal.acceptLabel', { title: item.title }))}
+              onClick={() => onAnswerProposal('accept')}
+            >
+              {t(msg('ple.videoProposal.accept'))}
+            </Button>
+          </span>
+        </div>
+      )}
     </li>
   );
 }

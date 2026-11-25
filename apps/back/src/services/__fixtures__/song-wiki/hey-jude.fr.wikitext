@@ -1,0 +1,55 @@
+{{Infobox Musique (œuvre)
+| charte             = single
+| titre              = Hey Jude
+| langue du titre    = en
+| image              = 
+| légende            = 
+| artiste            = [[The Beatles]]
+| album              = <!-- Paru en single uniquement -->
+| face A             = Hey Jude 
+| face B             = [[Revolution (chanson)|Revolution]]
+| sorti              = {{Drapeau|États-Unis}} {{Date|26|août|1968|en musique}} <br /> {{Drapeau|Royaume-Uni}} {{Date|30|août|1968|en musique}}
+| enregistré         = {{date|31 juillet}} et {{date|1|août|1968|en musique}}
+| enregistré lieu    = aux [[studios Trident]] ([[Londres]])
+| durée              = 7:11 <small>(mono)</small> et 7:06 <small>(stéréo)</small>
+| genre              = [[Pop rock]]
+| format             = [[45 tours]]
+| auteur-compositeur = [[Paul McCartney]] (créditée [[Lennon/McCartney]])
+| producteur         = [[George Martin]]
+| label              = [[Apple Records|Apple]]
+| classement         = {{N°|1}} ([[États-Unis]]) <br /> {{N°|1}} ([[Royaume-Uni]])
+| critique           = 
+| single précédent   = [[Lady Madonna]]/[[The Inner Light]]
+| single suivant     = [[Get Back]]/[[Don't Let Me Down]]
+| date single préc   = 1968
+| date single suiv   = 1969
+| divers           = {{Succession musicale
+ | entête    = Pistes de [[The Beatles 1967–1970#Disque 1|''1967-1970'' <small>(Disque 1)</small>]]
+ | précédent = [[Lady Madonna]]<br />''(B5)''&nbsp;
+ | suivant   = [[Revolution (chanson)|Revolution]]<br />''(B7)''&nbsp;
+ }}{{Succession musicale
+ | entête    = Pistes de ''[[Past Masters#Disque 2|Past Masters 2]]''
+ | précédent = [[The Inner Light]]<br />''(6)''&nbsp;
+ | suivant   = [[Revolution (chanson)|Revolution]]<br />''(8)''&nbsp;
+ }}
+}}
+== Genèse ==
+== Enregistrement ==
+== Description musicale ==
+== Analyse des paroles ==
+== Clip promotionnel ==
+== Publication ==
+== Réception ==
+== Reprises ==
+''Hey Jude'' a été reprise par un grand nombre d'artistes, parmi lesquels [[Petula Clark]], [[Ella Fitzgerald]], [[Elvis Presley]], [[The Bar-Kays]], [[The Temptations]], [[Grateful Dead]], et les membres du ''[[Glee Club]]'' dans la série télévisée ''[[Glee (série télévisée)|Glee]]'' (épisode 2 ''Let It Be'' de la [[Saison 5 de Glee|saison 5]]). Le site ''Secondhandsongs.com'' en dénombre en tout une soixantaine<ref name="secondhand">{{en}} {{Lien web|titre=Hey Jude - The Beatles|url=http://www.secondhandsongs.com/song/1454|site=secondhandsongs.com|date=|consulté le=27/01/2009}}.</ref>.
+
+Une reprise notable est celle de [[Wilson Pickett]]. En [[1968 en musique|1968]], soit l'année de la sortie de la chanson originale, il en enregistre sa propre version avec le guitariste [[Duane Allman]], et celle-ci atteint la {{23e|place}} des [[classement musical|charts]] américains et la {{16e}} au [[Royaume-Uni]]<ref name="songfacts">{{en}} {{Lien web|titre=Hey Jude by The Beatles|url=http://www.songfacts.com/detail.php?id=141|site=songfacts.com|consulté le=27/01/2009}}.</ref>. Pickett a d'ailleurs intitulé son album associé ''{{Lien|langue=en|trad=Hey Jude (Wilson Pickett album)|fr=Hey Jude (album de Wilson Pickett)|texte=Hey Jude}}''.
+
+Il existe également des reprises de la chanson dans d'autres styles de musique. ''{{lang|en|Hey Jude}}'' est chantée dans une version [[soul]] par [[Smokey Robinson]] et [[The Miracles]] sur l'album ''{{Lien|langue=en|trad=Four in Blue}}'' sorti en 1969<ref>{{en}} {{Lien web|titre={{lang|en|Four in Blue}}|url=http://www.allmusic.com/album/four-in-blue-mw0000872732|site=allmusic.com|éditeur=[[AllMusic]]|consulté le=10 juin 2012}}.</ref>. L'album parodique ''[[The Third Reich 'n' Roll]]'' du groupe [[The Residents]] (1976) s'achève sur une reprise instrumentale de ''Hey Jude'', couplée avec le solo de guitare et les « hou ! hou ! » de ''[[Sympathy for the Devil]]'' des [[Rolling Stones]]. Des versions [[salsa]] (par [[Tony Vega]]) et [[reggae]] (par [[John Holt]] et [[Toots & the Maytals]]) sont respectivement disponibles sur ''[[Tropical Tribute to the Beatles]]'' et ''[[Reggae Tribute to the Beatles]]''. Les ''12 Cellists of The Berlin Philharmonic'' en ont fait une reprise [[Musique classique|classique]] sur leur album ''The Beatles in Classics'' (1983). En [[1993]], Peter Breiner la sélectionne pour son album ''[[Beatles Go Baroque]]'' et l'arrange ({{Citation|à la manière de Jean-Sébastien Bach}}) en polonaise de son troisième concerto. Il en va de même pour l'[[Orchestre symphonique de Londres]] accompagné de [[Manuel Barrueco]] sur l'album ''Plays Lennon & McCartney'' (1995)<ref name="secondhand" />. [[Nana Mouskouri]] l'a reprise en 2018 sur l'album ''[[Forever Young (album de Nana Mouskouri)|Forever Young]]''.
+
+''Hey Jude'' est aussi une chanson reprise en concert. En [[1969 en musique|1969]], elle est par exemple chantée par [[Richie Havens]], lors de l'ouverture du [[Festival de Woodstock]]<ref name="songfacts" />. En [[1997 en musique|1997]], elle est jouée lors du concert en faveur des victimes de l'éruption du volcan de [[Montserrat (Antilles)|Montserrat]], au [[Royal Albert Hall]], entre autres par [[Paul McCartney]], [[Elton John]], [[Sting]], [[Phil Collins]], [[Mark Knopfler]] et [[Eric Clapton]]. En [[2005 en musique|2005]], elle est reprise en chœur par certains artistes qui ont participé au concert du [[Live 8]] à Londres, dont Paul McCartney, [[Pink Floyd]], [[Bob Geldof]], [[Annie Lenox]], [[Mariah Carey]], et [[George Michael]]. On peut noter également une reprise des chœurs de l'Armée rouge durant leur tournée 2012, ainsi qu'une interprétation par Paul McCartney lui-même pour clore la cérémonie d'ouverture des [[Jeux olympiques d'été de 2012|Jeux Olympiques de Londres]] le {{date-|27 juillet 2012}}. Quelques jours plus tard, au [[Vélodrome de Londres|Vélodrome Olympique]], Sir Paul est présent dans les gradins et reprend en chœur avec l'ensemble du public le fameux « na na na nananana » de sa chanson.
+
+== Culture populaire ==
+== Bibliographie ==
+== Notes et références ==
+== Voir aussi ==

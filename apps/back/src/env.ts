@@ -146,6 +146,15 @@ const envSchema = z.object({
    * the database so a restart does not hand out the day's allowance twice.
    */
   BLINDTEST_SEARCH_BUDGET: z.coerce.number().int().min(0).max(100).default(95),
+  /**
+   * Whether the server gathers the catalogue songs' years, charts and
+   * certifications in the background (MusicBrainz, Wikipedia, Billboard). See
+   * `blindtest-song-queue`. On by default; `false` to switch it off.
+   */
+  BLINDTEST_SONG_FACTS: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
 
   /**
    * How many hours before the quota resets the overnight prefill starts.

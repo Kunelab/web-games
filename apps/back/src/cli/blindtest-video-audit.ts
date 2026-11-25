@@ -2,13 +2,14 @@
 import { writeFileSync } from 'node:fs';
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { boundedLevenshtein, normalizeAnswer, videoInDoubt } from 'game-core';
+import { videoInDoubt } from 'game-core';
 
 import { closeDb, db } from '../db/index.js';
 import { media } from '../db/schema.js';
 import { env } from '../env.js';
 import { genreById, NOT_A_SINGLE_WORK, SECTIONS, type Genre } from '../services/blindtest-catalog.js';
 import { annotateCandidates, sameWorks } from '../services/blindtest-llm.js';
+import { sameWork, titleNames, withoutNames } from '../services/blindtest-video-replace.js';
 import { fetchVideoFacts, type VideoFacts } from '../services/youtube-service.js';
 
 /**
@@ -107,41 +108,12 @@ function loadRows(options: Options): Row[] {
   return rows;
 }
 
-/**
- * Whether the model's work is the round's: any of its names (it answers in
- * French, "Les Sept Mercenaires") against any the round accepts ("The
- * Magnificent Seven"), allowing a spelling apart ("Samourai", "Samurai").
- */
-function sameWork(said: string[], names: string[]): boolean {
-  const ours = names.map(normalizeAnswer).filter(Boolean);
-  return said
-    .map(normalizeAnswer)
-    .filter(Boolean)
-    .some((one) =>
-      ours.some((known) => {
-        if (known === one) return true;
-        if (Math.min(known.length, one.length) >= 5 && (known.includes(one) || one.includes(known))) return true;
-        const budget = Math.floor(Math.max(known.length, one.length) / 6);
-        return boundedLevenshtein(known, one, budget) <= budget;
-      })
-    );
-}
-
-/** Whether the video's title names the round's work under any of its names. */
-function titleNames(title: string, names: string[]): boolean {
-  const said = normalizeAnswer(title);
-  return names.map(normalizeAnswer).some((name) => name.length >= 2 && ` ${said} `.includes(` ${name} `));
-}
-
 async function judge(rows: Row[]): Promise<{ asked: number; unanswered: number }> {
   // The title first: what the genre refuses needs no model.
   for (const row of rows) {
     if (!row.facts) continue;
     // The work's own name is not evidence: "A Midi in Time" is a Ratchet & Clank game.
-    let title = row.facts.title;
-    for (const name of row.names.flatMap((one) => [one, one.replace(/\s*&\s*/g, ' and ')])) {
-      if (name.length >= 3) title = title.replace(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ');
-    }
+    const title = withoutNames(row.facts.title, row.names);
     if (row.genre.reject?.test(title) || NOT_A_SINGLE_WORK.test(title)) {
       row.verdict = { reason: 'cover', note: `title: ${row.facts.title}` };
     }
@@ -199,15 +171,23 @@ async function judge(rows: Row[]): Promise<{ asked: number; unanswered: number }
   // a clear "different work" flags.
   const misread = rows.filter((row) => row.misread !== undefined);
   const same = await sameWorks(
-    misread.map((row) => ({ id: String(row.id), claimed: row.names.join(' / '), read: row.misread!, title: row.facts!.title }))
+    misread.map((row) => ({
+      id: String(row.id),
+      claimed: row.names.join(' / '),
+      read: row.misread!,
+      title: row.facts!.title
+    }))
   );
   for (const row of misread) {
     const seen = `${row.facts!.title} [${row.facts!.channel}]`;
     const verdict = same.get(String(row.id));
-    if (verdict === false) row.verdict = { reason: 'not-from-work', note: `model reads it as "${row.misread}": ${seen}` };
+    if (verdict === false)
+      row.verdict = { reason: 'not-from-work', note: `model reads it as "${row.misread}": ${seen}` };
     else if (verdict === undefined) row.doubt = `model reads it as "${row.misread}" (unconfirmed): ${seen}`;
   }
-  console.log(`  ${misread.length} read as another work, ${misread.filter((row) => row.verdict).length} confirmed different`);
+  console.log(
+    `  ${misread.length} read as another work, ${misread.filter((row) => row.verdict).length} confirmed different`
+  );
   return { asked, unanswered };
 }
 
@@ -247,8 +227,20 @@ async function main(): Promise<void> {
       options.report,
       JSON.stringify(
         {
-          flagged: flagged.map((row) => ({ id: row.id, genre: row.genre.id, work: row.work, code: row.code, ...row.verdict })),
-          doubtful: doubtful.map((row) => ({ id: row.id, genre: row.genre.id, work: row.work, code: row.code, note: row.doubt }))
+          flagged: flagged.map((row) => ({
+            id: row.id,
+            genre: row.genre.id,
+            work: row.work,
+            code: row.code,
+            ...row.verdict
+          })),
+          doubtful: doubtful.map((row) => ({
+            id: row.id,
+            genre: row.genre.id,
+            work: row.work,
+            code: row.code,
+            note: row.doubt
+          }))
         },
         null,
         2

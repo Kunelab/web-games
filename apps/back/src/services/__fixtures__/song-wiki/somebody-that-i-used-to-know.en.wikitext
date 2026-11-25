@@ -1,0 +1,795 @@
+{{Infobox song
+| name       = Somebody That I Used to Know
+| cover      = Gotye featuring Kimbra - Somebody That I Used to Know.png
+| alt        = A large heart shaped design is filled with a montage of images. Most are grey, black, and white; the central image includes red colouring. The name Gotye is styled as a signature at bottom right.
+| border     = yes
+| type       = single
+| artist     = [[Gotye]] featuring [[Kimbra]]
+| album      = [[Making Mirrors]]
+| released   = {{Start date|2011|07|5|df=y}}
+| recorded   = January–May 2011
+| studio     =
+* The Barn ([[Merricks]])
+* Lucas Taranto's lounge room ([[Melbourne]], Australia)
+| venue      =
+| genre      =
+* [[Art pop]]
+* [[alternative rock]]
+<!--Sourced within Composition and recording. Do not add unsourced genres.-->
+| length     = {{duration|m=4|s=04}}
+| label      =
+* [[Eleven: A Music Company|Eleven]]
+* [[Universal Music Group|Universal]]
+* [[V2 Records|V2]]
+| writer     = 
+* Wally De Backer
+* [[Luiz Bonfá]]
+| producer   = Wally De Backer
+| chronology = [[Gotye]]
+| prev_title = [[Eyes Wide Open (Gotye song)|Eyes Wide Open]]
+| prev_year  = 2010
+| next_title = [[I Feel Better (Gotye song)|I Feel Better]]
+| next_year  = 2011
+| misc       = {{Extra chronology
+ | artist     = [[Kimbra]]
+ | type       = single
+ | prev_title = [[Cameo Lover]]
+ | prev_year  = 2011
+ | title      = Somebody That I Used to Know
+ | year       = 2011
+ | next_title = [[Good Intent]]
+ | next_year  = 2011
+}}
+== Composition and recording ==
+== Music video ==
+== Critical reception ==
+== Commercial performance ==
+==Television and film==
+== Track listings ==
+== Credits and personnel ==
+== Charts ==
+{{col-begin}}
+{{col-2}}
+
+=== Weekly charts ===
+{| class="wikitable sortable plainrowheaders" style="text-align:center"
+|+ {{Screen reader-only|Weekly chart performance}}
+
+!Chart (2011–2025)
+!Peak<br />position
+|-
+{{single chart|Australia|1|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Austria|1|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Flanders|1|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Wallonia|1|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Bulgaria|2|artist=Gotye feat. Kimbra|url=http://www.bamp-bg.org/en/2009-07-08-09-48-53/nmc-charts/292-02042012-08042012.html|access-date=25 October 2012|rowheader=true}}
+|-
+{{single chart|Canada|1|artist=Gotye|rowheader=true|access-date=20 May 2020}}
+|-
+{{single chart|Billboardcanadaac|5|artist=Gotye|rowheader=true|access-date=20 May 2020}}
+|-
+{{single chart|Billboardcanadachrtop40|1|artist=Gotye|rowheader=true|access-date=20 May 2020}}
+|-
+{{single chart|Billboardcanadahotac|1|artist=Gotye|rowheader=true|access-date=20 May 2020}}
+|-
+{{single chart|Billboardcanadarock|5|artist=Gotye|rowheader=true|access-date=20 May 2020}}
+|-
+! scope="row"| Croatia International Airplay ([[Top lista]])<ref name="CRO">{{Cite web|url=https://haw.nsk.hr/arhiva/vol4/2346/37913/www.soundguardian.com/file/ARC%20100%2002%2013.xls|title=Airplay Radio Chart February 13th, 2012}}</ref>
+| align="center" |1
+|-
+{{single chart|Czech Republic|1|week=18|year=2012|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Denmark|1|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Finland|1|artist=Gotye|song=Somebody That I Used To Know (Feat. Kimbra)|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|France|1|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|rowheader=true}}
+|-
+{{single chart|Germany|1|rowheader=true|songid=866033|access-date=2 January 2021}}
+|-
+{{single chart|Billboardglobal200|129|artist=Gotye|rowheader=true|access-date=2 April 2025}}
+|-
+!scope="row"|Greece Digital Songs (''[[Billboard (magazine)|Billboard]]'')<ref>{{cite magazine | url = https://www.billboard.com/biz/charts/2012-04-21/greece | magazine = Billboard| title = Digital Singles Charts – Greece}}</ref>
+|2
+|-
+!scope="row"|Honduras Airplay ([[Honduras Top 50]])<ref>{{cite web|archive-url=https://web.archive.org/web/20121007003703/http://www.tiempo.hn/fuzion/top-50|title=Top 50|language=es|url=http://tiempo.hn/fuzion/top-50|date=4 October 2012|archive-date=7 October 2012|url-status=dead|work=Fuzion|publisher=[[El Tiempo (Honduras)|El Tiempo]]}}</ref>
+|33
+|-
+{{single chart|Hungarydance|1|year=2012|week=30|access-date=9 August 2012|rowheader=true}}
+|-
+{{single chart|Hungary|1|year=2012|week=17|access-date=5 July 2012|rowheader=true}}
+|-
+!scope="row"|Iceland ([[Tónlistinn]])<ref>{{cite web|url=http://plotutidindi.is/tonlistinn/|title=Tónlistinn – Lög|trans-title=The Music – Songs|lang=is|publisher=Plötutíðindi|access-date=13 January 2024|archive-url=https://web.archive.org/web/20120320060341/http://plotutidindi.is/|archive-date=20 March 2012}}</ref>
+|4
+|-
+{{single chart|Ireland2|1|artist=Gotye featuring Kimbra|song=Somebody That I Used to Know|access-date=27 January 2020|rowheader=true}}
+|-
+!scope="row"|Israel International Airplay ([[Media Forest]])<ref>{{cite web|title=Media Forest: Airplay chart |url=http://mediaforest.biz/WeeklyCharts/HistoryWeeklyCharts.aspx?year=2012&week=12 |publisher=mediaforest.biz |language=he |date=24 March 2012 |access-date=5 July 2012 |url-status=dead |archive-url=https://web.archive.org/web/20131004230043/http://mediaforest.biz/WeeklyCharts/HistoryWeeklyCharts.aspx?year=2012&week=12 |archive-date=4 October 2013 }}</ref>
+|1
+|-
+{{single chart|Italy|1|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Billboardjapanhot100|10|artist=Gotye|rowheader=true|access-date=11 August 2026}}
+|-
+{{single chart|Billboard Mexico|8|artist=Gotye|rowheader=true|access-date=11 August 2026}}
+|-
+!scope="row"|Portugal Digital Songs (''[[Billboard (magazine)|Billboard]]'')<ref>{{cite magazine|url=https://www.billboard.com/biz/charts/2012-05-19/portugal|magazine = Billboard|access-date=19 May 2013|title=Portugal Digital Songs – Peak}}</ref>
+|2
+|-
+{{single chart|Dutch40|1|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Dutch100|1|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=30 October 2013|rowheader=true}}
+|-
+{{single chart|New Zealand|1|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Norway|2|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Poland|1|chartid=585|year=2012|access-date=31 January 2012|rowheader=true}}
+|-
+!scope="row"|Romania Airplay ([[Airplay 100]])<!--Please do not change this to Romanian Top 100 or Media Forest. The Airplay 100 is Romania's national singles chart from 2012 onwards. For further information, see WP:GOODCHARTS--><ref name="podcast">{{cite news|url=https://www.kissfm.ro/emisiuni/54/Airplay-100-Cristi-Nitzu|title=Airplay 100 – Cristi Nitzu {{!}} Kiss FM – 17 June 2012|access-date=27 January 2018|publisher=[[Kiss FM (Romania)|Kiss FM]]|url-status=live|archive-url=https://web.archive.org/web/20180127090412/https://www.kissfm.ro/emisiuni/54/Airplay-100-Cristi-Nitzu|archive-date=27 January 2018}} ''Note: User may scroll down the 'Podcasturi' menu to play or download the respective podcast.''</ref>
+|1
+|-
+{{single chart|Russiaradio|1|note=Bastian Van Shield Remix|date=20121026-20121101|access-date=June 13, 2025|rowheader=true}}
+|-
+{{single chart|Scotland|1|date=20120303|access-date=26 February 2012|rowheader=true}}
+|-
+{{single chart|Slovakia|1|year=2012|week=17|rowheader=true}}
+|-
+!scope="row"|Slovenia Airplay ([[SloTop50]])<ref>{{cite web|url=http://www.slotop50.si/Glasbene-lestvice/Tedenske-lestvice/?year=2013&week=37|title=SloTop50: Slovenian official singles weekly chart|publisher=[[SloTop50]]|language=sl|access-date=15 September 2013|archive-date=6 January 2018|archive-url=https://web.archive.org/web/20180106063918/http://www.slotop50.si/Glasbene-lestvice/Tedenske-lestvice/?year=2013&week=37|url-status=dead}}</ref>
+|17
+|-
+{{single chart|Spain|3|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+!scope="row"|Spain Airplay ([[Nielsen Soundscan]])<ref name=SPAairplayweek>{{cite magazine|url=https://worldradiohistory.com/UK/Music-Week/2012/2012-10-06-Music%20Week.pdf#page=36|title=Charts EU Airplay Week 38|date=6 October 2012|work=[[Music Week]]|p=34|via=World Radio History|access-date=16 July 2026}}</ref>
+| 1
+|-
+{{single chart|Sweden|1|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Switzerland|2|artist=Gotye feat. Kimbra|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|UK|1|date=20120218|access-date=12 February 2012|rowheader=true}}
+|-
+{{single chart|Ukraineradio|9|note=Bastian Van Shield Remix|date=20121228-20130103|access-date=June 15, 2025|rowheader=true}}
+|-
+{{single chart|Billboardhot100|1|artist=Gotye|access-date=6 June 2012|rowheader=true}}
+|-
+{{single chart|Billboardadultalternativesongs|1|artist=Gotye|access-date=4 June 2014|rowheader=true}}
+|-
+{{single chart|Billboardadultcontemporary|1|artist=Gotye|access-date=6 June 2012|rowheader=true}}
+|-
+{{single chart|Billboardadultpopsongs|1|artist=Gotye|access-date=6 June 201|rowheader=true}}
+|-
+{{single chart|Billboardalternativesongs|1|artist=Gotye|access-date=6 June 2012|rowheader=true}}
+|-
+{{single chart|Billboarddanceairplay|1|artist=Gotye|access-date=26 December 2014|rowheader=true}}
+|-
+{{single chart|Billboarddanceclubplay|1|artist=Gotye|access-date=6 June 2012|rowheader=true}}
+|-
+{{single chart|Billboardrocksongs|1|artist=Gotye|access-date=26 December 2014|rowheader=true}}
+|-
+{{single chart|Billboardpopsongs|1|artist=Gotye|access-date=6 June 2012|rowheader=true}}
+|-
+{{single chart|Billboardrhythmic|10|artist=Gotye|access-date=1 October 2019|rowheader=true}}
+|-
+!scope="row"|Venezuela Pop Rock General ([[Record Report]])<ref name="RecordReport">{{cite web |title=Pop Rock General |url=http://www.recordreport.com.ve/publico/?i=poprock |archive-url=https://web.archive.org/web/20120519234544/http://www.recordreport.com.ve/publico/?i=poprock |date=24 May 2012 |archive-date=19 May 2012 |publisher=Record Report |access-date=24 May 2012 |url-status=dead }}</ref>
+|1
+|}
+{|class="wikitable plainrowheaders" style="text-align:center"
+|+ {{Screen reader-only|Weekly chart performance}}
+!scope="col"|Chart (2024)
+!scope="col"|Peak<br/>position
+|-
+{{single chart|Moldova|86|date=20241129-20241205|rowheader=true|access-date=11 August 2026}}
+|}
+{{col-2}}
+
+=== Year-end charts ===
+{| class="wikitable sortable plainrowheaders" style="text-align:center"
+|+ {{Screen reader-only|Year-end chart performance}}
+
+|-
+!Chart (2011)
+!Position
+|-
+!scope="row"|Australia (ARIA)<ref>{{cite web |url=http://www.aria.com.au/pages/aria-charts-end-of-year-charts-top-100-singles-2011.htm |title=ARIA Top&nbsp;100 Singles 2011 |publisher=Australian Recording Industry Association (ARIA) |access-date=24 May 2012 |archive-date=4 March 2016 |archive-url=https://web.archive.org/web/20160304050156/http://aria.com.au/pages/aria-charts-end-of-year-charts-top-100-singles-2011.htm |url-status=live }}</ref>
+|2
+|-
+!scope="row"|Belgium (Ultratop 50 Flanders)<ref>{{cite web |url=http://www.ultratop.be/nl/annual.asp?year=2011&cat=s |title=Ultratop Belgian 2011 Year End Charts |publisher=Ultratop. Hung Medien |language=nl |access-date=18 May 2012 |archive-date=19 October 2012 |archive-url=https://web.archive.org/web/20121019190647/http://www.ultratop.be/nl/annual.asp?year=2011&cat=s |url-status=live }}</ref>
+|1
+|-
+!scope="row"|Belgium (Ultratop 50 Wallonia)<ref>{{cite web |url=http://www.ultratop.be/fr/annual.asp?year=2011&cat=s |title=Ultratop Belgian 2011 Year End Charts |publisher=Ultratop. Hung Medien |language=fr |access-date=12 March 2014 |archive-date=19 October 2012 |archive-url=https://web.archive.org/web/20121019190631/http://www.ultratop.be/fr/annual.asp?year=2011&cat=s |url-status=live }}</ref>
+|73
+|-
+!scope="row"|Germany (Media Control Charts)<ref>{{cite web|url=http://www.mtv.de/charts/Single_Jahrescharts_2011 |title=Single Jahrescharts 2011 &#124; charts |trans-title=Singles Annual Charts 2001 |language=de |publisher=MTV |date=31 December 2011 |access-date=20 January 2012 |url-status=dead |archive-url=https://web.archive.org/web/20120109011856/http://www.mtv.de/charts/Single_Jahrescharts_2011 |archive-date=9 January 2012 }}</ref>
+|32
+|-
+!scope="row"|Netherlands (Dutch Top 40)<ref>{{cite web|url=https://www.top40.nl/bijzondere-lijsten/top-100-jaaroverzichten/2011|title=Top 100-Jaaroverzicht van 2011|publisher=Dutch Top 40|access-date=20 December 2019|archive-date=20 December 2014|archive-url=https://web.archive.org/web/20141220210655/https://www.top40.nl/bijzondere-lijsten/top-100-jaaroverzichten/2011|url-status=live}}</ref>
+|5
+|-
+!scope="row"|Netherlands (Mega Single Top 100)<ref>{{cite web |first=Steffen |last=Hung |url=http://www.dutchcharts.nl/jaaroverzichten.asp?year=2011&cat=s |title=Dutch charts portal 2011 Year End Chart |publisher=Dutch Charts Portal |language=nl |access-date=18 May 2012 |archive-date=14 October 2016 |archive-url=https://web.archive.org/web/20161014160811/http://dutchcharts.nl/jaaroverzichten.asp?year=2011&cat=s |url-status=live }}</ref>
+|3
+|-
+!scope="row"|New Zealand (RIANZ)<ref>{{cite web |url=https://aotearoamusiccharts.co.nz/archive/annual-singles/2011-12-31 |title=Top Selling Singles of 2011 – The Official New Zealand Music Chart |publisher=Recording Industry Association of New Zealand (RIANZ) |access-date=24 May 2012 |archive-date=17 July 2014 |archive-url=https://web.archive.org/web/20140717123608/http://nztop40.co.nz/chart/?chart=1862 |url-status=live }}</ref>
+|3
+|}
+{| class="wikitable sortable plainrowheaders" style="text-align:center"
+|+ {{Screen reader-only|Year-end chart performance}}
+
+|-
+!Chart (2012)
+!Position
+|-
+!scope="row"|Australia (ARIA)<ref>{{cite web |url=http://www.aria.com.au/pages/aria-charts-end-of-year-charts-top-100-singles-2012.htm |title=ARIA Top&nbsp;100 Singles 2012 |publisher=Australian Recording Industry Association (ARIA) |access-date=7 January 2013 |archive-date=21 January 2013 |archive-url=https://web.archive.org/web/20130121020735/http://www.aria.com.au/pages/aria-charts-end-of-year-charts-top-100-singles-2012.htm |url-status=live }}</ref>
+|40
+|-
+!scope="row"|Austria (Ö3 Austria Top 40)<ref>[http://austriancharts.at/year.asp?id=2012&cat=s JAHRESHITPARADE SINGLES 2012] {{Webarchive|url=https://web.archive.org/web/20131204105908/http://www.austriancharts.at/year.asp?id=2012&cat=s |date=4 December 2013 }} (in German). austriancharts.at. Retrieved 12 March 2014.</ref>
+|2
+|-
+!scope="row"|Belgian (Ultratop 50 Flanders)<ref name="ultratop.be">{{cite web |url=http://www.ultratop.be/fr/annual.asp?year=2012&cat=a |title=Ultratop Belgian Charts |publisher=ultratop.be |date=24 May 2013 |access-date=28 May 2013 |archive-date=21 September 2013 |archive-url=https://web.archive.org/web/20130921062025/http://www.ultratop.be/fr/annual.asp?year=2012&cat=a |url-status=live }}</ref>
+|10
+|-
+!scope="row"|Belgian (Ultratop 50 Wallonia)<ref name="ultratop.be"/>
+|1
+|-
+!scope="row" |Brazil ([[Crowley Broadcast Analysis|Crowley]])<ref>{{cite web|url=https://maistocadas.mus.br/2012/|title=Brazilian Top 100 Year-End 2012|date=3 April 2018|publisher=[[Crowley Broadcast Analysis]]|accessdate=30 January 2022}}</ref>
+|12
+|-
+!scope="row"|Canada (Canadian Hot 100)<ref>{{cite magazine|url=https://www.billboard.com/charts/year-end/2012/canadian-hot-100|title=Best of 2012 – CanadianHot 100 Songs|magazine=Billboard|access-date=14 December 2012}}</ref>
+|1
+|-
+!scope="row"|France (SNEP)<ref>{{cite web|url=https://snepmusique.com/les-tops/le-top-de-lannee/top-singles-annee/?categorie=Top%20Single%20de%20l%E2%80%99ann%C3%A9e&annee=2012|title=Top de l'année Top Singles 2012|publisher=SNEP|language=fr|access-date=12 March 2021|archive-date=26 November 2020|archive-url=https://web.archive.org/web/20201126092646/https://snepmusique.com/les-tops/le-top-de-lannee/top-singles-annee/?categorie=Top%20Single%20de%20l%E2%80%99ann%C3%A9e&annee=2012|url-status=live}}</ref>
+|2
+|-
+!scope="row"|Germany (Media Control Charts)<ref>{{cite web|url=http://www.viva.tv/charts/52-top-100-jahrescharts-2012 |title=Top 100 Jahreschartes 2012 |publisher=VIVA |language=de |access-date=5 January 2013 |url-status=dead |archive-url=https://web.archive.org/web/20130106044835/http://www.viva.tv/charts/52-top-100-jahrescharts-2012 |archive-date=6 January 2013 }}</ref>
+|4
+|-
+!scope="row"|Hungary (Dance Top 40)<ref>{{cite web|url=http://slagerlistak.hu/archivum/eves-osszesitett-listak/dance/2012|title=Dance Top 100 – 2012|access-date=20 December 2019|publisher=Mahasz|archive-date=3 February 2021|archive-url=https://web.archive.org/web/20210203132029/http://slagerlistak.hu/archivum/eves-osszesitett-listak/dance/2012|url-status=live}}</ref>
+|6
+|-
+!scope="row"|Hungary (Rádiós Top 40)<ref>{{cite web|title=MAHASZ Rádiós TOP 100 2012|url=http://slagerlistak.hu/archivum/eves-osszesitett-listak/radios/2012|publisher=Mahasz|language=hu|access-date=18 January 2013|archive-date=19 April 2013|archive-url=https://web.archive.org/web/20130419115400/http://zene.slagerlistak.hu/archivum/eves-osszesitett-listak/radios/2012|url-status=live}}</ref>
+|2
+|-
+!scope="row"|Israel (Media Forest)<ref>{{cite web|url=http://www.mako.co.il/music-news/radio_airplay_chart/Article-d151b59786afb31006.htm%26sCh%3D3d385dd2dd5d4110%26pId%3D1080044444|title=most played songs of 2012 – By Medis Forest|work=mako |publisher=mako.co.il|date=2 January 2013|access-date=22 January 2013|archive-date=3 March 2016|archive-url=https://web.archive.org/web/20160303201121/http://www.mako.co.il/music-news/radio_airplay_chart/Article-d151b59786afb31006.htm%26sCh%3D3d385dd2dd5d4110%26pId%3D1080044444|url-status=live}}</ref>
+|1
+|-
+!scope="row"|Italy (FIMI)<ref>{{cite web | url = http://www.tgcom24.mediaset.it/spettacolo/articoli/1077092/ferro-e-il-re-degli-album-piu-venduti-nel-2012.shtml | work = [[TGCOM]] | publisher = [[Mediaset]] | access-date = 14 January 2013 | title = Ferro è il re degli album più venduti nel 2012 | date = 14 January 2013 | language = it | archive-date = 4 April 2019 | archive-url = https://web.archive.org/web/20190404171509/https://www.tgcom24.mediaset.it/spettacolo/articoli/1077092/ferro-e-il-re-degli-album-piu-venduti-nel-2012.shtml | url-status = live }}</ref>
+|4
+|-
+! scope="row"| Italy Airplay (EarOne)<ref>{{cite web|url=http://www.earone.it/classifiche/earone_top_100_of_the_year_2012|archive-url=https://web.archive.org/web/20130103215203/http://www.earone.it/classifiche/earone_top_100_of_the_year_2012|url-status=dead|archive-date=2013-01-03|title=Earone Top 100 of the year 2012|language=it|publisher=Earone}}</ref>
+| 4
+|-
+!scope="row"|Netherlands (Dutch Top 40)<ref>{{cite web|url=https://www.top40.nl/bijzondere-lijsten/top-100-jaaroverzichten/2012|title=Top 100-Jaaroverzicht van 2012|publisher=Dutch Top 40|access-date=20 December 2019|archive-date=1 December 2018|archive-url=https://web.archive.org/web/20181201093103/https://www.top40.nl/bijzondere-lijsten/top-100-jaaroverzichten/2012|url-status=live}}</ref>
+|34
+|-
+!scope="row"|Netherlands (Mega Single Top 100)<ref>{{cite web |first=Steffen |last=Hung |url=http://www.dutchcharts.nl/jaaroverzichten.asp?year=2012&cat=s |title=Dutch charts portal 2012 Year End Chart |publisher=Dutch Charts Portal |language=nl |access-date=18 May 2012 |archive-date=15 April 2016 |archive-url=https://web.archive.org/web/20160415042912/https://dutchcharts.nl/jaaroverzichten.asp?year=2012&cat=s |url-status=live }}</ref>
+|13
+|-
+!scope="row"|New Zealand (RIANZ)<ref>{{cite web|title=Top Selling Singles of 2012|url=https://aotearoamusiccharts.co.nz/archive/annual-singles/2012-12-31|website=NZTop40|publisher=Recorded Music New Zealand Limited|access-date=6 February 2016|archive-date=5 March 2016|archive-url=https://web.archive.org/web/20160305071620/http://nztop40.co.nz/chart?chart=2131|url-status=live}}</ref>
+|11
+|-
+!scope="row"|Poland ([[Polish Society of the Phonographic Industry|ZPAV]])<ref>{{cite web |url=http://www.zpav.pl/aktualnosci.php?idaktualnosci=538 |title=TOP digital utworów – 2012 |publisher=[[Polish Society of the Phonographic Industry|ZPAV]] |access-date=22 March 2013 |archive-date=7 December 2013 |archive-url=https://web.archive.org/web/20131207233507/http://zpav.pl/aktualnosci.php?idaktualnosci=538 |url-status=live }}</ref>
+|2
+|-
+!scope="row"|Romania (Romanian Top 100)<ref name="romania">{{cite web|url=http://www.kissfm.ro/emisiuni/54/Airplay-100.html |title=Romanian Top 100 Official Podcast |publisher=Kissfm.ro |access-date=10 June 2012 |url-status=dead |archive-url=https://web.archive.org/web/20130302165029/http://www.kissfm.ro/emisiuni/54/Airplay-100.html |archive-date=2 March 2013 }}</ref>
+|2
+|-
+!scope="row"|Russia Airplay (TopHit)<ref>{{cite web|url=https://tophit.com/ru/chart/top/radio/hits/russia/annual/2012-01-01|title=Top Radio Hits Russia Annual Chart 2012|publisher=[[TopHit]]|language=ru|access-date=16 March 2023|archive-url=https://web.archive.org/web/20230316150722/https://tophit.com/ru/chart/top/radio/hits/russia/annual/2012-01-01|archive-date=16 March 2023}}</ref>
+|5
+|-
+!scope="row"|Spain (PROMUSICAE)<ref>{{cite web|url=http://www.promusicae.org/files/listasanuales/canciones/Top%2050%20Canciones%20Anual%202012.pdf |title=Top 50 Canciones Anual 2012 |publisher=Promuiscae.es |access-date=15 January 2013 |url-status=dead |archive-url=https://web.archive.org/web/20130124102447/http://www.promusicae.org/files/listasanuales/canciones/Top%2050%20Canciones%20Anual%202012.pdf |archive-date=24 January 2013 }}</ref>
+|6
+|-
+!scope="row"|Sweden (Sverigetopplistan)<ref>{{cite web|url=https://www.sverigetopplistan.se/chart/43?dspy=2012&dspp=1|title=Årslista Singlar – År 2012|publisher=Sverigetopplistan|language=sv|access-date=20 December 2019|archive-date=24 February 2020|archive-url=https://web.archive.org/web/20200224042138/https://www.sverigetopplistan.se/chart/43?dspy=2012&dspp=1|url-status=live}}</ref>
+|2
+|-
+!scope="row"|Switzerland (Schweizer Hitparade)<ref>{{cite web|url=https://hitparade.ch/charts/jahreshitparade/2012|title=Schweizer Jahreshitparade 2012 – hitparade.ch|publisher=Hung Medien|access-date=20 December 2019|archive-date=6 November 2013|archive-url=https://web.archive.org/web/20131106085220/http://hitparade.ch/year.asp?key=2012|url-status=live}}</ref>
+|2
+|-
+!scope="row"|Ukraine Airplay (TopHit)<ref>{{cite web|url=https://tophit.ru/en/chart/ukraine/yearly/2012-01-01/all/al|title=Ukrainian Top Year-End Radio Hits (2012)|publisher=[[TopHit]]|access-date=9 August 2019|archive-date=9 August 2019|archive-url=https://web.archive.org/web/20190809192653/https://tophit.ru/en/chart/ukraine/yearly/2012-01-01/all/al|url-status=dead}}</ref>
+|67
+|-
+!scope="row"|UK Singles (OCC)<ref>{{cite web | url=http://www.officialcharts.com/chart-news/the-official-top-40-biggest-selling-singles-of-2012-revealed-1784/ | title=The Official Top 40 Biggest Selling Singles of 2012 Revealed! | publisher=Official Charts Company | date=2 January 2013 | access-date=2 January 2013 | author=Lane, Dan | archive-date=21 January 2013 | archive-url=https://web.archive.org/web/20130121034604/http://www.officialcharts.com/chart-news/the-official-top-40-biggest-selling-singles-of-2012-revealed-1784/ | url-status=live }}</ref>
+|1
+|-
+!scope="row"|US ''Billboard'' Hot 100<ref>{{cite magazine|url=https://www.billboard.com/charts/year-end/2012/hot-100-songs|title=Best of 2012 – Hot 100 Songs|magazine=Billboard|access-date=14 December 2012}}</ref>
+|1
+|-
+!scope="row"|US Adult Contemporary (''Billboard'')<ref>{{cite magazine|url=https://www.billboard.com/charts/year-end/2012/adult-contemporary-songs|title=Adult Contemporary Songs – Year-End 2012|magazine=Billboard|date=2 January 2013|access-date=15 March 2020}}</ref>
+|6
+|-
+!scope="row"|US Adult Top 40 (''Billboard'')<ref>{{cite magazine|url=https://www.billboard.com/charts/year-end/2012/adult-pop-songs|title=Adult Pop Songs – Year-End 2012|magazine=Billboard|date=2 January 2013|access-date=15 March 2020}}</ref>
+|1
+|-
+!scope="row"|US Dance Club Songs (''Billboard'')<ref>{{cite magazine|url=https://www.billboard.com/charts/year-end/2018/dance-club-songs|title=Dance Club Songs – Year-End 2012|magazine=Billboard|access-date=15 March 2020}}</ref>
+|6
+|-
+!scope="row"|US Dance/Mix Show Airplay (''Billboard'')<ref>{{cite magazine|url=https://www.billboard.com/charts/year-end/2012/dance-mix-show-airplay-songs|title=Dance/Mix Show Songs – Year-End 2012|magazine=Billboard|date=16 December 2014|access-date=20 December 2019}}</ref>
+|8
+|-
+!scope="row"|US Mainstream Top 40 (''Billboard'')<ref>{{cite magazine|url=https://www.billboard.com/charts/year-end/2012/pop-songs|title=Pop Songs – Year-End 2012|magazine=Billboard|access-date=15 March 2020}}</ref>
+|8
+|-
+!scope="row"|US Hot Rock Songs (''Billboard'')<ref>{{cite magazine|url=https://www.billboard.com/charts/year-end/2012/hot-rock-songs|title=Hot Rock Songs – Year-End 2017|magazine=Billboard|access-date=15 March 2020}}</ref>
+|4
+|-
+!scope="row"|US Rhythmic (''Billboard'')<ref>{{cite magazine|url=https://www.billboard.com/charts/year-end/2012/rhythmic-songs|title=Rhythmic Songs – Year-End 2012|magazine=Billboard|date=9 December 2014|access-date=1 October 2019}}</ref>
+|40
+|}
+{| class="wikitable sortable plainrowheaders" style="text-align:center"
+|+ {{Screen reader-only|Year-end chart performance}}
+
+|-
+!Chart (2013)
+!Position
+|-
+!scope="row"|France (SNEP)<ref>{{cite web|url=https://snepmusique.com/les-tops/le-top-de-lannee/top-singles-annee/?categorie=Top%20Single%20de%20l%E2%80%99ann%C3%A9e&annee=2013|title=Top de l'année Top Singles 2013|publisher=SNEP|language=fr|access-date=12 March 2021|archive-date=22 September 2020|archive-url=https://web.archive.org/web/20200922090053/https://snepmusique.com/les-tops/le-top-de-lannee/top-singles-annee/?categorie=Top%20Single%20de%20l%E2%80%99ann%C3%A9e&annee=2013|url-status=live}}</ref>
+|131
+|-
+!scope="row"|Hungary (Dance Top 40)<ref>{{cite web|url=http://slagerlistak.hu/archivum/eves-osszesitett-listak/dance/2013|title=Dance Top 100 – 2013|access-date=20 December 2019|publisher=Mahasz|archive-date=9 October 2020|archive-url=https://web.archive.org/web/20201009013333/https://slagerlistak.hu/archivum/eves-osszesitett-listak/dance/2013|url-status=live}}</ref>
+|56
+|-
+!scope="row"|Hungary (Rádiós Top 40)<ref>{{cite web |url=http://slagerlistak.hu/archivum/eves-osszesitett-listak/radios/2013 |title=MAHASZ Rádiós TOP 100 – radios 2013 |language=hu |publisher=MAHASZ |access-date=22 January 2014 |archive-date=16 January 2014 |archive-url=https://web.archive.org/web/20140116154512/http://zene.slagerlistak.hu/archivum/eves-osszesitett-listak/radios/2013 |url-status=live }}</ref>
+|100
+|-
+!scope="row"|Russia Airplay (TopHit)<ref>{{cite web|url=https://tophit.com/ru/chart/top/radio/hits/russia/annual/2013-01-01|title=Top Radio Hits Russia Annual Chart 2013|publisher=[[TopHit]]|language=ru|access-date=28 March 2023|archive-url=https://web.archive.org/web/20230328141748/https://tophit.com/ru/chart/top/radio/hits/russia/annual/2013-01-01|archive-date=28 March 2023}}</ref>
+|7
+|-
+!scope="row"|Slovenia (SloTop50)<ref>{{cite web|url=http://www.slotop50.si/Glasbene-lestvice/Letne-lestvice/?year=2013|title=SloTop50 {{!}} Slovenian official year-end singles charts (2013)|language=sl|access-date=31 December 2013|archive-date=22 December 2016|archive-url=https://web.archive.org/web/20161222152201/http://www.slotop50.si/Glasbene-lestvice/Letne-lestvice/?year=2013|url-status=dead}}</ref>
+|33
+|-
+!scope="row"|Ukraine Airplay (TopHit)<ref>{{cite web|url=https://tophit.com/ru/chart/top/radio/hits/ukraine/annual/2013-01-01|title=Top Radio Hits Ukraine Annual Chart 2013|publisher=[[TopHit]]|language=ru|access-date=31 March 2023|archive-url=https://web.archive.org/web/20230329163735/https://tophit.com/ru/chart/top/radio/hits/ukraine/annual/2013-01-01|archive-date=29 March 2023}}</ref>
+|145
+|-
+!scope="row"|US Adult Contemporary (''Billboard'')<ref>{{cite magazine|url=https://www.billboard.com/charts/year-end/2013/adult-contemporary-songs|title=Adult Contemporary Songs – Year-End 2013|magazine=Billboard|date=2 January 2013|access-date=15 September 2019}}</ref>
+|13
+|}
+
+=== Decade-end charts ===
+{| class="wikitable sortable plainrowheaders" style="text-align:center"
+|+ {{Screen reader-only|Decade-end chart performance}}
+
+|-
+!Chart (2010–2019)
+!Position
+|-
+!scope="row"|Australia (ARIA)<ref name="EndofDecade">{{cite web|url=https://www.ariacharts.com.au/annual-charts/2019/end-of-decade-singles-chart|title=2019 ARIA End of Decade Singles Chart|publisher=ARIA|date=January 2020|access-date=17 January 2020|archive-date=11 January 2020|archive-url=https://web.archive.org/web/20200111005800/https://www.ariacharts.com.au/annual-charts/2019/end-of-decade-singles-chart|url-status=live}}</ref>
+|2
+|-
+!scope="row"|Australian Artist Singles (ARIA)<ref name="EndofDecade"/>
+|1
+|-
+!scope="row"|Germany (Official German Charts)<ref>{{cite web|url=https://twitter.com/chartsoffiziell/status/1204757983676293121|title=Platz 21 der erfolgreichsten Singles und Alben des Jahrzehnts: @gotye ft. Kimbra und @udolindenberg.|via=[[Twitter]]|work=[[GfK Entertainment]]|publisher=offiziellecharts.de|language=de|access-date=11 December 2019|archive-date=12 December 2019|archive-url=https://web.archive.org/web/20191212092523/https://twitter.com/chartsoffiziell/status/1204757983676293121|url-status=live}}</ref>
+|21
+|-
+!scope="row"|Netherlands (Single Top 100)<ref>{{cite web|url=https://dutchcharts.nl/decennium.asp?cat=s&dec=10|title=Decennium Charts - Singles 2010-2019|language=nl|publisher=[[Dutch Charts]]|access-date=28 January 2026}}</ref>
+| 11
+|-
+!scope="row"|UK Singles (OCC)<ref>{{cite web|url=https://www.officialcharts.com/chart-news/the-uks-official-top-100-biggest-songs-of-the-decade-2010-2019__27936/|title=The UK's Official Top 100 biggest songs of the decade|publisher=Official Charts Company|last=Copsey|first=Rob|date=11 December 2019|access-date=12 December 2019|archive-date=11 December 2019|archive-url=https://web.archive.org/web/20191211082710/https://www.officialcharts.com/chart-news/the-uks-official-top-100-biggest-songs-of-the-decade-2010-2019__27936/|url-status=live}}</ref>
+|42
+|-
+!scope="row"|US ''Billboard'' Hot 100<ref>{{cite magazine|url=https://www.billboard.com/charts/decade-end/hot-100|title=Decade-End Charts: Hot 100 Songs|magazine=Billboard|date=31 October 2019|access-date=15 November 2019}}</ref>
+|8
+|}
+
+=== All-time charts ===
+{| class="wikitable plainrowheaders" style="text-align:center"
+|+ {{Screen reader-only|All-time chart performance}}
+
+|-
+!Chart
+!Position
+|-
+!scope="row"|US [[Billboard Hot 100|''Billboard'' Hot 100]]<ref>{{cite magazine|url=https://www.billboard.com/charts/greatest-hot-100-singles|title=Greatest of All Time Hot 100 Songs |magazine=[[Billboard (magazine)|Billboard]]|access-date=23 November 2021}}</ref>
+|36
+|-
+!scope="row"|UK Singles (OCC)<ref>{{cite web|url=https://www.officialcharts.com/chart-news/the-best-selling-singles-of-all-time-on-the-official-uk-chart__21298/|title=The best-selling singles of all time on the Official UK Chart|last=Lane|first=Daniel|date=14 June 2018|publisher=[[Official Charts Company]]|access-date=26 February 2014|archive-date=28 September 2018|archive-url=https://web.archive.org/web/20180928044249/https://www.officialcharts.com/chart-news/the-best-selling-singles-of-all-time-on-the-official-uk-chart__21298/|url-status=live}}</ref>
+|40
+|}
+{{col-end}}
+
+== Certifications and sales ==
+{{col-begin}}
+{{col-2}}
+{{certification Table Top|caption={{Screen reader-only|Certifications and sales}}}}
+{{certification Table Entry|type=single|region=Australia|artist=Gotye|title=Somebody That I Used to Know|award=Platinum|number=26|certyear=2025|relyear=2011|access-date=2 September 2025|refname=ARIA25s}}
+{{certification Table Entry|type=single|region=Austria|artist=Gotye|title=Somebody That I Used to Know|award=Platinum|number=2|certyear=2012|relyear=2011}}
+{{certification Table Entry|type=single|region=Belgium|artist=Gotye|title=Somebody That I Used to Know|award=Platinum|number=4|certyear=2012|relyear=2011}}
+{{Certification Table Entry|region=Brazil|title=Somebody That I Used to Know|artist=Gotye|award=Diamond|number=2|type=single|certyear=2024|relyear=2011|access-date=20 June 2024}}
+{{certification Table Entry|type=single|region=Canada|artist=Gotye|title=Somebody That I Used to Know|nocert=true|salesamount=653,000|salesref=<ref>{{cite web |url=http://www.huffingtonpost.ca/2013/01/14/adele-carly-rae-jepsen-nielsen_n_2471458.html |title=Adele, Carly Rae Jepsen, Celine Dion Rule Nielsen/Billboard 2012 Canadian Music Industry Report |last=MacNeil |first=Jason |work=[[The Huffington Post]] Canada |date=14 January 2013 |access-date=26 November 2014 |archive-date=22 April 2017 |archive-url=https://archive.today/20170422112937/http://www.huffingtonpost.ca/2013/01/14/adele-carly-rae-jepsen-nielsen_n_2471458.html |url-status=live }}</ref>}}
+{{certification Table Entry|type=single|region=Denmark|artist=Gotye|title=Somebody That I Used to Know|award=Platinum|number=3|certyear=2013|relyear=2011|relmonth=12|id=6463|access-date=27 September 2020}}
+{{certification Table Entry|type=single|region=Finland|artist=Gotye|title=Somebody That I Used To Know|award=Gold|certyear=2012|relyear=2012|access-date=31 July 2012|salesamount=6,774}}
+{{certification Table Entry|type=single|region=Germany|artist=Gotye feat. Kimbra|title=Somebody That I Used to Know|award=Platinum|number=4|certyear=2023|relyear=2011|access-date=30 March 2023}}
+{{certification Table Entry|type=single|region=Italy|artist=Gotye|title=Somebody That I Used to Know|award=Platinum|number=4|relyear=2011}}
+{{certification Table Entry|type=single|region=New Zealand|artist=Gotye|title=Somebody That I Used to Know|award=Platinum|number=9|certyear=2025|relyear=2011|source=radioscope|access-date=25 October 2025}}
+{{Certification Table Entry|region=Portugal|artist=Gotye feat. Kimbra|title=Somebody That I Used to Know|award=Platinum|number=3|type=single|relyear=2011|certyear=2026|id=file_2026-08-04-14-07-08.pdf|access-date=August 5, 2026}}
+{{certification Table Entry|type=single|region=Spain|artist=Gotye / Kimbra|title=Somebody That I Used to Know|award=Platinum|number=3|certyear=2025|certmonth=3|relyear=2011|access-date=14 April 2025}}
+{{certification Table Entry|type=single|region=Sweden|artist=Gotye|title=Somebody That I Used to Know|award=Platinum|certyear=2012|certweek=12|relyear=2011|relmonth=12}}
+{{certification Table Entry|type=single|region=Switzerland|artist=Gotye|title=Somebody That I Used to Know|award=Platinum|number=3|certyear=2012|relyear=2011}}
+{{certification Table Entry|type=single|region=United Kingdom|artist=Gotye Ft Kimbra|title=Somebody That I Used To Know|award=Platinum|number=6|relyear=2011|certyear=2026|id=2_2848_10299|access-date=20 October 2026}}
+{{certification Table Entry|type=single|region=United States|artist=Gotye|title=Somebody That I Used to Know|award=Platinum|number =17|certyear=2026|relyear=2011|access-date=19 August 2026}}
+{{Certification Table Separator|title=Streaming}}
+{{certification Table Entry|type=single|region=Denmark|streamsonly=true|artist=Gotye|title=Somebody That I Used to know|award=Platinum|number=4|certyear=2013|relyear=2011|relmonth=12|id=6139|access-date=18 March 2022}}
+{{Certification Table Bottom|streamsonly=true|streaming=true}}
+{{col-end}}
+
+== Release history ==
+== Covers and remixes ==
+=== Walk Off the Earth version ===
+{{Infobox song
+| name       = Somebody That I Used to Know
+| cover      = WOTE_-_Somebody_That_I_Used_single.jpg
+| alt        = Central image is a charicature of a guitar being played by numerous hands. The band's name is in large lettering across the top and the single's name in small letterubg across the bottom.
+| type       = single
+| artist     = [[Walk Off the Earth]]
+| album      = [[R.E.V.O.]]
+| released   = {{Start date|2012|01|6|df=y}}
+| recorded   = December 2011
+| studio     =
+| venue      =
+| genre      =
+* [[Indie rock]]
+* [[acoustic rock]]
+| length     = {{duration|m=4|s=08}}
+| label      = [[Columbia Records|Columbia]]
+| writer     = [[Gotye|Wally De Backer]], Luiz Bonfá
+| producer   = Gianni Luminati
+| prev_title =
+| prev_year  =
+| next_title = [[Red Hands (song)|Red Hands]]
+| next_year  = 2012
+}}
+
+In January 2012, Canadian [[indie rock]] group [[Walk Off the Earth]] uploaded a cover of "Somebody That I Used to Know" to YouTube. Their version uses a single guitar played simultaneously by all five band members.
+
+Also in January 2012, Walk off the Earth had their U.S. television debut on ''[[The Ellen DeGeneres Show]]'', recreating the single-guitar performance live. Saying that she wanted to "help," DeGeneres humorously gifted the group with a matched set of five electric guitars.<ref>{{cite web|url=https://www.nicovideo.jp/watch/sm16781213|title=Walk off the Earth & Sarah Blackwood on The Ellen DeGeneres Show, 1/23 2012|website=Nicovideo.jp|access-date=May 5, 2026}}</ref>
+
+As of April 2012, the song had sold 187,000 units in the United States.<ref name="Smirke">{{cite magazine |last=Smirke |first=Richard |date=13 April 2012 |title=Gotye's Smash Hit Almost Didn't Happen |url=https://www.billboard.com/articles/news/495278/gotyes-smash-hit-almost-didnt-happen |access-date=14 April 2012 |magazine=Billboard}}</ref> As of February 2023, the 3 identical YouTube postings of the video have received a total of over 214 million views.
+
+==== Track listing ====
+* CD single<ref name="Walkoff">{{cite web |title=Walk Off The Earth – 'Somebody That I Used to Know' |url=http://www.sonymusic.de/Walk-Off-The-Earth/Somebody-That-I-Used-To-Know/P/2643359/B/88691970812 |publisher=Sony Music Entertainment Germany GmbH |access-date=6 May 2012 |language=de |url-status=dead |archive-url=https://archive.today/20130217072353/http://www.sonymusic.de/Walk-Off-The-Earth/Somebody-That-I-Used-To-Know/P/2643359/B/88691970812 |archive-date=17 February 2013 }}</ref>
+# "Somebody That I Used to Know" – 4:08
+# "Somebody That I Used to Know" (music video) – 4:25
+* CD maxi-single<ref name="Walkoff"/>
+# "Somebody That I Used to Know" – 4:08
+# "Money Tree" – 3:13
+# "Joan and Bobby" – 3:38
+# "From Me to You" – 1:48
+# "Somebody That I Used to Know" (video) – 4:25
+
+{{col-begin}}
+{{col-2}}
+
+==== Weekly charts ====
+{| class="wikitable sortable plainrowheaders" style="text-align:center"
+|-
+!Chart (2012)
+!Peak<br />position
+|-
+{{single chart|Austria|30|artist=Walk Off the Earth|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Flanders|30|artist=Walk Off the Earth|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Wallonia|28|artist=Walk Off the Earth|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Canada|13|artist=Walk Off the Earth||access-date=20 May 2020|rowheader=true}}
+|-
+{{single chart|Billboardcanadaac|42|artist=Walk Off the Earth|access-date=20 May 2020|rowheader=true}}
+|-
+{{single chart|Denmark|12|artist=Walk Off the Earth|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|France|80|artist=Walk Off the Earth|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Germany|41|artist=Walk Off the Earth|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true|songid=961948}}
+|-
+{{single chart|Dutch100|9|artist=Walk Off the Earth|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Sweden|45|artist=Walk Off the Earth|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Switzerland|54|artist=Walk Off the Earth|song=Somebody That I Used to Know|access-date=5 July 2012|rowheader=true}}
+|-
+!scope="row"|UK Singles ([[Official Charts Company]])<ref name="Chart Stats">{{cite web |url=https://www.officialcharts.com/search/singles/Somebody%20That%20I%20Used%20To%20Know |title=Walk off the Earth – 'Somebody That I Used to Know' |publisher=[[Official Charts Company]]|access-date=13 February 2012 |archive-date=5 July 2017 |archive-url=https://web.archive.org/web/20170705085445/http://www.officialcharts.com/search/singles/somebody%20that%20i%20used%20to%20know/ |url-status=live }}</ref>
+|80
+|-
+{{single chart|Billboardbubbling100|9|artist=Walk Off the Earth|song=Somebody That I Used to Know|access-date=2 January 2021|rowheader=true}}
+|}
+
+==== Year-end charts ====
+{| class="wikitable plainrowheaders" style="text-align:center"
+|-
+!Chart (2012)
+!Position
+|-
+!scope="row"|Canada (Canadian Hot 100)<ref>{{cite magazine|url=https://www.billboard.com/charts/year-end/2012/canadian-hot-100|title=Canadian Hot 100 – Year-End 2012|magazine=Billboard|date=2 January 2013}}</ref>
+|96
+|}
+
+==== Certifications and sales ====
+{{certification Table Top}}
+{{certification Table Entry|type=single|digital=true|region=Canada|artist=Walk Off the Earth |title=Somebody That I Used to Know|award=Platinum|certyear=2012|relyear=2012}}
+{{certification Table Bottom|noshipments=true}}
+{{col-end}}
+
+=== ''Glee'' cast version ===
+{{Infobox song
+| name       = Somebody That I Used to Know
+| cover      =
+| alt        =
+| type       = single
+| artist     = [[Glee (TV series)|''Glee'' cast]]
+| album      =
+| released   = {{Start date|2012|04|12|df=y}}
+| recorded   = 2012
+| studio     =
+| venue      =
+| genre      = [[Pop Music|Pop]]
+| length     = {{duration|m=4|s=06}}
+| label      = [[Columbia Records|Columbia]]
+| writer     = {{hlist|[[Gotye|Wally De Backer]]|Luiz Bonfá}}
+| producer   =
+| prev_title =
+| prev_year  =
+| next_title =
+| next_year  = 
+}}
+
+The song was covered in the ''[[Glee (TV series)|Glee]]'' episode "[[Big Brother (Glee)|Big Brother]]" and performed by [[Darren Criss]] (as [[Blaine Anderson]]) and [[Matt Bomer]] (as [[Characters of Glee|Cooper Anderson]]). It sold 152,000 digital downloads in its first week of release and debuted on the Digital Songs chart at number 10 and the Hot 100 at number 26.<ref name="Billboard">{{cite web |url = https://www.billboard.com/charts/greatest-adult-pop-songs |work = US Adult Pop Songs |date = 18 March 2016 |access-date = 16 March 2018 |title = Greatest of All Time Adult Pop Songs : Page 1 |archive-date = 21 May 2018 |archive-url = https://web.archive.org/web/20180521130127/https://www.billboard.com/charts/greatest-adult-pop-songs |url-status = live }}</ref>
+
+==== Charts ====
+{| class="wikitable sortable plainrowheaders" style="text-align:center"
+|-
+!Chart (2012)
+!Peak<br />position
+|-
+{{single chart|Canada|21|artist=Glee|song=Somebody That I used To Know|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|UKsinglesbyname|artistid=5980|48|artist=Glee Cast|song=Somebody That I used To Know|songid=51140|access-date=5 July 2012|rowheader=true}}
+|-
+{{single chart|Billboardhot100|26|artist=Glee|song=Somebody That I used To Know|access-date=5 July 2012|rowheader=true}}
+|}
+{{clear}}
+
+=== Mayday Parade version ===
+{{Infobox song
+| name       = Somebody That I Used to Know
+| cover      = Somebody That I Used to Know.png
+| alt        =
+| type       = single
+| artist     = [[Mayday Parade]] featuring [[Vic Fuentes]]
+| album      = [[Punk Goes Pop 5]]
+| released   = {{Start date|2012|10|16|df=y}}
+| recorded   = 2012
+| studio     =
+| venue      =
+| genre      =
+* [[Alternative rock]]
+* [[pop-punk]]
+| length     = {{duration|m=3|s=24}}
+| label      = [[Fearless Records|Fearless]]
+| writer     = [[Gotye|Wally De Backer]], Luiz Bonfá
+| producer   =
+| chronology = [[Mayday Parade]]
+| prev_title = When You See My Friends
+| prev_year  = 2011
+| next_title = [[Ghosts (Mayday Parade song)|Ghosts]]
+| next_year  = 2013
+}}
+
+[[Alternative rock]] band [[Mayday Parade]] released a cover of this song featuring [[Pierce the Veil]]'s lead vocalist [[Vic Fuentes]] for the [[Punk Goes Pop 5|fifth edition]] of the compilation album ''[[Punk Goes Pop]]'', which features bands of the punk, alternative, and hardcore genres covering hit pop songs.<ref>{{cite web|url=https://themusic.com.au/news/mayday-parade-post-gotye-cover/nh26sLOytbQ/16-10-12|title=Mayday Parade post Gotye cover|website=[[The Music (magazine)|The Music]]|date=15 October 2012|access-date=29 March 2026}}</ref> Their cover reached number 18 on the [[Billboard (magazine)|''Billboard'']] [[Rock Songs|US Rock Songs]] chart. ''[[Alternative Press (magazine)|Alternative Press]]'' named their version as the fourth best "Top 50 Punk Goes Pop covers of all time" and ranked it at number six on their "10 Best Mayday Parade Songs" list.<ref>{{cite magazine|url=https://www.altpress.com/the_10_best_mayday_parade_songs/|title=The 10 Best Mayday Parade Songs|magazine=[[Alternative Press (magazine)|Alternative Press]]|date=28 October 2015|access-date=29 March 2026}}</ref><ref>{{cite magazine|url=https://www.altpress.com/best-punk-goes-pop-covers-ranked/|title=Here are the top 50 Punk Goes Pop covers of all time|magazine=[[Alternative Press (magazine)|Alternative Press]]|author=Ariana Leo|date=7 January 2021|access-date=25 November 2022}}</ref>
+
+==== Charts ====
+{| class="wikitable sortable plainrowheaders" style="text-align:center"
+|-
+!Chart (2012)
+!Peak<br />position
+|-
+{{single chart|UKrock|32|date=20121111|rowheader=true|accessdate=14 March 2023}}
+|-
+!scope="row"|US [[Hot Rock & Alternative Songs]] ([[Billboard (magazine)|''Billboard'']])<ref>{{cite magazine|url=https://www.billboard.com/artist/mayday-parade/chart-history/ark/|title=Mayday Parade Chart History (Hot Rock Songs)|magazine=[[Billboard (magazine)|Billboard]]|archiveurl=https://web.archive.org/web/20211118022831/https://www.billboard.com/artist/mayday-parade/chart-history/ark/|archivedate=18 November 2021|accessdate=13 January 2020 }}</ref>
+|18
+|-
+!scope="row"|US [[Heatseekers Songs]] ([[Billboard (magazine)|''Billboard'']])<ref>{{cite magazine|url=https://www.billboard.com/artist/mayday-parade/chart-history/hts/|title=Mayday Parade Chart History (Heatseekers Songs)|magazine=[[Billboard (magazine)|Billboard]]|archiveurl=https://web.archive.org/web/20200113183442/https://www.billboard.com/music/mayday-parade/chart-history/hts/|archivedate=13 January 2020|accessdate=13 January 2020}}</ref>
+|19
+|}
+
+==== Certifications ====
+{{Certification Table Top}}
+{{Certification Table Entry|region=United States|title=Somebody That I Used To Know|artist=Mayday Parade|type=single|award=Gold|relyear=2012|certyear=2026}}
+{{Certification Table Bottom|nosales=true|noshipments=true|streaming=true}}{{clear}}
+
+=== Three Days Grace version ===
+{{Infobox song
+| name          = Somebody That I Used to Know
+| cover         = Somebodyiusedtoknowtdg.png
+| alt           = 
+| type          = single
+| artist        = [[Three Days Grace]]
+| album         = 
+| B-side        = 
+| released      = 22 July 2020
+| recorded      = 
+| studio        = 
+| genre         = * [[Hard rock]]
+* [[alternative rock]]
+* [[electronic rock]]
+* [[post-grunge]]
+| length        = 3:29
+| label         = [[RCA Records|RCA]]
+| writer        = {{hlist|Wally De Backer|Luiz Bonfá}}
+| producer      = {{hlist|[[Neil Sanderson]]|[[Howard Benson]]}}
+| prev_title    = [[Right Left Wrong]]
+| prev_year     = 2018
+| next_title    = [[So Called Life]]
+| next_year     = 2021
+| misc          = {{External music video|{{YouTube|IaWqvtShfGQ|"Somebody That I Used to Know"}}}}
+}}
+
+On 22 July 2020, Canadian [[Rock music|rock]] band [[Three Days Grace]] covered the song and released it as a non-album single.<ref>{{Cite web|url=https://listen.tidal.com/album/149025767/credits|title=Three Days Grace – Somebody That I Used to Know|date=22 July 2020 |via=Tidal|access-date=28 July 2020|archive-date=28 July 2020|archive-url=https://web.archive.org/web/20200728081533/https://listen.tidal.com/album/149025767/credits|url-status=live}}</ref> The song was later included as a bonus track on the Japanese version of the group's seventh album ''[[Explosions (Three Days Grace album)|Explosions]]''.<ref>{{cite web|url=https://www.sonymusic.co.jp/artist/threedaysgrace/discography/SICP-6457|title=エクスプロージョンズ|publisher=[[Sony Music Entertainment Japan]]|accessdate=4 February 2023|language=ja-JP|archive-date=4 February 2023|archive-url=https://web.archive.org/web/20230204131300/https://www.sonymusic.co.jp/artist/threedaysgrace/discography/SICP-6457|url-status=live}}</ref> A [[music video]] (directed by Mike Filsinger) was also released for this version, which features the band performing in a [[Sketch (drawing)|Sketch]]-like background.<ref name="Loudwire">{{cite web|url=https://loudwire.com/three-days-grace-cover-gotye-somebody-that-i-used-to-know/|title=Three Days Grace Rock Up Cover of Gotye's Somebody That I Used to Know|website=[[Loudwire]]|author=Chad Childers|date=22 July 2020|access-date=4 February 2023|archive-date=4 February 2023|archive-url=https://web.archive.org/web/20230204163316/https://loudwire.com/three-days-grace-cover-gotye-somebody-that-i-used-to-know/|url-status=live}}</ref> Their cover [[Three Days Grace discography#Singles|charted]] in the rock song charts of Canada and the United States. The song reached number seven on the ''[[Billboard (magazine)|Billboard]]'' [[Canada Rock]] chart and number 19 on the US [[Rock Airplay]] chart.<ref name=CAR/><ref name=RKT/>
+
+Lead vocalist [[Matt Walst]] noted about the song, saying: "The first time I heard 'Somebody That I Used to Know' I got goosebumps! This has only happened to me a few times in my life. I remember listening to it over and over and just being happy. Music releases a mood[-]enhancing chemical in the brain that can set good moods and peak enjoyment. Music is truly the best drug!"<ref name="Loudwire"/>
+
+The track was produced by drummer [[Neil Sanderson]] and [[Howard Benson]].<ref name="Liner Notes">{{cite AV media notes|title=Somebody That I Used to Know|type=Digital liner notes|others=Three Days Grace|publisher=RCA Records|year=2020}}</ref> Bassist [[Brad Walst]] told ''Brave Words'' that Matt Walst sent him a voicemail of him singing the song with an acoustic guitar and Brad thought it would be a good idea to release a cover of it. The group recorded the track separately.<ref name="Brave Words">{{cite web|url=https://bravewords.com/features/three-days-graces-brad-walst-distinguished-gentlemen-among-young|title=Three Days Grace's Brad Walst – 'Distinguished Gentlemen Among Young'|website=Brave Words|author=Greg Prato|date=10 May 2022|access-date=15 April 2024}}</ref>
+
+A music video was released on 22 July 2020, and was directed by Mike Filsinger.<ref>{{cite web|url=https://blabbermouth.net/news/three-days-grace-debuts-cover-of-gotyes-somebody-that-i-used-to-know|title=Three Days Grace Debuts Cover of Gotye's 'Somebody That I Used To Know'|website=[[Blabbermouth.net]]|date=22 July 2020|access-date=15 April 2024}}</ref> It was recorded on an [[iPhone]] with the band members performing in front of a white tarp and a filter was added on top of it after it was finished.<ref name="Brave Words"/>
+
+==== Track listing ====
+{{Track listing
+| headline = Digital download<ref>{{cite web|url=https://music.apple.com/us/album/somebody-that-i-used-to-know-single/1522750647|title=Somebody That I Used to Know – Single by three Days Grace|website=[[Apple Music]]|access-date=15 April 2024}}</ref>
+| title1 = Somebody That I Used to Know
+| length1 = 3:29
+}}
+{{Track listing
+| headline = Digital download – EP<ref>{{cite web|url=https://open.spotify.com/album/65ixH4ZXPcOExEvKveYoWO|title=Somebody That I Used to Know – EP by Three Days Grace|website=[[Spotify]]|access-date=15 April 2024}}</ref>
+| title1 = Somebody That I Used to Know
+| length1 = 3:29
+| title2 = [[Right Left Wrong]]
+| length2 = 3:57
+| title3 = [[Infra-Red (Three Days Grace song)|Infra-Red]]
+| length3 = 3:50
+| title4 = [[The Mountain (song)|The Mountain]]
+| length4 = 3:21
+}}{{col-begin}}
+{{col-2}}
+
+==== Weekly charts ====
+{| class="wikitable sortable plainrowheaders" style="text-align:center"
+|-
+!Chart (2020)
+!Peak<br />position
+|-
+! scope="row"| Canada [[Billboard charts|Rock]] (''[[Billboard (magazine)|Billboard]]'')<ref name=CAR>{{cite magazine|url=https://www.billboard.com/artist/three-days-grace/chart-history/car/|title=Three Days Grace Chart History (Canada Rock)|magazine=[[Billboard (magazine)|Billboard]]|archiveurl=https://web.archive.org/web/20211117211648/https://www.billboard.com/artist/three-days-grace/chart-history/car/|archivedate=November 17, 2021|access-date=April 19, 2025}}</ref>
+| 7
+|-
+!scope="row"|Czech Republic [[International Federation of the Phonographic Industry|Rock]] ([[International Federation of the Phonographic Industry|IFPI]])<ref>{{cite web|url=https://ifpicr.cz/hitparada/21/three-days-grace/41465|title=Three Days Grace: CZ – Radio – Top 20 Modern Rock|website=hitparada.ifpicr.cz|access-date=20 August 2022|archive-date=22 January 2023|archive-url=https://web.archive.org/web/20230122034213/https://ifpicr.cz/hitparada/21/three-days-grace/41465|url-status=live}}</ref>
+| 6
+|-
+{{single chart|Finland|50|artist=Three Days Grace|song=Somebody That I Used to Know|rowheader=true|accessdate=22 November 2022}}
+|-
+{{single chart|Billboardrockairplay|19|artist=Three Days Grace|rowheader=true|access-date=16 May 2022|refname=RKT}}
+|}
+{{col-2}}
+
+==== Year-end charts ====
+{| class="wikitable plainrowheaders" style="text-align:center"
+!Chart (2021)
+!Position
+|-
+!scope="row"|US Hot Hard Rock Songs (''Billboard'')<ref>{{cite magazine|url=https://www.billboard.com/charts/year-end/2021/hot-hard-rock-songs/|title=Hot Hard Rock Songs – Year-End 2021|magazine=Billboard|accessdate=18 March 2022}}</ref>
+|43
+|-
+!scope="row"|US Mainstream Rock Songs (''Billboard'')<ref>{{cite magazine|url=https://www.billboard.com/charts/year-end/2021/mainstream-rock-songs-artists/|title=Mainstream Rock Songs – Year-End 2021|magazine=Billboard|accessdate=19 January 2022}}</ref>
+|50
+|}
+{{col-end}}
+
+==="Somebody (2024)"===
+{{Infobox song
+| name       = Somebody (2024)
+| cover      =
+| alt        =
+| type       = single
+| artist     = Gotye, [[Fisher (musician)|Fisher]], [[Chris Lake]] featuring Kimbra and Sante Sansone
+| album      =
+| released   = 9 February 2024
+| recorded   =
+| studio     =
+| venue      =
+| genre      =
+| length     = 2:33
+| label      = Island Records
+| writer     = Wally De Backer, Luiz Bonfá
+| producer   = Chris Lake, Fisher, Sante Sansone, Wally De Backer
+| misc       = {{External music video|{{YouTube|cS-kmwDhBAQ|"Somebody (2024)"}}}}
+}}
+
+Electronic music producers, [[Fisher (musician)|Fisher]], [[Chris Lake]], and Sante Sansone reworked the song and released it as "Somebody (2024)" in February 2024.<ref>{{cite web|url=https://www.originmusicpublishing.com/news-items/remix-gotye-kimbra-fisher-chris-lake-sante-sansone-somebody-2024|title=REMIX: Gotye, Kimbra, FISHER, Chris Lake & Sante Sansone "Somebody (2024)"|website=Origin Music Publishing|date=15 February 2024|access-date=29 September 2025}}</ref> The single track is 2:33 minutes long.
+
+====Reception====
+At the [[2025 ARIA Music Awards]], the song was nominated for [[ARIA Award for Song of the Year]].<ref name="ARIA 2025 Noms">{{cite web | url = https://www.abc.net.au/news/2025-09-25/aria-award-nominations-2025-aria-nominees-full-list/105815074 | title = ARIA Award nominations 2025: Ninajirachi, Dom Dolla, Amyl & The Sniffers lead the pack | publisher = Australian Broadcasting Corporation (ABC) | access-date = 26 September 2025 }}</ref>
+
+Hugh McIntyre from ''[[Forbes]]'' said "It sounds almost exactly the same until about a minute in, when a big beat kicks in, and it becomes clear that something new has been added."<ref>{{cite web|url=https://www.forbes.com/sites/hughmcintyre/2024/02/26/gotyes-somebody-that-i-used-to-know-is-a-hit-all-over-again/?sh=519d0c9516dd|title=Gotye's 'Somebody That I Used To Know' Is a Hit All Over Again|website=[[Forbes]]|author=Hugh McIntyre|date=26 February 2024|access-date=15 April 2024}}</ref>
+
+====Charts====
+{| class="wikitable sortable plainrowheaders" style="text-align:center"
+|+ Chart performance for "Somebody (2024)"
+! scope="col"| Chart (2024)
+! scope="col"| Peak<br/>position
+|-
+! scope="row"| Australian Artist ([[ARIA Charts|ARIA]])<ref>{{cite web|url=https://cdn.aria.com.au/pdfs/2DB2E6F34F157AAED742EC418E5E35D3A25EE4F11893657FB50AA51FA6AC12A9/ARIA%20Australian%20Artist%20Singles%20Chart.pdf?seq=42|title=Australian Artist Single|website=ARIA|date=13 May 2024|access-date=29 September 2025}}</ref>
+| 9
+|-
+! scope="row"| Greece International ([[IFPI Greece|IFPI]])<ref>{{cite web|url=https://www.ifpi.gr/digital_ien.html|title=Official IFPI Charts – Digital Singles Chart (International) (Week: 30/2024)|publisher=[[IFPI Greece]]|access-date=1 August 2024|archive-date=31 July 2024|archive-url=https://web.archive.org/web/20240731114805/https://www.ifpi.gr/digital_ien.html|url-status=dead}}</ref>
+| 82
+|-
+{{single chart|Lithuania|25|date=20240223-20240229|rowheader=true|access-date=10 August 2026}}
+|-
+! scope="row"| Romania Airplay ([[TopHit]])<ref>{{cite web |date=8 March 2024 |title=Top Radio Hits Romania Weekly Chart: Mar 7, 2024 |url=https://tophit.com/chart/top/radio/hits/ro/weekly/20240301-20240307 |access-date=11 August 2026 |publisher=[[TopHit]] |lang=en}}</ref>
+| 74
+|-
+{{single chart|Billboarddanceelectronic|24|artist=Gotye|rowheader=true|accessdate=15 April 2024}}
+|}
+
+{| class="wikitable plainrowheaders" style="text-align:center"
+|+ Chart performance for "Somebody (2026)"
+! scope="col"| Chart (2026)
+! scope="col"| Peak<br/>position
+|-
+! scope="row"| Colombia Anglo Airplay ([[National-Report]])<ref>{{cite web |url=https://national-report.com/top-anglo-co/ |title=Top Anglo Colombia – Semana 29 del 2026 del 10/07/2026 al 16/07/2026 |trans-title=Top English Colombia – Week 29 of 2026 from 10/07/2026 to 16/07/2026 |accessdate=20 July 2026 |date=17 July 2026 |lang=es |publisher=[[National-Report]] |archive-date=20 July 2026 |archive-url=https://web.archive.org/web/20260720010057/https://national-report.com/top-anglo-co/ |url-status=deviated}}</ref>
+| 8
+|}
+
+====Certifications====
+{{Certification Table Top|caption={{Screen reader-only|Certifications}}}}
+{{certification Table Entry|type=single|region=Australia|artist=Gotye, Fisher & Chris Lake feat. Sante Sansone & Kimbra|title=Somebody|award=Platinum|certyear=2025|relyear=2024|certref=<ref name=ARIA25s/>}}
+{{certification Table Entry|type=single|region=Belgium|artist=Gotye, Fisher & Chris Lake feat. Sante Sansone & Kimbra|title=Somebody (2024)|award=Gold|certyear=2024|relyear=2024}}
+{{Certification Table Entry|region=Brazil|title=Somebody|artist=Gotye|award=Platinum|number=2|type=single|certyear=2026|relyear=2024|access-date=15 June 2026}}
+{{Certification Table Entry|region=New Zealand|type=single|artist=Gotye, Fisher, Chris Lake, Kimbra and Sante Sansone|title=Somebody (2024)|award=Gold|relyear=2024|certyear=2026|access-date=18 November 2026|source=radioscope}}
+{{certification Table Entry|type=single|region=Spain|artist=Gotye / Kimbra / Fisher / Chris Lake / Sante Sansone|title=Somebody (2024)|award=Gold|certyear=2025|certmonth=3|relyear=2024|access-date=4 July 2025}}
+{{Certification Table Bottom|nosales=true|streaming=true|noshipments=true}}
+
+=== [[Artbat]] and [[David Guetta]] Mix ===
+====Charts====
+{{flexbox wrap|start}}
+===== Weekly charts =====
+{| class="wikitable sortable plainrowheaders" style="text-align:center"
+|+ {{sronly|Weekly chart performance}}
+! scope="col"| Chart (2026)
+! scope="col"| Peak<br>position
+|-
+{{single chart|France Airplay|19|year=2026|week=45|rowheader=true|access-date=November 15, 2026}}
+|-
+{{single chart|Ukraineradio|41|date=20260911-20260917|rowheader=true|access-date=September 28, 2026|refname=UARMX}}
+|}
+{{flexbox wrap|break}}
+
+===== Monthly charts =====
+{| class="wikitable plainrowheaders" style="text-align:center"
+|+ {{sronly|Monthly chart performance}}
+! scope="col"| Chart (2026)
+! scope="col"| Peak<br>position
+|-
+! scope="row"| Ukraine Airplay (TopHit)<ref>{{cite web|url=https://tophit.com/chart/top/radio/hits/ua/monthly/202609 |title=Top Radio Hits Ukraine Monthly Chart: September 2026|publisher=[[TopHit]]|access-date=October 4, 2026|date=October 2, 2026|lang=en}}</ref>
+| 60
+|}
+{{flexbox wrap|end}}
+
+===Others===
+Dutch DJ [[Tiësto]] remixed the song for his album ''[[Club Life: Volume Two Miami]]''.<ref>{{cite web |author=Akshay Bhansali |date=24 April 2012 |title=Tiesto's ''Club Life – Volume Two Miami'' a Tribute to City He Loves |url=http://www.mtv.com/news/articles/1683811/tiesto-club-life-miami-tribute.jhtml |url-status=dead |archive-url=https://web.archive.org/web/20120430021850/http://www.mtv.com/news/articles/1683811/tiesto-club-life-miami-tribute.jhtml |archive-date=30 April 2012 |access-date=13 May 2012 |publisher=MTV}}</ref>
+
+The [[a cappella]] group [[Pentatonix]] covered the song on YouTube video in February 2012, later releasing the track on their EP ''[[PTX, Volume 1]]'', on 26 June 2012.<ref>{{cite web |date=19 June 2012 |title=PTX volume 1 |url=https://itunes.apple.com/us/preorder/ptx-volume-1/id534570842 |url-status=live |archive-url=https://web.archive.org/web/20120616002302/http://itunes.apple.com/us/preorder/ptx-volume-1/id534570842 |archive-date=16 June 2012 |access-date=19 June 2012 |publisher=iTunes (Apple)}}</ref> [["Weird Al" Yankovic]] recorded a cover as part of his polka medley "[[List of "Weird Al" Yankovic polka medleys#"NOW That's What I Call Polka!"|NOW That's What I Call Polka!]]" for his 2014 album ''[[Mandatory Fun]]''.<ref name="LinerNotes">''Mandatory Fun'' ([[liner notes]]). [["Weird Al" Yankovic]]. [[RCA Records]], a division of [[Sony Music]] Entertainment. 2014.</ref>
+
+The song has been covered twice on [[BBC Radio 1]]'s [[Live Lounge]]: by [[Rita Ora]] in February 2012,<ref>{{cite web |date=15 February 2012 |title=BBC Radio 1Xtra Programmes – Trevor Nelson, DJ Fresh in the 1 Xtra Live Lounge, Rita Ora – 'Somebody I Used to Know' (Live Lounge) |url=https://www.bbc.co.uk/programmes/p00p6rlr |url-status=live |archive-url=https://web.archive.org/web/20121210224208/http://www.bbc.co.uk/programmes/p00p6rlr |archive-date=10 December 2012 |access-date=13 May 2012 |publisher=BBC (British Broadcasting Corporation)}}</ref> then by [[Fun (band)|fun.]] and [[Hayley Williams]] in May 2012.<ref>{{cite news |title=Fun Gotye Hayley Williams Video 'Somebody That I Used to Know' BBC Radio 1 Live Lounge 2012 |url=https://www.youtube.com/watch?v=GCim_0MZ2qI |url-status=live |archive-url=https://web.archive.org/web/20120516234025/http://www.youtube.com/watch?v=GCim_0MZ2qI&gl=US&hl=en |archive-date=16 May 2012 |access-date=16 May 2012}}</ref>  In May 2012, American duo [[Karmin]] made a cover of the song on [[Sirius XM Radio|Sirius XM Hits]]as did [[Ray William Johnson]] through his project, Your Favorite Martian, published on Youtube May 23.<ref>{{cite web |last=Wieselman |first=Jarett |date=9 May 2012 |title=Karmin Covers Gotye's Omnipresent Hit |url=http://www.theinsider.com/music/52149_Karmin_Somebody_That_I_Used_To_Know_Gotye_Cover/index.html |url-status=dead |archive-url=https://web.archive.org/web/20120712140401/http://www.theinsider.com/music/52149_Karmin_Somebody_That_I_Used_To_Know_Gotye_Cover/index.html |archive-date=12 July 2012 |access-date=22 October 2012 |work=The Insider |publisher=CBS Studios, Inc}}</ref> "Somebody That I Used to Know" has been covered by many other artists, including [[Ingrid Michaelson]], [[The Fergies]], [[Benee]], [[Sam Tsui]],<ref>{{cite news |last=Bell |first=Crystal |date=3 April 2012 |title=''Glee'' Covers Gotye: 11 Best 'Somebody That I Used to Know' Covers |url=https://www.huffingtonpost.com/2012/04/03/glee-gotye-somebody-that-i-used-to-know_n_1400324.html#s838688&title=Ingrid_Michaelson |url-status=live |archive-url=https://web.archive.org/web/20120510195521/http://www.huffingtonpost.com/2012/04/03/glee-gotye-somebody-that-i-used-to-know_n_1400324.html#s838688&title=Ingrid_Michaelson |archive-date=10 May 2012 |access-date=13 May 2012 |work=[[HuffPost]] |publisher=[[AOL]] ([[Arianna Huffington]], [[Kenneth Lerer]], [[Jonah Peretti]])}}</ref> Right the Stars featuring [[Karmina]],<ref>{{cite news |last=Bose |first=Lilledeshan |date=1 February 2012 |title=Gotye's 'Somebody That I Used to Know': The Five Best Covers |url=http://blogs.ocweekly.com/heardmentality/2012/02/gotyes_somebody_that_i_used_to.php |url-status=dead |archive-url=https://web.archive.org/web/20120522021327/http://blogs.ocweekly.com/heardmentality/2012/02/gotyes_somebody_that_i_used_to.php |archive-date=22 May 2012 |access-date=13 May 2012 |work=[[OC Weekly]]}}</ref> [[Coheed and Cambria]],<ref>{{cite news |title=Coheed and Cambria, 'Somebody That I Used to Know': Band Covers Gotye Hit |url=http://www.noisecreep.com/2012/04/30/coheed-and-cambria-somebody-that-i-used-to-know-gotye/ |url-status=live |archive-url=https://web.archive.org/web/20120526220722/http://www.noisecreep.com/2012/04/30/coheed-and-cambria-somebody-that-i-used-to-know-gotye/ |archive-date=26 May 2012 |access-date=26 May 2012}}</ref> and [[Ray William Johnson|Your Favorite Martian]].<ref>{{cite news |title='Somebody That I Used to Know' (Gotye cover) |url=https://www.youtube.com/watch?v=2ogDd6xEBas |url-status=live |archive-url=https://web.archive.org/web/20120524012913/http://www.youtube.com/watch?v=2ogDd6xEBas&gl=US&hl=en |archive-date=24 May 2012 |access-date=23 May 2012}}</ref>
+
+[[Phillip Phillips]] and [[Elise Testone]] covered the song while competing on the [[American Idol season 11|eleventh season]] of ''[[American Idol (season 11)|American Idol]]'' on 11 April 2012.<ref name="tvbythenumbers128848">{{cite web |last=Bibel |first=Sara |url=http://tvbythenumbers.zap2it.com/2012/04/12/wednesday-final-ratings-modern-family-csi-american-idol-survivor-law-rock-center-down/128848/ |archive-url=https://web.archive.org/web/20120415010908/http://tvbythenumbers.zap2it.com/2012/04/12/wednesday-final-ratings-modern-family-csi-american-idol-survivor-law-rock-center-down/128848/ |url-status=dead |archive-date=15 April 2012 |title=Wednesday Final Ratings: ''Modern Family'', ''CSI'', ''American Idol'', ''Survivor'', ''Law & Order: SVU'' Up; ''Rock Center'' Down |publisher=TVbytheNumbers |date=12 April 2012 |access-date=12 April 2012 }}</ref> and ''[[The Voice of Ireland (series 2)|The Voice of Ireland]]'' by Andy Mac Unfraidh.<ref>{{cite news |last=Judkis |first=Maura |date=17 April 2012 |title=Gotye's 'Somebody That I Used to Know': The breakup song's ubiquity |url=https://www.washingtonpost.com/blogs/arts-post/post/gotyes-somebody-that-i-used-to-know-the-breakup-songs-ubiquity/2012/04/17/gIQAg1tQOT_blog.html |url-status=live |archive-url=https://web.archive.org/web/20141223182921/http://www.washingtonpost.com/blogs/arts-post/post/gotyes-somebody-that-i-used-to-know-the-breakup-songs-ubiquity/2012/04/17/gIQAg1tQOT_blog.html |archive-date=23 December 2014 |access-date=31 May 2012 |newspaper=The Style Blog, [[The Washington Post]]}}</ref>
+
+English fingerstyle guitarist [[Mike Dawes]] released an arrangement of the song on his debut album ''What Just Happened?'' in 2013, garnering praise from Gotye.<ref>{{cite web |title=LMG Interview with Gotye &#124; Featured Interviews |url=http://www.livemusicguide.com/blog/featured-interviews/lmg-interview-with-gotye.html |url-status=dead |archive-url=https://web.archive.org/web/20131003222009/http://www.livemusicguide.com/blog/featured-interviews/lmg-interview-with-gotye.html |archive-date=3 October 2013 |access-date=29 January 2013}}</ref> Jazz pianist [[Jacky Terrasson]] included the song in his 2015 album ''[[Take This]]''.<ref>{{cite web |last1=collar |first1=Matt |title=Take This – Jacky Terrasson {{!}} Songs, Reviews, Credits {{!}} AllMusic |url=https://www.allmusic.com/album/take-this-mw0002794152 |url-status=live |archive-url=https://web.archive.org/web/20210314191655/https://www.allmusic.com/album/take-this-mw0002794152 |archive-date=14 March 2021 |access-date=25 September 2020 |publisher=[[AllMusic]]}}</ref>
+
+Gotye paid tribute to the large number of cover versions of the song by creating a video remix, released in August 2012, using segments from hundreds of online covers to create a new, unique version of the track, titled "Somebodies: A YouTube Orchestra".<ref name="SomebodiesOrch">{{cite web |last=De Backer |first=Wally (Gotye) |date=13 August 2012 |title=Somebodies: A YouTube Orchestra |url=http://gotye.com/reader/items/somebodies-a-youtube-orchestra-209.html |url-status=dead |archive-url=https://web.archive.org/web/20131005192642/http://gotye.com/reader/items/somebodies-a-youtube-orchestra-209.html |archive-date=5 October 2013 |access-date=9 September 2013 |publisher=Wally (Gotye) and GEA-Interactive Pty Ltd}}</ref><ref>{{cite web |date=12 August 2012 |title=Somebodies: A YouTube Orchestra |url=https://www.youtube.com/watch?v=opg4VGvyi3M |url-status=live |archive-url=https://web.archive.org/web/20121221001750/http://www.youtube.com/watch?v=opg4VGvyi3M |archive-date=21 December 2012 |access-date=20 December 2012 |publisher=Gotye}}</ref> Gotye states the concept "was directly inspired here by Kutiman's [[Thru-You]] project", released in March 2009, which edited numerous YouTube videos to create a new cohesive song.<ref name="SomebodiesOrch" />
+
+On 4 March 2025, [[Doechii]] officially released her single "[[Anxiety (Doechii song)|Anxiety]]" to digital streaming platforms after it went viral on [[TikTok]].<ref name="Mamo2025">{{Cite magazine |last=Mamo |first=Heran |date=March 4, 2025 |title=Doechii Drops 'Anxiety' Single: Stream It Now |url=https://www.billboard.com/music/rb-hip-hop/doechii-anxiety-single-listen-1235915226/ |access-date=March 7, 2025 |magazine=[[Billboard (magazine)|Billboard]]}}</ref> The song, which prominently samples "Somebody That I Used to Know",<ref name="Mamo2025" /><ref name="Chelosky2025">{{Cite web |last=Chelosky |first=Danielle |date=March 5, 2025 |title=Doechii Shares New Song "Anxiety": Listen |url=https://www.stereogum.com/2299200/doechii-anxiety/music/ |access-date=March 7, 2025 |website=[[Stereogum]]}}</ref> was originally recorded for her 2019 self-released mixtape, ''Coven Music Session, Vol. 1.''<ref>{{Cite web |last=Watts |first=Marina |date=March 5, 2025 |title=Doechii Finally Releases 'Anxiety' — a Song That She Recorded in Her Bedroom in 2019 |url=https://people.com/doechii-releases-anxiety-song-11691188 |access-date=March 7, 2025 |website=[[People (magazine)|People]]}}</ref> "Anxiety" was sampled by [[Sleepy Hallow]] for his [[Anxiety (Sleepy Hallow song)|2023 song of the same name]],<ref name="Chelosky2025" /> before Doechii's original demo became popular on [[TikTok]].<ref name="Mamo2025" />
+
+== See also ==
+== References ==

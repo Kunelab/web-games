@@ -263,8 +263,8 @@ export const SECTIONS: Section[] = [
  * real thing; whether a video is from the work at all is the model's to say
  * (see `fromWork` in the annotation).
  */
-const NOT_THE_ORIGINAL =
-  /\b(covers?|cover version|piano (version|cover|solo|arrangement|tutorial|medley)|on (the )?piano|fan[- ]?made|fan version|recreat(ed|ion)|rendition|tribute|reimagined|re-?orchestrated|orchestral (version|cover|arrangement|remake)|epic (version|orchestral|cover)|(violin|cello|guitar|harp|flute|sax|ocarina|organ) (cover|version)|music ?box|lo-?fi|8[- ]?bit|16[- ]?bit (remix|cover)|chiptune|synthesia|ukulele|kalimba|a ?cappella|remix|reaction|tutorial|how to play|sheet music|midi)\b/i;
+export const NOT_THE_ORIGINAL =
+  /\b(covers?|cover version|piano (version|cover|solo|arrangement|tutorial|medley)|on (the )?piano|fan[- ]?made|fan version|recreat(ed|ion)|rendition|tribute|reimagined|re-?orchestrated|orchestral (version|cover|arrangement|remake)|epic (version|orchestral|cover)|(violin|cello|guitar|harp|flute|sax|ocarina|organ) (cover|version)|music ?box|lo-?fi|8[- ]?bit|16[- ]?bit (remix|cover)|chiptune|synthwave|(synth|\d0s|retro|metal|rock|jazz|trap|phonk) (version|cover|remake)|synthesia|ukulele|kalimba|a ?cappella|remix|reaction|tutorial|how to play|sheet music|midi)\b/i;
 
 /** A genre's own refusals, on top of `NOT_THE_ORIGINAL`. */
 const andNotTheOriginal = (own: RegExp): RegExp => new RegExp(`${NOT_THE_ORIGINAL.source}|${own.source}`, 'i');

@@ -1,0 +1,22 @@
+{
+  "count": 1,
+  "recordings": [
+    {
+      "title": "Billie Jean (Long Version)",
+      "first-release-date": "1978",
+      "artist-credit": [
+        {
+          "name": "Michael Jackson",
+          "artist": {
+            "name": "Michael Jackson"
+          }
+        }
+      ],
+      "releases": [
+        {
+          "status": "Bootleg"
+        }
+      ]
+    }
+  ]
+}

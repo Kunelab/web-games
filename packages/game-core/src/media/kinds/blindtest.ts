@@ -35,6 +35,16 @@ export const blindtestFameSchema = z.object({
   /** The language model's own difficulty, and whether it knew the answer at all. */
   model: z.number().nullish(),
   recognised: z.boolean().nullish(),
+  /** The year the song first came out (not its remaster or compilation). */
+  year: z.number().nullish(),
+  /** Best chart position reached in France, the UK or the US, 1 the top. */
+  chartPeak: z.number().nullish(),
+  /** Most weeks spent on one of those charts. */
+  chartWeeks: z.number().nullish(),
+  /** Highest certification in those countries, as a multiple of gold (platinum 2, diamond 10). */
+  certLevel: z.number().nullish(),
+  /** How many Wikipedias have an article on the song itself, not its artist. */
+  songWikiLanguages: z.number().nullish(),
   /** Whether the outside catalogues were asked, so a missing figure means "nothing there". */
   looked: z.boolean().optional(),
   /** The catalogues' ids for what was found, so a later lookup need not search again. */
@@ -42,6 +52,26 @@ export const blindtestFameSchema = z.object({
 });
 
 export type BlindtestFame = z.infer<typeof blindtestFameSchema>;
+
+/** How many refused replacement videos a round remembers. See `videoRejected`. */
+export const VIDEO_REJECTED_MAX = 20;
+
+/** A replacement video proposed for a round whose video is in doubt. See `videoProposal`. */
+export const blindtestVideoProposalSchema = z.object({
+  code: z.string().regex(/^[A-Za-z0-9_-]{11}$/),
+  title: z.string().max(300),
+  channel: z.string().max(200),
+  /** The video it replaces: the proposal holds only while that one is still the round's. */
+  for: z.string(),
+  /** When it was found, as an ISO timestamp. */
+  foundAt: z.string(),
+  /** Why it was picked, in a few words, for the admin deciding. */
+  reason: z.string().max(300).optional(),
+  /** Its length, so accepting it can place the clip again without asking YouTube. */
+  durationSeconds: z.number().int().min(0).max(86_400).optional()
+});
+
+export type BlindtestVideoProposal = z.infer<typeof blindtestVideoProposalSchema>;
 
 /**
  * The original game: a clip plays, players name it.
@@ -136,7 +166,27 @@ export const blindtestPayloadSchema = z
         code: z.string(),
         note: z.string().max(300).optional()
       })
-      .optional()
+      .optional(),
+    /**
+     * A video found to replace one in doubt, waiting for an admin to accept or
+     * refuse it. Written by the replacement search, never by the editor.
+     *
+     * `for` is the video it would replace, so it lapses the way the doubt does:
+     * a proposal for a video no longer there proposes nothing. See
+     * `videoProposalOf`.
+     */
+    videoProposal: blindtestVideoProposalSchema.optional(),
+    /**
+     * Videos an admin refused as replacements, newest last, so the search never
+     * offers them again. Bounded: the oldest fall off past `VIDEO_REJECTED_MAX`.
+     */
+    videoRejected: z.array(z.string().max(20)).max(VIDEO_REJECTED_MAX).optional(),
+    /**
+     * When the replacement search last looked for this video's replacement and
+     * found nothing, so it is not searched again every night. Lapses with the
+     * video, like the doubt.
+     */
+    videoSearched: z.object({ for: z.string(), at: z.string() }).optional()
   })
   .refine((payload) => payload.endGuess > payload.startGuess, {
     message: 'La fin du extrait doit être après le début',
@@ -154,6 +204,21 @@ export function videoInDoubt(payload: unknown): boolean {
   if (!payload || typeof payload !== 'object') return false;
   const { code, videoDoubt } = payload as { code?: unknown; videoDoubt?: { code?: unknown } };
   return typeof code === 'string' && code !== '' && videoDoubt?.code === code;
+}
+
+/**
+ * The replacement waiting for a round's video, or null.
+ *
+ * Only while it still replaces the video the round has: once the code moved
+ * (an admin put another video in, or accepted this one) it is stale.
+ */
+export function videoProposalOf(payload: unknown): BlindtestVideoProposal | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const { code, videoProposal } = payload as { code?: unknown; videoProposal?: unknown };
+  if (typeof code !== 'string' || code === '') return null;
+  const parsed = blindtestVideoProposalSchema.safeParse(videoProposal);
+  if (!parsed.success || parsed.data.for !== code || parsed.data.code === code) return null;
+  return parsed.data;
 }
 
 const CLIP_KEYS = ['startGuess', 'endGuess', 'startReveal', 'endReveal'] as const;
@@ -184,6 +249,16 @@ export function withHandEdits(previous: unknown, next: BlindtestPayload): Blindt
   // An editor that does not show the doubt must not clear it by saving: only another video does.
   if (merged.videoDoubt === undefined && before.videoDoubt !== undefined) merged.videoDoubt = before.videoDoubt;
   if (merged.videoDoubt && merged.videoDoubt.code !== merged.code) delete merged.videoDoubt;
+  // The replacement search's state, likewise: the proposal lapses with the video it replaces,
+  // and the refused videos are kept whatever the video is, so none is offered twice.
+  if (merged.videoProposal === undefined && before.videoProposal !== undefined)
+    merged.videoProposal = before.videoProposal;
+  if (merged.videoProposal && !videoProposalOf(merged)) delete merged.videoProposal;
+  if (merged.videoRejected === undefined && before.videoRejected !== undefined)
+    merged.videoRejected = before.videoRejected;
+  if (merged.videoSearched === undefined && before.videoSearched !== undefined)
+    merged.videoSearched = before.videoSearched;
+  if (merged.videoSearched && merged.videoSearched.for !== merged.code) delete merged.videoSearched;
 
   const changed = changedByHand(previous, next);
   const difficultyBy = changed.difficulty ? 'human' : (next.difficultyBy ?? before.difficultyBy);

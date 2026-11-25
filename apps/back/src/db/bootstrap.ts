@@ -331,6 +331,22 @@ const statements = [
     "facts" TEXT NOT NULL,
     "expires_at" TEXT NOT NULL
   )`,
+  // A song's year, chart runs and certifications, gathered in the background from
+  // the slow sources, one queue per source. See blindtest-song-facts.ts.
+  `CREATE TABLE IF NOT EXISTS "BlindtestSongFacts" (
+    "key" TEXT PRIMARY KEY,
+    "artist" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "artist_qid" TEXT,
+    "facts" TEXT NOT NULL DEFAULT '{}',
+    "musicbrainz_done" TEXT,
+    "musicbrainz_retry" TEXT,
+    "wikipedia_done" TEXT,
+    "wikipedia_retry" TEXT,
+    "billboard_done" TEXT,
+    "priority" REAL NOT NULL DEFAULT 0,
+    "updated_at" TEXT NOT NULL
+  )`,
   // How each genre's fame figures spread, which a difficulty is measured against.
   `CREATE TABLE IF NOT EXISTS "BlindtestCalibration" (
     "genre_id" TEXT NOT NULL,
@@ -413,6 +429,8 @@ const addedColumns: { table: string; column: string; definition: string; fill?: 
   // Where they came from, which decides whether the model has to read them.
   { table: 'BlindtestSeeds', column: 'videos_from', definition: 'TEXT' },
   { table: 'BlindtestSearchLedger', column: 'units', definition: 'INTEGER NOT NULL DEFAULT 0' },
+  // Which songs the slow queues read first. See blindtest-song-queue.ts.
+  { table: 'BlindtestSongFacts', column: 'priority', definition: 'REAL NOT NULL DEFAULT 0' },
   // The plays lately, starting from every play so far as of the last one.
   {
     table: 'MediaPlays',

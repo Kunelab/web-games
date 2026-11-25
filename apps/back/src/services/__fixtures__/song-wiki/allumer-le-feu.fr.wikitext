@@ -1,0 +1,52 @@
+{{Infobox Musique (œuvre)
+| charte           = single
+| titre            = Allumer le feu
+| artiste          = [[Johnny Hallyday]]
+| album            = [[Ce que je sais]]
+| sorti            = {{date|16|juin|1998|en musique}}<ref>[http://www.hallyday.com/Son/Disco/singles.html « Discographie - Les singles »], Johnny Hallyday Le Web.</ref>
+| enregistré       = 1997
+| enregistré lieu  = 
+| durée            = 5 min 29 s (version album)<br/> 6 min 29 s (version remixée)<br/> 4 min 20 s (version CD single)
+| genre            = [[Rock]]
+| format           = 
+| auteur           = [[Zazie]]
+| compositeur      = [[Pascal Obispo]]<br/> [[Pierre Jaconelli]]
+| producteur       = Pascal Obispo
+| label            = [[Philips Records|Philips]]<br/>[[Mercury Records|Mercury]]
+| single précédent = [[Debout (chanson)|Debout]]
+| date single préc = 1998
+| single suivant   = [[Seul (chanson de Johnny Hallyday, 1998)|Seul]]
+| date single suiv = 1998
+}}
+== Histoire ==
+== Discographie ==
+== Classements ==
+Le single entre au [[Top 50]] à la {{63e}} place le {{date|20 juin 1998}} et restera classé durant vingt semaines consécutives jusqu'au {{date|31 octobre 1998}}<ref name="fr"/>, atteignant la {{39e}} place<ref name="fr"/>.
+
+À la suite du décès du chanteur en 2017, ''Allumer le feu'' refait son entrée et parvient à atteindre la {{10e}} place en [[France]]<ref name="fr"/>.
+
+{|class="wikitable"
+|-
+!Classement (1998)
+!Meilleure position
+|-
+{{singlechart|France|39|artiste=Johnny Hallyday|chanson=Allumer le feu|refname="fr"}}
+|}
+{|class="wikitable"
+!Classement (2017)
+!Meilleure position
+|-
+|{{France}} ([[Syndicat national de l'édition phonographique|SNEP]])<ref name="fr"/>||align="center"|10
+|-
+{{singlechart|Suisse|69|artiste=Johnny Hallyday|chanson=Allumer le feu|consulté le=27 décembre 2017}}
+|}
+
+== Reprises ==
+
+* La chanson est reprise par [[Les Enfoirés]] sur leur douzième album ''[[La Foire aux Enfoirés]]'' sorti en [[2003 en musique|2003]], ainsi que sur la compilation ''Les Enfoirés, la Compil' (vol. 3)'' sortie en double CD le {{date|25|novembre|2005|en musique}}.
+* Une parodie intitulée ''Inventer le feu'' est interprétée par Johnny Abilis, « le chanteur le plus populaire de l'âge de pierre »<ref>{{Lien web |langue=en |titre=Silex and the City - Johnny Abilis - TheTVDB.com |url=https://www.thetvdb.com/series/silex-and-the-city/episodes/5968355 |site=thetvdb.com |consulté le=18 février 2021}}.</ref>, dans le vingt-septième épisode de la cinquième saison de la série d'animation ''[[Silex and the City (série d'animation)|Silex and the City]]''.
+* En 2015, la chanson est reprise dans une version revisitée par le duo de chanteuses [[Brigitte (groupe)|Brigitte]]<ref>{{Lien web|url=https://www.europe1.fr/emissions/Le-live-de-sortez-du-cadre/Brigitte-revisite-le-titre-Allumer-le-feu-798458|titre=Brigitte revisite le titre "Allumer le feu"|site=europe1.fr|date=16-04-2015}}</ref>.
+
+== Voir aussi ==
+== Notes et références ==
+== Liens externes ==

@@ -1,0 +1,29 @@
+{
+  "count": 2,
+  "recordings": [
+    {
+      "title": "Scarface",
+      "disambiguation": "Music Video",
+      "artist-credit": [
+        {
+          "name": "Booba",
+          "artist": {
+            "name": "Booba"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Scarface",
+      "first-release-date": "2011-11-14",
+      "artist-credit": [
+        {
+          "name": "Booba",
+          "artist": {
+            "name": "Booba"
+          }
+        }
+      ]
+    }
+  ]
+}

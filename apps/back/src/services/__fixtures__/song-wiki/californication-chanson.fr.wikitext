@@ -1,0 +1,27 @@
+{{Infobox Musique (œuvre)
+| charte           = single
+| titre            = Californication
+| image            = 
+| légende          = 
+| artiste          = [[Red Hot Chili Peppers]]
+| album            = [[Californication (album)|Californication]]
+| face A           = 
+| face B           = 
+| sorti            = {{date|20|mai|2000|en musique}}
+| format           = [[Disque compact|CD]], [[Musicassette|Cassette]], [[Disque microsillon|Vinyle]]
+| enregistré       = 
+| genre            = [[Rock alternatif]], [[pop rock]]
+| durée            = 5:29
+| label            = [[Warner Bros. Entertainment|Warner Bros.]]
+| auteur           = 
+| producteur       = [[Rick Rubin]]
+| classement       = 
+| single précédent = [[Otherside]]
+| date single préc = 2000
+| single suivant   = [[Road Trippin']]
+| date single suiv = 2000
+| divers           = 
+}}
+==Personnel==
+== Clip vidéo ==
+== Liens externes ==

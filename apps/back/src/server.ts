@@ -1,9 +1,12 @@
+import { dirname, join } from 'node:path';
+
 import { buildApp } from './app.js';
-import { closeDb } from './db/index.js';
-import { env } from './env.js';
+import { closeDb, db } from './db/index.js';
+import { databaseFile, env } from './env.js';
 import { catalogAvailable } from './services/blindtest-catalog.js';
 import { tagEras } from './services/blindtest-eras.js';
 import { reopenLostHitsOnce, schedulePrefill } from './services/blindtest-prefill.js';
+import { startSongFactsWorker } from './services/blindtest-song-queue.js';
 import { catalogue } from './services/catalogue-service.js';
 
 const app = await buildApp();
@@ -58,6 +61,12 @@ try {
   if (tagged > 0) app.log.info({ tagged }, 'blind test rounds filed in their eras');
 } catch (error) {
   app.log.warn({ err: error }, 'could not file the blind test rounds in their eras');
+}
+
+// The slow sources' facts about every song (years, charts, certifications), in
+// the background at each source's pace. See blindtest-song-queue.ts.
+if (env.BLINDTEST_SONG_FACTS) {
+  startSongFactsWorker(db, app.log, { billboardFile: join(dirname(databaseFile), 'billboard-hot100.json') });
 }
 
 // And the day's unused searches spent on the catalogue before they lapse, once

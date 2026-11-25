@@ -2,6 +2,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { sessionConfigSchema } from 'game-core';
 import { z } from 'zod';
 
+import { db } from '../db/index.js';
 import { env } from '../env.js';
 import { GameManager } from '../game/manager.js';
 import { GENRES, SECTIONS, catalogAvailable, genreById } from '../services/blindtest-catalog.js';
@@ -22,7 +23,9 @@ import {
 import { takeOpener, warmOpener } from '../services/blindtest-opener.js';
 import { REQUEST_SONGS_MAX } from '../services/blindtest-seeds.js';
 import { prefillCatalogue, prefillStatus } from '../services/blindtest-prefill.js';
+import { answerProposal } from '../services/blindtest-video-replace.js';
 import { catalogue } from '../services/catalogue-service.js';
+import { mediaService } from '../services/media-service.js';
 import { isAdmin } from '../services/ownership.js';
 
 /**
@@ -417,6 +420,39 @@ const blindtestRoutes: FastifyPluginAsyncZod = async (app) => {
         return reply.code(400).send({ message: `Genre inconnu : ${request.body.genreId}` });
       }
       return reply.code(400).send({ message: "Ce genre n'attend pas ce type de réponse" });
+    }
+  );
+
+  /**
+   * An admin's answer to the replacement video proposed for a catalogue round
+   * whose video is in doubt (`videoProposal`, see `blindtest-video-replace`).
+   *
+   * Accepting puts the proposed video in, lifts the doubt and places the clip
+   * again for the new video's clock; refusing drops the proposal and never
+   * offers that video for the round again. Admin-only like the rest of the
+   * catalogue's curation, and on ownerless rows only, the only ones a proposal
+   * is ever filed on. 409 when the round has no live proposal any more (another
+   * admin answered first, or the video was changed by hand).
+   */
+  app.post(
+    '/blindtest/library/video-proposal/:answer',
+    {
+      preHandler: app.requireAuth,
+      schema: {
+        params: z.object({ answer: z.enum(['accept', 'reject']) }),
+        body: z.object({ mediaId: z.coerce.number().int().positive() })
+      }
+    },
+    async (request, reply) => {
+      if (!isAdmin(request.currentUser)) {
+        throw app.httpErrors.forbidden('Réservé à un administrateur');
+      }
+      const result = answerProposal(db, request.body.mediaId, request.params.answer);
+      if (!result.ok && result.reason === 'not-found') throw app.httpErrors.notFound('Entrée du catalogue introuvable');
+      if (!result.ok) return reply.code(409).send({ message: "Cette entrée n'a plus de vidéo proposée" });
+      const item = await mediaService.getById(request.body.mediaId, request.currentUser);
+      if (!item) throw app.httpErrors.notFound('Entrée du catalogue introuvable');
+      return { item };
     }
   );
 
