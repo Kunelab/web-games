@@ -179,6 +179,18 @@ The frontend's API origin is baked at build time by Vite; the compose defaults
 suit browsing the box directly on `:3000`. Behind a reverse proxy on 80/443,
 clear `VITE_API_PORT` in the build args and set `FRONT_PROTOCOL=https`.
 
+### Deploying on the server
+
+A normal deploy is a `git pull` on the server, done by
+[scripts/deploy.sh](scripts/deploy.sh): it pulls the branch, backs up the
+database, builds through the capped builder (see below), restarts and checks the
+app answers. Push first; the server only ever runs a pushed commit.
+
+```bash
+ssh you@192.168.1.18 'cd /srv/web-games && scripts/deploy.sh'            # main
+ssh you@192.168.1.18 'cd /srv/web-games && scripts/deploy.sh my-branch'  # try a branch, merge once it is good
+```
+
 ### Building somewhere else
 
 The machine that runs this does not have to be the machine that builds it, and

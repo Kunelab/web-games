@@ -13,6 +13,9 @@ services:
         VITE_API_PROTOCOL: http
         VITE_API_URL: ''
         VITE_API_PORT: '3000'
+      # Which commit the image was built from; scripts/deploy.sh sets it.
+      labels:
+        git.commit: ${GIT_COMMIT:-unknown}
     ports:
       - '3000:3000'
     # Everything in .env reaches the container, and the list below only sets
